@@ -1,0 +1,5 @@
+<type>(<scope>): <subject>
+
+# 範例：
+# feat(api): 實作行程生成邏輯
+# refactor(db): 優化 Itinerary 資料結構
