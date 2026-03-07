@@ -25,8 +25,28 @@ model Itinerary {
   title     String
   days      Json
   config    Json
+  stops     Stop[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model Stop {
+  id              String    @id @default(cuid())
+  itineraryId     String    @map("itinerary_id")
+  itinerary       Itinerary @relation(fields: [itineraryId], references: [id], onDelete: Cascade)
+  dayIndex        Int       @map("day_index")
+  orderIndex      Int       @map("order_index")
+  name            String
+  description     String?
+  durationMinutes Int?      @map("duration_minutes")
+  placeId         String?   @map("place_id")
+  lat             Float?
+  lng             Float?
+  address         String?
+  rating          Float?
+  openingHours    String?   @map("opening_hours")
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 }
 
 
