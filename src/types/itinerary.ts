@@ -5,6 +5,12 @@ export type Stop = {
   name: string;
   description: string;
   duration_minutes: number;
+  placeId?: string;
+  lat?: number;
+  lng?: number;
+  address?: string;
+  rating?: number | null;
+  openingHours?: string | null;
 };
 
 export type Day = {

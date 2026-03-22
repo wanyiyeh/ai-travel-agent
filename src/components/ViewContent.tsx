@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import EditableItineraryCard from "@/components/EditableItineraryCard";
+import ItineraryMap from "@/components/ItineraryMap";
 
 interface ViewContentProps {
   id: string;
@@ -15,6 +16,7 @@ export default function ViewContent({ id }: ViewContentProps) {
   const [data, setData] = useState<ItineraryData>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [view, setView] = useState<"list" | "map">("list");
 
   const fetchData = () => {
     setLoading(true);
@@ -91,17 +93,51 @@ export default function ViewContent({ id }: ViewContentProps) {
           >
             ← 新增行程
           </Link>
-          <Link
-            href="/itineraries"
-            className="text-sm text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 underline underline-offset-4"
-          >
-            已儲存的行程
-          </Link>
+          <div className="flex items-center gap-4">
+            {data && (
+              <div className="flex rounded-lg border border-zinc-200 dark:border-zinc-700 overflow-hidden text-sm">
+                <button
+                  onClick={() => setView("list")}
+                  className={`px-3 py-1.5 transition-colors ${
+                    view === "list"
+                      ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
+                      : "text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100"
+                  }`}
+                >
+                  列表
+                </button>
+                <button
+                  onClick={() => setView("map")}
+                  className={`px-3 py-1.5 transition-colors ${
+                    view === "map"
+                      ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
+                      : "text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100"
+                  }`}
+                >
+                  地圖
+                </button>
+              </div>
+            )}
+            <Link
+              href="/itineraries"
+              className="text-sm text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 underline underline-offset-4"
+            >
+              已儲存的行程
+            </Link>
+          </div>
         </div>
 
         {data && (
           <>
-            <EditableItineraryCard data={data} onUpdate={fetchData} />
+            {view === "list" ? (
+              <EditableItineraryCard data={data} onUpdate={fetchData} />
+            ) : (
+              <ItineraryMap
+                itineraryId={data.id}
+                days={data.data.days}
+                context={data.config?.generatedWith}
+              />
+            )}
 
             {data.config && (
               <div className="mt-6 p-4 rounded-lg bg-zinc-100 dark:bg-zinc-800 text-xs text-zinc-500 dark:text-zinc-400 space-y-1">

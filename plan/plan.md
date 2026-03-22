@@ -172,6 +172,52 @@ const ItinerarySchema = z.object({
 
 ---
 
+## Phase 5 — 地圖功能
+
+### 5.1 套件與環境
+
+```bash
+npm install @vis.gl/react-google-maps
+```
+
+需新增 env：
+```
+NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=你的key
+```
+
+> 注意：與 `GOOGLE_PLACES_API_KEY` 用途不同（一個給前端 Maps JS，一個給後端 Places API），但可以是同一組 key（需在 Google Cloud Console 同時開啟 Maps JavaScript API 和 Places API 權限）。
+
+**推薦理由：**
+- Google 官方維護的 React wrapper
+- 支援 TypeScript，類型完整
+- API 乾淨，與 Next.js App Router 相容好
+- 比舊的 `@react-google-maps/api` 更現代
+
+### 5.2 Stop Enrichment API
+
+路由：`POST /api/v1/stops/[stopId]/enrich`
+
+在顯示地圖前，先呼叫此 API 補完每個 stop 的座標與地點資訊（placeId、lat、lng、address、rating、openingHours），資料寫回 `Itinerary.days` JSON。
+
+Request：
+```json
+{
+  "itineraryId": "xxx",
+  "context": "東京"
+}
+```
+
+`context` 為可選字串，用來提升 Google Places 搜尋精準度（可直接從 `itinerary.config.generatedWith` 帶入）。
+
+### 5.3 地圖頁面
+
+- 進入地圖頁時，對所有尚未有座標的 stops 依序呼叫 enrich API
+- 用 `@vis.gl/react-google-maps` 渲染地圖
+- 每個 stop 顯示為編號 pin
+- 點擊 pin 顯示景點名稱、描述、評分
+
+---
+
 ## 執行順序
 
 ```
