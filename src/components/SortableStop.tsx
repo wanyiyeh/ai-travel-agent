@@ -18,8 +18,10 @@ interface SortableStopProps {
   dayIndex: number;
   editingStop: EditingStop | null;
   isLoading: boolean;
+  isRegenerating: boolean;
   onEdit: (stop: Stop) => void;
   onDelete: (stopId: string, dayIndex: number) => void;
+  onRegenerate: (stopId: string) => void;
   onSaveEdit: () => void;
   onCancelEdit: () => void;
   onEditChange: (updated: EditingStop) => void;
@@ -31,8 +33,10 @@ export function SortableStop({
   dayIndex,
   editingStop,
   isLoading,
+  isRegenerating,
   onEdit,
   onDelete,
+  onRegenerate,
   onSaveEdit,
   onCancelEdit,
   onEditChange,
@@ -61,7 +65,7 @@ export function SortableStop({
       ref={setNodeRef}
       style={style}
       className={`flex gap-4 pb-6 last:pb-0 border-b last:border-b-0 border-zinc-100 dark:border-zinc-800 transition-opacity${
-        isLoading ? " opacity-50" : ""
+        isLoading || isRegenerating ? " opacity-50" : ""
       }${isDragging ? " opacity-30" : ""}`}
     >
       {/* Drag handle */}
@@ -176,8 +180,24 @@ export function SortableStop({
         {!isEditing && stop.id && (
           <div className="flex gap-1">
             <button
+              onClick={() => onRegenerate(stop.id!)}
+              disabled={isLoading || isRegenerating || editingStop !== null}
+              className="p-1 text-zinc-400 hover:text-green-600 disabled:opacity-30 transition-colors"
+              title="重新生成"
+            >
+              {isRegenerating ? (
+                <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+              ) : (
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+              )}
+            </button>
+            <button
               onClick={() => onEdit(stop)}
-              disabled={isLoading || editingStop !== null}
+              disabled={isLoading || isRegenerating || editingStop !== null}
               className="p-1 text-zinc-400 hover:text-blue-600 disabled:opacity-30 transition-colors"
               title="編輯"
             >
@@ -197,7 +217,7 @@ export function SortableStop({
             </button>
             <button
               onClick={() => onDelete(stop.id!, dayIndex)}
-              disabled={isLoading || editingStop !== null}
+              disabled={isLoading || isRegenerating || editingStop !== null}
               className="p-1 text-zinc-400 hover:text-red-600 disabled:opacity-30 transition-colors"
               title="刪除"
             >
