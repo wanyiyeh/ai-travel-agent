@@ -62,6 +62,11 @@ export async function POST(
     const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
     const tripContext = context ?? itinerary.title;
 
+    const allStopNames = days.flatMap((day) => {
+      const stops = day.stops as Record<string, unknown>[];
+      return stops ? stops.map((s) => s.name as string).filter(Boolean) : [];
+    });
+
     const completion = await openai.chat.completions.create({
       model,
       messages: [
@@ -70,11 +75,12 @@ export async function POST(
           content: `你是專業的旅遊規劃專家。Always respond in Traditional Chinese (繁體中文).
 Output strictly valid JSON matching this schema:
 { name: string, description: string, duration_minutes: number }
-Suggest a different attraction than the current one for the same trip.`,
+Suggest a different attraction than the current one for the same trip.
+IMPORTANT: Do NOT suggest any of the following places that are already in the itinerary: ${allStopNames.map((n) => `"${n}"`).join(", ")}`,
         },
         {
           role: "user",
-          content: `Trip: ${tripContext}. Current stop: "${targetStop.name}". Suggest a different stop for day ${targetDayIndex + 1}.`,
+          content: `Trip: ${tripContext}. Current stop: "${targetStop.name}". Suggest a completely different stop for day ${targetDayIndex + 1} that is NOT in the excluded list.`,
         },
       ],
       response_format: { type: "json_object" },
