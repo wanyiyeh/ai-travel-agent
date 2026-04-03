@@ -47,6 +47,7 @@ export default function EditableItineraryCard({
   const [itinerary, setItinerary] = useState(data.data);
   const [editingStop, setEditingStop] = useState<EditingStop | null>(null);
   const [loading, setLoading] = useState<string | null>(null);
+  const [regenerating, setRegenerating] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [snapshotBeforeDrag, setSnapshotBeforeDrag] =
@@ -228,6 +229,49 @@ export default function EditableItineraryCard({
     }
   };
 
+  const handleRegenerate = async (stopId: string) => {
+    setRegenerating(stopId);
+    setError(null);
+
+    try {
+      const res = await fetch(`/api/v1/stops/${stopId}/regenerate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ itineraryId: data.id }),
+      });
+
+      if (!res.ok) {
+        const resData = await res.json();
+        throw new Error(resData.error || "重新生成失敗");
+      }
+
+      const newStop = await res.json();
+
+      setItinerary((prev) => ({
+        ...prev,
+        days: prev.days.map((d) => ({
+          ...d,
+          stops: d.stops.map((s) =>
+            s.id === stopId
+              ? {
+                  ...s,
+                  name: newStop.name,
+                  description: newStop.description,
+                  duration_minutes: newStop.duration_minutes,
+                }
+              : s
+          ),
+        })),
+      }));
+
+      onUpdate?.();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "重新生成失敗");
+    } finally {
+      setRegenerating(null);
+    }
+  };
+
   const handleEdit = (stop: Stop) => {
     if (!stop.id) return;
     setEditingStop({
@@ -351,8 +395,10 @@ export default function EditableItineraryCard({
                         dayIndex={dayIndex}
                         editingStop={editingStop}
                         isLoading={loading === stop.id}
+                        isRegenerating={regenerating === stop.id}
                         onEdit={handleEdit}
                         onDelete={handleDelete}
+                        onRegenerate={handleRegenerate}
                         onSaveEdit={handleSaveEdit}
                         onCancelEdit={() => setEditingStop(null)}
                         onEditChange={setEditingStop}
