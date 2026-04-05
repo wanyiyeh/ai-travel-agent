@@ -1,5 +1,15 @@
 import { z } from "zod";
 
+export const TripPreferencesSchema = z.object({
+  pace: z.enum(["relaxed", "moderate", "intensive"]).optional(),
+  budget: z.enum(["budget", "moderate", "luxury"]).optional(),
+  interests: z
+    .array(z.enum(["food", "culture", "nature", "shopping", "adventure"]))
+    .optional(),
+});
+
+export type TripPreferences = z.infer<typeof TripPreferencesSchema>;
+
 export const StopSchema = z.object({
   name: z.string(),
   description: z.string(),
