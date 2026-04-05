@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
 import type { Itinerary } from "@/types/itinerary";
+import type { TripPreferences } from "@/lib/schemas";
 
 type StreamingState = "idle" | "connecting" | "streaming" | "complete" | "error";
 
@@ -10,7 +11,7 @@ export function useStreamingGenerate() {
   const [id, setId] = useState<string | null>(null);
   const [error, setError] = useState<string>("");
 
-  const generate = useCallback(async (prompt: string, days: number) => {
+  const generate = useCallback(async (prompt: string, days: number, preferences?: TripPreferences) => {
     setState("connecting");
     setPartialData("");
     setResult(null);
@@ -21,7 +22,7 @@ export function useStreamingGenerate() {
       const response = await fetch("/api/v1/generate-stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt, days }),
+        body: JSON.stringify({ prompt, days, preferences }),
       });
 
       if (!response.ok) {
