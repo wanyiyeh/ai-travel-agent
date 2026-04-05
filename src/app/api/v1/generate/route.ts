@@ -34,6 +34,7 @@ const interestMap: Record<string, string> = {
 function buildPreferencePrompt(preferences?: TripPreferences): string {
   if (!preferences) return "";
   const lines: string[] = [];
+  if (preferences.origin) lines.push(`出發地：${preferences.origin}，請考量交通距離與飛行時間。`);
   if (preferences.pace) lines.push(`行程步調：${paceMap[preferences.pace]}。`);
   if (preferences.budget) lines.push(`預算級別：${budgetMap[preferences.budget]}。`);
   if (preferences.interests?.length) {
@@ -104,7 +105,9 @@ export async function POST(request: Request) {
           content: `你是專業的旅遊規劃專家。Always respond in Traditional Chinese (繁體中文).
 Output strictly valid JSON matching this schema for ${days} days:
 { title: string, days: [{ day: number, theme?: string, stops: [{ name: string, description: string, duration_minutes: number }] }] }
-day starts from 1. duration_minutes is a number (minutes).${buildPreferencePrompt(preferences)}`,
+day starts from 1. duration_minutes is a number (minutes).
+
+重要限制：所有景點（stops）必須實際位於使用者指定的目的地範圍內，嚴禁加入目的地以外的任何地點。${buildPreferencePrompt(preferences)}`,
         },
         {
           role: "user",

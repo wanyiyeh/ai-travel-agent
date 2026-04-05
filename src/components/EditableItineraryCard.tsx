@@ -66,6 +66,11 @@ export default function EditableItineraryCard({
   const calculateDayDuration = (stops: Stop[]) =>
     stops.reduce((total, s) => total + (s.duration_minutes || 0), 0);
 
+  const buildGoogleMapsUrl = (stops: Stop[]) => {
+    const waypoints = stops.map((s) => encodeURIComponent(s.name)).join("/");
+    return `https://www.google.com/maps/dir/${waypoints}`;
+  };
+
   const findStopById = useCallback(
     (id: string): Stop | undefined => {
       for (const day of itinerary.days) {
@@ -374,11 +379,24 @@ export default function EditableItineraryCard({
                     </span>
                   )}
                 </div>
-                {totalDuration > 0 && (
-                  <div className="text-sm text-white opacity-90">
-                    總時長：{formatDuration(totalDuration)}
-                  </div>
-                )}
+                <div className="flex items-center gap-3">
+                  {totalDuration > 0 && (
+                    <div className="text-sm text-white opacity-90">
+                      總時長：{formatDuration(totalDuration)}
+                    </div>
+                  )}
+                  <a
+                    href={buildGoogleMapsUrl(day.stops)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1 rounded-md bg-white/20 hover:bg-white/30 transition-colors px-2.5 py-1 text-xs font-medium text-white"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="size-3.5">
+                      <path fillRule="evenodd" d="M9.69 18.933l.003.001C9.89 19.02 10 19 10 19s.11.02.308-.066l.002-.001.006-.003.018-.008a5.741 5.741 0 0 0 .281-.14c.186-.096.446-.24.757-.433.62-.384 1.445-.966 2.274-1.765C15.302 14.988 17 12.493 17 9A7 7 0 1 0 3 9c0 3.492 1.698 5.988 3.355 7.584a13.731 13.731 0 0 0 2.273 1.765 11.842 11.842 0 0 0 .976.544l.062.029.018.008.006.003ZM10 11.25a2.25 2.25 0 1 0 0-4.5 2.25 2.25 0 0 0 0 4.5Z" clipRule="evenodd" />
+                    </svg>
+                    導航
+                  </a>
+                </div>
               </div>
 
               <div className="p-5">

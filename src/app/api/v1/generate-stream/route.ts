@@ -25,6 +25,7 @@ const interestMap: Record<string, string> = {
 function buildPreferencePrompt(preferences?: TripPreferences): string {
   if (!preferences) return "";
   const lines: string[] = [];
+  if (preferences.origin) lines.push(`出發地：${preferences.origin}，請考量交通距離與飛行時間。`);
   if (preferences.pace) lines.push(`行程步調：${paceMap[preferences.pace]}。`);
   if (preferences.budget) lines.push(`預算級別：${budgetMap[preferences.budget]}。`);
   if (preferences.interests?.length) {
@@ -105,7 +106,8 @@ export async function POST(request: Request) {
 2. 所有 Value（景點名稱、描述、主題）必須使用繁體中文
 3. day 從 1 開始計數
 4. duration_minutes 必須是數字（分鐘）
-5. 每天至少要有 2 個景點，每天 3-5 個景點為佳`;
+5. 每天至少要有 2 個景點，每天 3-5 個景點為佳
+6. 所有景點必須實際位於使用者指定的目的地範圍內，嚴禁加入目的地以外的任何地點`;
 
           const completion = await openai.chat.completions.create({
             model: process.env.OPENAI_MODEL ?? "gpt-4o-mini",
