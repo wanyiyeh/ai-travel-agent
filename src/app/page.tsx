@@ -31,6 +31,7 @@ export default function Home() {
   const router = useRouter();
   const [prompt, setPrompt] = useState("");
   const [days, setDays] = useState(3);
+  const [origin, setOrigin] = useState("");
   const [pace, setPace] = useState<TripPreferences["pace"]>(undefined);
   const [budget, setBudget] = useState<TripPreferences["budget"]>(undefined);
   const [interests, setInterests] = useState<NonNullable<TripPreferences["interests"]>>([]);
@@ -53,6 +54,7 @@ export default function Home() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const preferences: TripPreferences = {
+      origin: origin.trim() || undefined,
       pace,
       budget,
       interests: interests.length ? interests : undefined,
@@ -123,6 +125,24 @@ export default function Home() {
                   </option>
                 ))}
               </select>
+            </div>
+
+            {/* 出發地 */}
+            <div>
+              <label
+                htmlFor="origin"
+                className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1"
+              >
+                出發地 <span className="font-normal text-zinc-400">（選填）</span>
+              </label>
+              <input
+                id="origin"
+                type="text"
+                value={origin}
+                onChange={(e) => setOrigin(e.target.value)}
+                placeholder="例：台北、東京、首爾"
+                className="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-4 py-3 text-zinc-900 dark:text-zinc-50 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-100"
+              />
             </div>
 
             {/* 步調 */}

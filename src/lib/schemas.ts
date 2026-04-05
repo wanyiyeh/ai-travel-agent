@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 export const TripPreferencesSchema = z.object({
+  origin: z.string().optional(),
   pace: z.enum(["relaxed", "moderate", "intensive"]).optional(),
   budget: z.enum(["budget", "moderate", "luxury"]).optional(),
   interests: z
