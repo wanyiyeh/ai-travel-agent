@@ -1,6 +1,38 @@
 import { openai } from "@/lib/openai";
-import { ItinerarySchema } from "@/lib/schemas";
+import { ItinerarySchema, TripPreferencesSchema, type TripPreferences } from "@/lib/schemas";
 import { prisma } from "@/lib/db";
+
+const paceMap: Record<string, string> = {
+  relaxed: "悠閒，每天景點不超過 3 個，留有充足休息時間",
+  moderate: "適中，每天安排 3-4 個景點",
+  intensive: "緊湊，每天安排 5 個以上景點，行程滿檔",
+};
+
+const budgetMap: Record<string, string> = {
+  budget: "經濟實惠，偏好免費或低消費景點、平價餐廳",
+  moderate: "中等消費，一般觀光景點與餐廳",
+  luxury: "高端奢華，頂級餐廳、精品購物、私人導覽",
+};
+
+const interestMap: Record<string, string> = {
+  food: "美食",
+  culture: "文化歷史",
+  nature: "自然景觀",
+  shopping: "購物",
+  adventure: "冒險戶外活動",
+};
+
+function buildPreferencePrompt(preferences?: TripPreferences): string {
+  if (!preferences) return "";
+  const lines: string[] = [];
+  if (preferences.pace) lines.push(`行程步調：${paceMap[preferences.pace]}。`);
+  if (preferences.budget) lines.push(`預算級別：${budgetMap[preferences.budget]}。`);
+  if (preferences.interests?.length) {
+    const labels = preferences.interests.map((i) => interestMap[i]).join("、");
+    lines.push(`旅遊偏好：以${labels}為主。`);
+  }
+  return lines.length ? "\n\n使用者偏好：\n" + lines.join("\n") : "";
+}
 
 const DEMO_USER_ID = "00000000-0000-0000-0000-000000000001";
 
@@ -34,17 +66,21 @@ function addIdsToItinerary(data: ReturnType<typeof ItinerarySchema.parse>) {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { prompt, days } = body;
+    const { prompt, days, preferences: rawPreferences } = body;
 
     if (!prompt || !days) {
       return new Response("Missing prompt or days", { status: 400 });
     }
 
+    const preferences = rawPreferences
+      ? TripPreferencesSchema.parse(rawPreferences)
+      : undefined;
+
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
       async start(controller) {
         try {
-          const systemPrompt = `你是專業的旅遊規劃專家。請為用戶規劃 ${days} 天的旅遊行程。
+          const systemPrompt = `你是專業的旅遊規劃專家。請為用戶規劃 ${days} 天的旅遊行程。${buildPreferencePrompt(preferences)}
 
 嚴格遵守以下 JSON 結構：
 {
@@ -117,6 +153,7 @@ export async function POST(request: Request) {
                     totalDays: days,
                     createdAt: new Date().toISOString(),
                     isStreamed: true,
+                    preferences: preferences ?? null,
                   },
                 },
               });

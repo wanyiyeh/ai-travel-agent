@@ -5,13 +5,43 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useStreamingGenerate } from "@/hooks/useStreamingGenerate";
 import StreamingPreview from "@/components/StreamingPreview";
+import type { TripPreferences } from "@/lib/schemas";
+
+const PACE_OPTIONS: { value: TripPreferences["pace"]; label: string; desc: string }[] = [
+  { value: "relaxed", label: "悠閒", desc: "每天 ≤3 個景點" },
+  { value: "moderate", label: "適中", desc: "每天 3-4 個景點" },
+  { value: "intensive", label: "緊湊", desc: "每天 5+ 個景點" },
+];
+
+const BUDGET_OPTIONS: { value: TripPreferences["budget"]; label: string; desc: string }[] = [
+  { value: "budget", label: "經濟實惠", desc: "平價為主" },
+  { value: "moderate", label: "中等消費", desc: "一般觀光" },
+  { value: "luxury", label: "高端奢華", desc: "頂級體驗" },
+];
+
+const INTEREST_OPTIONS: { value: NonNullable<TripPreferences["interests"]>[number]; label: string }[] = [
+  { value: "food", label: "美食" },
+  { value: "culture", label: "文化歷史" },
+  { value: "nature", label: "自然景觀" },
+  { value: "shopping", label: "購物" },
+  { value: "adventure", label: "冒險戶外" },
+];
 
 export default function Home() {
   const router = useRouter();
   const [prompt, setPrompt] = useState("");
   const [days, setDays] = useState(3);
+  const [pace, setPace] = useState<TripPreferences["pace"]>(undefined);
+  const [budget, setBudget] = useState<TripPreferences["budget"]>(undefined);
+  const [interests, setInterests] = useState<NonNullable<TripPreferences["interests"]>>([]);
   const { state, partialData, id, error, generate, reset, isLoading } =
     useStreamingGenerate();
+
+  function toggleInterest(val: NonNullable<TripPreferences["interests"]>[number]) {
+    setInterests((prev) =>
+      prev.includes(val) ? prev.filter((i) => i !== val) : [...prev, val]
+    );
+  }
 
   // Navigate to view page when generation is complete
   useEffect(() => {
@@ -22,7 +52,12 @@ export default function Home() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    await generate(prompt, days);
+    const preferences: TripPreferences = {
+      pace,
+      budget,
+      interests: interests.length ? interests : undefined,
+    };
+    await generate(prompt, days, preferences);
   }
 
   const isStreaming = state === "streaming" || state === "connecting";
@@ -88,6 +123,77 @@ export default function Home() {
                   </option>
                 ))}
               </select>
+            </div>
+
+            {/* 步調 */}
+            <div>
+              <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">
+                步調與節奏
+              </label>
+              <div className="flex gap-2">
+                {PACE_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => setPace(pace === opt.value ? undefined : opt.value)}
+                    className={`flex-1 rounded-lg border px-3 py-2 text-sm transition-colors ${
+                      pace === opt.value
+                        ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-900"
+                        : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
+                    }`}
+                  >
+                    <div className="font-medium">{opt.label}</div>
+                    <div className="text-xs opacity-60">{opt.desc}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* 預算 */}
+            <div>
+              <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">
+                預算區間
+              </label>
+              <div className="flex gap-2">
+                {BUDGET_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => setBudget(budget === opt.value ? undefined : opt.value)}
+                    className={`flex-1 rounded-lg border px-3 py-2 text-sm transition-colors ${
+                      budget === opt.value
+                        ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-900"
+                        : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
+                    }`}
+                  >
+                    <div className="font-medium">{opt.label}</div>
+                    <div className="text-xs opacity-60">{opt.desc}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* 特殊偏好 */}
+            <div>
+              <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">
+                特殊偏好 <span className="font-normal text-zinc-400">（可複選）</span>
+              </label>
+              <div className="flex flex-wrap gap-2">
+                {INTEREST_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => toggleInterest(opt.value)}
+                    className={`rounded-full border px-4 py-1.5 text-sm transition-colors ${
+                      interests.includes(opt.value)
+                        ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-900"
+                        : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
             </div>
 
             <button
