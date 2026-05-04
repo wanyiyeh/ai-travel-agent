@@ -5,6 +5,9 @@ export type Stop = {
   name: string;
   description: string;
   duration_minutes: number;
+  time_of_day?: "morning" | "afternoon" | "evening";
+  transport_from_prev?: string;
+  estimated_cost?: number;
   placeId?: string;
   lat?: number;
   lng?: number;
@@ -13,15 +16,35 @@ export type Stop = {
   openingHours?: string | null;
 };
 
+export type Accommodation = {
+  name: string;
+  area: string;
+};
+
+export type Meal = {
+  name: string;
+  description?: string;
+  estimated_cost?: number;
+};
+
+export type DayMeals = {
+  breakfast?: Meal;
+  lunch?: Meal;
+  dinner?: Meal;
+};
+
 export type Day = {
   id?: string;
   day: number;
   theme?: string;
   stops: Stop[];
+  accommodation?: Accommodation | null;
+  meals?: DayMeals;
 };
 
 export type Itinerary = {
   title: string;
+  currency?: string;
   days: Day[];
 };
 

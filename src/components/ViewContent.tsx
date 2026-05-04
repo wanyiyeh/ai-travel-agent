@@ -141,8 +141,18 @@ export default function ViewContent({ id }: ViewContentProps) {
 
             {data.config && (
               <div className="mt-6 p-4 rounded-lg bg-zinc-100 dark:bg-zinc-800 text-xs text-zinc-500 dark:text-zinc-400 space-y-1">
+                {data.config.flightInfo && (
+                  <>
+                    <p>
+                      去程：{data.config.flightInfo.departureCity}（出發）→ {data.config.flightInfo.arrivalCity}（抵達）・{data.config.flightInfo.departureDate}{data.config.flightInfo.arrivalTime ? `，落地 ${data.config.flightInfo.arrivalTime}` : ""}
+                    </p>
+                    <p>
+                      回程：{data.config.flightInfo.returnDepartureCity}（出發）→ {data.config.flightInfo.departureCity}（抵達）・{data.config.flightInfo.returnDate}{data.config.flightInfo.returnDepartureTime ? `，起飛 ${data.config.flightInfo.returnDepartureTime}` : ""}
+                    </p>
+                  </>
+                )}
                 {data.config.generatedWith && (
-                  <p>需求：{data.config.generatedWith}</p>
+                  <p>風格描述：{data.config.generatedWith}</p>
                 )}
                 {data.config.totalDays && (
                   <p>天數：{data.config.totalDays} 天</p>
