@@ -1,6 +1,6 @@
 import { useState, useCallback } from "react";
 import type { Itinerary } from "@/types/itinerary";
-import type { TripPreferences } from "@/lib/schemas";
+import type { FlightInfo, TripPreferences } from "@/lib/schemas";
 
 type StreamingState = "idle" | "connecting" | "streaming" | "complete" | "error";
 
@@ -11,7 +11,7 @@ export function useStreamingGenerate() {
   const [id, setId] = useState<string | null>(null);
   const [error, setError] = useState<string>("");
 
-  const generate = useCallback(async (prompt: string, days: number, preferences?: TripPreferences) => {
+  const generate = useCallback(async (prompt: string, flightInfo: FlightInfo, preferences?: TripPreferences) => {
     setState("connecting");
     setPartialData("");
     setResult(null);
@@ -22,7 +22,7 @@ export function useStreamingGenerate() {
       const response = await fetch("/api/v1/generate-stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt, days, preferences }),
+        body: JSON.stringify({ prompt, flightInfo, preferences }),
       });
 
       if (!response.ok) {
@@ -37,17 +37,21 @@ export function useStreamingGenerate() {
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
+      let buffer = "";
 
       while (true) {
         const { done, value } = await reader.read();
 
         if (done) break;
 
-        const chunk = decoder.decode(value);
-        const lines = chunk.split("\n");
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        // 最後一行可能不完整，留在 buffer 等下一個 chunk
+        buffer = lines.pop() ?? "";
 
         for (const line of lines) {
-          if (line.startsWith("data: ")) {
+          if (!line.startsWith("data: ")) continue;
+          try {
             const data = JSON.parse(line.substring(6));
 
             if (data.type === "chunk") {
@@ -60,6 +64,8 @@ export function useStreamingGenerate() {
               setError(data.error + ": " + (data.details || ""));
               setState("error");
             }
+          } catch {
+            // 略過無法解析的行（不完整的 chunk 殘留）
           }
         }
       }

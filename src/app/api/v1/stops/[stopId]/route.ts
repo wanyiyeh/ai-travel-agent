@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/db";
+import { prisma, j } from "@/lib/db";
 
 export async function PATCH(
   request: Request,
@@ -53,7 +53,7 @@ export async function PATCH(
 
     await prisma.itinerary.update({
       where: { id: itineraryId },
-      data: { days: days as object[] },
+      data: { days: j(days) },
     });
 
     return NextResponse.json({ success: true });
@@ -110,7 +110,7 @@ export async function DELETE(
 
     await prisma.itinerary.update({
       where: { id: itineraryId },
-      data: { days: days as object[] },
+      data: { days: j(days) },
     });
 
     return NextResponse.json({ success: true });

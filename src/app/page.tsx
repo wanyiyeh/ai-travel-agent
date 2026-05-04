@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useStreamingGenerate } from "@/hooks/useStreamingGenerate";
 import StreamingPreview from "@/components/StreamingPreview";
-import type { TripPreferences } from "@/lib/schemas";
+import type { TripPreferences, FlightInfo } from "@/lib/schemas";
 
 const PACE_OPTIONS: { value: TripPreferences["pace"]; label: string; desc: string }[] = [
   { value: "relaxed", label: "悠閒", desc: "每天 ≤3 個景點" },
@@ -27,16 +27,37 @@ const INTEREST_OPTIONS: { value: NonNullable<TripPreferences["interests"]>[numbe
   { value: "adventure", label: "冒險戶外" },
 ];
 
+function calcDays(departureDate: string, returnDate: string): number {
+  if (!departureDate || !returnDate) return 0;
+  const dep = new Date(departureDate);
+  const ret = new Date(returnDate);
+  return Math.max(0, Math.ceil((ret.getTime() - dep.getTime()) / (1000 * 60 * 60 * 24)));
+}
+
 export default function Home() {
   const router = useRouter();
+
+  // 機票資訊（IATA 機場代號）
+  const [departureCity, setDepartureCity] = useState("");
+  const [arrivalCity, setArrivalCity] = useState("");
+  const [returnDepartureCity, setReturnDepartureCity] = useState("");
+
+  const toIATA = (val: string) => val.toUpperCase().replace(/[^A-Z]/g, "").slice(0, 3);
+  const [departureDate, setDepartureDate] = useState("");
+  const [returnDate, setReturnDate] = useState("");
+  const [arrivalTime, setArrivalTime] = useState("");
+  const [returnDepartureTime, setReturnDepartureTime] = useState("");
+
+  // 行程描述與偏好
   const [prompt, setPrompt] = useState("");
-  const [days, setDays] = useState(3);
-  const [origin, setOrigin] = useState("");
   const [pace, setPace] = useState<TripPreferences["pace"]>(undefined);
   const [budget, setBudget] = useState<TripPreferences["budget"]>(undefined);
   const [interests, setInterests] = useState<NonNullable<TripPreferences["interests"]>>([]);
+
   const { state, partialData, id, error, generate, reset, isLoading } =
     useStreamingGenerate();
+
+  const days = calcDays(departureDate, returnDate);
 
   function toggleInterest(val: NonNullable<TripPreferences["interests"]>[number]) {
     setInterests((prev) =>
@@ -44,7 +65,6 @@ export default function Home() {
     );
   }
 
-  // Navigate to view page when generation is complete
   useEffect(() => {
     if (state === "complete" && id) {
       router.push(`/view/${id}`);
@@ -53,16 +73,33 @@ export default function Home() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+
+    const flightInfo: FlightInfo = {
+      departureCity,
+      arrivalCity,
+      returnDepartureCity: returnDepartureCity || arrivalCity,
+      departureDate,
+      returnDate,
+      arrivalTime: arrivalTime || undefined,
+      returnDepartureTime: returnDepartureTime || undefined,
+    };
+
     const preferences: TripPreferences = {
-      origin: origin.trim() || undefined,
       pace,
       budget,
       interests: interests.length ? interests : undefined,
     };
-    await generate(prompt, days, preferences);
+
+    await generate(prompt, flightInfo, preferences);
   }
 
   const isStreaming = state === "streaming" || state === "connecting";
+  const isFormValid =
+    departureCity.length === 3 &&
+    arrivalCity.length === 3 &&
+    departureDate &&
+    returnDate &&
+    days > 0;
 
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 py-16 px-4">
@@ -74,7 +111,7 @@ export default function Home() {
               AI Travel Agent
             </h1>
             <p className="mt-1 text-zinc-500 dark:text-zinc-400">
-              輸入目的地，讓 AI 幫你規劃行程
+              輸入機票資訊，讓 AI 幫你規劃行程與住宿
             </p>
           </div>
           <Link
@@ -87,60 +124,184 @@ export default function Home() {
 
         {/* Form – hidden while streaming */}
         {!isStreaming && state !== "complete" && (
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-6">
+
+            {/* 機票資訊 */}
+            <div className="rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-5 space-y-4">
+              <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300 uppercase tracking-wide">
+                機票資訊
+              </h2>
+
+              {/* 去程 */}
+              <div>
+                <p className="text-xs text-zinc-400 dark:text-zinc-500 mb-2">去程</p>
+                <div className="grid grid-cols-2 gap-3 mb-3">
+                  <div>
+                    <label
+                      htmlFor="departureCity"
+                      className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1"
+                    >
+                      出發機場代號
+                    </label>
+                    <input
+                      id="departureCity"
+                      type="text"
+                      value={departureCity}
+                      onChange={(e) => setDepartureCity(toIATA(e.target.value))}
+                      placeholder="TPE"
+                      maxLength={3}
+                      required
+                      className="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-3 py-2.5 text-zinc-900 dark:text-zinc-50 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-100 text-sm font-mono tracking-widest"
+                    />
+                  </div>
+                  <div>
+                    <label
+                      htmlFor="arrivalCity"
+                      className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1"
+                    >
+                      抵達機場代號
+                    </label>
+                    <input
+                      id="arrivalCity"
+                      type="text"
+                      value={arrivalCity}
+                      onChange={(e) => {
+                        const code = toIATA(e.target.value);
+                        setArrivalCity(code);
+                        if (!returnDepartureCity) setReturnDepartureCity(code);
+                      }}
+                      placeholder="SYD"
+                      maxLength={3}
+                      required
+                      className="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-3 py-2.5 text-zinc-900 dark:text-zinc-50 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-100 text-sm font-mono tracking-widest"
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label
+                      htmlFor="departureDate"
+                      className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1"
+                    >
+                      去程日期
+                    </label>
+                    <input
+                      id="departureDate"
+                      type="date"
+                      value={departureDate}
+                      onChange={(e) => setDepartureDate(e.target.value)}
+                      required
+                      className="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-3 py-2.5 text-zinc-900 dark:text-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-100 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label
+                      htmlFor="arrivalTime"
+                      className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1"
+                    >
+                      航班抵達時間
+                      <span className="font-normal text-zinc-400 ml-1">（選填）</span>
+                    </label>
+                    <input
+                      id="arrivalTime"
+                      type="time"
+                      value={arrivalTime}
+                      onChange={(e) => setArrivalTime(e.target.value)}
+                      className="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-3 py-2.5 text-zinc-900 dark:text-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-100 text-sm"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* 回程 */}
+              <div>
+                <p className="text-xs text-zinc-400 dark:text-zinc-500 mb-2">回程</p>
+                <div className="grid grid-cols-2 gap-3 mb-3">
+                  <div>
+                    <label
+                      htmlFor="returnDepartureCity"
+                      className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1"
+                    >
+                      出發機場代號
+                      <span className="font-normal text-zinc-400 ml-1">（若與抵達地不同）</span>
+                    </label>
+                    <input
+                      id="returnDepartureCity"
+                      type="text"
+                      value={returnDepartureCity}
+                      onChange={(e) => setReturnDepartureCity(toIATA(e.target.value))}
+                      placeholder={arrivalCity || "MEL"}
+                      maxLength={3}
+                      className="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-3 py-2.5 text-zinc-900 dark:text-zinc-50 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-100 text-sm font-mono tracking-widest"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                      抵達機場代號
+                    </label>
+                    <div className="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-800/50 px-3 py-2.5 text-sm text-zinc-400 dark:text-zinc-500 font-mono tracking-widest">
+                      {departureCity || "同去程出發地"}
+                    </div>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label
+                      htmlFor="returnDate"
+                      className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1"
+                    >
+                      回程日期
+                    </label>
+                    <input
+                      id="returnDate"
+                      type="date"
+                      value={returnDate}
+                      min={departureDate}
+                      onChange={(e) => setReturnDate(e.target.value)}
+                      required
+                      className="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-3 py-2.5 text-zinc-900 dark:text-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-100 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label
+                      htmlFor="returnDepartureTime"
+                      className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1"
+                    >
+                      航班出發時間
+                      <span className="font-normal text-zinc-400 ml-1">（選填）</span>
+                    </label>
+                    <input
+                      id="returnDepartureTime"
+                      type="time"
+                      value={returnDepartureTime}
+                      onChange={(e) => setReturnDepartureTime(e.target.value)}
+                      className="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-3 py-2.5 text-zinc-900 dark:text-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-100 text-sm"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {days > 0 && (
+                <p className="text-sm text-zinc-500 dark:text-zinc-400">
+                  共 <span className="font-semibold text-zinc-900 dark:text-zinc-50">{days} 天</span> 行程
+                </p>
+              )}
+            </div>
+
+            {/* 旅遊描述 */}
             <div>
               <label
                 htmlFor="prompt"
                 className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1"
               >
-                目的地 / 旅遊描述
+                旅遊風格描述 <span className="font-normal text-zinc-400">（選填）</span>
               </label>
               <input
                 id="prompt"
                 type="text"
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
-                placeholder="例：東京文化美食之旅、京都賞楓 5 天"
-                required
-                className="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-4 py-3 text-zinc-900 dark:text-zinc-50 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-100"
-              />
-            </div>
-
-            <div>
-              <label
-                htmlFor="days"
-                className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1"
-              >
-                天數
-              </label>
-              <select
-                id="days"
-                value={days}
-                onChange={(e) => setDays(Number(e.target.value))}
-                className="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-4 py-3 text-zinc-900 dark:text-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-100"
-              >
-                {Array.from({ length: 14 }, (_, i) => i + 1).map((n) => (
-                  <option key={n} value={n}>
-                    {n} 天
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* 出發地 */}
-            <div>
-              <label
-                htmlFor="origin"
-                className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1"
-              >
-                出發地 <span className="font-normal text-zinc-400">（選填）</span>
-              </label>
-              <input
-                id="origin"
-                type="text"
-                value={origin}
-                onChange={(e) => setOrigin(e.target.value)}
-                placeholder="例：台北、東京、首爾"
+                placeholder="例：以文化美食為主、想體驗當地生活"
                 className="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-4 py-3 text-zinc-900 dark:text-zinc-50 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-100"
               />
             </div>
@@ -218,7 +379,7 @@ export default function Home() {
 
             <button
               type="submit"
-              disabled={isLoading || !prompt.trim()}
+              disabled={isLoading || !isFormValid}
               className="w-full rounded-lg bg-zinc-900 dark:bg-zinc-50 px-4 py-3 text-sm font-semibold text-white dark:text-zinc-900 hover:bg-zinc-700 dark:hover:bg-zinc-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               生成行程

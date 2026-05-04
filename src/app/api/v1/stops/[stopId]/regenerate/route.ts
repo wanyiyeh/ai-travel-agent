@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/db";
+import { prisma, j } from "@/lib/db";
 import { openai } from "@/lib/openai";
 import { StopSchema } from "@/lib/schemas";
 
@@ -112,7 +112,7 @@ IMPORTANT: Do NOT suggest any of the following places that are already in the it
 
     await prisma.itinerary.update({
       where: { id: itineraryId },
-      data: { days: days as object[] },
+      data: { days: j(days) },
     });
 
     return NextResponse.json({
