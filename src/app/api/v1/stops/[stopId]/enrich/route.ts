@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/db";
+import { prisma, j } from "@/lib/db";
 
 const PLACES_API_URL = "https://places.googleapis.com/v1/places:searchText";
 
@@ -116,7 +116,7 @@ export async function POST(
 
     await prisma.itinerary.update({
       where: { id: itineraryId },
-      data: { days: days as object[] },
+      data: { days: j(days) },
     });
 
     return NextResponse.json({

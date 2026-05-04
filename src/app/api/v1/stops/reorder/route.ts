@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/db";
+import { prisma, j } from "@/lib/db";
 
 export async function POST(request: Request) {
   try {
@@ -44,7 +44,7 @@ export async function POST(request: Request) {
 
     await prisma.itinerary.update({
       where: { id: itineraryId },
-      data: { days: days as object[] },
+      data: { days: j(days) },
     });
 
     return NextResponse.json({ success: true });
