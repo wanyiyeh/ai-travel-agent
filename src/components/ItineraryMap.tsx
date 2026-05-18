@@ -33,6 +33,18 @@ interface MapStop {
   stopIndex: number;
 }
 
+interface MapAccommodation {
+  dayId: string;
+  name: string;
+  area: string;
+  lat: number;
+  lng: number;
+  address?: string;
+  rating?: number | null;
+  bookingUrl?: string;
+  dayIndex: number;
+}
+
 interface ItineraryMapProps {
   itineraryId: string;
   days: Day[];
@@ -42,24 +54,34 @@ interface ItineraryMapProps {
 // --- Inner component: has access to map instance via useMap ---
 function MapContent({
   visibleStops,
+  visibleAccommodations,
   selectedStop,
+  selectedAccommodation,
   onStopClick,
+  onAccommodationClick,
   onCloseInfoWindow,
 }: {
   visibleStops: MapStop[];
+  visibleAccommodations: MapAccommodation[];
   selectedStop: MapStop | null;
+  selectedAccommodation: MapAccommodation | null;
   onStopClick: (stop: MapStop) => void;
+  onAccommodationClick: (acc: MapAccommodation) => void;
   onCloseInfoWindow: () => void;
 }) {
   const map = useMap();
 
-  // Auto-fit bounds whenever visible stops change
+  // Auto-fit bounds whenever visible stops or accommodations change
   useEffect(() => {
-    if (!map || visibleStops.length === 0) return;
+    const allPoints = [
+      ...visibleStops.map((s) => ({ lat: s.lat, lng: s.lng })),
+      ...visibleAccommodations.map((a) => ({ lat: a.lat, lng: a.lng })),
+    ];
+    if (!map || allPoints.length === 0) return;
     const bounds = new google.maps.LatLngBounds();
-    visibleStops.forEach((s) => bounds.extend({ lat: s.lat, lng: s.lng }));
+    allPoints.forEach((p) => bounds.extend(p));
     map.fitBounds(bounds, 60);
-  }, [map, visibleStops]);
+  }, [map, visibleStops, visibleAccommodations]);
 
   // Draw polylines per day group (sorted by stopIndex)
   useEffect(() => {
@@ -153,6 +175,33 @@ function MapContent({
         </AdvancedMarker>
       ))}
 
+      {visibleAccommodations.map((acc) => (
+        <AdvancedMarker
+          key={`acc-${acc.dayId}`}
+          position={{ lat: acc.lat, lng: acc.lng }}
+          onClick={() => onAccommodationClick(acc)}
+        >
+          <div
+            style={{
+              background: "#6366f1",
+              color: "white",
+              borderRadius: "6px",
+              width: "28px",
+              height: "28px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: "14px",
+              border: "2px solid white",
+              boxShadow: "0 2px 6px rgba(0,0,0,0.35)",
+              cursor: "pointer",
+            }}
+          >
+            🏨
+          </div>
+        </AdvancedMarker>
+      ))}
+
       {selectedStop && (
         <InfoWindow
           position={{ lat: selectedStop.lat, lng: selectedStop.lng }}
@@ -172,6 +221,36 @@ function MapContent({
           </div>
         </InfoWindow>
       )}
+
+      {selectedAccommodation && (
+        <InfoWindow
+          position={{ lat: selectedAccommodation.lat, lng: selectedAccommodation.lng }}
+          onCloseClick={onCloseInfoWindow}
+        >
+          <div className="p-1 max-w-[220px] space-y-1">
+            <div className="font-semibold text-zinc-900 text-sm">
+              🏨 {selectedAccommodation.name}
+            </div>
+            <div className="text-xs text-zinc-500">{selectedAccommodation.area}</div>
+            {selectedAccommodation.address && (
+              <div className="text-xs text-zinc-500">{selectedAccommodation.address}</div>
+            )}
+            {selectedAccommodation.rating != null && (
+              <div className="text-xs text-amber-500">★ {selectedAccommodation.rating}</div>
+            )}
+            {selectedAccommodation.bookingUrl && (
+              <a
+                href={selectedAccommodation.bookingUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block text-xs text-indigo-600 font-medium hover:underline mt-1"
+              >
+                前往訂房 →
+              </a>
+            )}
+          </div>
+        </InfoWindow>
+      )}
     </>
   );
 }
@@ -183,10 +262,12 @@ export default function ItineraryMap({
   context,
 }: ItineraryMapProps) {
   const [mapStops, setMapStops] = useState<MapStop[]>([]);
+  const [mapAccommodations, setMapAccommodations] = useState<MapAccommodation[]>([]);
   const [enriching, setEnriching] = useState(false);
   const [enrichProgress, setEnrichProgress] = useState(0);
   const [totalToEnrich, setTotalToEnrich] = useState(0);
   const [selectedStop, setSelectedStop] = useState<MapStop | null>(null);
+  const [selectedAccommodation, setSelectedAccommodation] = useState<MapAccommodation | null>(null);
   const [selectedDayIndex, setSelectedDayIndex] = useState<number | null>(null);
 
   useEffect(() => {
@@ -228,6 +309,70 @@ export default function ItineraryMap({
       });
 
       setMapStops(alreadyEnriched);
+
+      // Collect accommodations with lat/lng already available
+      days.forEach((day, dayIndex) => {
+        if (!day.id || !day.accommodation) return;
+        const acc = day.accommodation;
+        if (acc.lat && acc.lng) {
+          setMapAccommodations((prev) => {
+            if (prev.some((a) => a.dayId === day.id)) return prev;
+            return [
+              ...prev,
+              {
+                dayId: day.id!,
+                name: acc.name,
+                area: acc.area,
+                lat: acc.lat!,
+                lng: acc.lng!,
+                address: acc.address,
+                rating: acc.rating,
+                bookingUrl: acc.bookingUrl,
+                dayIndex,
+              },
+            ];
+          });
+        }
+      });
+
+      // Enrich accommodations that lack lat/lng
+      const needsAccEnrich = days
+        .map((day, dayIndex) => ({ day, dayIndex }))
+        .filter(({ day }) => day.id && day.accommodation && !day.accommodation.lat);
+
+      for (const { day, dayIndex } of needsAccEnrich) {
+        try {
+          const res = await fetch(`/api/v1/days/${day.id}/accommodation/enrich`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ itineraryId }),
+          });
+          if (res.ok) {
+            const { accommodation: acc } = await res.json();
+            if (acc.lat && acc.lng) {
+              setMapAccommodations((prev) => {
+                if (prev.some((a) => a.dayId === day.id)) return prev;
+                return [
+                  ...prev,
+                  {
+                    dayId: day.id!,
+                    name: acc.name,
+                    area: acc.area,
+                    lat: acc.lat,
+                    lng: acc.lng,
+                    address: acc.address,
+                    rating: acc.rating,
+                    bookingUrl: acc.bookingUrl,
+                    dayIndex,
+                  },
+                ];
+              });
+            }
+          }
+        } catch {
+          // skip
+        }
+      }
 
       if (needsEnrich.length === 0) return;
 
@@ -281,6 +426,11 @@ export default function ItineraryMap({
       ? mapStops
       : mapStops.filter((s) => s.dayIndex === selectedDayIndex);
 
+  const visibleAccommodations =
+    selectedDayIndex === null
+      ? mapAccommodations
+      : mapAccommodations.filter((a) => a.dayIndex === selectedDayIndex);
+
   const center =
     visibleStops.length > 0
       ? {
@@ -296,6 +446,7 @@ export default function ItineraryMap({
   function handleDaySelect(idx: number | null) {
     setSelectedDayIndex(idx);
     setSelectedStop(null);
+    setSelectedAccommodation(null);
   }
 
   return (
@@ -363,7 +514,7 @@ export default function ItineraryMap({
         </div>
       )}
 
-      {visibleStops.length > 0 && (
+      {(visibleStops.length > 0 || visibleAccommodations.length > 0) && (
         <APIProvider apiKey={process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY!}>
           <div
             className="rounded-xl overflow-hidden border border-zinc-200 dark:border-zinc-700"
@@ -380,13 +531,21 @@ export default function ItineraryMap({
             >
               <MapContent
                 visibleStops={visibleStops}
+                visibleAccommodations={visibleAccommodations}
                 selectedStop={selectedStop}
-                onStopClick={(stop) =>
-                  setSelectedStop((prev) =>
-                    prev?.id === stop.id ? null : stop
-                  )
-                }
-                onCloseInfoWindow={() => setSelectedStop(null)}
+                selectedAccommodation={selectedAccommodation}
+                onStopClick={(stop) => {
+                  setSelectedAccommodation(null);
+                  setSelectedStop((prev) => prev?.id === stop.id ? null : stop);
+                }}
+                onAccommodationClick={(acc) => {
+                  setSelectedStop(null);
+                  setSelectedAccommodation((prev) => prev?.dayId === acc.dayId ? null : acc);
+                }}
+                onCloseInfoWindow={() => {
+                  setSelectedStop(null);
+                  setSelectedAccommodation(null);
+                }}
               />
             </Map>
           </div>

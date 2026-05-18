@@ -208,6 +208,7 @@ export async function POST(request: Request) {
                     isStreamed: true,
                     flightInfo,
                     preferences: preferences ?? null,
+                    currency: validatedData.currency ?? null,
                   }),
                 },
               });

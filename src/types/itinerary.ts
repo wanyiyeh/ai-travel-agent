@@ -19,6 +19,13 @@ export type Stop = {
 export type Accommodation = {
   name: string;
   area: string;
+  placeId?: string;
+  lat?: number;
+  lng?: number;
+  address?: string;
+  rating?: number | null;
+  priceLevel?: number | null;
+  bookingUrl?: string;
 };
 
 export type Meal = {
@@ -33,6 +40,21 @@ export type DayMeals = {
   dinner?: Meal;
 };
 
+export type TransitRecommendation = {
+  name: string;
+  type: "city" | "country";
+  country: string;
+  iataCode?: string;
+  transitTimeHours: number;
+  transitMode: string;
+  suggestedStayDaysMin: number;
+  suggestedStayDaysMax: number;
+  popularity: "high" | "medium" | "low";
+  topAttractions: string[];
+  lat: number;
+  lng: number;
+};
+
 export type Day = {
   id?: string;
   day: number;
@@ -40,6 +62,8 @@ export type Day = {
   stops: Stop[];
   accommodation?: Accommodation | null;
   meals?: DayMeals;
+  isTransitDay?: boolean;
+  transitTo?: string;
 };
 
 export type Itinerary = {

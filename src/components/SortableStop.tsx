@@ -171,7 +171,7 @@ export function SortableStop({
               <p className="text-xs text-emerald-600 dark:text-emerald-400 font-medium mt-0.5">
                 {stop.estimated_cost === 0
                   ? "免費"
-                  : `💶 ${[currency, stop.estimated_cost.toLocaleString()].filter(Boolean).join(" ")}`}
+                  : `💴 ${[currency, stop.estimated_cost.toLocaleString()].filter(Boolean).join(" ")}`}
               </p>
             )}
           </>
