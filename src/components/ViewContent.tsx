@@ -1,9 +1,28 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import EditableItineraryCard from "@/components/EditableItineraryCard";
 import ItineraryMap from "@/components/ItineraryMap";
+import TransitRecommendationsPanel from "@/components/TransitRecommendationsPanel";
+
+const DEFAULT_EXCHANGE_RATES: Record<string, number> = {
+  JPY: 0.21, KRW: 0.023, CNY: 4.4, HKD: 4.1, SGD: 24,
+  AUD: 21, USD: 32, EUR: 35, GBP: 41, THB: 0.93, VND: 0.0013,
+};
+
+const IATA_DISPLAY: Record<string, string> = {
+  TPE: "台北", KHH: "高雄", VIE: "維也納", PRG: "布拉格",
+  BUD: "布達佩斯", BTS: "布拉提斯拉瓦", LJU: "盧布亞納",
+  ZAG: "薩格勒布", DBV: "杜布羅夫尼克", SJJ: "薩拉熱窩",
+  FRA: "法蘭克福", MUC: "慕尼黑", BER: "柏林",
+  CDG: "巴黎", LHR: "倫敦", AMS: "阿姆斯特丹",
+  FCO: "羅馬", BCN: "巴塞隆納", MAD: "馬德里", LIS: "里斯本",
+  CPH: "哥本哈根", OSL: "奧斯陸", ARN: "斯德哥爾摩",
+  NRT: "東京", KIX: "大阪", ICN: "首爾", BKK: "曼谷",
+  SIN: "新加坡", HKG: "香港", SYD: "雪梨", MEL: "墨爾本",
+  JFK: "紐約", LAX: "洛杉磯", DXB: "杜拜",
+};
 
 interface ViewContentProps {
   id: string;
@@ -17,6 +36,26 @@ export default function ViewContent({ id }: ViewContentProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<"list" | "map">("list");
+  const [exchangeRate, setExchangeRate] = useState(35);
+  const transitPanelRef = useRef<HTMLDivElement>(null);
+
+  const scrollToTransitPanel = () => {
+    transitPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const calcDayCost = (stops: any[]) =>
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    stops.reduce((t: number, s: any) => t + (s.estimated_cost ?? 0), 0);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const calcMealCost = (meals: any) =>
+    (meals?.breakfast?.estimated_cost ?? 0) +
+    (meals?.lunch?.estimated_cost ?? 0) +
+    (meals?.dinner?.estimated_cost ?? 0);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const hasAnyCost = (days: any[]) =>
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    days.some((d: any) => d.stops?.some((s: any) => s.estimated_cost !== undefined));
 
   const fetchData = () => {
     setLoading(true);
@@ -34,6 +73,12 @@ export default function ViewContent({ id }: ViewContentProps) {
     fetchData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+
+  useEffect(() => {
+    if (data?.data?.currency) {
+      setExchangeRate(DEFAULT_EXCHANGE_RATES[data.data.currency] ?? 35);
+    }
+  }, [data?.data?.currency]);
 
   if (loading) {
     return (
@@ -82,9 +127,153 @@ export default function ViewContent({ id }: ViewContentProps) {
     );
   }
 
+  const renderRouteBreadcrumb = () => {
+    if (!data?.config?.flightInfo) return null;
+    const { departureCity, returnDepartureCity, arrivalCity } = data.config.flightInfo;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const transitStops: string[] = (data.data?.days ?? [])
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .filter((d: any) => d.isTransitDay && d.transitTo)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .map((d: any) => d.transitTo as string);
+    const dest = returnDepartureCity || arrivalCity;
+    const nodes = [departureCity, ...transitStops, dest].filter(Boolean);
+    if (nodes.length < 2) return null;
+    return (
+      <div className="mb-6 overflow-x-auto pb-1">
+        <div className="flex items-center gap-1 min-w-max">
+          {nodes.map((code: string, idx: number) => {
+            const isTransitNode = idx > 0 && idx < nodes.length - 1 && transitStops.includes(code);
+            return (
+              <div key={idx} className="flex items-center gap-1">
+                {idx > 0 && (
+                  <svg className="w-3.5 h-3.5 text-zinc-300 dark:text-zinc-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                )}
+                <div className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 ${
+                  isTransitNode
+                    ? "border-violet-200 dark:border-violet-800/50 bg-violet-50 dark:bg-violet-950/20"
+                    : idx === 0 || idx === nodes.length - 1
+                    ? "border-blue-200 dark:border-blue-800/50 bg-blue-50 dark:bg-blue-950/20"
+                    : "border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900"
+                }`}>
+                  <span className={`text-xs font-mono font-bold ${
+                    isTransitNode
+                      ? "text-violet-700 dark:text-violet-300"
+                      : idx === 0 || idx === nodes.length - 1
+                      ? "text-blue-700 dark:text-blue-300"
+                      : "text-zinc-700 dark:text-zinc-300"
+                  }`}>
+                    {code}
+                  </span>
+                  {IATA_DISPLAY[code] && (
+                    <span className="text-xs text-zinc-400 dark:text-zinc-500">{IATA_DISPLAY[code]}</span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
+  const renderCostSummary = () => {
+    if (!data?.data?.days || !hasAnyCost(data.data.days)) return null;
+    const cur = data.data.currency ?? "USD";
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const grandTotal = data.data.days.reduce((sum: number, d: any) =>
+      sum + calcDayCost(d.stops ?? []) + calcMealCost(d.meals), 0);
+    return (
+      <div className="rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 overflow-hidden">
+        <div className="bg-gradient-to-r from-emerald-500 to-emerald-600 px-5 py-4">
+          <h3 className="text-base font-bold text-white">花費預估</h3>
+          <div className="flex items-center gap-2 mt-1.5 text-sm text-white/90">
+            <span>{cur} 1 =</span>
+            <input
+              type="number"
+              value={exchangeRate}
+              onChange={(e) => setExchangeRate(Math.max(1, Number(e.target.value) || 1))}
+              className="w-16 px-2 py-0.5 rounded border border-white/30 bg-white/20 text-white text-sm text-center focus:outline-none focus:ring-2 focus:ring-white/50"
+              min="1"
+            />
+            <span>TWD</span>
+          </div>
+        </div>
+        <div className="p-4">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-zinc-100 dark:border-zinc-800">
+                <th className="text-left pb-2 text-zinc-500 dark:text-zinc-400 font-medium">天數</th>
+                <th className="text-right pb-2 text-zinc-500 dark:text-zinc-400 font-medium">{cur}</th>
+                <th className="text-right pb-2 text-zinc-500 dark:text-zinc-400 font-medium">TWD</th>
+              </tr>
+            </thead>
+            <tbody>
+              {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+              {data.data.days.map((day: any) => {
+                const cost = calcDayCost(day.stops ?? []) + calcMealCost(day.meals);
+                return (
+                  <tr key={day.id || day.day} className="border-b border-zinc-50 dark:border-zinc-800/50">
+                    <td className="py-1.5 text-zinc-700 dark:text-zinc-300">第 {day.day} 天</td>
+                    <td className="py-1.5 text-right text-zinc-700 dark:text-zinc-300">{cost.toLocaleString()}</td>
+                    <td className="py-1.5 text-right text-zinc-600 dark:text-zinc-400">{Math.round(cost * exchangeRate).toLocaleString()}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+            <tfoot>
+              <tr className="border-t-2 border-zinc-200 dark:border-zinc-700">
+                <td className="pt-2.5 font-bold text-zinc-900 dark:text-zinc-50">合計</td>
+                <td className="pt-2.5 text-right font-bold text-zinc-900 dark:text-zinc-50">{grandTotal.toLocaleString()}</td>
+                <td className="pt-2.5 text-right font-bold text-emerald-600 dark:text-emerald-400">{Math.round(grandTotal * exchangeRate).toLocaleString()}</td>
+              </tr>
+            </tfoot>
+          </table>
+          <p className="mt-3 text-xs text-zinc-400 dark:text-zinc-500">* AI 預估值，實際費用可能有差異</p>
+        </div>
+      </div>
+    );
+  };
+
+  const renderTransitPanel = () => {
+    const flightInfo = data?.config?.flightInfo;
+    if (!flightInfo) return null;
+    const { arrivalCity, returnDepartureCity, departureDate, returnDate } = flightInfo;
+    if (!arrivalCity || !returnDepartureCity || arrivalCity === returnDepartureCity) return null;
+    let maxDays: number | undefined;
+    if (departureDate && returnDate) {
+      const dep = new Date(departureDate);
+      const ret = new Date(returnDate);
+      maxDays = Math.max(1, Math.ceil((ret.getTime() - dep.getTime()) / (1000 * 60 * 60 * 24)));
+    }
+    const currentDays = (data.data?.days as unknown[])?.length;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const transitStopNames: string[] = (data.data?.days ?? [])
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .filter((d: any) => d.isTransitDay && d.transitTo)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .map((d: any) => d.transitTo as string);
+    const existingStops = [arrivalCity, ...transitStopNames, returnDepartureCity];
+    return (
+      <div ref={transitPanelRef}>
+        <TransitRecommendationsPanel
+          itineraryId={data.id}
+          originIata={arrivalCity}
+          destinationIata={returnDepartureCity}
+          existingStops={existingStops}
+          onInserted={fetchData}
+          maxDays={maxDays}
+          currentDays={currentDays}
+        />
+      </div>
+    );
+  };
+
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 py-16 px-4">
-      <div className="max-w-2xl mx-auto">
+      <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="mb-8 flex items-center justify-between">
           <Link
@@ -129,48 +318,58 @@ export default function ViewContent({ id }: ViewContentProps) {
 
         {data && (
           <>
-            {view === "list" ? (
-              <EditableItineraryCard data={data} onUpdate={fetchData} />
-            ) : (
-              <ItineraryMap
-                itineraryId={data.id}
-                days={data.data.days}
-                context={data.config?.generatedWith}
-              />
-            )}
+            {renderRouteBreadcrumb()}
 
-            {data.config && (
-              <div className="mt-6 p-4 rounded-lg bg-zinc-100 dark:bg-zinc-800 text-xs text-zinc-500 dark:text-zinc-400 space-y-1">
-                {data.config.flightInfo && (
-                  <>
-                    <p>
-                      去程：{data.config.flightInfo.departureCity}（出發）→ {data.config.flightInfo.arrivalCity}（抵達）・{data.config.flightInfo.departureDate}{data.config.flightInfo.arrivalTime ? `，落地 ${data.config.flightInfo.arrivalTime}` : ""}
-                    </p>
-                    <p>
-                      回程：{data.config.flightInfo.returnDepartureCity}（出發）→ {data.config.flightInfo.departureCity}（抵達）・{data.config.flightInfo.returnDate}{data.config.flightInfo.returnDepartureTime ? `，起飛 ${data.config.flightInfo.returnDepartureTime}` : ""}
-                    </p>
-                  </>
+            <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-6 items-start">
+              {/* Main content */}
+              <div>
+                {view === "list" ? (
+                  <EditableItineraryCard
+                    data={data}
+                    onUpdate={fetchData}
+                    onExploreBorder={scrollToTransitPanel}
+                    hideCostSummary
+                  />
+                ) : (
+                  <ItineraryMap
+                    itineraryId={data.id}
+                    days={data.data.days}
+                    context={data.config?.generatedWith}
+                  />
                 )}
-                {data.config.generatedWith && (
-                  <p>風格描述：{data.config.generatedWith}</p>
-                )}
-                {data.config.totalDays && (
-                  <p>天數：{data.config.totalDays} 天</p>
-                )}
-                {data.createdAt && (
-                  <p>
-                    建立於：
-                    {new Date(data.createdAt).toLocaleDateString("zh-TW", {
-                      year: "numeric",
-                      month: "long",
-                      day: "numeric",
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
-                  </p>
+
+                {data.config && (
+                  <div className="mt-6 p-4 rounded-lg bg-zinc-100 dark:bg-zinc-800 text-xs text-zinc-500 dark:text-zinc-400 space-y-1">
+                    {data.config.flightInfo && (
+                      <>
+                        <p>
+                          去程：{data.config.flightInfo.departureCity}（出發）→ {data.config.flightInfo.arrivalCity}（抵達）・{data.config.flightInfo.departureDate}{data.config.flightInfo.arrivalTime ? `，落地 ${data.config.flightInfo.arrivalTime}` : ""}
+                        </p>
+                        <p>
+                          回程：{data.config.flightInfo.returnDepartureCity}（出發）→ {data.config.flightInfo.departureCity}（抵達）・{data.config.flightInfo.returnDate}{data.config.flightInfo.returnDepartureTime ? `，起飛 ${data.config.flightInfo.returnDepartureTime}` : ""}
+                        </p>
+                      </>
+                    )}
+                    {data.config.generatedWith && <p>風格描述：{data.config.generatedWith}</p>}
+                    {data.config.totalDays && <p>天數：{data.config.totalDays} 天</p>}
+                    {data.createdAt && (
+                      <p>
+                        建立於：{new Date(data.createdAt).toLocaleDateString("zh-TW", {
+                          year: "numeric", month: "long", day: "numeric",
+                          hour: "2-digit", minute: "2-digit",
+                        })}
+                      </p>
+                    )}
+                  </div>
                 )}
               </div>
-            )}
+
+              {/* Sidebar */}
+              <div className="space-y-4 lg:sticky lg:top-4 max-h-screen lg:overflow-y-auto lg:pb-4">
+                {renderCostSummary()}
+                {renderTransitPanel()}
+              </div>
+            </div>
           </>
         )}
       </div>

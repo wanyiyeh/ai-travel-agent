@@ -22,6 +22,7 @@ export const TripPreferencesSchema = z.object({
   interests: z
     .array(z.enum(["food", "culture", "nature", "shopping", "adventure"]))
     .optional(),
+  travelers: z.number().int().min(1).max(20).optional(),
 });
 
 export type TripPreferences = z.infer<typeof TripPreferencesSchema>;
@@ -29,6 +30,13 @@ export type TripPreferences = z.infer<typeof TripPreferencesSchema>;
 export const AccommodationSchema = z.object({
   name: z.string(),
   area: z.string(),
+  placeId: z.string().optional(),
+  lat: z.number().optional(),
+  lng: z.number().optional(),
+  address: z.string().optional(),
+  rating: z.number().nullable().optional(),
+  priceLevel: z.number().nullable().optional(),
+  bookingUrl: z.string().optional(),
 });
 
 export const StopSchema = z.object({
@@ -52,12 +60,31 @@ const DayMealsSchema = z.object({
   dinner: MealSchema.optional(),
 });
 
+export const TransitRecommendationSchema = z.object({
+  name: z.string(),
+  type: z.enum(["city", "country"]),
+  country: z.string(),
+  iataCode: z.string().optional(),
+  transitTimeHours: z.number(),
+  transitMode: z.string(),
+  suggestedStayDaysMin: z.number().int().min(1),
+  suggestedStayDaysMax: z.number().int().min(1),
+  popularity: z.enum(["high", "medium", "low"]),
+  topAttractions: z.array(z.string()).length(3),
+  lat: z.number(),
+  lng: z.number(),
+});
+
+export type TransitRecommendation = z.infer<typeof TransitRecommendationSchema>;
+
 export const DaySchema = z.object({
   day: z.number(),
   theme: z.string().optional(),
   stops: z.array(StopSchema),
   accommodation: AccommodationSchema.optional(),
   meals: DayMealsSchema.optional(),
+  isTransitDay: z.boolean().optional(),
+  transitTo: z.string().optional(),
 });
 
 export const ItinerarySchema = z.object({
