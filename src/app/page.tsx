@@ -116,48 +116,6 @@ function getNearby(dep: string, arr: string): NearbySuggestion[] | null {
   return ROUTE_NEARBY[`${dep}-${arr}`] || ROUTE_NEARBY[`${arr}-${dep}`] || null;
 }
 
-const TRIP_TEMPLATES = [
-  {
-    id: "eastern-europe-loop",
-    emoji: "🏰",
-    name: "東歐大環線",
-    route: "維也納 → 布達佩斯 → 布拉格",
-    days: 10,
-    departure: "VIE",
-    arrival: "PRG",
-    prompt: "東歐三國文化歷史之旅，體驗哈布斯堡王朝遺跡，中途停留：布達佩斯",
-  },
-  {
-    id: "central-europe-trio",
-    emoji: "🎼",
-    name: "中歐音樂三城",
-    route: "維也納 → 薩爾茲堡 → 布拉格",
-    days: 7,
-    departure: "VIE",
-    arrival: "PRG",
-    prompt: "音樂文化之旅，感受莫札特故鄉與中世紀城堡之美，中途停留：薩爾茲堡",
-  },
-  {
-    id: "balkans-coast",
-    emoji: "🌊",
-    name: "巴爾幹海岸線",
-    route: "杜布羅夫尼克 → 科托爾 → 薩拉熱窩",
-    days: 8,
-    departure: "DBV",
-    arrival: "SJJ",
-    prompt: "亞得里亞海沿岸古城與巴爾幹多元文化探索",
-  },
-  {
-    id: "nordic-trio",
-    emoji: "🌿",
-    name: "北歐快閃三國",
-    route: "哥本哈根 → 奧斯陸 → 斯德哥爾摩",
-    days: 9,
-    departure: "CPH",
-    arrival: "ARN",
-    prompt: "北歐設計美學、峽灣奇景與現代生活方式體驗",
-  },
-] as const;
 
 function calcDays(departureDate: string, returnDate: string): number {
   if (!departureDate || !returnDate) return 0;
@@ -173,6 +131,7 @@ export default function Home() {
   const [departureCity, setDepartureCity] = useState("");
   const [arrivalCity, setArrivalCity] = useState("");
   const [returnDepartureCity, setReturnDepartureCity] = useState("");
+  const [returnArrivalCity, setReturnArrivalCity] = useState("");
 
   const toIATA = (val: string) => val.toUpperCase().replace(/[^A-Z]/g, "").slice(0, 3);
   const [departureDate, setDepartureDate] = useState("");
@@ -187,7 +146,6 @@ export default function Home() {
   const [interests, setInterests] = useState<NonNullable<TripPreferences["interests"]>>([]);
   const [travelers, setTravelers] = useState(2);
   const [selectedWaypoints, setSelectedWaypoints] = useState<string[]>([]);
-  const [showTemplates, setShowTemplates] = useState(true);
 
   const { state, partialData, id, error, generate, reset, isLoading } =
     useStreamingGenerate();
@@ -206,15 +164,6 @@ export default function Home() {
     );
   }
 
-  function applyTemplate(tmpl: (typeof TRIP_TEMPLATES)[number]) {
-    setDepartureCity(tmpl.departure);
-    setArrivalCity(tmpl.arrival);
-    setReturnDepartureCity(tmpl.arrival);
-    setPrompt(tmpl.prompt);
-    setShowTemplates(false);
-    setSelectedWaypoints([]);
-  }
-
   useEffect(() => {
     if (state === "complete" && id) {
       router.push(`/view/${id}`);
@@ -228,6 +177,7 @@ export default function Home() {
       departureCity,
       arrivalCity,
       returnDepartureCity: returnDepartureCity || arrivalCity,
+      returnArrivalCity: returnArrivalCity || undefined,
       departureDate,
       returnDate,
       arrivalTime: arrivalTime || undefined,
@@ -280,51 +230,6 @@ export default function Home() {
 
         {/* Form – hidden while streaming */}
         {!isStreaming && state !== "complete" && (
-          <>
-            {/* Trip Template Picker */}
-            <div className="mb-6">
-              <div className="flex items-center justify-between mb-3">
-                <h2 className="text-xs font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wide flex items-center gap-1.5">
-                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
-                  </svg>
-                  路線靈感
-                </h2>
-                <button
-                  type="button"
-                  onClick={() => setShowTemplates((s) => !s)}
-                  className="text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 transition-colors"
-                >
-                  {showTemplates ? "收起" : "展開"}
-                </button>
-              </div>
-              {showTemplates && (
-                <div className="grid grid-cols-2 gap-2">
-                  {TRIP_TEMPLATES.map((tmpl) => (
-                    <button
-                      key={tmpl.id}
-                      type="button"
-                      onClick={() => applyTemplate(tmpl)}
-                      className="rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-3 text-left hover:border-blue-300 dark:hover:border-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/20 transition-all group"
-                    >
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-base leading-none">{tmpl.emoji}</span>
-                        <span className="text-sm font-semibold text-zinc-800 dark:text-zinc-200 group-hover:text-blue-700 dark:group-hover:text-blue-400 transition-colors">
-                          {tmpl.name}
-                        </span>
-                      </div>
-                      <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-snug">
-                        {tmpl.route}
-                      </p>
-                      <p className="mt-1.5 text-xs text-zinc-400 dark:text-zinc-500">
-                        建議 {tmpl.days} 天 · {tmpl.departure} → {tmpl.arrival}
-                      </p>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-
           <form onSubmit={handleSubmit} className="space-y-6">
 
             {/* 機票資訊 */}
@@ -437,12 +342,21 @@ export default function Home() {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                    <label
+                      htmlFor="returnArrivalCity"
+                      className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1"
+                    >
                       抵達機場代號
                     </label>
-                    <div className="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-800/50 px-3 py-2.5 text-sm text-zinc-400 dark:text-zinc-500 font-mono tracking-widest">
-                      {departureCity || "同去程出發地"}
-                    </div>
+                    <input
+                      id="returnArrivalCity"
+                      type="text"
+                      value={returnArrivalCity}
+                      onChange={(e) => setReturnArrivalCity(toIATA(e.target.value))}
+                      placeholder={departureCity || "TPE"}
+                      maxLength={3}
+                      className="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-3 py-2.5 text-zinc-900 dark:text-zinc-50 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-100 text-sm font-mono tracking-widest"
+                    />
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
@@ -668,7 +582,6 @@ export default function Home() {
               生成行程
             </button>
           </form>
-          </>
         )}
 
         {/* Error state */}

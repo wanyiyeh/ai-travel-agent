@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma, j } from "@/lib/db";
 import { openai } from "@/lib/openai";
 import { StopSchema } from "@/lib/schemas";
+import { getMockMode, mockDelay, MOCK_FIXTURES } from "@/lib/mockAi";
 
 const RequestSchema = z.object({
   itineraryId: z.string().min(1),
@@ -26,6 +27,29 @@ export async function POST(
     }
 
     const { itineraryId, context } = parsed.data;
+
+    const mockMode = getMockMode();
+    if (mockMode === "error") {
+      return NextResponse.json({ error: "Mock AI error (MOCK_AI=error)" }, { status: 500 });
+    }
+    if (mockMode === "slow" || mockMode === "fixture") {
+      await mockDelay(mockMode === "slow" ? 3500 : 0);
+      const { stopId } = await params;
+      const itinerary = await prisma.itinerary.findUnique({ where: { id: itineraryId } });
+      if (!itinerary) return NextResponse.json({ error: "Itinerary not found" }, { status: 404 });
+      const days = itinerary.days as Record<string, unknown>[];
+      for (const day of days) {
+        const stops = day.stops as Record<string, unknown>[];
+        if (!stops) continue;
+        const idx = stops.findIndex((s) => s.id === stopId);
+        if (idx >= 0) {
+          stops[idx] = { ...stops[idx], ...MOCK_FIXTURES.stop, lat: null, lng: null, address: null, placeId: null };
+          break;
+        }
+      }
+      await prisma.itinerary.update({ where: { id: itineraryId }, data: { days: j(days) } });
+      return NextResponse.json(MOCK_FIXTURES.stop);
+    }
 
     const itinerary = await prisma.itinerary.findUnique({
       where: { id: itineraryId },

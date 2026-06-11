@@ -55,6 +55,12 @@ export type TransitRecommendation = {
   lng: number;
 };
 
+export type CartItem = {
+  recommendation: TransitRecommendation;
+  stayDays: number;
+  order: number;
+};
+
 export type Day = {
   id?: string;
   day: number;

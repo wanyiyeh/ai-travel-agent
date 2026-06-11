@@ -281,6 +281,8 @@ export default function ItineraryMap({
         stopIndex: number;
       }> = [];
 
+      setMapAccommodations([]);
+
       days.forEach((day, dayIndex) => {
         day.stops.forEach((stop, stopIndex) => {
           if (!stop.id) return;
@@ -419,7 +421,7 @@ export default function ItineraryMap({
 
     run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [days]);
 
   const visibleStops =
     selectedDayIndex === null

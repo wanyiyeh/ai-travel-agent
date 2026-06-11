@@ -52,6 +52,20 @@ function inferCurrency(flightInfo: unknown): string | undefined {
   return iata ? IATA_CURRENCY[iata] : undefined;
 }
 
+export async function DELETE(
+  _request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params;
+    await prisma.itinerary.delete({ where: { id } });
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error("[Itinerary DELETE Error]", error);
+    return NextResponse.json({ error: "Failed to delete" }, { status: 500 });
+  }
+}
+
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }

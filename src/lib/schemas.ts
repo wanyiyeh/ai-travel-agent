@@ -8,6 +8,7 @@ export const FlightInfoSchema = z.object({
   departureCity: iataCode,      // 去程出發機場 IATA 代號，例：TPE
   arrivalCity: iataCode,        // 去程抵達機場 IATA 代號，例：SYD
   returnDepartureCity: iataCode, // 回程出發機場 IATA 代號，例：MEL
+  returnArrivalCity: iataCode.optional(), // 回程抵達機場 IATA 代號，例：TPE（預設同去程出發地）
   departureDate: z.string().min(1),      // YYYY-MM-DD
   returnDate: z.string().min(1),         // YYYY-MM-DD
   arrivalTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),         // 去程航班抵達時間 HH:MM
@@ -81,10 +82,11 @@ export const DaySchema = z.object({
   day: z.number(),
   theme: z.string().optional(),
   stops: z.array(StopSchema),
-  accommodation: AccommodationSchema.optional(),
+  accommodation: AccommodationSchema.nullable().optional(),
   meals: DayMealsSchema.optional(),
   isTransitDay: z.boolean().optional(),
-  transitTo: z.string().optional(),
+  transitTo: z.string().nullish().transform(v => v ?? undefined),
+  waypointCity: z.string().optional(),
 });
 
 export const ItinerarySchema = z.object({

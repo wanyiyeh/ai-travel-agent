@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma, j } from "@/lib/db";
 import { openai } from "@/lib/openai";
 import { AccommodationSchema } from "@/lib/schemas";
+import { getMockMode, mockDelay, MOCK_FIXTURES } from "@/lib/mockAi";
 
 const RequestSchema = z.object({
   itineraryId: z.string().min(1),
@@ -25,6 +26,23 @@ export async function POST(
     }
 
     const { itineraryId } = parsed.data;
+
+    const mockMode = getMockMode();
+    if (mockMode === "error") {
+      return NextResponse.json({ error: "Mock AI error (MOCK_AI=error)" }, { status: 500 });
+    }
+    if (mockMode === "slow" || mockMode === "fixture") {
+      await mockDelay(mockMode === "slow" ? 3500 : 0);
+      const { dayId } = await params;
+      const itinerary = await prisma.itinerary.findUnique({ where: { id: itineraryId } });
+      if (!itinerary) return NextResponse.json({ error: "Itinerary not found" }, { status: 404 });
+      const days = itinerary.days as Record<string, unknown>[];
+      const dayIndex = days.findIndex((d) => d.id === dayId);
+      if (dayIndex === -1) return NextResponse.json({ error: "Day not found" }, { status: 404 });
+      days[dayIndex] = { ...days[dayIndex], accommodation: MOCK_FIXTURES.accommodation };
+      await prisma.itinerary.update({ where: { id: itineraryId }, data: { days: j(days) } });
+      return NextResponse.json({ success: true, accommodation: MOCK_FIXTURES.accommodation });
+    }
 
     const itinerary = await prisma.itinerary.findUnique({
       where: { id: itineraryId },

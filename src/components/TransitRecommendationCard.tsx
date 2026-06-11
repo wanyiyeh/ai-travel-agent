@@ -5,8 +5,9 @@ import type { TransitRecommendation } from "@/types/itinerary";
 
 interface TransitRecommendationCardProps {
   recommendation: TransitRecommendation;
-  itineraryId: string;
-  onInserted: () => void;
+  isInCart: boolean;
+  onAddToCart: (rec: TransitRecommendation, stayDays: number) => void;
+  onRefresh?: () => void;
   maxDays?: number;
   currentDays?: number;
 }
@@ -25,8 +26,9 @@ const POPULARITY_COLORS: Record<TransitRecommendation["popularity"], string> = {
 
 export default function TransitRecommendationCard({
   recommendation,
-  itineraryId,
-  onInserted,
+  isInCart,
+  onAddToCart,
+  onRefresh,
   maxDays,
   currentDays,
 }: TransitRecommendationCardProps) {
@@ -34,40 +36,19 @@ export default function TransitRecommendationCard({
     (recommendation.suggestedStayDaysMin + recommendation.suggestedStayDaysMax) / 2
   );
   const [stayDays, setStayDays] = useState(defaultDays);
-  const [loading, setLoading] = useState(false);
-  const [inserted, setInserted] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
-  const handleInsert = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch(`/api/v1/itinerary/${itineraryId}/insert-waypoint`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ recommendation, stayDays }),
-      });
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error ?? "加入失敗");
-      }
-      setInserted(true);
-      onInserted();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "加入失敗");
-    } finally {
-      setLoading(false);
-    }
+  const handleAddToCart = () => {
+    onAddToCart(recommendation, stayDays);
   };
 
-  if (inserted) {
+  if (isInCart) {
     return (
-      <div className="rounded-xl border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/30 p-4 flex items-center gap-3">
-        <svg className="w-5 h-5 text-emerald-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <div className="rounded-xl border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/30 p-4 flex items-center gap-3">
+        <svg className="w-5 h-5 text-blue-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
         </svg>
-        <span className="text-sm font-medium text-emerald-700 dark:text-emerald-400">
-          {recommendation.name} 已加入行程
+        <span className="text-sm font-medium text-blue-700 dark:text-blue-400">
+          {recommendation.name} 已加入待選清單
         </span>
       </div>
     );
@@ -103,9 +84,21 @@ export default function TransitRecommendationCard({
             </span>
           </div>
           <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-            {recommendation.transitMode} · 約 {recommendation.transitTimeHours} 小時車程
+            {recommendation.transitMode} · 約 {recommendation.transitTimeHours} 小時{/航|渡輪|船/.test(recommendation.transitMode) ? "航程" : /機|航班|廉航|飛/.test(recommendation.transitMode) ? "飛行時間" : "車程"}
           </p>
         </div>
+        {onRefresh && (
+          <button
+            onClick={onRefresh}
+            className="text-zinc-300 hover:text-zinc-500 dark:text-zinc-600 dark:hover:text-zinc-400 transition-colors p-0.5 rounded shrink-0 mt-0.5"
+            aria-label="跳過此推薦"
+            title="不感興趣，跳過（清單清空後自動換一批）"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        )}
       </div>
 
       {/* Top attractions */}
@@ -132,7 +125,7 @@ export default function TransitRecommendationCard({
         </div>
       )}
 
-      {/* Footer: stay days stepper + add button */}
+      {/* Footer: stay days stepper + add to cart button */}
       <div className="px-4 pb-4 pt-3 border-t border-zinc-100 dark:border-zinc-800 flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <span className="text-xs text-zinc-500 dark:text-zinc-400">停留</span>
@@ -161,32 +154,15 @@ export default function TransitRecommendationCard({
         </div>
 
         <button
-          onClick={handleInsert}
-          disabled={loading}
-          className="shrink-0 flex items-center gap-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-60 dark:bg-blue-500 dark:hover:bg-blue-600 px-3.5 py-1.5 text-sm font-medium text-white transition-colors"
+          onClick={handleAddToCart}
+          className="shrink-0 flex items-center gap-1.5 rounded-lg bg-violet-600 hover:bg-violet-700 dark:bg-violet-500 dark:hover:bg-violet-600 px-3.5 py-1.5 text-sm font-medium text-white transition-colors"
         >
-          {loading ? (
-            <>
-              <svg className="animate-spin w-3.5 h-3.5" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-              </svg>
-              加入中…
-            </>
-          ) : (
-            <>
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-              </svg>
-              加入行程
-            </>
-          )}
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+          </svg>
+          加入待選清單
         </button>
       </div>
-
-      {error && (
-        <div className="px-4 pb-3 text-xs text-red-600 dark:text-red-400">{error}</div>
-      )}
     </div>
   );
 }
