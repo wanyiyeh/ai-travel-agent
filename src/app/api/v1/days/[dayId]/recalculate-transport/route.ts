@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma, j } from "@/lib/db";
 import { openai } from "@/lib/openai";
+import { getDistancesForStopPairs } from "@/lib/distanceMatrix";
 
 const RequestSchema = z.object({
   itineraryId: z.string().min(1),
@@ -65,8 +66,22 @@ export async function POST(
       ? "機場（去程航班抵達）"
       : prevAccommodation ?? "前一天住宿";
 
+    const distanceResults = await getDistancesForStopPairs(
+      stops.map((s) => ({
+        id: s.id as string,
+        lat: s.lat as number | null | undefined,
+        lng: s.lng as number | null | undefined,
+      }))
+    );
+
     const stopList = stops
-      .map((s, i) => `${i + 1}. ID="${s.id}" 景點名稱：${s.name}`)
+      .map((s, i) => {
+        const dist = i > 0 ? distanceResults[i - 1] : null;
+        const distInfo = dist
+          ? `（Google Maps 實際：${dist.distanceText}，開車 ${dist.durationText}）`
+          : "";
+        return `${i + 1}. ID="${s.id}" 景點名稱：${s.name}${distInfo}`;
+      })
       .join("\n");
 
     const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";

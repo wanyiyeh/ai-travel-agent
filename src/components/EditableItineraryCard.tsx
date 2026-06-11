@@ -77,9 +77,11 @@ export default function EditableItineraryCard({
 
   const scrollToDay = (dayNum: number) =>
     document.getElementById(`day-card-${dayNum}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  const [removingWaypoint, setRemovingWaypoint] = useState<string | null>(null);
   const [regenerating, setRegenerating] = useState<string | null>(null);
   const [recalculatingDay, setRecalculatingDay] = useState<string | null>(null);
   const [regeneratingAccommodation, setRegeneratingAccommodation] = useState<string | null>(null);
+  const [accommodationErrors, setAccommodationErrors] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [snapshotBeforeDrag, setSnapshotBeforeDrag] =
@@ -467,9 +469,32 @@ export default function EditableItineraryCard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const handleRemoveWaypoint = async (transitTo: string) => {
+    if (!confirm(`確定要移除「${transitTo}」的移動日與所有停留天嗎？此操作無法復原。`)) return;
+    setRemovingWaypoint(transitTo);
+    setError(null);
+    try {
+      const res = await fetch(`/api/v1/itinerary/${data.id}/remove-waypoint`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ transitTo }),
+      });
+      if (!res.ok) {
+        const d = await res.json();
+        throw new Error(d.error || "移除失敗");
+      }
+      onUpdate?.();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "移除失敗");
+      setTimeout(() => setError(null), 6000);
+    } finally {
+      setRemovingWaypoint(null);
+    }
+  };
+
   const handleRegenerateAccommodation = async (dayId: string) => {
     setRegeneratingAccommodation(dayId);
-    setError(null);
+    setAccommodationErrors((prev) => { const next = { ...prev }; delete next[dayId]; return next; });
     try {
       const regenRes = await fetch(`/api/v1/days/${dayId}/accommodation/regenerate`, {
         method: "POST",
@@ -493,7 +518,10 @@ export default function EditableItineraryCard({
         updateDayAccommodation(dayId, enrichData.accommodation as Accommodation);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "重新推薦失敗");
+      setAccommodationErrors((prev) => ({
+        ...prev,
+        [dayId]: err instanceof Error ? err.message : "重新推薦失敗",
+      }));
     } finally {
       setRegeneratingAccommodation(null);
     }
@@ -690,12 +718,32 @@ export default function EditableItineraryCard({
                   <div className="flex items-center gap-3">
                     {isTransitDay ? (
                       day.transitTo && (
-                        <div className="text-sm text-white/90 flex items-center gap-1.5">
-                          <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                          </svg>
-                          前往 {day.transitTo}
+                        <div className="flex items-center gap-2">
+                          <div className="text-sm text-white/90 flex items-center gap-1.5">
+                            <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                            </svg>
+                            前往 {day.transitTo}
+                          </div>
+                          <button
+                            onClick={() => handleRemoveWaypoint(day.transitTo!)}
+                            disabled={removingWaypoint === day.transitTo}
+                            className="flex items-center gap-1 rounded-md bg-white/20 hover:bg-red-500/60 disabled:opacity-50 transition-colors px-2 py-1 text-xs font-medium text-white"
+                            title="移除此城市段落"
+                          >
+                            {removingWaypoint === day.transitTo ? (
+                              <svg className="animate-spin w-3.5 h-3.5" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                              </svg>
+                            ) : (
+                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                              </svg>
+                            )}
+                            移除
+                          </button>
                         </div>
                       )
                     ) : (
@@ -734,23 +782,85 @@ export default function EditableItineraryCard({
                     )}
                   </div>
                 </div>
-                {day.accommodation && (
+                {day.accommodation && day.accommodation.name !== "無需住宿" && (
                   <div className="mt-2 flex items-center gap-1.5 text-xs text-white/80">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="size-3.5 shrink-0">
                       <path d="M10 12.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z" />
                       <path fillRule="evenodd" d="M.664 10.59a1.651 1.651 0 0 1 0-1.186A10.004 10.004 0 0 1 10 3c4.257 0 7.893 2.66 9.336 6.41.147.381.146.804 0 1.186A10.004 10.004 0 0 1 10 17c-4.257 0-7.893-2.66-9.336-6.41ZM14 10a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z" clipRule="evenodd" />
                     </svg>
-                    住宿建議：{day.accommodation.name}・{day.accommodation.area}
+                    住宿建議：{day.accommodation.name}{day.accommodation.area && day.accommodation.area !== day.accommodation.name ? `・${day.accommodation.area}` : ""}
                   </div>
                 )}
               </div>
 
-              {!isCollapsed && isTransitDay && (
+              {!isCollapsed && isTransitDay && day.stops.length === 0 && (
                 <div className="px-5 py-4 text-sm text-zinc-500 dark:text-zinc-400 flex items-center gap-2">
                   <svg className="w-4 h-4 shrink-0 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
                   </svg>
                   移動日，無景點安排。抵達後可自行新增行程。
+                </div>
+              )}
+
+              {!isCollapsed && isTransitDay && day.stops.length > 0 && (
+                <div className="p-5">
+                  <div className="space-y-0">
+                    {(() => {
+                      let lastTimeOfDay: string | undefined = undefined;
+                      return day.stops.map((stop, idx) => {
+                        const showTimeHeader =
+                          stop.time_of_day !== undefined &&
+                          stop.time_of_day !== lastTimeOfDay;
+                        if (stop.time_of_day) lastTimeOfDay = stop.time_of_day;
+                        return (
+                          <div key={stop.id || idx}>
+                            {showTimeHeader && (
+                              <div className="flex items-center gap-2 py-2 mb-1">
+                                <span className="text-xs font-semibold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">
+                                  {TIME_OF_DAY_LABELS[stop.time_of_day!]}
+                                </span>
+                                <div className="flex-1 h-px bg-zinc-100 dark:bg-zinc-800" />
+                              </div>
+                            )}
+                            {stop.transport_from_prev && (
+                              <div className="flex items-center gap-2 py-1.5 pl-1 mb-1">
+                                <svg className="w-3.5 h-3.5 text-zinc-300 dark:text-zinc-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+                                </svg>
+                                <span className="text-xs text-zinc-400 dark:text-zinc-500">
+                                  {stop.transport_from_prev}
+                                </span>
+                              </div>
+                            )}
+                            <div className="rounded-lg bg-amber-50 dark:bg-amber-950/20 border border-amber-100 dark:border-amber-900/40 p-3 mb-2">
+                              <div className="flex items-start gap-3">
+                                <div className="flex-1 min-w-0">
+                                  <p className="font-semibold text-zinc-800 dark:text-zinc-200 text-sm leading-snug">
+                                    {stop.name}
+                                  </p>
+                                  <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5 leading-snug">
+                                    {stop.description}
+                                  </p>
+                                  <div className="flex items-center gap-3 mt-1.5 flex-wrap">
+                                    {stop.duration_minutes > 0 && (
+                                      <span className="text-xs text-zinc-400 dark:text-zinc-500">
+                                        {formatDuration(stop.duration_minutes)}
+                                      </span>
+                                    )}
+                                    {stop.estimated_cost != null && stop.estimated_cost > 0 && (
+                                      <span className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">
+                                        {[itinerary.currency, stop.estimated_cost.toLocaleString()].filter(Boolean).join(" ")}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      });
+                    })()}
+                  </div>
                 </div>
               )}
 
@@ -813,75 +923,102 @@ export default function EditableItineraryCard({
                 </div>
               )}
 
-              {!isCollapsed && day.accommodation && (
+              {!isCollapsed && !isTransitDay && day.accommodation?.name !== "無需住宿" && (
                 <div className="px-5 pb-5">
                   <div className="border-t border-zinc-100 dark:border-zinc-800 pt-4">
                     <div className="flex items-center justify-between mb-3">
                       <p className="text-xs font-semibold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">
                         住宿推薦
                       </p>
-                      <button
-                        onClick={() => day.id && handleRegenerateAccommodation(day.id)}
-                        disabled={regeneratingAccommodation === day.id}
-                        className="flex items-center gap-1 text-xs text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 disabled:opacity-50 transition-colors"
-                      >
-                        {regeneratingAccommodation === day.id ? (
-                          <>
-                            <svg className="animate-spin w-3 h-3" fill="none" viewBox="0 0 24 24">
-                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                            </svg>
-                            推薦中…
-                          </>
-                        ) : (
-                          <>
-                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3 h-3">
-                              <path fillRule="evenodd" d="M15.312 11.424a5.5 5.5 0 0 1-9.201 2.466l-.312-.311h2.433a.75.75 0 0 0 0-1.5H3.989a.75.75 0 0 0-.75.75v4.242a.75.75 0 0 0 1.5 0v-2.43l.31.31a7 7 0 0 0 11.712-3.138.75.75 0 0 0-1.449-.39Zm1.23-3.723a.75.75 0 0 0 .219-.53V2.929a.75.75 0 0 0-1.5 0V5.36l-.31-.31A7 7 0 0 0 3.239 8.188a.75.75 0 1 0 1.448.389A5.5 5.5 0 0 1 13.89 6.11l.311.31h-2.432a.75.75 0 0 0 0 1.5h4.243a.75.75 0 0 0 .53-.219Z" clipRule="evenodd" />
-                            </svg>
-                            重新推薦
-                          </>
-                        )}
-                      </button>
+                      {day.accommodation && regeneratingAccommodation !== day.id && (
+                        <button
+                          onClick={() => day.id && handleRegenerateAccommodation(day.id)}
+                          disabled={regeneratingAccommodation === day.id}
+                          className="flex items-center gap-1 text-xs text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 disabled:opacity-50 transition-colors"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3 h-3">
+                            <path fillRule="evenodd" d="M15.312 11.424a5.5 5.5 0 0 1-9.201 2.466l-.312-.311h2.433a.75.75 0 0 0 0-1.5H3.989a.75.75 0 0 0-.75.75v4.242a.75.75 0 0 0 1.5 0v-2.43l.31.31a7 7 0 0 0 11.712-3.138.75.75 0 0 0-1.449-.39Zm1.23-3.723a.75.75 0 0 0 .219-.53V2.929a.75.75 0 0 0-1.5 0V5.36l-.31-.31A7 7 0 0 0 3.239 8.188a.75.75 0 1 0 1.448.389A5.5 5.5 0 0 1 13.89 6.11l.311.31h-2.432a.75.75 0 0 0 0 1.5h4.243a.75.75 0 0 0 .53-.219Z" clipRule="evenodd" />
+                          </svg>
+                          重新推薦
+                        </button>
+                      )}
                     </div>
-                    <div className="rounded-lg bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-100 dark:border-indigo-900/50 p-3">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="flex-1 min-w-0">
-                          <p className="font-semibold text-zinc-800 dark:text-zinc-200 text-sm leading-snug">
-                            {day.accommodation.name}
-                          </p>
-                          <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-                            {day.accommodation.area}
-                          </p>
-                          {day.accommodation.address && (
-                            <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-1 leading-snug">
-                              {day.accommodation.address}
+
+                    {regeneratingAccommodation === day.id ? (
+                      <div className="flex items-center gap-2 text-sm text-zinc-500 dark:text-zinc-400 py-2">
+                        <svg className="animate-spin w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                        </svg>
+                        為您探索住宿中…
+                      </div>
+                    ) : day.accommodation ? (
+                      <div className="rounded-lg bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-100 dark:border-indigo-900/50 p-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex-1 min-w-0">
+                            <p className="font-semibold text-zinc-800 dark:text-zinc-200 text-sm leading-snug">
+                              {day.accommodation.name}
                             </p>
-                          )}
-                          <div className="flex items-center gap-2 mt-1.5">
-                            {day.accommodation.rating != null && (
-                              <span className="text-xs text-amber-500 font-medium">
-                                ★ {day.accommodation.rating}
-                              </span>
+                            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+                              {day.accommodation.area}
+                            </p>
+                            {day.accommodation.address && (
+                              <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-1 leading-snug">
+                                {day.accommodation.address}
+                              </p>
                             )}
-                            {day.accommodation.priceLevel != null && day.accommodation.priceLevel > 0 && (
-                              <span className="text-xs text-zinc-400 dark:text-zinc-500">
-                                {"$".repeat(day.accommodation.priceLevel)}
-                              </span>
-                            )}
+                            <div className="flex items-center gap-2 mt-1.5">
+                              {day.accommodation.rating != null && (
+                                <span className="text-xs text-amber-500 font-medium">
+                                  ★ {day.accommodation.rating}
+                                </span>
+                              )}
+                              {day.accommodation.priceLevel != null && day.accommodation.priceLevel > 0 && (
+                                <span className="text-xs text-zinc-400 dark:text-zinc-500">
+                                  {"$".repeat(day.accommodation.priceLevel)}
+                                </span>
+                              )}
+                            </div>
                           </div>
+                          {day.accommodation.bookingUrl && (
+                            <a
+                              href={day.accommodation.bookingUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="shrink-0 rounded-md bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 px-2.5 py-1.5 text-xs font-medium text-white transition-colors"
+                            >
+                              前往訂房
+                            </a>
+                          )}
                         </div>
-                        {day.accommodation.bookingUrl && (
+                      </div>
+                    ) : (
+                      <div className="rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 p-3">
+                        <p className="text-sm text-zinc-600 dark:text-zinc-400 mb-2">
+                          {accommodationErrors[day.id ?? ""]
+                            ? "住宿推薦暫時失敗，可自行搜尋或稍後重試"
+                            : "準備預訂住宿了嗎？"}
+                        </p>
+                        <div className="flex items-center gap-3 flex-wrap">
                           <a
-                            href={day.accommodation.bookingUrl}
+                            href={`https://www.google.com/maps/search/hotels+near+${encodeURIComponent(day.theme ?? "")}`}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="shrink-0 rounded-md bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 px-2.5 py-1.5 text-xs font-medium text-white transition-colors"
+                            className="text-xs text-blue-500 hover:text-blue-600 dark:text-blue-400 underline transition-colors"
                           >
-                            前往訂房
+                            搜尋附近飯店 →
                           </a>
-                        )}
+                          {day.id && (
+                            <button
+                              onClick={() => handleRegenerateAccommodation(day.id!)}
+                              className="text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 transition-colors"
+                            >
+                              讓 AI 推薦
+                            </button>
+                          )}
+                        </div>
                       </div>
-                    </div>
+                    )}
                   </div>
                 </div>
               )}

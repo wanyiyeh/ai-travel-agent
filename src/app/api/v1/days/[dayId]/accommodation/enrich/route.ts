@@ -110,12 +110,13 @@ export async function POST(
 
     const departureDate = config.flightInfo?.departureDate;
     if (departureDate) {
-      const checkinDate = new Date(`${departureDate}T00:00:00`);
-      checkinDate.setDate(checkinDate.getDate() + dayNumber - 1);
-      const checkoutDate = new Date(checkinDate);
-      checkoutDate.setDate(checkoutDate.getDate() + 1);
-      bookingParams.set("checkin", checkinDate.toISOString().split("T")[0]);
-      bookingParams.set("checkout", checkoutDate.toISOString().split("T")[0]);
+      const localDateStr = (base: string, offsetDays: number): string => {
+        const [y, m, d] = base.split("-").map(Number);
+        const dt = new Date(y, m - 1, d + offsetDays);
+        return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+      };
+      bookingParams.set("checkin", localDateStr(departureDate, dayNumber - 1));
+      bookingParams.set("checkout", localDateStr(departureDate, dayNumber));
     }
 
     const bookingUrl = `https://www.booking.com/search.html?${bookingParams.toString()}`;

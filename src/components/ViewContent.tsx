@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import Link from "next/link";
 import EditableItineraryCard from "@/components/EditableItineraryCard";
 import ItineraryMap from "@/components/ItineraryMap";
 import TransitRecommendationsPanel from "@/components/TransitRecommendationsPanel";
+import type { TransitRecommendation, CartItem } from "@/types/itinerary";
 
 const DEFAULT_EXCHANGE_RATES: Record<string, number> = {
   JPY: 0.21, KRW: 0.023, CNY: 4.4, HKD: 4.1, SGD: 24,
@@ -37,7 +38,61 @@ export default function ViewContent({ id }: ViewContentProps) {
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<"list" | "map">("list");
   const [exchangeRate, setExchangeRate] = useState(35);
+  const [cartItems, setCartItems] = useState<CartItem[]>([]);
+  const [isApplying, setIsApplying] = useState(false);
+  const [insertionReason, setInsertionReason] = useState("");
+  const [insertAfterDay, setInsertAfterDay] = useState<number | undefined>(undefined);
   const transitPanelRef = useRef<HTMLDivElement>(null);
+
+  const handleAddToCart = (rec: TransitRecommendation, stayDays: number) => {
+    setCartItems((prev) => {
+      if (prev.some((i) => i.recommendation.name === rec.name)) return prev;
+      return [...prev, { recommendation: rec, stayDays, order: prev.length }];
+    });
+  };
+
+  const handleRemoveFromCart = (name: string) => {
+    setCartItems((prev) => prev.filter((i) => i.recommendation.name !== name));
+  };
+
+  const handleUpdateCartStayDays = (name: string, days: number) => {
+    setCartItems((prev) =>
+      prev.map((i) => (i.recommendation.name === name ? { ...i, stayDays: days } : i))
+    );
+  };
+
+  const handleReorderCart = (newItems: CartItem[]) => {
+    setCartItems(newItems);
+  };
+
+  const handleBatchApply = async () => {
+    if (!data || cartItems.length === 0) return;
+    setIsApplying(true);
+    setInsertionReason("");
+    try {
+      const res = await fetch(`/api/v1/itinerary/${data.id}/batch-insert-waypoints`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          items: cartItems.map(({ recommendation, stayDays }) => ({ recommendation, stayDays })),
+          maxDays: transitPanelProps?.maxDays,
+          insertAfterDay,
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json();
+        throw new Error(body.error ?? "批次插入失敗");
+      }
+      const result = await res.json();
+      setCartItems([]);
+      setInsertionReason(result.insertionReason ?? "");
+    } catch {
+      // keep cart intact so user can retry
+    } finally {
+      setIsApplying(false);
+      fetchData();
+    }
+  };
 
   const scrollToTransitPanel = () => {
     transitPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -80,7 +135,52 @@ export default function ViewContent({ id }: ViewContentProps) {
     }
   }, [data?.data?.currency]);
 
-  if (loading) {
+  useEffect(() => {
+    const days = data?.data?.days;
+    if (Array.isArray(days) && days.length > 1 && insertAfterDay === undefined) {
+      setInsertAfterDay(Math.max(1, Math.floor(days.length / 2)));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data?.data?.days]);
+
+  const transitPanelProps = useMemo(() => {
+    const flightInfo = data?.config?.flightInfo;
+    if (!flightInfo) return null;
+    const { arrivalCity, returnDepartureCity, departureDate, returnDate } = flightInfo;
+    if (!arrivalCity || !returnDepartureCity) return null;
+    const isSingleCity = arrivalCity === returnDepartureCity;
+    let maxDays: number | undefined;
+    if (departureDate && returnDate) {
+      const dep = new Date(departureDate);
+      const ret = new Date(returnDate);
+      maxDays = Math.max(1, Math.ceil((ret.getTime() - dep.getTime()) / (1000 * 60 * 60 * 24)));
+    }
+    const currentDays = (data.data?.days as unknown[])?.length;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const transitStopNames: string[] = (data.data?.days ?? [])
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .filter((d: any) => d.isTransitDay && d.transitTo)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .map((d: any) => d.transitTo as string);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const daysList = (data.data?.days ?? []).map((d: any) => ({
+      day: d.day as number,
+      theme: (d.theme as string) ?? "",
+      isTransitDay: d.isTransitDay === true,
+    }));
+    return {
+      itineraryId: data.id as string,
+      originIata: arrivalCity as string,
+      destinationIata: returnDepartureCity as string,
+      existingStops: [arrivalCity, ...transitStopNames, returnDepartureCity] as string[],
+      maxDays,
+      currentDays: currentDays as number | undefined,
+      days: daysList,
+      isSingleCity,
+    };
+  }, [data]);
+
+  if (loading && !data) {
     return (
       <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 py-16 px-4">
         <div className="max-w-2xl mx-auto space-y-6">
@@ -130,20 +230,32 @@ export default function ViewContent({ id }: ViewContentProps) {
   const renderRouteBreadcrumb = () => {
     if (!data?.config?.flightInfo) return null;
     const { departureCity, returnDepartureCity, arrivalCity } = data.config.flightInfo;
+
+    // Only user-inserted waypoints (waypointCity set by insert-waypoint route), deduplicated in order
+    const waypointCities: string[] = [];
+    const seenWaypoints = new Set<string>();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const transitStops: string[] = (data.data?.days ?? [])
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .filter((d: any) => d.isTransitDay && d.transitTo)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .map((d: any) => d.transitTo as string);
+    for (const d of (data.data?.days ?? []) as any[]) {
+      const city = d.waypointCity as string | undefined;
+      if (city && !seenWaypoints.has(city)) {
+        seenWaypoints.add(city);
+        waypointCities.push(city);
+      }
+    }
+    const waypointSet = new Set(waypointCities);
+
     const dest = returnDepartureCity || arrivalCity;
-    const nodes = [departureCity, ...transitStops, dest].filter(Boolean);
+    const rawNodes = [departureCity, arrivalCity, ...waypointCities, dest].filter(Boolean) as string[];
+    // Remove consecutive duplicates (e.g. single-city where arrivalCity === dest)
+    const nodes = rawNodes.filter((n, i) => i === 0 || n !== rawNodes[i - 1]);
     if (nodes.length < 2) return null;
+
     return (
       <div className="mb-6 overflow-x-auto pb-1">
         <div className="flex items-center gap-1 min-w-max">
           {nodes.map((code: string, idx: number) => {
-            const isTransitNode = idx > 0 && idx < nodes.length - 1 && transitStops.includes(code);
+            const isWaypoint = waypointSet.has(code);
+            const isEndpoint = idx === 0 || idx === nodes.length - 1;
             return (
               <div key={idx} className="flex items-center gap-1">
                 {idx > 0 && (
@@ -152,16 +264,16 @@ export default function ViewContent({ id }: ViewContentProps) {
                   </svg>
                 )}
                 <div className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 ${
-                  isTransitNode
+                  isWaypoint
                     ? "border-violet-200 dark:border-violet-800/50 bg-violet-50 dark:bg-violet-950/20"
-                    : idx === 0 || idx === nodes.length - 1
+                    : isEndpoint
                     ? "border-blue-200 dark:border-blue-800/50 bg-blue-50 dark:bg-blue-950/20"
                     : "border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900"
                 }`}>
                   <span className={`text-xs font-mono font-bold ${
-                    isTransitNode
+                    isWaypoint
                       ? "text-violet-700 dark:text-violet-300"
-                      : idx === 0 || idx === nodes.length - 1
+                      : isEndpoint
                       ? "text-blue-700 dark:text-blue-300"
                       : "text-zinc-700 dark:text-zinc-300"
                   }`}>
@@ -238,34 +350,29 @@ export default function ViewContent({ id }: ViewContentProps) {
   };
 
   const renderTransitPanel = () => {
-    const flightInfo = data?.config?.flightInfo;
-    if (!flightInfo) return null;
-    const { arrivalCity, returnDepartureCity, departureDate, returnDate } = flightInfo;
-    if (!arrivalCity || !returnDepartureCity || arrivalCity === returnDepartureCity) return null;
-    let maxDays: number | undefined;
-    if (departureDate && returnDate) {
-      const dep = new Date(departureDate);
-      const ret = new Date(returnDate);
-      maxDays = Math.max(1, Math.ceil((ret.getTime() - dep.getTime()) / (1000 * 60 * 60 * 24)));
-    }
-    const currentDays = (data.data?.days as unknown[])?.length;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const transitStopNames: string[] = (data.data?.days ?? [])
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .filter((d: any) => d.isTransitDay && d.transitTo)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .map((d: any) => d.transitTo as string);
-    const existingStops = [arrivalCity, ...transitStopNames, returnDepartureCity];
+    if (!transitPanelProps) return null;
     return (
       <div ref={transitPanelRef}>
         <TransitRecommendationsPanel
-          itineraryId={data.id}
-          originIata={arrivalCity}
-          destinationIata={returnDepartureCity}
-          existingStops={existingStops}
+          itineraryId={transitPanelProps.itineraryId}
+          originIata={transitPanelProps.originIata}
+          destinationIata={transitPanelProps.destinationIata}
+          existingStops={transitPanelProps.existingStops}
           onInserted={fetchData}
-          maxDays={maxDays}
-          currentDays={currentDays}
+          maxDays={transitPanelProps.maxDays}
+          currentDays={transitPanelProps.currentDays}
+          days={transitPanelProps.days}
+          insertAfterDay={insertAfterDay}
+          onSelectInsertAfterDay={setInsertAfterDay}
+          cartItems={cartItems}
+          onAddToCart={handleAddToCart}
+          onRemoveFromCart={handleRemoveFromCart}
+          onUpdateCartStayDays={handleUpdateCartStayDays}
+          onReorderCart={handleReorderCart}
+          onBatchApply={handleBatchApply}
+          isApplying={isApplying}
+          insertionReason={insertionReason}
+          isSingleCity={transitPanelProps.isSingleCity}
         />
       </div>
     );
