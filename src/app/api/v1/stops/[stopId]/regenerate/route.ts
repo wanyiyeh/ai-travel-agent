@@ -4,6 +4,7 @@ import { prisma, j } from "@/lib/db";
 import { openai } from "@/lib/openai";
 import { StopSchema } from "@/lib/schemas";
 import { getMockMode, mockDelay, MOCK_FIXTURES } from "@/lib/mockAi";
+import { fetchNearbyPlaces } from "@/lib/fetchCityRestaurants";
 
 const RequestSchema = z.object({
   itineraryId: z.string().min(1),
@@ -91,6 +92,26 @@ export async function POST(
       return stops ? stops.map((s) => s.name as string).filter(Boolean) : [];
     });
 
+    const googleApiKey = process.env.GOOGLE_PLACES_API_KEY;
+    let attractionHintsText = "";
+    if (googleApiKey) {
+      const stopLat = targetStop.lat as number | null | undefined;
+      const stopLng = targetStop.lng as number | null | undefined;
+      if (stopLat && stopLng) {
+        const nearby = await fetchNearbyPlaces(
+          { lat: stopLat, lng: stopLng },
+          googleApiKey,
+          ["tourist_attraction", "museum", "park"],
+          5000,
+          10,
+        );
+        const candidates = nearby.filter((a) => !allStopNames.includes(a.name));
+        if (candidates.length > 0) {
+          attractionHintsText = `\n\n【附近真實景點清單 — 必須從中選擇】\n以下為 Google Maps 驗證的真實景點，請從候選清單中挑選一個推薦：\n${candidates.map((a) => `${a.name}${a.rating ? `（${a.rating}★）` : ""}`).join("、")}`;
+        }
+      }
+    }
+
     const completion = await openai.chat.completions.create({
       model,
       messages: [
@@ -100,7 +121,7 @@ export async function POST(
 Output strictly valid JSON matching this schema:
 { name: string, description: string, duration_minutes: number }
 Suggest a different attraction than the current one for the same trip.
-IMPORTANT: Do NOT suggest any of the following places that are already in the itinerary: ${allStopNames.map((n) => `"${n}"`).join(", ")}`,
+IMPORTANT: Do NOT suggest any of the following places that are already in the itinerary: ${allStopNames.map((n) => `"${n}"`).join(", ")}${attractionHintsText}`,
         },
         {
           role: "user",
