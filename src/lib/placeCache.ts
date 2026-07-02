@@ -1,0 +1,56 @@
+import { prisma } from "@/lib/db";
+
+export interface CachedPlace {
+  placeId: string;
+  name: string;
+  address: string | null;
+  lat: number | null;
+  lng: number | null;
+  rating: number | null;
+}
+
+export async function lookupByQuery(query: string): Promise<CachedPlace | null> {
+  const hit = await prisma.placeQuery.findUnique({
+    where: { query },
+    include: { place: true },
+  });
+  if (!hit) return null;
+  const p = hit.place;
+  return { placeId: p.id, name: p.name, address: p.address, lat: p.lat, lng: p.lng, rating: p.rating };
+}
+
+export async function lookupByPlaceId(placeId: string): Promise<CachedPlace | null> {
+  const p = await prisma.place.findUnique({ where: { id: placeId } });
+  if (!p) return null;
+  return { placeId: p.id, name: p.name, address: p.address, lat: p.lat, lng: p.lng, rating: p.rating };
+}
+
+export async function upsertPlace(
+  query: string,
+  data: { placeId: string; name: string; address: string | null; lat: number; lng: number; rating?: number | null }
+): Promise<void> {
+  await prisma.place.upsert({
+    where: { id: data.placeId },
+    create: {
+      id: data.placeId,
+      name: data.name,
+      address: data.address,
+      lat: data.lat,
+      lng: data.lng,
+      rating: data.rating ?? null,
+    },
+    update: {
+      name: data.name,
+      address: data.address,
+      lat: data.lat,
+      lng: data.lng,
+      rating: data.rating ?? null,
+    },
+  });
+
+  await prisma.placeQuery.upsert({
+    where: { query },
+    create: { query, placeId: data.placeId },
+    update: { placeId: data.placeId },
+  });
+}

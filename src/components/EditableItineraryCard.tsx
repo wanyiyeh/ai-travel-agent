@@ -83,9 +83,13 @@ export default function EditableItineraryCard({
   const [regeneratingAccommodation, setRegeneratingAccommodation] = useState<string | null>(null);
   const [accommodationErrors, setAccommodationErrors] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
+  const [addingToDay, setAddingToDay] = useState<string | null>(null);
+  const [newStopName, setNewStopName] = useState("");
+  const [addingStop, setAddingStop] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [snapshotBeforeDrag, setSnapshotBeforeDrag] =
     useState<Itinerary | null>(null);
+  const [enrichingAll, setEnrichingAll] = useState(false);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -527,7 +531,59 @@ export default function EditableItineraryCard({
     }
   };
 
+  const handleAddStop = async (dayId: string) => {
+    if (!newStopName.trim()) return;
+    setAddingStop(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/v1/days/${dayId}/stops`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ itineraryId: data.id, stopName: newStopName.trim() }),
+      });
+      if (!res.ok) {
+        const resData = await res.json();
+        throw new Error(resData.error || "新增失敗");
+      }
+      const { stop: newStop } = await res.json();
+      setItinerary((prev) => ({
+        ...prev,
+        days: prev.days.map((d) =>
+          d.id === dayId ? { ...d, stops: [...d.stops, newStop] } : d
+        ),
+      }));
+      setNewStopName("");
+      setAddingToDay(null);
+      onUpdate?.();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "新增景點失敗");
+    } finally {
+      setAddingStop(false);
+    }
+  };
+
   const activeStop = activeId ? findStopById(activeId) : undefined;
+
+  const handleEnrichAll = async () => {
+    setEnrichingAll(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/v1/itinerary/${data.id}/enrich-all-stops`, { method: "POST" });
+      if (!res.ok) {
+        const d = await res.json();
+        throw new Error(d.error || "批次 Enrich 失敗");
+      }
+      const refresh = await fetch(`/api/v1/itinerary/${data.id}`);
+      if (refresh.ok) {
+        const refreshed = await refresh.json();
+        setItinerary(refreshed.data);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "批次 Enrich 失敗");
+    } finally {
+      setEnrichingAll(false);
+    }
+  };
 
   return (
     <DndContext
@@ -570,6 +626,14 @@ export default function EditableItineraryCard({
               Day {day.day}
             </button>
           ))}
+          <div className="w-px h-4 shrink-0 bg-zinc-200 dark:bg-zinc-700" />
+          <button
+            onClick={handleEnrichAll}
+            disabled={enrichingAll}
+            className="shrink-0 rounded-md bg-blue-50 dark:bg-blue-900/30 px-2.5 py-1 text-xs font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            {enrichingAll ? "儲存地點中…" : "儲存所有地點"}
+          </button>
         </div>
 
         {!hideCostSummary && (() => {
@@ -920,6 +984,59 @@ export default function EditableItineraryCard({
                       })()}
                     </div>
                   </SortableContext>
+
+                  {/* Add stop */}
+                  {day.id && (
+                    <div className="mt-4 pt-4 border-t border-zinc-100 dark:border-zinc-800">
+                      {addingToDay === day.id ? (
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            autoFocus
+                            value={newStopName}
+                            onChange={(e) => setNewStopName(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") handleAddStop(day.id!);
+                              if (e.key === "Escape") { setAddingToDay(null); setNewStopName(""); }
+                            }}
+                            placeholder="輸入景點名稱，例：環球影城"
+                            disabled={addingStop}
+                            className="flex-1 px-3 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-50 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+                          />
+                          <button
+                            onClick={() => handleAddStop(day.id!)}
+                            disabled={addingStop || !newStopName.trim()}
+                            className="px-3 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors shrink-0"
+                          >
+                            {addingStop ? (
+                              <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                              </svg>
+                            ) : "新增"}
+                          </button>
+                          <button
+                            onClick={() => { setAddingToDay(null); setNewStopName(""); }}
+                            disabled={addingStop}
+                            className="px-3 py-1.5 bg-zinc-100 dark:bg-zinc-700 text-zinc-600 dark:text-zinc-300 text-sm rounded-lg hover:bg-zinc-200 dark:hover:bg-zinc-600 disabled:opacity-50 transition-colors shrink-0"
+                          >
+                            取消
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => { setAddingToDay(day.id!); setNewStopName(""); }}
+                          disabled={!!editingStop || !!loading}
+                          className="flex items-center gap-1.5 text-sm text-zinc-400 hover:text-blue-600 dark:hover:text-blue-400 disabled:opacity-30 transition-colors"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                          </svg>
+                          新增景點
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
 

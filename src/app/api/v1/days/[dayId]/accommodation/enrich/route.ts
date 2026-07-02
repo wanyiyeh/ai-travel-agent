@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma, j } from "@/lib/db";
+import { iataToCity } from "@/lib/iataCity";
+import { lookupByQuery, upsertPlace } from "@/lib/placeCache";
 
 const PLACES_API_URL = "https://places.googleapis.com/v1/places:searchText";
 
@@ -13,6 +15,7 @@ const PRICE_LEVEL_MAP: Record<string, number> = {
 
 interface PlaceResult {
   id: string;
+  displayName: { text: string };
   formattedAddress: string;
   location: { latitude: number; longitude: number };
   rating?: number;
@@ -30,6 +33,7 @@ async function searchPlace(query: string): Promise<PlaceResult | null> {
       "X-Goog-Api-Key": apiKey,
       "X-Goog-FieldMask": [
         "places.id",
+        "places.displayName",
         "places.formattedAddress",
         "places.location",
         "places.rating",
@@ -83,26 +87,68 @@ export async function POST(
       return NextResponse.json({ success: true, accommodation });
     }
 
-    const query = `${accommodation.name} ${accommodation.area}`;
-    const place = await searchPlace(query);
-
-    if (!place) {
-      return NextResponse.json(
-        { error: "Accommodation not found on Google Maps" },
-        { status: 404 }
-      );
-    }
-
     const config = itinerary.config as {
-      flightInfo?: { departureDate?: string };
+      flightInfo?: { departureDate?: string; arrivalCity?: string };
       preferences?: { travelers?: number };
     };
+
+    const accName = typeof accommodation.name === "string" ? accommodation.name : undefined;
+    const accArea = typeof accommodation.area === "string" ? accommodation.area : undefined;
+
+    // Derive city name from waypointCity tag or IATA arrival code
+    const waypointCity = typeof day.waypointCity === "string" ? day.waypointCity : undefined;
+    const iataCity = config.flightInfo?.arrivalCity
+      ? iataToCity(config.flightInfo.arrivalCity)
+      : undefined;
+    const cityHint = waypointCity ?? iataCity ?? "";
+
+    // Build a precise query: prefer hotel name, fall back to "hotel in area, city"
+    const query = accName
+      ? `${accName} ${accArea ?? ""} ${cityHint}`.trim()
+      : `hotel ${accArea ?? ""} ${cityHint}`.trim();
+
+    // Check cache before hitting Google API
+    const cached = await lookupByQuery(query);
+    let placeId: string;
+    let placeAddress: string | null;
+    let placeLat: number;
+    let placeLng: number;
+    let placeRating: number | null;
+    let placePriceLevel: number | null = null;
+
+    if (cached && cached.lat != null && cached.lng != null) {
+      placeId = cached.placeId;
+      placeAddress = cached.address;
+      placeLat = cached.lat;
+      placeLng = cached.lng;
+      placeRating = cached.rating;
+    } else {
+      const place = await searchPlace(query);
+      if (!place) {
+        return NextResponse.json(
+          { error: "Accommodation not found on Google Maps" },
+          { status: 404 }
+        );
+      }
+      placeId = place.id;
+      placeAddress = place.formattedAddress;
+      placeLat = place.location.latitude;
+      placeLng = place.location.longitude;
+      placeRating = place.rating ?? null;
+      placePriceLevel = place.priceLevel ? (PRICE_LEVEL_MAP[place.priceLevel] ?? null) : null;
+      await upsertPlace(query, { placeId: place.id, name: place.displayName.text, address: place.formattedAddress, lat: place.location.latitude, lng: place.location.longitude, rating: place.rating });
+    }
 
     const dayNumber = day.day as number;
     const travelers = config.preferences?.travelers ?? 2;
 
+    // ss: use hotel name when available, otherwise area + city — never "undefined"
+    const ssValue = accName
+      ? `${accName} ${accArea ?? ""}`.trim()
+      : `${accArea ?? ""} ${cityHint}`.trim();
+
     const bookingParams = new URLSearchParams({
-      ss: `${accommodation.name} ${accommodation.area}`,
+      ss: ssValue,
       lang: "zh-tw",
       group_adults: String(travelers),
       no_rooms: "1",
@@ -123,12 +169,12 @@ export async function POST(
 
     const enriched = {
       ...accommodation,
-      placeId: place.id,
-      lat: place.location.latitude,
-      lng: place.location.longitude,
-      address: place.formattedAddress,
-      rating: place.rating ?? null,
-      priceLevel: place.priceLevel ? (PRICE_LEVEL_MAP[place.priceLevel] ?? null) : null,
+      placeId,
+      lat: placeLat,
+      lng: placeLng,
+      address: placeAddress,
+      rating: placeRating,
+      priceLevel: placePriceLevel,
       bookingUrl,
     };
 

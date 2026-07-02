@@ -41,7 +41,7 @@ const IATA_CITY: Record<string, string> = {
   ATH: "雅典", IST: "伊斯坦堡",
   FCO: "羅馬", MXP: "米蘭", VCE: "威尼斯", NAP: "那不勒斯",
   BCN: "巴塞隆納", MAD: "馬德里", LIS: "里斯本",
-  NRT: "東京", KIX: "大阪", ICN: "首爾",
+  NRT: "東京", HND: "東京", KIX: "大阪", NGO: "名古屋", ICN: "首爾",
   BKK: "曼谷", SIN: "新加坡", HKG: "香港", KUL: "吉隆坡",
   DPS: "峇里島", SGN: "胡志明市", HAN: "河內", REP: "暹粒",
   SYD: "雪梨", MEL: "墨爾本", AKL: "奧克蘭",
@@ -91,6 +91,16 @@ const ROUTE_NEARBY: Record<string, NearbySuggestion[]> = {
   "KIX-NRT": [
     { name: "京都", country: "日本", transitTime: "15分鐘", mode: "新幹線" },
     { name: "名古屋", country: "日本", transitTime: "1小時", mode: "新幹線" },
+    { name: "廣島", country: "日本", transitTime: "1.5小時", mode: "新幹線" },
+  ],
+  "NGO-KIX": [
+    { name: "京都", country: "日本", transitTime: "35分鐘", mode: "新幹線" },
+    { name: "奈良", country: "日本", transitTime: "1小時", mode: "近鐵" },
+    { name: "神戶", country: "日本", transitTime: "1.5小時", mode: "新幹線" },
+  ],
+  "KIX-NGO": [
+    { name: "京都", country: "日本", transitTime: "15分鐘", mode: "新幹線" },
+    { name: "奈良", country: "日本", transitTime: "45分鐘", mode: "近鐵" },
     { name: "廣島", country: "日本", transitTime: "1.5小時", mode: "新幹線" },
   ],
   "BKK-SGN": [

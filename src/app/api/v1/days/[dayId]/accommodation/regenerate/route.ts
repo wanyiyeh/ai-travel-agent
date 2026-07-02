@@ -4,6 +4,7 @@ import { prisma, j } from "@/lib/db";
 import { openai } from "@/lib/openai";
 import { AccommodationSchema } from "@/lib/schemas";
 import { getMockMode, mockDelay, MOCK_FIXTURES } from "@/lib/mockAi";
+import { fetchNearbyPlaces, getIataCoords } from "@/lib/fetchCityRestaurants";
 
 const RequestSchema = z.object({
   itineraryId: z.string().min(1),
@@ -67,6 +68,34 @@ export async function POST(
     const stopNames = stops.map((s) => s.name as string).filter(Boolean);
     const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
 
+    const googleApiKey = process.env.GOOGLE_PLACES_API_KEY;
+    let hotelHintsText = "";
+    if (googleApiKey) {
+      const enrichedStops = stops.filter(
+        (s) => typeof s.lat === "number" && typeof s.lng === "number"
+      ) as { lat: number; lng: number }[];
+
+      let coords: { lat: number; lng: number } | null = null;
+      if (enrichedStops.length > 0) {
+        coords = {
+          lat: enrichedStops.reduce((sum, s) => sum + s.lat, 0) / enrichedStops.length,
+          lng: enrichedStops.reduce((sum, s) => sum + s.lng, 0) / enrichedStops.length,
+        };
+      } else {
+        const config = itinerary.config as { flightInfo?: { arrivalCity?: string } };
+        const iataCode = config.flightInfo?.arrivalCity;
+        if (iataCode) coords = getIataCoords(iataCode);
+      }
+
+      if (coords) {
+        const hotels = await fetchNearbyPlaces(coords, googleApiKey, ["lodging"], 2000, 10);
+        const candidates = hotels.filter((h) => h.name !== currentAccommodation?.name);
+        if (candidates.length > 0) {
+          hotelHintsText = `\n\n【附近真實住宿清單 — 必須從中選擇】\n以下為 Google Maps 驗證的真實住宿，請從中挑選最適合的一間：\n${candidates.map((h) => `${h.name}${h.rating ? `（${h.rating}★）` : ""}`).join("、")}`;
+        }
+      }
+    }
+
     const completion = await openai.chat.completions.create({
       model,
       messages: [
@@ -78,7 +107,7 @@ export async function POST(
 要求：
 - 推薦真實存在且可在 Booking.com 找到的飯店或住宿
 - 位置盡量靠近當天景點的地理重心
-- 不要重複推薦目前已有的住宿${currentAccommodation ? `（目前住宿：${currentAccommodation.name}）` : ""}`,
+- 不要重複推薦目前已有的住宿${currentAccommodation ? `（目前住宿：${currentAccommodation.name}）` : ""}${hotelHintsText}`,
         },
         {
           role: "user",

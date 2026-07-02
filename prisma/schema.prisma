@@ -51,12 +51,19 @@ model Stop {
 
 
 model Place {
-  id          String   @id
-  name        String
-  address     String?
-  location    String?
-  rating      Float?
-  userRatings Int?
-  photoRef    String?
-  updatedAt   DateTime @updatedAt
+  id        String        @id
+  name      String
+  address   String?
+  lat       Float?
+  lng       Float?
+  rating    Float?
+  updatedAt DateTime      @updatedAt
+  queries   PlaceQuery[]
+}
+
+model PlaceQuery {
+  query    String   @id
+  placeId  String
+  place    Place    @relation(fields: [placeId], references: [id])
+  cachedAt DateTime @default(now())
 }
