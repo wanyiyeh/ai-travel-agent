@@ -14,6 +14,8 @@ export type Stop = {
   address?: string;
   rating?: number | null;
   openingHours?: string | null;
+  suspicious?: boolean;
+  suspiciousReason?: string;
 };
 
 export type Accommodation = {
