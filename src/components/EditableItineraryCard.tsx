@@ -89,7 +89,7 @@ export default function EditableItineraryCard({
   const [activeId, setActiveId] = useState<string | null>(null);
   const [snapshotBeforeDrag, setSnapshotBeforeDrag] =
     useState<Itinerary | null>(null);
-  const [enrichingAll, setEnrichingAll] = useState(false);
+  const [enrichWarning, setEnrichWarning] = useState<string | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -473,6 +473,31 @@ export default function EditableItineraryCard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    async function enrichAllStops() {
+      try {
+        const res = await fetch(`/api/v1/itinerary/${data.id}/enrich-all-stops`, { method: "POST" });
+        if (!res.ok) return;
+        const result = await res.json();
+        const refresh = await fetch(`/api/v1/itinerary/${data.id}`);
+        if (refresh.ok) {
+          const refreshed = await refresh.json();
+          setItinerary(refreshed.data);
+        }
+        if (result.suspicious > 0) {
+          const names = (result.suspiciousStops as { name: string; day: number }[])
+            .map((s) => `第 ${s.day} 天・${s.name}`)
+            .join("、");
+          setEnrichWarning(`${result.suspicious} 個景點地點可能有誤，請點 ↗ 驗證：${names}`);
+        }
+      } catch {
+        // silently skip failed enrich
+      }
+    }
+    enrichAllStops();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const handleRemoveWaypoint = async (transitTo: string) => {
     if (!confirm(`確定要移除「${transitTo}」的移動日與所有停留天嗎？此操作無法復原。`)) return;
     setRemovingWaypoint(transitTo);
@@ -564,27 +589,6 @@ export default function EditableItineraryCard({
 
   const activeStop = activeId ? findStopById(activeId) : undefined;
 
-  const handleEnrichAll = async () => {
-    setEnrichingAll(true);
-    setError(null);
-    try {
-      const res = await fetch(`/api/v1/itinerary/${data.id}/enrich-all-stops`, { method: "POST" });
-      if (!res.ok) {
-        const d = await res.json();
-        throw new Error(d.error || "批次 Enrich 失敗");
-      }
-      const refresh = await fetch(`/api/v1/itinerary/${data.id}`);
-      if (refresh.ok) {
-        const refreshed = await refresh.json();
-        setItinerary(refreshed.data);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "批次 Enrich 失敗");
-    } finally {
-      setEnrichingAll(false);
-    }
-  };
-
   return (
     <DndContext
       sensors={sensors}
@@ -597,6 +601,15 @@ export default function EditableItineraryCard({
         {error && (
           <div className="rounded-lg border border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950 px-4 py-3 text-sm text-red-700 dark:text-red-300">
             {error}
+          </div>
+        )}
+        {enrichWarning && (
+          <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-800/60 dark:bg-amber-950/30 px-4 py-3 text-sm text-amber-800 dark:text-amber-300">
+            <svg className="w-4 h-4 mt-0.5 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
+            </svg>
+            <span className="flex-1">{enrichWarning}</span>
+            <button onClick={() => setEnrichWarning(null)} className="shrink-0 text-amber-500 hover:text-amber-700 dark:hover:text-amber-200">✕</button>
           </div>
         )}
 
@@ -626,14 +639,6 @@ export default function EditableItineraryCard({
               Day {day.day}
             </button>
           ))}
-          <div className="w-px h-4 shrink-0 bg-zinc-200 dark:bg-zinc-700" />
-          <button
-            onClick={handleEnrichAll}
-            disabled={enrichingAll}
-            className="shrink-0 rounded-md bg-blue-50 dark:bg-blue-900/30 px-2.5 py-1 text-xs font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            {enrichingAll ? "儲存地點中…" : "儲存所有地點"}
-          </button>
         </div>
 
         {!hideCostSummary && (() => {

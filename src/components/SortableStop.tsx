@@ -156,12 +156,46 @@ export function SortableStop({
           </div>
         ) : (
           <>
-            <p className="font-semibold text-zinc-900 dark:text-zinc-50 mb-1">
-              {stop.name}
-            </p>
+            <div className="flex items-start gap-1.5 mb-1">
+              <p className="font-semibold text-zinc-900 dark:text-zinc-50 leading-snug">
+                {stop.name}
+              </p>
+              {stop.suspicious && (
+                <span
+                  title={stop.suspiciousReason ?? "地點可能搜尋有誤"}
+                  className="mt-0.5 shrink-0 inline-flex items-center gap-0.5 rounded-full bg-amber-100 dark:bg-amber-900/40 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:text-amber-300"
+                >
+                  <svg className="w-2.5 h-2.5" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
+                  </svg>
+                  可疑
+                </span>
+              )}
+            </div>
             <p className="text-sm text-zinc-500 dark:text-zinc-400 leading-relaxed mb-2">
               {stop.description}
             </p>
+            {stop.address && (
+              <div className="flex items-center gap-1 mb-1.5">
+                <svg className="w-3 h-3 shrink-0 text-zinc-300 dark:text-zinc-600" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M9.69 18.933l.003.001C9.89 19.02 10 19 10 19s.11.02.308-.066l.002-.001.006-.003.018-.008a5.741 5.741 0 00.281-.14c.186-.096.446-.24.757-.433.62-.384 1.445-.966 2.274-1.765C15.302 14.988 17 12.493 17 9A7 7 0 103 9c0 3.492 1.698 5.988 3.355 7.584a13.731 13.731 0 002.273 1.765 11.842 11.842 0 00.976.544l.062.029.018.008.006.003ZM10 11.25a2.25 2.25 0 100-4.5 2.25 2.25 0 000 4.5Z" clipRule="evenodd" />
+                </svg>
+                <span className="text-[11px] text-zinc-400 dark:text-zinc-500 leading-tight line-clamp-1">
+                  {stop.address}
+                </span>
+                {stop.placeId && (
+                  <a
+                    href={`https://www.google.com/maps/place/?q=place_id:${stop.placeId}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="shrink-0 text-[11px] text-blue-400 hover:text-blue-600 dark:text-blue-500 dark:hover:text-blue-300 transition-colors"
+                    title="在 Google Maps 上驗證"
+                  >
+                    ↗
+                  </a>
+                )}
+              </div>
+            )}
             {stop.duration_minutes > 0 && (
               <p className="text-xs text-blue-600 dark:text-blue-400 font-medium">
                 ⏱ {formatDuration(stop.duration_minutes)}

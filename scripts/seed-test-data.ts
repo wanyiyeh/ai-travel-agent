@@ -30,6 +30,7 @@ import {
   tagWaypointCities,
 } from "@/lib/itineraryGen";
 import { fetchCityRestaurants, buildRestaurantHintsPrompt } from "@/lib/fetchCityRestaurants";
+import { lookupByQuery, upsertPlace } from "@/lib/placeCache";
 import { validateItinerary } from "@/lib/validateItinerary";
 // Load .env (Next.js doesn't inject env vars when running plain node)
 try {
@@ -361,6 +362,7 @@ async function searchPlaceForSeed(query: string, apiKey: string): Promise<PlaceE
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function enrichDaysWithPlaces(days: any[], apiKey: string): Promise<any[]> {
   let enriched = 0;
+  let cacheHits = 0;
   let skipped = 0;
 
   const result = [];
@@ -380,20 +382,20 @@ async function enrichDaysWithPlaces(days: any[], apiKey: string): Promise<any[]>
       }
 
       const query = city ? `${stop.name} ${city}` : (stop.name as string);
+
+      // Check DB cache first — skip API call if already known
+      const cached = await lookupByQuery(query);
+      if (cached && cached.lat != null && cached.lng != null) {
+        enrichedStops.push({ ...stop, placeId: cached.placeId, lat: cached.lat, lng: cached.lng, address: cached.address, rating: cached.rating });
+        cacheHits++;
+        continue;
+      }
+
       const placeData = await searchPlaceForSeed(query, apiKey);
 
       if (placeData) {
+        await upsertPlace(query, { placeId: placeData.placeId, name: placeData.name, address: placeData.address, lat: placeData.lat, lng: placeData.lng, rating: placeData.rating });
         enrichedStops.push({ ...stop, placeId: placeData.placeId, lat: placeData.lat, lng: placeData.lng, address: placeData.address, rating: placeData.rating ?? null });
-        await prisma.place.upsert({
-          where: { id: placeData.placeId },
-          create: { id: placeData.placeId, name: placeData.name, address: placeData.address, lat: placeData.lat, lng: placeData.lng, rating: placeData.rating ?? null },
-          update: { name: placeData.name, address: placeData.address, lat: placeData.lat, lng: placeData.lng, rating: placeData.rating ?? null },
-        });
-        await prisma.placeQuery.upsert({
-          where: { query },
-          create: { query, placeId: placeData.placeId },
-          update: { placeId: placeData.placeId },
-        });
         enriched++;
       } else {
         enrichedStops.push(stop);
@@ -407,7 +409,7 @@ async function enrichDaysWithPlaces(days: any[], apiKey: string): Promise<any[]>
     result.push({ ...day, stops: enrichedStops });
   }
 
-  console.log(`    📍 Places enrichment：${enriched} 成功，${skipped} 跳過`);
+  console.log(`    📍 Places enrichment：${enriched} API，${cacheHits} cache hit，${skipped} 跳過`);
   return result;
 }
 
