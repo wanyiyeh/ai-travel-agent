@@ -89,9 +89,9 @@
 
 #### 住宿管理
 
-- 元件掛載時自動對所有缺少 `placeId` 的住宿呼叫 `/api/v1/days/:dayId/accommodation/enrich`
-- 使用者可點擊「重新推薦」呼叫 `/api/v1/days/:dayId/accommodation/regenerate`，成功後立即再次 enrich
-- 顯示住宿名稱、區域、地址、評分（★）、價位（$$$）及訂房連結
+- 元件掛載時自動對所有缺少 `placeId` 的住宿呼叫 `/api/v1/days/:dayId/accommodation/enrich`（主要處理初次生成、只有 `area` 沒有 `name`/`placeId` 的舊資料）
+- 使用者點擊「換一間」（或空住宿時的「選擇住宿」）會展開 `AccommodationPicker`：呼叫 `/api/v1/days/:dayId/accommodation/regenerate` 取得一批真實住宿候選（第一項固定是目前住宿，標示「目前」），使用者點選其中一筆後呼叫 `/api/v1/days/:dayId/accommodation/select` 直接存檔——**AI 不參與挑選**，全程只用 Google Places 真實資料
+- 顯示住宿名稱、區域、地址、評分（★）、價位（$$$）及「在地圖上查看」連結（`https://www.google.com/maps/place/?q=place_id:<placeId>`）
 
 #### 移動日（Transit Day）
 
@@ -215,7 +215,7 @@
 | 景點 Marker | 圓形，依天數配色（8 色循環），顯示景點序號 |
 | 住宿 Marker | 方形紫色，顯示 🏨 圖示 |
 | 路線 Polyline | 依天數配色，箭頭朝行進方向，點擊開啟 Google Maps 導航 |
-| InfoWindow | 點擊 marker 顯示名稱、地址、評分、描述（住宿另有訂房連結） |
+| InfoWindow | 點擊 marker 顯示名稱、地址、評分、描述（住宿另有「在地圖上查看」連結，用 `placeId` 組成 Google Maps 網址） |
 | 天數篩選 | 頂部按鈕列可切換「全部天數」或單天，自動 fitBounds |
 
 ### API 呼叫
@@ -479,5 +479,6 @@ StreamingPreview       (獨立，生成中預覽)
 | `/api/v1/stops/reorder` | `POST` | EditableItineraryCard | 儲存景點排序 |
 | `/api/v1/days/:dayId/stops` | `POST` | EditableItineraryCard | 新增景點 |
 | `/api/v1/days/:dayId/recalculate-transport` | `POST` | EditableItineraryCard | 重算交通資訊 |
-| `/api/v1/days/:dayId/accommodation/enrich` | `POST` | EditableItineraryCard, ItineraryMap | 補充住宿地理資訊 |
-| `/api/v1/days/:dayId/accommodation/regenerate` | `POST` | EditableItineraryCard | AI 重新推薦住宿 |
+| `/api/v1/days/:dayId/accommodation/enrich` | `POST` | EditableItineraryCard, ItineraryMap | 補充住宿地理資訊（限舊資料，無 placeId 時才呼叫） |
+| `/api/v1/days/:dayId/accommodation/regenerate` | `POST` | AccommodationPicker | 取得附近真實住宿候選清單 |
+| `/api/v1/days/:dayId/accommodation/select` | `POST` | AccommodationPicker | 使用者選定候選後存檔 |

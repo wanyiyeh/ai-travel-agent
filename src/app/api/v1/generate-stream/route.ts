@@ -7,7 +7,7 @@ import {
 } from "@/lib/schemas";
 import { validateItinerary } from "@/lib/validateItinerary";
 import { iataToCity } from "@/lib/iataCity";
-import { fetchCityRestaurants, buildRestaurantHintsPrompt, fetchCityAttractions, buildAttractionHintsPrompt, type BudgetLevel } from "@/lib/fetchCityRestaurants";
+import { fetchCityRestaurants, fetchCityBreakfastPlaces, buildRestaurantHintsPrompt, fetchCityAttractions, buildAttractionHintsPrompt, type BudgetLevel } from "@/lib/fetchCityRestaurants";
 import { prisma, j } from "@/lib/db";
 import { buildSystemPrompt, calcDays, repairTransitDayDepartureCities, tagWaypointCities } from "@/lib/itineraryGen";
 
@@ -76,11 +76,12 @@ export async function POST(request: Request) {
             const iataCodes = [...new Set([flightInfo.arrivalCity, flightInfo.returnDepartureCity])];
             const cityEntries = await Promise.all(
               iataCodes.map(async (code) => {
-                const [restaurants, attractions] = await Promise.all([
+                const [breakfastPlaces, mainMealPlaces, attractions] = await Promise.all([
+                  fetchCityBreakfastPlaces(code, googleApiKey),
                   fetchCityRestaurants(code, googleApiKey, budget),
                   fetchCityAttractions(code, googleApiKey),
                 ]);
-                return { cityNameZh: iataToCity(code), iataCode: code, restaurants, attractions };
+                return { cityNameZh: iataToCity(code), iataCode: code, breakfastPlaces, mainMealPlaces, attractions };
               })
             );
             hintsPrompt = buildAttractionHintsPrompt(cityEntries) + buildRestaurantHintsPrompt(cityEntries, budget);
@@ -124,24 +125,26 @@ export async function POST(request: Request) {
           try {
             const parsedData = JSON.parse(accumulatedContent);
             const validatedRaw = ItinerarySchema.parse(parsedData);
-            const repairedDays = isMultiCity
-              ? repairTransitDayDepartureCities(
-                  validatedRaw.days,
-                  arrivalCityName,
-                  returnCityName,
-                )
-              : validatedRaw.days;
 
             // The last day is always the return flight day — strip any AI hallucination of isTransitDay
-            const lastIdx = repairedDays.length - 1;
-            const fixedDays =
-              repairedDays[lastIdx]?.isTransitDay
-                ? repairedDays.map((d, i) =>
+            const lastIdx = validatedRaw.days.length - 1;
+            const strippedDays =
+              validatedRaw.days[lastIdx]?.isTransitDay
+                ? validatedRaw.days.map((d, i) =>
                     i === lastIdx ? { ...d, isTransitDay: false, transitTo: undefined } : d
                   )
-                : repairedDays;
+                : validatedRaw.days;
 
-            const validatedData = { ...validatedRaw, days: fixedDays };
+            // Tag every day with its resolved city before repairing/validating, so both
+            // steps reason about the real (possibly multi-segment) city sequence instead
+            // of assuming exactly one arrival→return transition.
+            const taggedDays = tagWaypointCities(strippedDays, arrivalCityName);
+
+            const repairedDays = isMultiCity
+              ? repairTransitDayDepartureCities(taggedDays)
+              : taggedDays;
+
+            const validatedData = { ...validatedRaw, days: repairedDays };
 
             const logicResult = validateItinerary(
               validatedData,
@@ -169,7 +172,6 @@ export async function POST(request: Request) {
             }
 
             const dataWithIds = addIdsToItinerary(validatedData);
-            const taggedDays = tagWaypointCities(dataWithIds.days, arrivalCityName);
 
             let savedId: string | null = null;
             try {
@@ -178,7 +180,7 @@ export async function POST(request: Request) {
                 data: {
                   userId: DEMO_USER_ID,
                   title: validatedData.title,
-                  days: j(taggedDays),
+                  days: j(dataWithIds.days),
                   config: j({
                     generatedWith: prompt ?? "",
                     totalDays: days,

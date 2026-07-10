@@ -52,14 +52,66 @@ export async function POST(
     const suspiciousStops: { name: string; day: number; reason: string }[] = [];
 
     for (const day of days) {
-      const stops = day.stops as Record<string, unknown>[] | undefined;
-      if (!stops) continue;
-
-      const isTransitDay = day.isTransitDay === true;
       const cityHint =
         (typeof day.waypointCity === "string" ? day.waypointCity : "") ||
         (typeof day.transitTo === "string" ? day.transitTo : "") ||
         "";
+
+      const meals = day.meals as Record<string, Record<string, unknown>> | undefined;
+      if (meals) {
+        for (const mealKey of ["breakfast", "lunch", "dinner"] as const) {
+          const meal = meals[mealKey];
+          if (!meal || meal.placeId) continue;
+
+          const query = cityHint ? `${meal.name} ${cityHint}` : String(meal.name);
+
+          try {
+            const cached = await lookupByQuery(query);
+            if (cached && cached.lat != null && cached.lng != null) {
+              meals[mealKey] = {
+                ...meal,
+                placeId: cached.placeId,
+                lat: cached.lat,
+                lng: cached.lng,
+                address: cached.address,
+                rating: cached.rating,
+              };
+              cachedCount++;
+            } else {
+              const place = await searchPlace(query);
+              if (!place) {
+                failedCount++;
+                continue;
+              }
+              meals[mealKey] = {
+                ...meal,
+                placeId: place.id,
+                lat: place.location.latitude,
+                lng: place.location.longitude,
+                address: place.formattedAddress,
+                rating: place.rating ?? null,
+              };
+              await upsertPlace(query, {
+                placeId: place.id,
+                name: place.displayName.text,
+                address: place.formattedAddress,
+                lat: place.location.latitude,
+                lng: place.location.longitude,
+                rating: place.rating,
+              });
+              enrichedCount++;
+            }
+          } catch {
+            failedCount++;
+          }
+        }
+      }
+
+      const stops = day.stops as Record<string, unknown>[] | undefined;
+      if (!stops) continue;
+
+      const isTransitDay = day.isTransitDay === true;
+      const arrivalCityHint = typeof day.transitTo === "string" ? day.transitTo : "";
 
       for (let i = 0; i < stops.length; i++) {
         const stop = stops[i];
@@ -70,8 +122,14 @@ export async function POST(
           continue;
         }
 
-        const query = cityHint
-          ? `${stop.name} ${cityHint}`
+        // On a transit day, only the first stop is the departure->arrival journey
+        // itself; every later stop is required (by the generation prompt) to be
+        // in the arrival city, so geocoding it against the departure-tagged
+        // waypointCity can match an unrelated same-named place there instead.
+        const stopCityHint = isTransitDay && i > 0 && arrivalCityHint ? arrivalCityHint : cityHint;
+
+        const query = stopCityHint
+          ? `${stop.name} ${stopCityHint}`
           : String(stop.name);
 
         try {

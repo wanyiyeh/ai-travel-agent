@@ -41,7 +41,7 @@ interface MapAccommodation {
   lng: number;
   address?: string;
   rating?: number | null;
-  bookingUrl?: string;
+  placeId?: string;
   dayIndex: number;
 }
 
@@ -238,14 +238,14 @@ function MapContent({
             {selectedAccommodation.rating != null && (
               <div className="text-xs text-amber-500">★ {selectedAccommodation.rating}</div>
             )}
-            {selectedAccommodation.bookingUrl && (
+            {selectedAccommodation.placeId && (
               <a
-                href={selectedAccommodation.bookingUrl}
+                href={`https://www.google.com/maps/place/?q=place_id:${selectedAccommodation.placeId}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="block text-xs text-indigo-600 font-medium hover:underline mt-1"
               >
-                前往訂房 →
+                在地圖上查看 →
               </a>
             )}
           </div>
@@ -329,7 +329,7 @@ export default function ItineraryMap({
                 lng: acc.lng!,
                 address: acc.address,
                 rating: acc.rating,
-                bookingUrl: acc.bookingUrl,
+                placeId: acc.placeId,
                 dayIndex,
               },
             ];
@@ -364,7 +364,7 @@ export default function ItineraryMap({
                     lng: acc.lng,
                     address: acc.address,
                     rating: acc.rating,
-                    bookingUrl: acc.bookingUrl,
+                    placeId: acc.placeId,
                     dayIndex,
                   },
                 ];

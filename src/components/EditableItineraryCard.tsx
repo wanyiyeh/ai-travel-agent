@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect, Fragment } from "react";
+import { useState, useCallback, useEffect, useMemo, Fragment } from "react";
 import {
   DndContext,
   closestCenter,
@@ -21,8 +21,17 @@ import {
 } from "@dnd-kit/sortable";
 import { SortableStop } from "@/components/SortableStop";
 import { StopDragPreview } from "@/components/StopDragPreview";
+import { DayBulkEditPanel } from "@/components/DayBulkEditPanel";
+import { AccommodationPicker } from "@/components/AccommodationPicker";
+import { MealPicker } from "@/components/MealPicker";
+import { haversineKm } from "@/lib/distanceMatrix";
 import { formatDuration } from "@/types/itinerary";
-import type { Itinerary, Stop, DayMeals, Accommodation } from "@/types/itinerary";
+import type { Itinerary, Stop, DayMeals, Meal, MealType, Accommodation, StopCandidate } from "@/types/itinerary";
+
+// A candidate from another day counts as "same city" if it's within this
+// distance of the edited day's own stop centroid — used to build the reuse
+// pool in the day bulk-edit panel (see reusableStops below).
+const SAME_CITY_KM = 60;
 
 const TIME_OF_DAY_LABELS: Record<string, string> = {
   morning: "早上",
@@ -78,10 +87,9 @@ export default function EditableItineraryCard({
   const scrollToDay = (dayNum: number) =>
     document.getElementById(`day-card-${dayNum}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
   const [removingWaypoint, setRemovingWaypoint] = useState<string | null>(null);
-  const [regenerating, setRegenerating] = useState<string | null>(null);
   const [recalculatingDay, setRecalculatingDay] = useState<string | null>(null);
-  const [regeneratingAccommodation, setRegeneratingAccommodation] = useState<string | null>(null);
-  const [accommodationErrors, setAccommodationErrors] = useState<Record<string, string>>({});
+  const [pickingAccommodationDayId, setPickingAccommodationDayId] = useState<string | null>(null);
+  const [pickingMeal, setPickingMeal] = useState<{ dayId: string; mealType: MealType } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [addingToDay, setAddingToDay] = useState<string | null>(null);
   const [newStopName, setNewStopName] = useState("");
@@ -90,6 +98,30 @@ export default function EditableItineraryCard({
   const [snapshotBeforeDrag, setSnapshotBeforeDrag] =
     useState<Itinerary | null>(null);
   const [enrichWarning, setEnrichWarning] = useState<string | null>(null);
+
+  const [bulkEditDayId, setBulkEditDayId] = useState<string | null>(null);
+  const [bulkPhase, setBulkPhase] = useState<"select" | "suggest">("select");
+  const [bulkKeepIds, setBulkKeepIds] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkError, setBulkError] = useState<string | null>(null);
+
+  const duplicateStopInfo = useMemo(() => {
+    const firstSeenDay = new Map<string, number>();
+    const result = new Map<string, { originDay: number; name: string }>();
+    for (const day of itinerary.days) {
+      for (const stop of day.stops) {
+        const norm = stop.name?.trim().toLowerCase();
+        if (!stop.id || !norm) continue;
+        const seenAt = firstSeenDay.get(norm);
+        if (seenAt === undefined) {
+          firstSeenDay.set(norm, day.day);
+        } else if (seenAt !== day.day) {
+          result.set(stop.id, { originDay: seenAt, name: stop.name });
+        }
+      }
+    }
+    return result;
+  }, [itinerary.days]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -118,10 +150,19 @@ export default function EditableItineraryCard({
   const formatCost = (amount: number, currency?: string) =>
     `${currency ?? ""} ${amount.toLocaleString()}`.trim();
 
-  const buildGoogleMapsUrl = (stops: Stop[]) => {
-    const waypoints = stops.map((s) => encodeURIComponent(s.name)).join("/");
+  const buildGoogleMapsUrl = (stops: Stop[], origin?: string) => {
+    const points = [origin, ...stops.map((s) => s.name)].filter((p): p is string => !!p);
+    const waypoints = points.map((p) => encodeURIComponent(p)).join("/");
     return `https://www.google.com/maps/dir/${waypoints}`;
   };
+
+  // The previous day's accommodation is where the user actually starts this
+  // day from (they slept there) — prefer its address over the day's own stops
+  // so "導航" doesn't default to "current location".
+  const overnightOrigin = (accommodation?: Accommodation | null) =>
+    accommodation && accommodation.name !== "無需住宿"
+      ? accommodation.address || accommodation.name
+      : undefined;
 
   const findStopById = useCallback(
     (id: string): Stop | undefined => {
@@ -327,12 +368,22 @@ export default function EditableItineraryCard({
         ...prev,
         days: prev.days.map((d, idx) =>
           idx === dayIndex
-            ? { ...d, stops: d.stops.filter((s) => s.id !== stopId) }
+            ? {
+                ...d,
+                stops: d.stops
+                  .filter((s) => s.id !== stopId)
+                  .map((s) => ({ ...s, transport_from_prev: undefined, time_of_day: undefined })),
+              }
             : d
         ),
       }));
 
-      onUpdate?.();
+      if (day.id) {
+        // delay onUpdate until recalculation is done — otherwise fetchData overwrites the cleared state
+        recalculateTransport(day.id, onUpdate);
+      } else {
+        onUpdate?.();
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "刪除失敗");
     } finally {
@@ -340,47 +391,96 @@ export default function EditableItineraryCard({
     }
   };
 
-  const handleRegenerate = async (stopId: string) => {
-    setRegenerating(stopId);
-    setError(null);
+  const handleStartBulkEdit = (dayId: string, stops: Stop[]) => {
+    setBulkEditDayId(dayId);
+    setBulkPhase("select");
+    setBulkKeepIds(new Set(stops.map((s) => s.id!).filter(Boolean)));
+    setBulkError(null);
+  };
+
+  const handleToggleBulkKeep = (stopId: string) => {
+    setBulkKeepIds((prev) => {
+      const next = new Set(prev);
+      next.has(stopId) ? next.delete(stopId) : next.add(stopId);
+      return next;
+    });
+  };
+
+  const handleCancelBulkEdit = () => {
+    setBulkEditDayId(null);
+    setBulkPhase("select");
+    setBulkKeepIds(new Set());
+    setBulkError(null);
+  };
+
+  const handleApplyBulkDelete = async (dayId: string) => {
+    const day = itinerary.days.find((d) => d.id === dayId);
+    if (!day) return;
+
+    const toDelete = day.stops.map((s) => s.id!).filter((id) => id && !bulkKeepIds.has(id));
+
+    setBulkBusy(true);
+    setBulkError(null);
 
     try {
-      const res = await fetch(`/api/v1/stops/${stopId}/regenerate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ itineraryId: data.id }),
-      });
-
-      if (!res.ok) {
-        const resData = await res.json();
-        throw new Error(resData.error || "重新生成失敗");
+      // Sequential, not Promise.all: DELETE does a read-modify-write of the
+      // whole itinerary.days blob with no optimistic locking — concurrent
+      // calls would race and lose updates.
+      for (const stopId of toDelete) {
+        const res = await fetch(`/api/v1/stops/${stopId}`, {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ itineraryId: data.id }),
+        });
+        if (!res.ok) {
+          const resData = await res.json();
+          throw new Error(resData.error || "刪除失敗");
+        }
       }
 
-      const newStop = await res.json();
-
-      setItinerary((prev) => ({
-        ...prev,
-        days: prev.days.map((d) => ({
-          ...d,
-          stops: d.stops.map((s) =>
-            s.id === stopId
-              ? {
-                  ...s,
-                  name: newStop.name,
-                  description: newStop.description,
-                  duration_minutes: newStop.duration_minutes,
-                }
-              : s
+      if (toDelete.length > 0) {
+        setItinerary((prev) => ({
+          ...prev,
+          days: prev.days.map((d) =>
+            d.id === dayId ? { ...d, stops: d.stops.filter((s) => !toDelete.includes(s.id!)) } : d
           ),
-        })),
-      }));
+        }));
+      }
 
-      onUpdate?.();
+      setBulkPhase("suggest");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "重新生成失敗");
+      setBulkError(err instanceof Error ? err.message : "刪除失敗");
     } finally {
-      setRegenerating(null);
+      setBulkBusy(false);
     }
+  };
+
+  const handleFinishBulkEdit = (dayId: string) => {
+    handleCancelBulkEdit();
+    recalculateTransport(dayId, onUpdate);
+  };
+
+  const handleConfirmBulkAdd = async (dayId: string, stops: StopCandidate[]) => {
+    const res = await fetch(`/api/v1/days/${dayId}/stops`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ itineraryId: data.id, stops }),
+    });
+
+    if (!res.ok) {
+      const resData = await res.json();
+      setBulkError(resData.error || "新增失敗");
+      return;
+    }
+
+    const { stops: newStops } = await res.json();
+
+    setItinerary((prev) => ({
+      ...prev,
+      days: prev.days.map((d) => (d.id === dayId ? { ...d, stops: [...d.stops, ...newStops] } : d)),
+    }));
+
+    handleFinishBulkEdit(dayId);
   };
 
   const handleEdit = (stop: Stop) => {
@@ -446,6 +546,15 @@ export default function EditableItineraryCard({
       ...prev,
       days: prev.days.map((d) =>
         d.id === dayId ? { ...d, accommodation } : d
+      ),
+    }));
+  };
+
+  const updateDayMeal = (dayId: string, mealType: MealType, meal: Meal) => {
+    setItinerary((prev) => ({
+      ...prev,
+      days: prev.days.map((d) =>
+        d.id === dayId ? { ...d, meals: { ...d.meals, [mealType]: meal } } : d
       ),
     }));
   };
@@ -518,41 +627,6 @@ export default function EditableItineraryCard({
       setTimeout(() => setError(null), 6000);
     } finally {
       setRemovingWaypoint(null);
-    }
-  };
-
-  const handleRegenerateAccommodation = async (dayId: string) => {
-    setRegeneratingAccommodation(dayId);
-    setAccommodationErrors((prev) => { const next = { ...prev }; delete next[dayId]; return next; });
-    try {
-      const regenRes = await fetch(`/api/v1/days/${dayId}/accommodation/regenerate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ itineraryId: data.id }),
-      });
-      if (!regenRes.ok) {
-        const d = await regenRes.json();
-        throw new Error(d.error || "重新推薦失敗");
-      }
-      const { accommodation: newAcc } = await regenRes.json();
-      updateDayAccommodation(dayId, newAcc as Accommodation);
-
-      const enrichRes = await fetch(`/api/v1/days/${dayId}/accommodation/enrich`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ itineraryId: data.id }),
-      });
-      if (enrichRes.ok) {
-        const enrichData = await enrichRes.json();
-        updateDayAccommodation(dayId, enrichData.accommodation as Accommodation);
-      }
-    } catch (err) {
-      setAccommodationErrors((prev) => ({
-        ...prev,
-        [dayId]: err instanceof Error ? err.message : "重新推薦失敗",
-      }));
-    } finally {
-      setRegeneratingAccommodation(null);
     }
   };
 
@@ -691,6 +765,18 @@ export default function EditableItineraryCard({
           const dayCost = calculateDayCost(day.stops);
           const showCost = hasCostData(day.stops);
           const stopIds = day.stops.map((s) => s.id!).filter(Boolean);
+
+          const dayStopsWithGeo = day.stops.filter(
+            (s): s is Stop & { lat: number; lng: number } =>
+              typeof s.lat === "number" && typeof s.lng === "number"
+          );
+          const dayCentroid =
+            dayStopsWithGeo.length > 0
+              ? {
+                  lat: dayStopsWithGeo.reduce((sum, s) => sum + s.lat, 0) / dayStopsWithGeo.length,
+                  lng: dayStopsWithGeo.reduce((sum, s) => sum + s.lng, 0) / dayStopsWithGeo.length,
+                }
+              : null;
 
           const isCollapsed = collapsedDays.has(day.day);
           const isTransitDay = day.isTransitDay === true;
@@ -837,7 +923,7 @@ export default function EditableItineraryCard({
                           </div>
                         )}
                         <a
-                          href={buildGoogleMapsUrl(day.stops)}
+                          href={buildGoogleMapsUrl(day.stops, overnightOrigin(prevDay?.accommodation))}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="flex items-center gap-1 rounded-md bg-white/20 hover:bg-white/30 transition-colors px-2.5 py-1 text-xs font-medium text-white"
@@ -847,6 +933,17 @@ export default function EditableItineraryCard({
                           </svg>
                           導航
                         </a>
+                        <button
+                          onClick={() =>
+                            bulkEditDayId === day.id
+                              ? handleCancelBulkEdit()
+                              : day.id && handleStartBulkEdit(day.id, day.stops)
+                          }
+                          disabled={bulkEditDayId !== null && bulkEditDayId !== day.id}
+                          className="flex items-center gap-1 rounded-md bg-white/20 hover:bg-white/30 disabled:opacity-30 transition-colors px-2.5 py-1 text-xs font-medium text-white"
+                        >
+                          {bulkEditDayId === day.id ? "取消編輯" : "編輯本日"}
+                        </button>
                       </>
                     )}
                   </div>
@@ -975,10 +1072,17 @@ export default function EditableItineraryCard({
                                 currency={itinerary.currency}
                                 editingStop={editingStop}
                                 isLoading={loading === stop.id}
-                                isRegenerating={regenerating === stop.id}
+                                bulkMode={bulkEditDayId === day.id}
+                                selected={!!stop.id && bulkKeepIds.has(stop.id)}
+                                onToggleSelect={handleToggleBulkKeep}
+                                isDuplicate={!!stop.id && duplicateStopInfo.has(stop.id)}
+                                duplicateReason={
+                                  stop.id && duplicateStopInfo.has(stop.id)
+                                    ? `與第 ${duplicateStopInfo.get(stop.id)!.originDay} 天的「${duplicateStopInfo.get(stop.id)!.name}」重複，建議進行編輯`
+                                    : undefined
+                                }
                                 onEdit={handleEdit}
                                 onDelete={handleDelete}
-                                onRegenerate={handleRegenerate}
                                 onSaveEdit={handleSaveEdit}
                                 onCancelEdit={() => setEditingStop(null)}
                                 onEditChange={setEditingStop}
@@ -990,8 +1094,76 @@ export default function EditableItineraryCard({
                     </div>
                   </SortableContext>
 
+                  {bulkEditDayId === day.id && bulkPhase === "select" && day.id && (
+                    <div className="mt-4 pt-4 border-t border-zinc-100 dark:border-zinc-800 space-y-3">
+                      {bulkError && (
+                        <p className="text-sm text-red-600 dark:text-red-400">{bulkError}</p>
+                      )}
+                      <p className="text-sm text-zinc-500 dark:text-zinc-400">
+                        保留 {bulkKeepIds.size} 個、刪除{" "}
+                        {day.stops.filter((s) => s.id && !bulkKeepIds.has(s.id)).length} 個
+                      </p>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleApplyBulkDelete(day.id!)}
+                          disabled={bulkBusy}
+                          className="px-4 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                        >
+                          {bulkBusy ? "處理中…" : "套用"}
+                        </button>
+                        <button
+                          onClick={handleCancelBulkEdit}
+                          disabled={bulkBusy}
+                          className="px-4 py-1.5 bg-zinc-100 dark:bg-zinc-700 text-zinc-600 dark:text-zinc-300 text-sm rounded-lg hover:bg-zinc-200 dark:hover:bg-zinc-600 disabled:opacity-50 transition-colors"
+                        >
+                          取消
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {bulkEditDayId === day.id && bulkPhase === "suggest" && day.id && (
+                    <DayBulkEditPanel
+                      itineraryId={data.id}
+                      dayId={day.id}
+                      reusableStops={itinerary.days
+                        .filter((d) => d.id !== day.id)
+                        .flatMap((d) =>
+                          d.stops
+                            .filter((s) => {
+                              // Prefer the stop's own coordinates over the day-level
+                              // waypointCity tag — a transit day is tagged with its
+                              // departure city even though some of its stops (e.g. the
+                              // arrival city's attractions) are actually in the destination.
+                              if (dayCentroid && typeof s.lat === "number" && typeof s.lng === "number") {
+                                return haversineKm(s.lat, s.lng, dayCentroid.lat, dayCentroid.lng) <= SAME_CITY_KM;
+                              }
+                              // No coordinates to compare — only include when both
+                              // days carry a waypointCity and they actually match;
+                              // otherwise there's no basis for "same city" so exclude.
+                              return !!day.waypointCity && d.waypointCity === day.waypointCity;
+                            })
+                            .map((s) => ({
+                              dayNumber: d.day,
+                              candidate: {
+                                name: s.name,
+                                description: s.description,
+                                duration_minutes: s.duration_minutes,
+                                placeId: s.placeId,
+                                lat: s.lat,
+                                lng: s.lng,
+                                address: s.address,
+                                rating: s.rating,
+                              },
+                            }))
+                        )}
+                      onCancel={() => handleFinishBulkEdit(day.id!)}
+                      onConfirmAdd={(stops) => handleConfirmBulkAdd(day.id!, stops)}
+                    />
+                  )}
+
                   {/* Add stop */}
-                  {day.id && (
+                  {day.id && bulkEditDayId !== day.id && (
                     <div className="mt-4 pt-4 border-t border-zinc-100 dark:border-zinc-800">
                       {addingToDay === day.id ? (
                         <div className="flex gap-2">
@@ -1052,29 +1224,20 @@ export default function EditableItineraryCard({
                       <p className="text-xs font-semibold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">
                         住宿推薦
                       </p>
-                      {day.accommodation && regeneratingAccommodation !== day.id && (
+                      {day.accommodation && day.id && pickingAccommodationDayId !== day.id && (
                         <button
-                          onClick={() => day.id && handleRegenerateAccommodation(day.id)}
-                          disabled={regeneratingAccommodation === day.id}
-                          className="flex items-center gap-1 text-xs text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 disabled:opacity-50 transition-colors"
+                          onClick={() => setPickingAccommodationDayId(day.id!)}
+                          className="flex items-center gap-1 text-xs text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 transition-colors"
                         >
                           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3 h-3">
                             <path fillRule="evenodd" d="M15.312 11.424a5.5 5.5 0 0 1-9.201 2.466l-.312-.311h2.433a.75.75 0 0 0 0-1.5H3.989a.75.75 0 0 0-.75.75v4.242a.75.75 0 0 0 1.5 0v-2.43l.31.31a7 7 0 0 0 11.712-3.138.75.75 0 0 0-1.449-.39Zm1.23-3.723a.75.75 0 0 0 .219-.53V2.929a.75.75 0 0 0-1.5 0V5.36l-.31-.31A7 7 0 0 0 3.239 8.188a.75.75 0 1 0 1.448.389A5.5 5.5 0 0 1 13.89 6.11l.311.31h-2.432a.75.75 0 0 0 0 1.5h4.243a.75.75 0 0 0 .53-.219Z" clipRule="evenodd" />
                           </svg>
-                          重新推薦
+                          換一間
                         </button>
                       )}
                     </div>
 
-                    {regeneratingAccommodation === day.id ? (
-                      <div className="flex items-center gap-2 text-sm text-zinc-500 dark:text-zinc-400 py-2">
-                        <svg className="animate-spin w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                        </svg>
-                        為您探索住宿中…
-                      </div>
-                    ) : day.accommodation ? (
+                    {day.accommodation ? (
                       <div className="rounded-lg bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-100 dark:border-indigo-900/50 p-3">
                         <div className="flex items-start justify-between gap-3">
                           <div className="flex-1 min-w-0">
@@ -1102,24 +1265,22 @@ export default function EditableItineraryCard({
                               )}
                             </div>
                           </div>
-                          {day.accommodation.bookingUrl && (
+                          {day.accommodation.placeId && (
                             <a
-                              href={day.accommodation.bookingUrl}
+                              href={`https://www.google.com/maps/place/?q=place_id:${day.accommodation.placeId}`}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="shrink-0 rounded-md bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 px-2.5 py-1.5 text-xs font-medium text-white transition-colors"
                             >
-                              前往訂房
+                              在地圖上查看
                             </a>
                           )}
                         </div>
                       </div>
-                    ) : (
+                    ) : pickingAccommodationDayId !== day.id ? (
                       <div className="rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 p-3">
                         <p className="text-sm text-zinc-600 dark:text-zinc-400 mb-2">
-                          {accommodationErrors[day.id ?? ""]
-                            ? "住宿推薦暫時失敗，可自行搜尋或稍後重試"
-                            : "準備預訂住宿了嗎？"}
+                          準備預訂住宿了嗎？
                         </p>
                         <div className="flex items-center gap-3 flex-wrap">
                           <a
@@ -1132,14 +1293,26 @@ export default function EditableItineraryCard({
                           </a>
                           {day.id && (
                             <button
-                              onClick={() => handleRegenerateAccommodation(day.id!)}
+                              onClick={() => setPickingAccommodationDayId(day.id!)}
                               className="text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 transition-colors"
                             >
-                              讓 AI 推薦
+                              選擇住宿
                             </button>
                           )}
                         </div>
                       </div>
+                    ) : null}
+
+                    {pickingAccommodationDayId === day.id && day.id && (
+                      <AccommodationPicker
+                        itineraryId={data.id}
+                        dayId={day.id}
+                        onCancel={() => setPickingAccommodationDayId(null)}
+                        onSelected={(acc) => {
+                          updateDayAccommodation(day.id!, acc);
+                          setPickingAccommodationDayId(null);
+                        }}
+                      />
                     )}
                   </div>
                 </div>
@@ -1160,15 +1333,46 @@ export default function EditableItineraryCard({
                         ] as const
                       ).map(({ key, label, icon }) => {
                         const meal = day.meals?.[key];
-                        if (!meal) return null;
+                        const isPickingThis =
+                          day.id != null && pickingMeal?.dayId === day.id && pickingMeal.mealType === key;
+                        if (!meal) {
+                          return (
+                            <div
+                              key={key}
+                              className="rounded-lg bg-zinc-50 dark:bg-zinc-900/40 border border-dashed border-zinc-200 dark:border-zinc-700 p-3 flex flex-col items-start justify-between"
+                            >
+                              <p className="text-xs font-medium text-zinc-400 dark:text-zinc-500 mb-1">
+                                {icon} {label}
+                              </p>
+                              {day.id && !isPickingThis && (
+                                <button
+                                  onClick={() => setPickingMeal({ dayId: day.id!, mealType: key })}
+                                  className="text-xs text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 transition-colors"
+                                >
+                                  選擇{label}
+                                </button>
+                              )}
+                            </div>
+                          );
+                        }
                         return (
                           <div
                             key={key}
                             className="rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-100 dark:border-amber-900/50 p-3"
                           >
-                            <p className="text-xs font-medium text-amber-600 dark:text-amber-400 mb-1">
-                              {icon} {label}
-                            </p>
+                            <div className="flex items-center justify-between gap-1 mb-1">
+                              <p className="text-xs font-medium text-amber-600 dark:text-amber-400">
+                                {icon} {label}
+                              </p>
+                              {day.id && !isPickingThis && (
+                                <button
+                                  onClick={() => setPickingMeal({ dayId: day.id!, mealType: key })}
+                                  className="shrink-0 text-[11px] text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 transition-colors"
+                                >
+                                  換一家
+                                </button>
+                              )}
+                            </div>
                             <p className="text-sm font-semibold text-zinc-800 dark:text-zinc-200 leading-snug">
                               {meal.name}
                             </p>
@@ -1176,6 +1380,24 @@ export default function EditableItineraryCard({
                               <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5 leading-snug">
                                 {meal.description}
                               </p>
+                            )}
+                            {meal.address && (
+                              <div className="flex items-center gap-1 mt-1">
+                                <span className="text-[11px] text-zinc-400 dark:text-zinc-500 leading-tight line-clamp-1">
+                                  {meal.address}
+                                </span>
+                                {meal.placeId && (
+                                  <a
+                                    href={`https://www.google.com/maps/place/?q=place_id:${meal.placeId}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="shrink-0 text-[11px] text-blue-400 hover:text-blue-600 dark:text-blue-500 dark:hover:text-blue-300 transition-colors"
+                                    title="在 Google Maps 上導航"
+                                  >
+                                    ↗
+                                  </a>
+                                )}
+                              </div>
                             )}
                             {meal.estimated_cost !== undefined && (
                               <p className="text-xs text-emerald-600 dark:text-emerald-400 font-medium mt-1">
@@ -1186,6 +1408,22 @@ export default function EditableItineraryCard({
                         );
                       })}
                     </div>
+
+                    {pickingMeal && day.id === pickingMeal.dayId && (
+                      <MealPicker
+                        itineraryId={data.id}
+                        dayId={pickingMeal.dayId}
+                        mealType={pickingMeal.mealType}
+                        mealLabel={
+                          { breakfast: "早餐", lunch: "午餐", dinner: "晚餐" }[pickingMeal.mealType]
+                        }
+                        onCancel={() => setPickingMeal(null)}
+                        onSelected={(meal) => {
+                          updateDayMeal(pickingMeal.dayId, pickingMeal.mealType, meal);
+                          setPickingMeal(null);
+                        }}
+                      />
+                    )}
                   </div>
                 </div>
               )}

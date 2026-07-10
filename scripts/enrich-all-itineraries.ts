@@ -124,6 +124,102 @@ async function main() {
         (typeof day.transitTo === "string" ? day.transitTo : "") ||
         "";
 
+      const meals = day.meals as Record<string, Record<string, unknown>> | undefined;
+      if (meals) {
+        for (const mealKey of ["breakfast", "lunch", "dinner"] as const) {
+          const meal = meals[mealKey];
+          if (!meal) continue;
+
+          // Already enriched
+          if (meal.placeId && meal.lat != null && meal.lng != null) {
+            const query = cityHint ? `${meal.name} ${cityHint}` : String(meal.name);
+            await prisma.place.upsert({
+              where: { id: String(meal.placeId) },
+              create: { id: String(meal.placeId), name: String(meal.name), address: meal.address as string ?? null, lat: meal.lat as number, lng: meal.lng as number, rating: meal.rating as number ?? null },
+              update: { lat: meal.lat as number, lng: meal.lng as number },
+            });
+            await prisma.placeQuery.upsert({
+              where: { query },
+              create: { query, placeId: String(meal.placeId) },
+              update: { placeId: String(meal.placeId) },
+            });
+            cached++;
+            continue;
+          }
+
+          if (cacheOnly) {
+            skipped++;
+            continue;
+          }
+
+          const query = cityHint ? `${meal.name} ${cityHint}` : String(meal.name);
+
+          const hit = await prisma.placeQuery.findUnique({
+            where: { query },
+            include: { place: true },
+          });
+
+          if (hit?.place.lat != null && hit.place.lng != null) {
+            meals[mealKey] = {
+              ...meal,
+              placeId: hit.place.id,
+              lat: hit.place.lat,
+              lng: hit.place.lng,
+              address: hit.place.address,
+              rating: hit.place.rating,
+            };
+            changed = true;
+            cached++;
+            continue;
+          }
+
+          try {
+            const cityCenter = await resolveCityCenter(cityHint, apiKey!);
+            let place = await searchPlace(query, apiKey!, cityCenter ?? undefined);
+
+            if (place && cityCenter) {
+              const km = haversineKm(
+                place.location.latitude, place.location.longitude,
+                cityCenter.lat, cityCenter.lng
+              );
+              if (km > REJECT_KM_THRESHOLD) {
+                console.log(`  ⚠️ 略過「${query}」：配對結果距離 ${cityHint} ${Math.round(km)} km，疑似錯誤匹配 (${place.formattedAddress})`);
+                place = null;
+              }
+            }
+
+            if (place) {
+              meals[mealKey] = {
+                ...meal,
+                placeId: place.id,
+                lat: place.location.latitude,
+                lng: place.location.longitude,
+                address: place.formattedAddress,
+                rating: place.rating ?? null,
+              };
+              await prisma.place.upsert({
+                where: { id: place.id },
+                create: { id: place.id, name: place.displayName?.text ?? String(meal.name), address: place.formattedAddress, lat: place.location.latitude, lng: place.location.longitude, rating: place.rating ?? null },
+                update: { name: place.displayName?.text ?? String(meal.name), address: place.formattedAddress, lat: place.location.latitude, lng: place.location.longitude, rating: place.rating ?? null },
+              });
+              await prisma.placeQuery.upsert({
+                where: { query },
+                create: { query, placeId: place.id },
+                update: { placeId: place.id },
+              });
+              changed = true;
+              enriched++;
+            } else {
+              failed++;
+            }
+          } catch {
+            failed++;
+          }
+
+          await new Promise((r) => setTimeout(r, 150));
+        }
+      }
+
       for (let i = 0; i < stops.length; i++) {
         const stop = stops[i];
 

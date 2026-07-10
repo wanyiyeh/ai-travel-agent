@@ -7,6 +7,16 @@ export interface CachedPlace {
   lat: number | null;
   lng: number | null;
   rating: number | null;
+  types: string[] | null;
+}
+
+function parseTypes(raw: string | null): string[] | null {
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
 }
 
 export async function lookupByQuery(query: string): Promise<CachedPlace | null> {
@@ -16,19 +26,21 @@ export async function lookupByQuery(query: string): Promise<CachedPlace | null> 
   });
   if (!hit) return null;
   const p = hit.place;
-  return { placeId: p.id, name: p.name, address: p.address, lat: p.lat, lng: p.lng, rating: p.rating };
+  return { placeId: p.id, name: p.name, address: p.address, lat: p.lat, lng: p.lng, rating: p.rating, types: parseTypes(p.types) };
 }
 
 export async function lookupByPlaceId(placeId: string): Promise<CachedPlace | null> {
   const p = await prisma.place.findUnique({ where: { id: placeId } });
   if (!p) return null;
-  return { placeId: p.id, name: p.name, address: p.address, lat: p.lat, lng: p.lng, rating: p.rating };
+  return { placeId: p.id, name: p.name, address: p.address, lat: p.lat, lng: p.lng, rating: p.rating, types: parseTypes(p.types) };
 }
 
 export async function upsertPlace(
   query: string,
-  data: { placeId: string; name: string; address: string | null; lat: number; lng: number; rating?: number | null }
+  data: { placeId: string; name: string; address: string | null; lat: number; lng: number; rating?: number | null; types?: string[] | null }
 ): Promise<void> {
+  const types = data.types ? JSON.stringify(data.types) : undefined;
+
   await prisma.place.upsert({
     where: { id: data.placeId },
     create: {
@@ -38,6 +50,7 @@ export async function upsertPlace(
       lat: data.lat,
       lng: data.lng,
       rating: data.rating ?? null,
+      types: types ?? null,
     },
     update: {
       name: data.name,
@@ -45,6 +58,7 @@ export async function upsertPlace(
       lat: data.lat,
       lng: data.lng,
       rating: data.rating ?? null,
+      ...(types !== undefined ? { types } : {}),
     },
   });
 

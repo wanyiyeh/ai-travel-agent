@@ -27,19 +27,51 @@ export type Accommodation = {
   address?: string;
   rating?: number | null;
   priceLevel?: number | null;
-  bookingUrl?: string;
+};
+
+export type AccommodationCandidate = Accommodation & {
+  isCurrent?: boolean;
 };
 
 export type Meal = {
   name: string;
   description?: string;
   estimated_cost?: number;
+  placeId?: string;
+  lat?: number;
+  lng?: number;
+  address?: string;
+  rating?: number | null;
 };
 
 export type DayMeals = {
   breakfast?: Meal;
   lunch?: Meal;
   dinner?: Meal;
+};
+
+export type MealCandidate = Meal & {
+  isCurrent?: boolean;
+};
+
+export const MEAL_TYPES = ["breakfast", "lunch", "dinner"] as const;
+export type MealType = (typeof MEAL_TYPES)[number];
+
+export function isMealType(value: string): value is MealType {
+  return (MEAL_TYPES as readonly string[]).includes(value);
+}
+
+export type StopCandidate = {
+  name: string;
+  description: string;
+  duration_minutes: number;
+  placeId?: string;
+  lat?: number;
+  lng?: number;
+  address?: string;
+  rating?: number | null;
+  suspicious?: boolean;
+  suspiciousReason?: string;
 };
 
 export type TransitRecommendation = {
@@ -72,6 +104,7 @@ export type Day = {
   meals?: DayMeals;
   isTransitDay?: boolean;
   transitTo?: string;
+  waypointCity?: string;
 };
 
 export type Itinerary = {

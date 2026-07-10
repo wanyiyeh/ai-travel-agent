@@ -26,6 +26,65 @@ export const MOCK_FIXTURES = {
     area: "測試市中心區",
   },
 
+  accommodationCandidates: [
+    {
+      name: "Mock Hotel Central",
+      area: "測試市中心區",
+      placeId: "mock-hotel-current",
+      lat: 35.01,
+      lng: 135.77,
+      address: "Mock City, Central St 1",
+      rating: 4.3,
+      isCurrent: true,
+    },
+    {
+      name: "Mock Hotel Riverside",
+      area: "測試河岸區",
+      placeId: "mock-hotel-a",
+      lat: 35.015,
+      lng: 135.775,
+      address: "Mock City, Riverside Ave 2",
+      rating: 4.6,
+    },
+    {
+      name: "Mock Hostel Downtown",
+      area: "測試鬧區",
+      placeId: "mock-hotel-b",
+      lat: 35.02,
+      lng: 135.78,
+      address: "Mock City, Downtown Rd 3",
+      rating: 4.1,
+    },
+  ],
+
+  mealCandidates: [
+    {
+      name: "Mock Current Diner",
+      placeId: "mock-meal-current",
+      lat: 35.01,
+      lng: 135.77,
+      address: "Mock City, Central St 1",
+      rating: 4.3,
+      isCurrent: true,
+    },
+    {
+      name: "Mock Breakfast Cafe",
+      placeId: "mock-meal-a",
+      lat: 35.015,
+      lng: 135.775,
+      address: "Mock City, Riverside Ave 2",
+      rating: 4.6,
+    },
+    {
+      name: "Mock Local Eatery",
+      placeId: "mock-meal-b",
+      lat: 35.02,
+      lng: 135.78,
+      address: "Mock City, Downtown Rd 3",
+      rating: 4.1,
+    },
+  ],
+
   transitRecommendations: [
     {
       name: "Budapest",
@@ -71,12 +130,36 @@ export const MOCK_FIXTURES = {
     },
   ],
 
-  stop: {
-    name: "Mock 測試景點",
-    description: "這是 MOCK_AI 模式下產生的模擬景點，用於測試 UI 行為。",
-    duration_minutes: 90,
-    time_of_day: "afternoon" as const,
-    transport_from_prev: "步行約10分鐘",
-    estimated_cost: 0,
-  },
+  stopCandidates: [
+    {
+      name: "Mock 候選景點 A",
+      description: "這是 MOCK_AI 模式下產生的模擬候選景點 A。",
+      duration_minutes: 90,
+      placeId: "mock-place-a",
+      lat: 35.01,
+      lng: 135.77,
+      address: "Mock City, Mock St 1",
+      rating: 4.5,
+    },
+    {
+      name: "Mock 候選景點 B",
+      description: "這是 MOCK_AI 模式下產生的模擬候選景點 B。",
+      duration_minutes: 60,
+      placeId: "mock-place-b",
+      lat: 35.02,
+      lng: 135.78,
+      address: "Mock City, Mock St 2",
+      rating: 4.2,
+    },
+    {
+      name: "Mock 候選景點 C",
+      description: "這是 MOCK_AI 模式下產生的模擬候選景點 C。",
+      duration_minutes: 120,
+      placeId: "mock-place-c",
+      lat: 35.03,
+      lng: 135.79,
+      address: "Mock City, Mock St 3",
+      rating: 4.8,
+    },
+  ],
 };

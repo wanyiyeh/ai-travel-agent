@@ -13,6 +13,13 @@
  *   G  北美東岸 紐約→邁阿密 15天（JFK→MIA）
  *   H  北美西岸 洛杉磯→舊金山 12天（LAX→SFO）
  *   I  非洲     開普敦→約翰尼斯堡 14天（CPT→JNB）
+ *   J  北美太平洋西北 西雅圖來回 10天（SEA→SEA）
+ *   K  韓國     首爾來回 5天（ICN→ICN）、釜山來回 5天（PUS→PUS）
+ *   L  東南亞   曼谷→普吉島 6天（BKK→HKT）
+ *   M  港澳     香港來回 4天（HKG→HKG）
+ *   N  中東     杜拜來回 6天（DXB→DXB）
+ *   O  日本     東京來回 5天（NRT→NRT）、福岡來回 4天（FUK→FUK）、
+ *              沖繩來回 5天（OKA→OKA）、北海道來回 5天（CTS→CTS）
  */
 
 import { PrismaClient } from "@prisma/client";
@@ -26,10 +33,9 @@ import {
   calcDays,
   buildSystemPrompt,
   repairTransitDayDepartureCities,
-  repairMissingTransitDay,
   tagWaypointCities,
 } from "@/lib/itineraryGen";
-import { fetchCityRestaurants, buildRestaurantHintsPrompt } from "@/lib/fetchCityRestaurants";
+import { fetchCityRestaurants, fetchCityBreakfastPlaces, buildRestaurantHintsPrompt } from "@/lib/fetchCityRestaurants";
 import { lookupByQuery, upsertPlace } from "@/lib/placeCache";
 import { validateItinerary } from "@/lib/validateItinerary";
 // Load .env (Next.js doesn't inject env vars when running plain node)
@@ -175,6 +181,136 @@ const SCENARIOS: Scenario[] = [
     preferences: { pace: "relaxed", budget: "moderate", interests: ["nature", "adventure"] },
     prompt: "從開普敦的桌山、好望角與酒莊出發，深度探索南非壯麗自然景觀，移動至約翰尼斯堡感受非洲都市脈動與近郊野生動物園",
   },
+  {
+    continent: "北美太平洋西北",
+    label: "西雅圖來回 10天",
+    flightInfo: {
+      departureCity: "TPE",
+      arrivalCity: "SEA",
+      returnDepartureCity: "SEA",
+      departureDate: "2027-03-01",
+      returnDate: "2027-03-11",
+    },
+    preferences: { pace: "moderate", budget: "moderate", interests: ["nature", "food", "culture"] },
+    prompt: "以西雅圖為據點，探索派克市場、太空針塔與都會咖啡文化，安排一日雷尼爾山國家公園健行，感受太平洋西北的自然與城市交融氛圍",
+  },
+  {
+    continent: "韓國",
+    label: "首爾 5天",
+    flightInfo: {
+      departureCity: "TPE",
+      arrivalCity: "ICN",
+      returnDepartureCity: "ICN",
+      departureDate: "2026-08-10",
+      returnDate: "2026-08-15",
+    },
+    preferences: { pace: "moderate", budget: "moderate", interests: ["food", "shopping", "culture"] },
+    prompt: "深度探索首爾的明洞、景福宮、北村韓屋村，感受韓式街頭美食、購物與傳統文化交融的城市魅力",
+  },
+  {
+    continent: "韓國",
+    label: "釜山 5天",
+    flightInfo: {
+      departureCity: "TPE",
+      arrivalCity: "PUS",
+      returnDepartureCity: "PUS",
+      departureDate: "2026-08-20",
+      returnDate: "2026-08-25",
+    },
+    preferences: { pace: "relaxed", budget: "moderate", interests: ["food", "nature", "culture"] },
+    prompt: "以釜山為據點，探索海雲台與廣安里海灘、甘川洞文化村，感受港都海鮮美食與悠閒海岸風情",
+  },
+  {
+    continent: "東南亞",
+    label: "曼谷→普吉島 6天",
+    flightInfo: {
+      departureCity: "TPE",
+      arrivalCity: "BKK",
+      returnDepartureCity: "HKT",
+      departureDate: "2026-08-20",
+      returnDate: "2026-08-26",
+    },
+    preferences: { pace: "relaxed", budget: "budget", interests: ["food", "nature"] },
+    prompt: "從曼谷探索水上市場美食與臥佛寺文化，飛往普吉島享受安達曼海島度假與浮潛時光",
+  },
+  {
+    continent: "港澳",
+    label: "香港 4天",
+    flightInfo: {
+      departureCity: "TPE",
+      arrivalCity: "HKG",
+      returnDepartureCity: "HKG",
+      departureDate: "2026-09-15",
+      returnDate: "2026-09-19",
+    },
+    preferences: { pace: "intensive", budget: "moderate", interests: ["food", "shopping"] },
+    prompt: "快閃香港感受中西合璧街景，深度茶餐廳與米其林美食巡禮，夜遊維多利亞港感受璀璨夜景",
+  },
+  {
+    continent: "中東",
+    label: "杜拜 6天",
+    flightInfo: {
+      departureCity: "TPE",
+      arrivalCity: "DXB",
+      returnDepartureCity: "DXB",
+      departureDate: "2026-09-25",
+      returnDate: "2026-10-01",
+    },
+    preferences: { pace: "moderate", budget: "luxury", interests: ["adventure", "shopping"] },
+    prompt: "杜拜沙漠越野探險與哈里發塔天際線，深度感受奢華購物中心與阿拉伯傳統文化市集",
+  },
+  {
+    continent: "日本",
+    label: "東京 5天",
+    flightInfo: {
+      departureCity: "TPE",
+      arrivalCity: "NRT",
+      returnDepartureCity: "NRT",
+      departureDate: "2026-07-10",
+      returnDate: "2026-07-15",
+    },
+    preferences: { pace: "moderate", budget: "moderate", interests: ["culture", "food", "shopping"] },
+    prompt: "深度探索東京的淺草寺、澀谷與原宿潮流文化，感受都會美食巡禮與傳統現代交融的城市魅力",
+  },
+  {
+    continent: "日本",
+    label: "福岡 4天",
+    flightInfo: {
+      departureCity: "TPE",
+      arrivalCity: "FUK",
+      returnDepartureCity: "FUK",
+      departureDate: "2026-07-20",
+      returnDate: "2026-07-24",
+    },
+    preferences: { pace: "relaxed", budget: "budget", interests: ["food", "culture"] },
+    prompt: "探索福岡博多老城與太宰府天滿宮，感受屋台美食文化與九州小城悠閒步調",
+  },
+  {
+    continent: "日本",
+    label: "沖繩 5天",
+    flightInfo: {
+      departureCity: "TPE",
+      arrivalCity: "OKA",
+      returnDepartureCity: "OKA",
+      departureDate: "2026-07-28",
+      returnDate: "2026-08-02",
+    },
+    preferences: { pace: "relaxed", budget: "moderate", interests: ["nature", "food"] },
+    prompt: "探索沖繩美麗海水族館、國際通與慶良間諸島海島風情，感受琉球文化與湛藍海洋度假氛圍",
+  },
+  {
+    continent: "日本",
+    label: "北海道 5天",
+    flightInfo: {
+      departureCity: "TPE",
+      arrivalCity: "CTS",
+      returnDepartureCity: "CTS",
+      departureDate: "2026-08-05",
+      returnDate: "2026-08-10",
+    },
+    preferences: { pace: "moderate", budget: "moderate", interests: ["nature", "food", "culture"] },
+    prompt: "探索札幌時計台、小樽運河與富良野花海，感受北國自然景觀與海鮮美食文化",
+  },
 ];
 
 // ─── generation ───────────────────────────────────────────────────────────────
@@ -204,16 +340,21 @@ async function generateItinerary(scenario: Scenario, retries = 3): Promise<any> 
   if (googleApiKey) {
     const iataCodes = [...new Set([flightInfo.arrivalCity, flightInfo.returnDepartureCity])];
     const cityEntries = await Promise.all(
-      iataCodes.map(async (code) => ({
-        cityNameZh: iataToCity(code),
-        iataCode: code,
-        restaurants: await fetchCityRestaurants(code, googleApiKey),
-      }))
+      iataCodes.map(async (code) => {
+        const [breakfastPlaces, mainMealPlaces] = await Promise.all([
+          fetchCityBreakfastPlaces(code, googleApiKey),
+          fetchCityRestaurants(code, googleApiKey),
+        ]);
+        return { cityNameZh: iataToCity(code), iataCode: code, breakfastPlaces, mainMealPlaces };
+      })
     );
     restaurantHintsPrompt = buildRestaurantHintsPrompt(cityEntries);
-    for (const { cityNameZh, restaurants } of cityEntries) {
-      if (restaurants.length > 0) {
-        console.log(`    📍 ${cityNameZh}：取得 ${restaurants.length} 家真實餐廳`);
+    for (const { cityNameZh, breakfastPlaces, mainMealPlaces } of cityEntries) {
+      if (breakfastPlaces.length > 0) {
+        console.log(`    📍 ${cityNameZh}：取得 ${breakfastPlaces.length} 家真實早餐地點`);
+      }
+      if (mainMealPlaces.length > 0) {
+        console.log(`    📍 ${cityNameZh}：取得 ${mainMealPlaces.length} 家真實餐廳`);
       }
     }
   }
@@ -249,9 +390,9 @@ async function generateItinerary(scenario: Scenario, retries = 3): Promise<any> 
         throw new Error(`天數不符：期望 ${days} 天，實際 ${parsed.days.length} 天`);
       }
 
+      parsed.days = tagWaypointCities(parsed.days, arrivalCityName);
       if (isMultiCity) {
-        parsed.days = repairTransitDayDepartureCities(parsed.days, arrivalCityName, returnCityName);
-        parsed.days = repairMissingTransitDay(parsed.days, arrivalCityName, returnCityName);
+        parsed.days = repairTransitDayDepartureCities(parsed.days);
       }
       parsed.days = repairMissingAccommodation(parsed.days);
 
@@ -268,6 +409,9 @@ async function generateItinerary(scenario: Scenario, retries = 3): Promise<any> 
           "TRANSIT_DAY_MISSING",
           "TRANSIT_DAY_TOO_LATE",
           "TRANSIT_DAY_INVALID_POSITION",
+          "TRANSIT_DAY_NO_TRANSITTO",
+          "TRANSIT_DAY_UNEXPECTED",
+          "FINAL_CITY_MISMATCH",
         ]);
         const retryIssues = validationResult.issues.filter(i => {
           if (!RETRY_CODES.has(i.code)) return false;
@@ -360,6 +504,41 @@ async function searchPlaceForSeed(query: string, apiKey: string): Promise<PlaceE
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function enrichMeals(meals: any, city: string, apiKey: string): Promise<{ meals: any; enriched: number; cacheHits: number; skipped: number }> {
+  let enriched = 0;
+  let cacheHits = 0;
+  let skipped = 0;
+  const result = { ...meals };
+
+  for (const mealType of ["breakfast", "lunch", "dinner"]) {
+    const meal = meals[mealType];
+    if (!meal) continue;
+
+    const query = city ? `${meal.name} ${city}` : (meal.name as string);
+
+    const cached = await lookupByQuery(query);
+    if (cached && cached.lat != null && cached.lng != null) {
+      result[mealType] = { ...meal, placeId: cached.placeId, lat: cached.lat, lng: cached.lng, address: cached.address, rating: cached.rating };
+      cacheHits++;
+      continue;
+    }
+
+    const placeData = await searchPlaceForSeed(query, apiKey);
+    if (placeData) {
+      await upsertPlace(query, { placeId: placeData.placeId, name: placeData.name, address: placeData.address, lat: placeData.lat, lng: placeData.lng, rating: placeData.rating });
+      result[mealType] = { ...meal, placeId: placeData.placeId, lat: placeData.lat, lng: placeData.lng, address: placeData.address, rating: placeData.rating ?? null };
+      enriched++;
+    } else {
+      skipped++;
+    }
+
+    await new Promise(r => setTimeout(r, 150));
+  }
+
+  return { meals: result, enriched, cacheHits, skipped };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function enrichDaysWithPlaces(days: any[], apiKey: string): Promise<any[]> {
   let enriched = 0;
   let cacheHits = 0;
@@ -406,7 +585,16 @@ async function enrichDaysWithPlaces(days: any[], apiKey: string): Promise<any[]>
       await new Promise(r => setTimeout(r, 150));
     }
 
-    result.push({ ...day, stops: enrichedStops });
+    let enrichedDay: any = { ...day, stops: enrichedStops };
+    if (day.meals) {
+      const mealResult = await enrichMeals(day.meals, city, apiKey);
+      enrichedDay = { ...enrichedDay, meals: mealResult.meals };
+      enriched += mealResult.enriched;
+      cacheHits += mealResult.cacheHits;
+      skipped += mealResult.skipped;
+    }
+
+    result.push(enrichedDay);
   }
 
   console.log(`    📍 Places enrichment：${enriched} API，${cacheHits} cache hit，${skipped} 跳過`);

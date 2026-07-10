@@ -124,6 +124,7 @@ export default function TransitRecommendationsPanel({
         originIata,
         destinationIata,
         existingStops: existingStopsRef.current,
+        forceRefresh,
       }),
     })
       .then((res) => {

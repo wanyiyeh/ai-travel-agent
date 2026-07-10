@@ -2,10 +2,16 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma, j } from "@/lib/db";
 import { openai } from "@/lib/openai";
+import { StopCandidateSchema } from "@/lib/schemas";
 
 const RequestSchema = z.object({
   itineraryId: z.string().min(1),
   stopName: z.string().min(1),
+});
+
+const BatchRequestSchema = z.object({
+  itineraryId: z.string().min(1),
+  stops: z.array(StopCandidateSchema).min(1),
 });
 
 const AIResponseSchema = z.object({
@@ -23,6 +29,55 @@ export async function POST(
   try {
     const { dayId } = await params;
     const body = await request.json();
+
+    // Batch path: pre-resolved candidates (from stop-suggestions or another
+    // day's already-enriched stops) — no LLM call, write geo fields as-is.
+    if (Array.isArray((body as Record<string, unknown>)?.stops)) {
+      const parsedBatch = BatchRequestSchema.safeParse(body);
+      if (!parsedBatch.success) {
+        return NextResponse.json(
+          { error: "Invalid request", details: parsedBatch.error.flatten() },
+          { status: 400 }
+        );
+      }
+
+      const { itineraryId, stops: candidates } = parsedBatch.data;
+
+      const itinerary = await prisma.itinerary.findUnique({
+        where: { id: itineraryId },
+      });
+      if (!itinerary) {
+        return NextResponse.json({ error: "Itinerary not found" }, { status: 404 });
+      }
+
+      const days = itinerary.days as Record<string, unknown>[];
+      const dayIndex = days.findIndex((d) => d.id === dayId);
+      if (dayIndex === -1) {
+        return NextResponse.json({ error: "Day not found" }, { status: 404 });
+      }
+
+      const stops = (days[dayIndex].stops as Record<string, unknown>[]) ?? [];
+      const newStops = candidates.map((c, i) => ({
+        id: crypto.randomUUID(),
+        name: c.name,
+        description: c.description,
+        duration_minutes: c.duration_minutes,
+        orderIndex: stops.length + i,
+        ...(c.placeId
+          ? { placeId: c.placeId, lat: c.lat, lng: c.lng, address: c.address, rating: c.rating ?? null }
+          : {}),
+      }));
+
+      (days[dayIndex].stops as Record<string, unknown>[]).push(...newStops);
+
+      await prisma.itinerary.update({
+        where: { id: itineraryId },
+        data: { days: j(days) },
+      });
+
+      return NextResponse.json({ stops: newStops });
+    }
+
     const parsed = RequestSchema.safeParse(body);
 
     if (!parsed.success) {

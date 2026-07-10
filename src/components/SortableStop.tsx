@@ -5,6 +5,9 @@ import { CSS } from "@dnd-kit/utilities";
 import { formatDuration } from "@/types/itinerary";
 import type { Stop } from "@/types/itinerary";
 
+const DURATION_STEP = 15;
+const DURATION_PRESETS = [30, 60, 90, 120, 180, 240];
+
 type EditingStop = {
   id: string;
   name: string;
@@ -19,10 +22,13 @@ interface SortableStopProps {
   currency?: string;
   editingStop: EditingStop | null;
   isLoading: boolean;
-  isRegenerating: boolean;
+  bulkMode?: boolean;
+  selected?: boolean;
+  onToggleSelect?: (stopId: string) => void;
+  isDuplicate?: boolean;
+  duplicateReason?: string;
   onEdit: (stop: Stop) => void;
   onDelete: (stopId: string, dayIndex: number) => void;
-  onRegenerate: (stopId: string) => void;
   onSaveEdit: () => void;
   onCancelEdit: () => void;
   onEditChange: (updated: EditingStop) => void;
@@ -35,10 +41,13 @@ export function SortableStop({
   currency,
   editingStop,
   isLoading,
-  isRegenerating,
+  bulkMode = false,
+  selected = false,
+  onToggleSelect,
+  isDuplicate,
+  duplicateReason,
   onEdit,
   onDelete,
-  onRegenerate,
   onSaveEdit,
   onCancelEdit,
   onEditChange,
@@ -54,7 +63,7 @@ export function SortableStop({
     isDragging,
   } = useSortable({
     id: stop.id!,
-    disabled: isEditing || isLoading,
+    disabled: isEditing || isLoading || bulkMode,
   });
 
   const style = {
@@ -67,7 +76,7 @@ export function SortableStop({
       ref={setNodeRef}
       style={style}
       className={`flex gap-4 pb-6 last:pb-0 border-b last:border-b-0 border-zinc-100 dark:border-zinc-800 transition-opacity${
-        isLoading || isRegenerating ? " opacity-50" : ""
+        isLoading ? " opacity-50" : ""
       }${isDragging ? " opacity-30" : ""}`}
     >
       {/* Drag handle */}
@@ -117,25 +126,62 @@ export function SortableStop({
               rows={3}
               placeholder="景點描述"
             />
-            <div className="flex items-center gap-2">
+            <div className="space-y-2">
               <label className="text-sm text-zinc-500 dark:text-zinc-400">
-                停留時間：
+                停留時間
               </label>
-              <input
-                type="number"
-                value={editingStop.duration_minutes}
-                onChange={(e) =>
-                  onEditChange({
-                    ...editingStop,
-                    duration_minutes: parseInt(e.target.value) || 0,
-                  })
-                }
-                className="w-20 px-2 py-1 rounded border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-sm text-zinc-900 dark:text-zinc-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                min="1"
-              />
-              <span className="text-sm text-zinc-500 dark:text-zinc-400">
-                分鐘
-              </span>
+              <div className="flex flex-wrap gap-1.5">
+                {DURATION_PRESETS.map((preset) => (
+                  <button
+                    key={preset}
+                    type="button"
+                    onClick={() =>
+                      onEditChange({ ...editingStop, duration_minutes: preset })
+                    }
+                    className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
+                      editingStop.duration_minutes === preset
+                        ? "bg-blue-600 text-white"
+                        : "bg-zinc-100 dark:bg-zinc-700 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-600"
+                    }`}
+                  >
+                    {formatDuration(preset)}
+                  </button>
+                ))}
+              </div>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() =>
+                    onEditChange({
+                      ...editingStop,
+                      duration_minutes: Math.max(
+                        DURATION_STEP,
+                        editingStop.duration_minutes - DURATION_STEP
+                      ),
+                    })
+                  }
+                  className="w-7 h-7 flex items-center justify-center rounded-full bg-zinc-100 dark:bg-zinc-700 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-600 transition-colors"
+                  aria-label="減少停留時間"
+                >
+                  −
+                </button>
+                <span className="min-w-16 text-center text-sm font-medium text-zinc-900 dark:text-zinc-50">
+                  {formatDuration(editingStop.duration_minutes)}
+                </span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    onEditChange({
+                      ...editingStop,
+                      duration_minutes: editingStop.duration_minutes + DURATION_STEP,
+                    })
+                  }
+                  className="w-7 h-7 flex items-center justify-center rounded-full bg-zinc-100 dark:bg-zinc-700 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-600 transition-colors"
+                  aria-label="增加停留時間"
+                >
+                  +
+                </button>
+              </div>
             </div>
             <div className="flex gap-2">
               <button
@@ -169,6 +215,17 @@ export function SortableStop({
                     <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
                   </svg>
                   可疑
+                </span>
+              )}
+              {isDuplicate && (
+                <span
+                  title={duplicateReason ?? "與其他天景點重複"}
+                  className="mt-0.5 shrink-0 inline-flex items-center gap-0.5 rounded-full bg-amber-100 dark:bg-amber-900/40 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:text-amber-300"
+                >
+                  <svg className="w-2.5 h-2.5" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
+                  </svg>
+                  重複
                 </span>
               )}
             </div>
@@ -220,65 +277,59 @@ export function SortableStop({
           </span>
         </div>
 
-        {!isEditing && stop.id && (
-          <div className="flex gap-1">
-            <button
-              onClick={() => onRegenerate(stop.id!)}
-              disabled={isLoading || isRegenerating || editingStop !== null}
-              className="p-1 text-zinc-400 hover:text-green-600 disabled:opacity-30 transition-colors"
-              title="重新生成"
-            >
-              {isRegenerating ? (
-                <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                </svg>
-              ) : (
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                </svg>
-              )}
-            </button>
-            <button
-              onClick={() => onEdit(stop)}
-              disabled={isLoading || isRegenerating || editingStop !== null}
-              className="p-1 text-zinc-400 hover:text-blue-600 disabled:opacity-30 transition-colors"
-              title="編輯"
-            >
-              <svg
-                className="w-4 h-4"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
+        {bulkMode && stop.id ? (
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={() => onToggleSelect?.(stop.id!)}
+            className="w-5 h-5 rounded border-zinc-300 dark:border-zinc-600 text-blue-600 focus:ring-blue-500 focus:ring-offset-0"
+            title={selected ? "保留這個景點" : "將刪除這個景點"}
+          />
+        ) : (
+          !isEditing && stop.id && (
+            <div className="flex gap-1">
+              <button
+                onClick={() => onEdit(stop)}
+                disabled={isLoading || editingStop !== null}
+                className="p-1 text-zinc-400 hover:text-blue-600 disabled:opacity-30 transition-colors"
+                title="編輯"
               >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"
-                />
-              </svg>
-            </button>
-            <button
-              onClick={() => onDelete(stop.id!, dayIndex)}
-              disabled={isLoading || isRegenerating || editingStop !== null}
-              className="p-1 text-zinc-400 hover:text-red-600 disabled:opacity-30 transition-colors"
-              title="刪除"
-            >
-              <svg
-                className="w-4 h-4"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
+                <svg
+                  className="w-4 h-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"
+                  />
+                </svg>
+              </button>
+              <button
+                onClick={() => onDelete(stop.id!, dayIndex)}
+                disabled={isLoading || editingStop !== null}
+                className="p-1 text-zinc-400 hover:text-red-600 disabled:opacity-30 transition-colors"
+                title="刪除"
               >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                />
-              </svg>
-            </button>
-          </div>
+                <svg
+                  className="w-4 h-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                  />
+                </svg>
+              </button>
+            </div>
+          )
         )}
       </div>
     </div>
