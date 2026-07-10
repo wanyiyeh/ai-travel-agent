@@ -88,8 +88,7 @@ export async function POST(
     }
 
     const config = itinerary.config as {
-      flightInfo?: { departureDate?: string; arrivalCity?: string };
-      preferences?: { travelers?: number };
+      flightInfo?: { arrivalCity?: string };
     };
 
     const accName = typeof accommodation.name === "string" ? accommodation.name : undefined;
@@ -139,34 +138,6 @@ export async function POST(
       await upsertPlace(query, { placeId: place.id, name: place.displayName.text, address: place.formattedAddress, lat: place.location.latitude, lng: place.location.longitude, rating: place.rating });
     }
 
-    const dayNumber = day.day as number;
-    const travelers = config.preferences?.travelers ?? 2;
-
-    // ss: use hotel name when available, otherwise area + city — never "undefined"
-    const ssValue = accName
-      ? `${accName} ${accArea ?? ""}`.trim()
-      : `${accArea ?? ""} ${cityHint}`.trim();
-
-    const bookingParams = new URLSearchParams({
-      ss: ssValue,
-      lang: "zh-tw",
-      group_adults: String(travelers),
-      no_rooms: "1",
-    });
-
-    const departureDate = config.flightInfo?.departureDate;
-    if (departureDate) {
-      const localDateStr = (base: string, offsetDays: number): string => {
-        const [y, m, d] = base.split("-").map(Number);
-        const dt = new Date(y, m - 1, d + offsetDays);
-        return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
-      };
-      bookingParams.set("checkin", localDateStr(departureDate, dayNumber - 1));
-      bookingParams.set("checkout", localDateStr(departureDate, dayNumber));
-    }
-
-    const bookingUrl = `https://www.booking.com/search.html?${bookingParams.toString()}`;
-
     const enriched = {
       ...accommodation,
       placeId,
@@ -175,7 +146,6 @@ export async function POST(
       address: placeAddress,
       rating: placeRating,
       priceLevel: placePriceLevel,
-      bookingUrl,
     };
 
     days[dayIndex] = { ...day, accommodation: enriched };

@@ -1,8 +1,14 @@
 /**
- * Sanity-check the Place/PlaceQuery cache without calling any external API.
- * Flags: missing/invalid coordinates, out-of-range rating, address that doesn't
- * mention the city it was searched under, and same-day stops that are
- * suspiciously far apart (possible wrong-place match).
+ * Sanity-check the Place/PlaceQuery cache. Flags: missing/invalid coordinates,
+ * out-of-range rating, address that doesn't mention the city it was searched
+ * under, same-day stops that are suspiciously far apart (possible wrong-place
+ * match), and meals whose resolved place isn't actually a food establishment.
+ *
+ * Everything except the meal-type check is pure offline DB reads. The meal-type
+ * check calls the Google Places Details API only for meals whose `types` isn't
+ * cached yet in Place.types — once fetched, results are cached so repeat runs
+ * stay offline for places already checked. Requires GOOGLE_PLACES_API_KEY;
+ * silently skips (not fails) any meal it can't verify without one.
  *
  * Run: npx tsx scripts/check-place-data.ts
  */
@@ -39,6 +45,33 @@ function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): nu
 // centroid is likely a wrong-branch/wrong-city match (language-agnostic,
 // unlike comparing the city name against the address string).
 const CITY_CLUSTER_KM_THRESHOLD = 50;
+
+// A meal matched to a place with none of these types is almost certainly the
+// wrong business (e.g. a hair salon that happens to share a restaurant's name)
+// — this catches same-city mismatches that distance-based checks can't, since
+// the coordinates are often still perfectly plausible for the city.
+const FOOD_TYPE_KEYWORDS = [
+  "restaurant", "food", "cafe", "bakery", "bar", "diner", "buffet",
+  "dessert", "coffee", "meal_", "deli", "izakaya", "pub", "brunch",
+  "breakfast", "snack", "confectionery", "bistro", "tea_house", "market",
+];
+
+function isFoodPlace(types: string[]): boolean {
+  return types.some((t) => FOOD_TYPE_KEYWORDS.some((kw) => t.includes(kw)));
+}
+
+async function fetchPlaceTypes(placeId: string, apiKey: string): Promise<string[] | null> {
+  try {
+    const res = await fetch(`https://places.googleapis.com/v1/places/${placeId}`, {
+      headers: { "X-Goog-Api-Key": apiKey, "X-Goog-FieldMask": "types" },
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return Array.isArray(data.types) ? data.types : null;
+  } catch {
+    return null;
+  }
+}
 
 async function main() {
   const places = await prisma.place.findMany({ include: { queries: true } });
@@ -154,6 +187,64 @@ async function main() {
       }
     }
   }
+
+  // --- Meal type check: flag meals whose place isn't actually food-related ---
+  const apiKey = process.env.GOOGLE_PLACES_API_KEY;
+  let mealsChecked = 0, mealsFetched = 0, mealsSkippedNoKey = 0;
+
+  for (const itinerary of itineraries) {
+    const days = (typeof itinerary.days === "string"
+      ? JSON.parse(itinerary.days)
+      : itinerary.days) as Record<string, unknown>[];
+
+    for (const day of days) {
+      const meals = day.meals as Record<string, Record<string, unknown>> | undefined;
+      if (!meals) continue;
+
+      for (const mealType of ["breakfast", "lunch", "dinner"]) {
+        const meal = meals[mealType];
+        const placeId = meal?.placeId as string | undefined;
+        if (!meal || !placeId) continue;
+
+        const cached = await prisma.place.findUnique({ where: { id: placeId } });
+        let types: string[] | null = cached?.types ? JSON.parse(cached.types) : null;
+
+        if (types == null) {
+          if (!apiKey) { mealsSkippedNoKey++; continue; }
+          types = await fetchPlaceTypes(placeId, apiKey);
+          mealsFetched++;
+          if (types) {
+            await prisma.place.upsert({
+              where: { id: placeId },
+              create: {
+                id: placeId,
+                name: (meal.name as string) ?? "",
+                address: (meal.address as string) ?? null,
+                lat: typeof meal.lat === "number" ? meal.lat : null,
+                lng: typeof meal.lng === "number" ? meal.lng : null,
+                rating: typeof meal.rating === "number" ? meal.rating : null,
+                types: JSON.stringify(types),
+              },
+              update: { types: JSON.stringify(types) },
+            });
+          }
+          await new Promise((r) => setTimeout(r, 120));
+        }
+
+        mealsChecked++;
+        if (types && !isFoodPlace(types)) {
+          console.log(`${itinerary.title} 第 ${day.day} 天 ${mealType}：「${meal.name}」`);
+          console.log(`  ❌ 配對地點類型為 [${types.join("、")}]，不是餐飲類場所，可能配對到同名的其他商家`);
+          errorCount++;
+        }
+      }
+    }
+  }
+
+  console.log(
+    `\n餐廳類型檢查：檢查 ${mealsChecked} 筆（新查詢 ${mealsFetched} 筆）` +
+    (mealsSkippedNoKey > 0 ? `，${mealsSkippedNoKey} 筆因缺少 GOOGLE_PLACES_API_KEY 跳過` : "")
+  );
 
   console.log(`\n完成：❌ ${errorCount} 個錯誤，⚠️ ${warnCount} 個警告需人工複查`);
 }

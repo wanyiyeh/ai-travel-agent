@@ -37,7 +37,6 @@ export const AccommodationSchema = z.object({
   address: z.string().optional(),
   rating: z.number().nullable().optional(),
   priceLevel: z.number().nullable().optional(),
-  bookingUrl: z.string().optional(),
 });
 
 export const StopSchema = z.object({
@@ -49,10 +48,40 @@ export const StopSchema = z.object({
   estimated_cost: z.number().optional(),
 });
 
-const MealSchema = z.object({
+export const StopCandidateSchema = z.object({
+  name: z.string(),
+  description: z.string(),
+  duration_minutes: z.number(),
+  placeId: z.string().optional(),
+  lat: z.number().optional(),
+  lng: z.number().optional(),
+  address: z.string().optional(),
+  rating: z.number().nullable().optional(),
+  suspicious: z.boolean().optional(),
+  suspiciousReason: z.string().optional(),
+});
+
+// Internal schema for parsing the LLM's description-fill response — matched
+// 1:1 by index against real Places candidate names, never used to invent places.
+export const StopDescriptionFillSchema = z.object({
+  candidates: z.array(
+    z.object({
+      name: z.string(),
+      description: z.string(),
+      duration_minutes: z.number(),
+    })
+  ),
+});
+
+export const MealSchema = z.object({
   name: z.string(),
   description: z.string().optional(),
   estimated_cost: z.number().optional(),
+  placeId: z.string().optional(),
+  lat: z.number().optional(),
+  lng: z.number().optional(),
+  address: z.string().optional(),
+  rating: z.number().nullable().optional(),
 });
 
 const DayMealsSchema = z.object({

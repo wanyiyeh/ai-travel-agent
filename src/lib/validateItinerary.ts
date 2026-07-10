@@ -73,28 +73,15 @@ export function validateItinerary(
     });
   }
 
-  if (isMultiCity && transitDays.length > 1) {
-    issues.push({
-      severity: "error",
-      code: "TRANSIT_DAY_DUPLICATE",
-      message: `移動日只能有一天，但找到 ${transitDays.length} 個`,
-    });
-  }
-
-  // Transit day details
+  // Transit day details. Multi-segment (progressive/waypoint) routes can legitimately
+  // have more than one transit day — only the final one has to land on returnCityName;
+  // intermediate ones move on to an in-between waypoint town instead (checked below).
   for (const td of transitDays) {
     if (!td.transitTo) {
       issues.push({
         severity: "error",
         code: "TRANSIT_DAY_NO_TRANSITTO",
         message: `第 ${td.day} 天（移動日）缺少 transitTo 欄位`,
-        day: td.day,
-      });
-    } else if (td.transitTo !== returnCityName) {
-      issues.push({
-        severity: "error",
-        code: "TRANSIT_DAY_WRONG_CITY",
-        message: `第 ${td.day} 天（移動日）的 transitTo 為「${td.transitTo}」，應為「${returnCityName}」`,
         day: td.day,
       });
     }
@@ -110,6 +97,18 @@ export function validateItinerary(
   }
 
   const lastDay = days[days.length - 1];
+
+  // The route must actually end up in the return city — check the final day's
+  // resolved city (tagged via tagWaypointCities) rather than every transit day's
+  // transitTo, since intermediate transit days correctly point elsewhere.
+  if (isMultiCity && lastDay?.waypointCity && lastDay.waypointCity !== returnCityName) {
+    issues.push({
+      severity: "error",
+      code: "FINAL_CITY_MISMATCH",
+      message: `行程最終停留城市為「${lastDay.waypointCity}」，應為「${returnCityName}」`,
+      day: lastDay.day,
+    });
+  }
 
   // Accommodation per day
   for (const day of days) {

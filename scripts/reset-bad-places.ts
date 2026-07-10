@@ -27,6 +27,12 @@ const BAD_PLACE_IDS = [
   "ChIJ4SEGMiQABDQRRhn7SYWq0fM", // 海洋公園 -> matched Ocean Park, Hong Kong
   "ChIJUX-lgjWpQjQRO1OC4UqI2iQ", // 運河旁的咖啡館 -> matched a café in Taipei
   "ChIJN1y6RacCaDQRElenCbyeN2w", // 墨爾本咖啡文化體驗 -> matched a café in Taipei
+  "ChIJKwvcpToK3okRECXf-FfVrnI", // 國會大廈 -> matched NY State Capitol, Albany (should be US Capitol, DC)
+  "ChIJ-545aQ2kQjQRPvCkWdkJTmA", // 海濱步道 -> matched a promenade in Bali District, New Taipei (should be Miami)
+  "ChIJccGhXRqrQjQRlsWMQ6UCGXo", // 名古屋美食街 -> matched an alley in Songshan District, Taipei
+  "ChIJE6BzZAB3A2ARpRGc6nfLZa0", // Katsu Sand (breakfast) -> matched a hair salon named "sand" in Nagoya (same city, wrong business type — not a cross-country homonym)
+  "ChIJ6QlgZIhzA2ARuiG7jOZhL0g", // Kisoji (dinner) -> matched a sublocality/political area named "Kisoji" in Nagoya, not the restaurant chain
+  "ChIJawhFpEJ1A2ARBDU1Jbe4wZ0", // 道頓堀 -> matched "Dohtonbori" in Kiyosu, Aichi (near Nagoya) instead of the real Osaka Dotonbori; caused by a transit-day stop being geocoded against the departure city hint instead of the arrival city (fixed in enrich/route.ts and enrich-all-stops/route.ts)
 ];
 
 async function main() {

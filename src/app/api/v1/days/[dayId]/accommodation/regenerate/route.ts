@@ -1,14 +1,26 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma, j } from "@/lib/db";
-import { openai } from "@/lib/openai";
-import { AccommodationSchema } from "@/lib/schemas";
 import { getMockMode, mockDelay, MOCK_FIXTURES } from "@/lib/mockAi";
-import { fetchNearbyPlaces, getIataCoords } from "@/lib/fetchCityRestaurants";
+import {
+  fetchNearbyPlaceCandidates,
+  getLodgingTypes,
+  getPriceLevels,
+} from "@/lib/fetchCityRestaurants";
+import { resolveDayCoords } from "@/lib/itineraryGen";
+import type { AccommodationCandidate } from "@/types/itinerary";
 
 const RequestSchema = z.object({
   itineraryId: z.string().min(1),
 });
+
+// Google's formattedAddress is typically "<street>, <district/city>, <region>
+// <postal>, <country>" — the 2nd segment is the closest approximation of a
+// short "area" label we can derive without another API call.
+function deriveArea(address: string): string {
+  const parts = address.split(",").map((p) => p.trim()).filter(Boolean);
+  return parts[1] ?? parts[0] ?? address;
+}
 
 export async function POST(
   request: Request,
@@ -34,15 +46,7 @@ export async function POST(
     }
     if (mockMode === "slow" || mockMode === "fixture") {
       await mockDelay(mockMode === "slow" ? 3500 : 0);
-      const { dayId } = await params;
-      const itinerary = await prisma.itinerary.findUnique({ where: { id: itineraryId } });
-      if (!itinerary) return NextResponse.json({ error: "Itinerary not found" }, { status: 404 });
-      const days = itinerary.days as Record<string, unknown>[];
-      const dayIndex = days.findIndex((d) => d.id === dayId);
-      if (dayIndex === -1) return NextResponse.json({ error: "Day not found" }, { status: 404 });
-      days[dayIndex] = { ...days[dayIndex], accommodation: MOCK_FIXTURES.accommodation };
-      await prisma.itinerary.update({ where: { id: itineraryId }, data: { days: j(days) } });
-      return NextResponse.json({ success: true, accommodation: MOCK_FIXTURES.accommodation });
+      return NextResponse.json({ success: true, candidates: MOCK_FIXTURES.accommodationCandidates });
     }
 
     const itinerary = await prisma.itinerary.findUnique({
@@ -62,86 +66,89 @@ export async function POST(
 
     const day = days[dayIndex];
     const currentAccommodation = day.accommodation as Record<string, unknown> | undefined;
-    const stops = day.stops as Record<string, unknown>[];
-    const dayNumber = day.day as number;
 
-    const stopNames = stops.map((s) => s.name as string).filter(Boolean);
-    const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
+    const config = itinerary.config as {
+      flightInfo?: { arrivalCity?: string };
+      preferences?: { budget?: "budget" | "moderate" | "luxury" };
+    };
+    const budget = config.preferences?.budget;
 
     const googleApiKey = process.env.GOOGLE_PLACES_API_KEY;
-    let hotelHintsText = "";
-    if (googleApiKey) {
-      const enrichedStops = stops.filter(
-        (s) => typeof s.lat === "number" && typeof s.lng === "number"
-      ) as { lat: number; lng: number }[];
-
-      let coords: { lat: number; lng: number } | null = null;
-      if (enrichedStops.length > 0) {
-        coords = {
-          lat: enrichedStops.reduce((sum, s) => sum + s.lat, 0) / enrichedStops.length,
-          lng: enrichedStops.reduce((sum, s) => sum + s.lng, 0) / enrichedStops.length,
-        };
-      } else {
-        const config = itinerary.config as { flightInfo?: { arrivalCity?: string } };
-        const iataCode = config.flightInfo?.arrivalCity;
-        if (iataCode) coords = getIataCoords(iataCode);
-      }
-
-      if (coords) {
-        const hotels = await fetchNearbyPlaces(coords, googleApiKey, ["lodging"], 2000, 10);
-        const candidates = hotels.filter((h) => h.name !== currentAccommodation?.name);
-        if (candidates.length > 0) {
-          hotelHintsText = `\n\n【附近真實住宿清單 — 必須從中選擇】\n以下為 Google Maps 驗證的真實住宿，請從中挑選最適合的一間：\n${candidates.map((h) => `${h.name}${h.rating ? `（${h.rating}★）` : ""}`).join("、")}`;
-        }
-      }
+    if (!googleApiKey) {
+      return NextResponse.json({ error: "住宿搜尋功能未設定" }, { status: 503 });
     }
 
-    const completion = await openai.chat.completions.create({
-      model,
-      messages: [
-        {
-          role: "system",
-          content: `你是專業的旅遊規劃專家。根據當天的景點位置，推薦地理位置最合適的真實住宿。
-回傳嚴格的 JSON 格式（不要其他文字）：
-{ "name": "<住宿名稱，使用原文或英文>", "area": "<所在區域>" }
-要求：
-- 推薦真實存在且可在 Booking.com 找到的飯店或住宿
-- 位置盡量靠近當天景點的地理重心
-- 不要重複推薦目前已有的住宿${currentAccommodation ? `（目前住宿：${currentAccommodation.name}）` : ""}${hotelHintsText}`,
-        },
-        {
-          role: "user",
-          content: `行程：${itinerary.title}
-第 ${dayNumber} 天的景點：${stopNames.join("、")}
+    const coords = resolveDayCoords(days, day, config.flightInfo?.arrivalCity);
 
-請推薦最適合的住宿。`,
-        },
-      ],
-      response_format: { type: "json_object" },
-      temperature: 0.7,
-    });
-
-    const aiContent = completion.choices[0].message.content;
-    if (!aiContent) throw new Error("AI returned empty response");
-
-    const parsedAI = AccommodationSchema.safeParse(JSON.parse(aiContent));
-    if (!parsedAI.success) {
-      throw new Error(`AI response validation failed: ${parsedAI.error.message}`);
+    if (!coords) {
+      return NextResponse.json(
+        { error: "無法定位這天的住宿搜尋範圍，請先為景點補上地點資料" },
+        { status: 422 }
+      );
     }
 
-    const newAccommodation = parsedAI.data;
-    days[dayIndex] = { ...day, accommodation: newAccommodation };
+    const lodgingTypes = getLodgingTypes(budget);
+    const priceLevels = getPriceLevels(budget);
 
-    await prisma.itinerary.update({
-      where: { id: itineraryId },
-      data: { days: j(days) },
+    let hotels = await fetchNearbyPlaceCandidates(coords, googleApiKey, lodgingTypes, 3000, 10, priceLevels);
+    if (hotels.length === 0 && priceLevels) {
+      // Small destinations often don't tag price level on lodging listings —
+      // retry without the price filter rather than coming back empty.
+      hotels = await fetchNearbyPlaceCandidates(coords, googleApiKey, lodgingTypes, 3000, 10);
+    }
+
+    const currentPlaceId =
+      typeof currentAccommodation?.placeId === "string" ? currentAccommodation.placeId : undefined;
+    const currentName =
+      typeof currentAccommodation?.name === "string" ? currentAccommodation.name : undefined;
+    const normalize = (s: string) => s.toLowerCase().trim();
+
+    const newCandidates: AccommodationCandidate[] = hotels
+      .filter(
+        (h) =>
+          h.placeId !== currentPlaceId &&
+          (!currentName || normalize(h.name) !== normalize(currentName))
+      )
+      .map((h) => ({
+        name: h.name,
+        area: deriveArea(h.address),
+        placeId: h.placeId,
+        lat: h.lat,
+        lng: h.lng,
+        address: h.address,
+        rating: h.rating ?? null,
+      }));
+
+    // Surface the day's existing accommodation as the first candidate so
+    // picking it again (i.e. "keep what I had") costs nothing extra.
+    const candidates: AccommodationCandidate[] = currentName
+      ? [
+          {
+            name: currentName,
+            area: typeof currentAccommodation?.area === "string" ? currentAccommodation.area : "",
+            placeId: currentPlaceId,
+            lat: typeof currentAccommodation?.lat === "number" ? currentAccommodation.lat : undefined,
+            lng: typeof currentAccommodation?.lng === "number" ? currentAccommodation.lng : undefined,
+            address:
+              typeof currentAccommodation?.address === "string" ? currentAccommodation.address : undefined,
+            rating: typeof currentAccommodation?.rating === "number" ? currentAccommodation.rating : null,
+            isCurrent: true,
+          },
+          ...newCandidates,
+        ]
+      : newCandidates;
+
+    // Keep a full history of every candidate batch shown for this day, even
+    // after the user picks a different one, so it can be reviewed later.
+    await prisma.accommodationCandidateLog.create({
+      data: { itineraryId, dayId, candidates: j(candidates) },
     });
 
-    return NextResponse.json({ success: true, accommodation: newAccommodation });
+    return NextResponse.json({ success: true, candidates });
   } catch (error) {
-    console.error("[Accommodation Regenerate Error]", error);
+    console.error("[Accommodation Candidates Error]", error);
     return NextResponse.json(
-      { error: "Failed to regenerate accommodation", details: String(error) },
+      { error: "Failed to fetch accommodation candidates", details: String(error) },
       { status: 500 }
     );
   }

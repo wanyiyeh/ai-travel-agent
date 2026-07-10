@@ -72,14 +72,23 @@ export async function POST(
     for (const day of days) {
       const stops = day.stops as Record<string, unknown>[];
       if (!stops) continue;
-      const stop = stops.find((s) => s.id === stopId);
-      if (stop) {
-        targetStop = stop;
+      const stopIndex = stops.findIndex((s) => s.id === stopId);
+      if (stopIndex >= 0) {
+        targetStop = stops[stopIndex];
         // Prefer waypointCity (set by tagWaypointCities), fall back to transitTo
-        cityHint =
+        const departureCityHint =
           (typeof day.waypointCity === "string" ? day.waypointCity : "") ||
           (typeof day.transitTo === "string" ? day.transitTo : "") ||
           "";
+        // On a transit day, only the first stop is the departure->arrival journey
+        // itself; every later stop is required to be in the arrival city (see
+        // itineraryGen.ts's generation prompt), so it must be geocoded against
+        // transitTo rather than the departure-tagged waypointCity.
+        const arrivalCityHint = typeof day.transitTo === "string" ? day.transitTo : "";
+        cityHint =
+          day.isTransitDay === true && stopIndex > 0 && arrivalCityHint
+            ? arrivalCityHint
+            : departureCityHint;
         break;
       }
     }
