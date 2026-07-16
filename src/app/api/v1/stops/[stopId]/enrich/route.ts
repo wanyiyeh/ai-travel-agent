@@ -1,42 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma, j } from "@/lib/db";
 import { lookupByQuery, lookupByPlaceId, upsertPlace } from "@/lib/placeCache";
-
-const PLACES_API_URL = "https://places.googleapis.com/v1/places:searchText";
-
-interface PlaceResult {
-  id: string;
-  displayName: { text: string };
-  formattedAddress: string;
-  location: { latitude: number; longitude: number };
-  rating?: number;
-}
-
-async function searchPlace(query: string): Promise<PlaceResult | null> {
-  const apiKey = process.env.GOOGLE_PLACES_API_KEY;
-  if (!apiKey) throw new Error("GOOGLE_PLACES_API_KEY not configured");
-
-  const res = await fetch(PLACES_API_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Goog-Api-Key": apiKey,
-      "X-Goog-FieldMask": [
-        "places.id",
-        "places.displayName",
-        "places.formattedAddress",
-        "places.location",
-        "places.rating",
-      ].join(","),
-    },
-    body: JSON.stringify({ textQuery: query, maxResultCount: 1 }),
-  });
-
-  if (!res.ok) throw new Error(`Places API error: ${res.status}`);
-
-  const data = await res.json();
-  return data.places?.[0] ?? null;
-}
+import { searchPlaceText, getCityCenter } from "@/lib/placesTextSearch";
 
 export async function POST(
   request: Request,
@@ -109,12 +74,28 @@ export async function POST(
       });
     }
 
-    // City-constrained query: waypointCity > legacy context param > bare name
+    const apiKey = process.env.GOOGLE_PLACES_API_KEY;
+    if (!apiKey) {
+      return NextResponse.json({ error: "GOOGLE_PLACES_API_KEY not configured" }, { status: 503 });
+    }
+
+    // District-constrained query: name + district (if the AI filled it in) + city hint.
+    // The district disambiguates same-named landmarks split across a city's
+    // wards/neighborhoods (see itineraryGen.ts rule 20) — city name alone isn't
+    // granular enough for cities like Tokyo or Kyoto.
+    const district = typeof targetStop.district === "string" ? targetStop.district : "";
+    const namePart = district ? `${targetStop.name} ${district}` : String(targetStop.name);
     const query = cityHint
-      ? `${targetStop.name} ${cityHint}`
+      ? `${namePart} ${cityHint}`
       : context
-      ? `${targetStop.name} ${context}`
-      : String(targetStop.name);
+      ? `${namePart} ${context}`
+      : namePart;
+
+    // Bias results toward the day's city so vague/generic stop names (e.g.
+    // "咖啡文化體驗") don't resolve to a same-keyword place elsewhere in the
+    // world — the city name in `query` alone is only a ranking hint, not a
+    // geographic restriction.
+    const cityBias = await getCityCenter(cityHint || context || "", apiKey);
 
     // Check Place cache before hitting Google API
     let enriched: { placeId: string; lat: number; lng: number; address: string | null; rating: number | null };
@@ -127,7 +108,7 @@ export async function POST(
       if (cachedById && cachedById.lat != null && cachedById.lng != null) {
         enriched = { placeId: cachedById.placeId, lat: cachedById.lat, lng: cachedById.lng, address: cachedById.address, rating: cachedById.rating };
       } else {
-        const place = await searchPlace(query);
+        const place = await searchPlaceText(query, apiKey, cityBias);
         if (!place) {
           return NextResponse.json({ error: "Place not found on Google Maps" }, { status: 404 });
         }
@@ -135,7 +116,7 @@ export async function POST(
         await upsertPlace(query, { placeId: place.id, name: place.displayName.text, address: place.formattedAddress, lat: place.location.latitude, lng: place.location.longitude, rating: place.rating });
       }
     } else {
-      const place = await searchPlace(query);
+      const place = await searchPlaceText(query, apiKey, cityBias);
       if (!place) {
         return NextResponse.json({ error: "Place not found on Google Maps" }, { status: 404 });
       }

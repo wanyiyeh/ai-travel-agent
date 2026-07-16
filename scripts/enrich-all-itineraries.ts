@@ -123,6 +123,13 @@ async function main() {
         (typeof day.waypointCity === "string" ? day.waypointCity : "") ||
         (typeof day.transitTo === "string" ? day.transitTo : "") ||
         "";
+      // On a transit day, only the first stop is the departure->arrival journey
+      // itself; every later stop is required (by the generation prompt) to be
+      // in the arrival city, so geocoding it against the departure-tagged
+      // waypointCity can match an unrelated same-named place there instead
+      // (see reset-bad-places.ts's 道頓堀 entry for a confirmed case).
+      const isTransitDay = day.isTransitDay === true;
+      const arrivalCityHint = typeof day.transitTo === "string" ? day.transitTo : "";
 
       const meals = day.meals as Record<string, Record<string, unknown>> | undefined;
       if (meals) {
@@ -222,11 +229,18 @@ async function main() {
 
       for (let i = 0; i < stops.length; i++) {
         const stop = stops[i];
+        const stopCityHint = isTransitDay && i > 0 && arrivalCityHint ? arrivalCityHint : cityHint;
+
+        // District disambiguates same-named landmarks split across a city's
+        // wards/neighborhoods (see itineraryGen.ts rule 20) — city name alone
+        // isn't granular enough for cities like Tokyo or Kyoto.
+        const stopDistrict = typeof stop.district === "string" ? stop.district : "";
+        const stopNamePart = stopDistrict ? `${stop.name} ${stopDistrict}` : String(stop.name);
 
         // Already enriched
         if (stop.placeId && stop.lat != null && stop.lng != null) {
           // Still upsert to cache in case it's missing
-          const query = cityHint ? `${stop.name} ${cityHint}` : String(stop.name);
+          const query = stopCityHint ? `${stopNamePart} ${stopCityHint}` : stopNamePart;
           await prisma.place.upsert({
             where: { id: String(stop.placeId) },
             create: { id: String(stop.placeId), name: String(stop.name), address: stop.address as string ?? null, lat: stop.lat as number, lng: stop.lng as number, rating: stop.rating as number ?? null },
@@ -254,7 +268,7 @@ async function main() {
           continue;
         }
 
-        const query = cityHint ? `${stop.name} ${cityHint}` : String(stop.name);
+        const query = stopCityHint ? `${stopNamePart} ${stopCityHint}` : stopNamePart;
 
         // Check PlaceQuery cache first
         const hit = await prisma.placeQuery.findUnique({
@@ -279,7 +293,7 @@ async function main() {
         // Call Google API, biased toward the day's city so a same-named
         // place elsewhere (e.g. in Taiwan/HK) doesn't win the match
         try {
-          const cityCenter = await resolveCityCenter(cityHint, apiKey!);
+          const cityCenter = await resolveCityCenter(stopCityHint, apiKey!);
           let place = await searchPlace(query, apiKey!, cityCenter ?? undefined);
 
           if (place && cityCenter) {
@@ -288,7 +302,7 @@ async function main() {
               cityCenter.lat, cityCenter.lng
             );
             if (km > REJECT_KM_THRESHOLD) {
-              console.log(`  ⚠️ 略過「${query}」：配對結果距離 ${cityHint} ${Math.round(km)} km，疑似錯誤匹配 (${place.formattedAddress})`);
+              console.log(`  ⚠️ 略過「${query}」：配對結果距離 ${stopCityHint} ${Math.round(km)} km，疑似錯誤匹配 (${place.formattedAddress})`);
               place = null;
             }
           }

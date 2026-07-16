@@ -1,6 +1,18 @@
+import { haversineKm } from "@/lib/distanceMatrix";
+
 const NEARBY_SEARCH_URL = "https://places.googleapis.com/v1/places:searchNearby";
 
 export type BudgetLevel = "budget" | "moderate" | "luxury";
+
+// Shared with placesTextSearch's Text Search results — Google reports price
+// level as one of these enum strings from both Nearby Search and Text Search.
+export const PRICE_LEVEL_MAP: Record<string, number> = {
+  PRICE_LEVEL_FREE: 0,
+  PRICE_LEVEL_INEXPENSIVE: 1,
+  PRICE_LEVEL_MODERATE: 2,
+  PRICE_LEVEL_EXPENSIVE: 3,
+  PRICE_LEVEL_VERY_EXPENSIVE: 4,
+};
 
 export interface RestaurantHint {
   name: string;
@@ -210,6 +222,7 @@ export function buildAttractionHintsPrompt(
 export interface PlaceCandidate {
   name: string;
   rating?: number;
+  priceLevel?: number | null;
   placeId: string;
   lat: number;
   lng: number;
@@ -235,7 +248,7 @@ export async function fetchNearbyPlaceCandidates(
       headers: {
         "Content-Type": "application/json",
         "X-Goog-Api-Key": apiKey,
-        "X-Goog-FieldMask": "places.id,places.displayName,places.rating,places.location,places.formattedAddress",
+        "X-Goog-FieldMask": "places.id,places.displayName,places.rating,places.location,places.formattedAddress,places.priceLevel",
       },
       body: JSON.stringify({
         includedTypes: types,
@@ -258,9 +271,10 @@ export async function fetchNearbyPlaceCandidates(
 
     const data = await res.json();
     return (data.places ?? [])
-      .map((p: { id?: string; displayName?: { text?: string }; rating?: number; location?: { latitude?: number; longitude?: number }; formattedAddress?: string }) => ({
+      .map((p: { id?: string; displayName?: { text?: string }; rating?: number; priceLevel?: string; location?: { latitude?: number; longitude?: number }; formattedAddress?: string }) => ({
         name: p.displayName?.text ?? "",
         rating: p.rating,
+        priceLevel: p.priceLevel ? (PRICE_LEVEL_MAP[p.priceLevel] ?? null) : null,
         placeId: p.id ?? "",
         lat: p.location?.latitude ?? 0,
         lng: p.location?.longitude ?? 0,
@@ -270,6 +284,63 @@ export async function fetchNearbyPlaceCandidates(
   } catch (err) {
     console.warn(`[Places API Candidates] fetch failed:`, err);
     return [];
+  }
+}
+
+export interface NearestStation {
+  name: string;
+  distanceMeters: number;
+}
+
+// Typical walkable radius from a hotel to a station; beyond this, "nearest
+// station" is more misleading than useful, so treat "none found" as no badge
+// rather than surfacing a station that's actually far away.
+const STATION_SEARCH_RADIUS_METERS = 1500;
+
+/**
+ * Nearest subway/train/light-rail station to a point, with straight-line
+ * (haversine) distance — not a walking route, so no extra Routes API call.
+ * Returns null if none found within STATION_SEARCH_RADIUS_METERS or on error.
+ */
+export async function findNearestStation(
+  coords: { lat: number; lng: number },
+  apiKey: string,
+): Promise<NearestStation | null> {
+  try {
+    const res = await fetch(NEARBY_SEARCH_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": apiKey,
+        "X-Goog-FieldMask": "places.displayName,places.location",
+      },
+      body: JSON.stringify({
+        includedTypes: ["subway_station", "train_station", "light_rail_station"],
+        maxResultCount: 1,
+        rankPreference: "DISTANCE",
+        locationRestriction: {
+          circle: {
+            center: { latitude: coords.lat, longitude: coords.lng },
+            radius: STATION_SEARCH_RADIUS_METERS,
+          },
+        },
+      }),
+    });
+
+    if (!res.ok) return null;
+
+    const data = await res.json();
+    const station = data.places?.[0];
+    if (!station?.location || !station.displayName?.text) return null;
+
+    return {
+      name: station.displayName.text,
+      distanceMeters: Math.round(
+        haversineKm(coords.lat, coords.lng, station.location.latitude, station.location.longitude) * 1000
+      ),
+    };
+  } catch {
+    return null;
   }
 }
 

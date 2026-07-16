@@ -3,6 +3,7 @@
 export type Stop = {
   id?: string;
   name: string;
+  district?: string;
   description: string;
   duration_minutes: number;
   time_of_day?: "morning" | "afternoon" | "evening";
@@ -19,17 +20,27 @@ export type Stop = {
 };
 
 export type Accommodation = {
-  name: string;
+  // Only set once a real candidate is picked — freshly-generated accommodation
+  // only has area + reason (see AccommodationSchema in schemas.ts).
+  name?: string;
   area: string;
+  reason?: string;
   placeId?: string;
   lat?: number;
   lng?: number;
   address?: string;
   rating?: number | null;
   priceLevel?: number | null;
+  estimated_cost?: number;
+  estimated_cost_low?: number;
+  estimated_cost_high?: number;
+  nearestStation?: { name: string; distanceMeters: number } | null;
 };
 
-export type AccommodationCandidate = Accommodation & {
+// Candidates always come from a real Google Places result, so unlike the
+// freshly-generated Accommodation (area + reason only), name is guaranteed.
+export type AccommodationCandidate = Omit<Accommodation, "name"> & {
+  name: string;
   isCurrent?: boolean;
 };
 

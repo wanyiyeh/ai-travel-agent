@@ -35,9 +35,10 @@ import {
   repairTransitDayDepartureCities,
   tagWaypointCities,
 } from "@/lib/itineraryGen";
-import { fetchCityRestaurants, fetchCityBreakfastPlaces, buildRestaurantHintsPrompt } from "@/lib/fetchCityRestaurants";
+import { fetchCityRestaurants, fetchCityBreakfastPlaces, buildRestaurantHintsPrompt, PRICE_LEVEL_MAP } from "@/lib/fetchCityRestaurants";
 import { lookupByQuery, upsertPlace } from "@/lib/placeCache";
 import { validateItinerary } from "@/lib/validateItinerary";
+import { estimateLodgingCostPerNight, estimateLodgingCostRange } from "@/lib/priceLevelCost";
 // Load .env (Next.js doesn't inject env vars when running plain node)
 try {
   const envContent = readFileSync(resolve(process.cwd(), ".env"), "utf-8");
@@ -458,24 +459,31 @@ interface PlaceEnrichment {
   name: string;
   lat: number;
   lng: number;
-  address: string;
+  address: string | null;
   rating?: number;
+  priceLevel?: number | null;
 }
 
-async function searchPlaceForSeed(query: string, apiKey: string): Promise<PlaceEnrichment | null> {
+async function searchPlaceForSeed(
+  query: string,
+  apiKey: string,
+  { withPriceLevel = false }: { withPriceLevel?: boolean } = {},
+): Promise<PlaceEnrichment | null> {
   try {
+    const fieldMask = [
+      "places.id",
+      "places.displayName",
+      "places.formattedAddress",
+      "places.location",
+      "places.rating",
+      ...(withPriceLevel ? ["places.priceLevel"] : []),
+    ];
     const res = await fetch(PLACES_TEXT_SEARCH_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "X-Goog-Api-Key": apiKey,
-        "X-Goog-FieldMask": [
-          "places.id",
-          "places.displayName",
-          "places.formattedAddress",
-          "places.location",
-          "places.rating",
-        ].join(","),
+        "X-Goog-FieldMask": fieldMask.join(","),
       },
       body: JSON.stringify({ textQuery: query, maxResultCount: 1 }),
     });
@@ -496,11 +504,56 @@ async function searchPlaceForSeed(query: string, apiKey: string): Promise<PlaceE
       lng: place.location.longitude,
       address: place.formattedAddress,
       rating: place.rating ?? undefined,
+      priceLevel: place.priceLevel ? (PRICE_LEVEL_MAP[place.priceLevel] ?? null) : null,
     };
   } catch (err) {
     console.warn(`    [Places] 查詢失敗 "${query}":`, err);
     return null;
   }
+}
+
+// Mirrors the app's accommodation enrich route (src/app/api/v1/days/[dayId]/accommodation/enrich)
+// so seeded itineraries carry the same real placeId/priceLevel-derived cost range,
+// instead of only the LLM's initial guess.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function enrichAccommodation(accommodation: any, city: string, apiKey: string, currency?: string): Promise<any> {
+  if (!accommodation) return accommodation;
+
+  const accName = typeof accommodation.name === "string" ? accommodation.name : undefined;
+  const accArea = typeof accommodation.area === "string" ? accommodation.area : undefined;
+  const query = accName
+    ? `${accName} ${accArea ?? ""} ${city}`.trim()
+    : `hotel ${accArea ?? ""} ${city}`.trim();
+
+  const cached = await lookupByQuery(query);
+  let placeData: PlaceEnrichment | null = null;
+
+  if (cached && cached.lat != null && cached.lng != null) {
+    placeData = { placeId: cached.placeId, name: cached.name, lat: cached.lat, lng: cached.lng, address: cached.address, rating: cached.rating ?? undefined, priceLevel: null };
+  } else {
+    placeData = await searchPlaceForSeed(query, apiKey, { withPriceLevel: true });
+    if (placeData) {
+      await upsertPlace(query, { placeId: placeData.placeId, name: placeData.name, address: placeData.address, lat: placeData.lat, lng: placeData.lng, rating: placeData.rating });
+    }
+    await new Promise(r => setTimeout(r, 150));
+  }
+
+  if (!placeData) return accommodation;
+
+  const estimatedCost = estimateLodgingCostPerNight(currency, placeData.priceLevel);
+  const costRange = estimateLodgingCostRange(currency, placeData.priceLevel);
+
+  return {
+    ...accommodation,
+    placeId: placeData.placeId,
+    lat: placeData.lat,
+    lng: placeData.lng,
+    address: placeData.address,
+    rating: placeData.rating ?? null,
+    priceLevel: placeData.priceLevel ?? null,
+    ...(estimatedCost !== undefined ? { estimated_cost: estimatedCost } : {}),
+    ...(costRange !== undefined ? { estimated_cost_low: costRange[0], estimated_cost_high: costRange[1] } : {}),
+  };
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -539,10 +592,11 @@ async function enrichMeals(meals: any, city: string, apiKey: string): Promise<{ 
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function enrichDaysWithPlaces(days: any[], apiKey: string): Promise<any[]> {
+async function enrichDaysWithPlaces(days: any[], apiKey: string, currency?: string): Promise<any[]> {
   let enriched = 0;
   let cacheHits = 0;
   let skipped = 0;
+  let accommodationEnriched = 0;
 
   const result = [];
   for (const day of days) {
@@ -593,11 +647,15 @@ async function enrichDaysWithPlaces(days: any[], apiKey: string): Promise<any[]>
       cacheHits += mealResult.cacheHits;
       skipped += mealResult.skipped;
     }
+    if (day.accommodation) {
+      enrichedDay = { ...enrichedDay, accommodation: await enrichAccommodation(day.accommodation, city, apiKey, currency) };
+      accommodationEnriched++;
+    }
 
     result.push(enrichedDay);
   }
 
-  console.log(`    📍 Places enrichment：${enriched} API，${cacheHits} cache hit，${skipped} 跳過`);
+  console.log(`    📍 Places enrichment：${enriched} API，${cacheHits} cache hit，${skipped} 跳過，${accommodationEnriched} 筆住宿`);
   return result;
 }
 
@@ -662,7 +720,7 @@ async function main() {
 
       const googleApiKey = process.env.GOOGLE_PLACES_API_KEY;
       const finalDays = (googleApiKey && !noEnrich)
-        ? await enrichDaysWithPlaces(taggedDays, googleApiKey)
+        ? await enrichDaysWithPlaces(taggedDays, googleApiKey, itinerary.currency ?? undefined)
         : taggedDays;
       if (noEnrich) console.log("    ⏭  Places enrichment 已跳過（--no-enrich）");
 

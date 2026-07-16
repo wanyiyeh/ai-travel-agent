@@ -33,6 +33,12 @@ const BAD_PLACE_IDS = [
   "ChIJE6BzZAB3A2ARpRGc6nfLZa0", // Katsu Sand (breakfast) -> matched a hair salon named "sand" in Nagoya (same city, wrong business type — not a cross-country homonym)
   "ChIJ6QlgZIhzA2ARuiG7jOZhL0g", // Kisoji (dinner) -> matched a sublocality/political area named "Kisoji" in Nagoya, not the restaurant chain
   "ChIJawhFpEJ1A2ARBDU1Jbe4wZ0", // 道頓堀 -> matched "Dohtonbori" in Kiyosu, Aichi (near Nagoya) instead of the real Osaka Dotonbori; caused by a transit-day stop being geocoded against the departure city hint instead of the arrival city (fixed in enrich/route.ts and enrich-all-stops/route.ts)
+  "ChIJ4yq9ZImpQjQRRJQu4sJSdwY", // 咖啡文化體驗/最後的咖啡文化體驗 (西雅圖) -> matched Barista Coffee Shop at National Taiwan University, Taipei
+  "ChIJtcqEgg-qQjQR1G3ExAwW5Rk", // 健行路徑 (西雅圖) -> matched Xianjiyan, Taipei
+  "ChIJW3TmPD8spVsROWVVLhu6OdA", // 博伊爾湖 (西雅圖) -> matched Lake Khaiyr, Sakha Republic, Russia
+  "ChIJQTUsiK4Y81ERpC3hBf8layw", // 維多利亞島一日遊 (西雅圖) -> matched Victoria Island, Nunavut/NWT, Canada (Arctic) instead of Victoria, BC
+  "ChIJHywzVMKrQjQRaAH8grb3xi0", // 城市燈光秀 (西雅圖) -> matched Metropolitan Hall, Taipei
+  "ChIJdTM5Csj_ZzQRSCYFXxomULU", // 景觀步道 (西雅圖/雷尼爾山) -> matched an unnamed road in Shiding District, New Taipei City
 ];
 
 async function main() {
@@ -59,6 +65,8 @@ async function main() {
           delete stop.lng;
           delete stop.address;
           delete stop.rating;
+          delete stop.suspicious;
+          delete stop.suspiciousReason;
           changed = true;
           clearedStops++;
         }

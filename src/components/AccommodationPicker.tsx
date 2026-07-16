@@ -6,6 +6,7 @@ import type { Accommodation, AccommodationCandidate } from "@/types/itinerary";
 interface AccommodationPickerProps {
   itineraryId: string;
   dayId: string;
+  currency?: string;
   onCancel: () => void;
   onSelected: (accommodation: Accommodation) => void;
 }
@@ -15,6 +16,8 @@ type HistoryBatch = {
   createdAt: string;
   candidates: AccommodationCandidate[];
 };
+
+const VISIBLE_CANDIDATES = 5;
 
 const candidateKey = (c: AccommodationCandidate) => c.placeId ?? c.name;
 
@@ -29,6 +32,7 @@ const formatBatchTime = (iso: string) =>
 export function AccommodationPicker({
   itineraryId,
   dayId,
+  currency,
   onCancel,
   onSelected,
 }: AccommodationPickerProps) {
@@ -36,11 +40,24 @@ export function AccommodationPicker({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectingKey, setSelectingKey] = useState<string | null>(null);
+  const [showAllCandidates, setShowAllCandidates] = useState(false);
 
   const [showHistory, setShowHistory] = useState(false);
   const [historyBatches, setHistoryBatches] = useState<HistoryBatch[] | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyLoadingMore, setHistoryLoadingMore] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
+  const [historyNextCursor, setHistoryNextCursor] = useState<string | null>(null);
+  const [expandedBatchIds, setExpandedBatchIds] = useState<Set<string>>(new Set());
+
+  const toggleBatch = (batchId: string) => {
+    setExpandedBatchIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(batchId)) next.delete(batchId);
+      else next.add(batchId);
+      return next;
+    });
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -86,10 +103,30 @@ export function AccommodationPicker({
       // The newest batch is whatever /regenerate just fetched above — skip it
       // here so the same candidates aren't shown twice.
       setHistoryBatches(((resData.history ?? []) as HistoryBatch[]).slice(1));
+      setHistoryNextCursor((resData.nextCursor as string | null) ?? null);
     } catch (err) {
       setHistoryError(err instanceof Error ? err.message : "取得歷史候選失敗");
     } finally {
       setHistoryLoading(false);
+    }
+  };
+
+  const loadMoreHistory = async () => {
+    if (!historyNextCursor) return;
+    setHistoryLoadingMore(true);
+    setHistoryError(null);
+    try {
+      const res = await fetch(
+        `/api/v1/days/${dayId}/accommodation/candidates-history?itineraryId=${encodeURIComponent(itineraryId)}&cursor=${encodeURIComponent(historyNextCursor)}`
+      );
+      const resData = await res.json();
+      if (!res.ok) throw new Error(resData.error || "取得歷史候選失敗");
+      setHistoryBatches((prev) => [...(prev ?? []), ...((resData.history ?? []) as HistoryBatch[])]);
+      setHistoryNextCursor((resData.nextCursor as string | null) ?? null);
+    } catch (err) {
+      setHistoryError(err instanceof Error ? err.message : "取得歷史候選失敗");
+    } finally {
+      setHistoryLoadingMore(false);
     }
   };
 
@@ -110,6 +147,7 @@ export function AccommodationPicker({
         address: candidate.address,
         rating: candidate.rating,
         priceLevel: candidate.priceLevel,
+        nearestStation: candidate.nearestStation,
       };
       const res = await fetch(`/api/v1/days/${dayId}/accommodation/select`, {
         method: "POST",
@@ -146,6 +184,19 @@ export function AccommodationPicker({
               {candidate.rating != null && (
                 <span className="text-xs text-amber-600 dark:text-amber-400">{candidate.rating}★</span>
               )}
+              {candidate.priceLevel != null && candidate.priceLevel > 0 && (
+                <span className="text-xs text-zinc-400 dark:text-zinc-500">
+                  {"$".repeat(candidate.priceLevel)}
+                </span>
+              )}
+              {candidate.nearestStation && (
+                <span className="text-[11px] text-zinc-400 dark:text-zinc-500">
+                  距{candidate.nearestStation.name}{" "}
+                  {candidate.nearestStation.distanceMeters >= 1000
+                    ? `${(candidate.nearestStation.distanceMeters / 1000).toFixed(1)}km`
+                    : `${candidate.nearestStation.distanceMeters}m`}
+                </span>
+              )}
               {candidate.isCurrent && (
                 <span className="inline-flex items-center rounded-full bg-indigo-100 dark:bg-indigo-900/40 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700 dark:text-indigo-300">
                   目前
@@ -155,6 +206,20 @@ export function AccommodationPicker({
             {candidate.address && (
               <p className="text-[11px] text-zinc-400 dark:text-zinc-500 line-clamp-1 mt-0.5">
                 {candidate.address}
+              </p>
+            )}
+            {candidate.estimated_cost !== undefined && (
+              <p className="text-xs text-emerald-600 dark:text-emerald-400 font-medium mt-1">
+                💴{" "}
+                {candidate.estimated_cost_low !== undefined && candidate.estimated_cost_high !== undefined
+                  ? [
+                      currency,
+                      `${candidate.estimated_cost_low.toLocaleString()}-${candidate.estimated_cost_high.toLocaleString()}`,
+                    ]
+                      .filter(Boolean)
+                      .join(" ")
+                  : [currency, candidate.estimated_cost.toLocaleString()].filter(Boolean).join(" ")}
+                /晚
               </p>
             )}
           </div>
@@ -184,8 +249,20 @@ export function AccommodationPicker({
       )}
 
       <div className="space-y-2">
-        {candidates.map((candidate) => renderCandidateCard(candidate, candidateKey(candidate)))}
+        {(showAllCandidates ? candidates : candidates.slice(0, VISIBLE_CANDIDATES)).map((candidate) =>
+          renderCandidateCard(candidate, candidateKey(candidate))
+        )}
       </div>
+
+      {!showAllCandidates && candidates.length > VISIBLE_CANDIDATES && (
+        <button
+          type="button"
+          onClick={() => setShowAllCandidates(true)}
+          className="text-xs text-indigo-500 hover:text-indigo-600 dark:text-indigo-400 dark:hover:text-indigo-300 transition-colors"
+        >
+          顯示更多（還有 {candidates.length - VISIBLE_CANDIDATES} 筆）
+        </button>
+      )}
 
       <div className="flex items-center gap-3 pt-1">
         <button
@@ -217,16 +294,45 @@ export function AccommodationPicker({
           {!historyLoading && !historyError && historyBatches?.length === 0 && (
             <p className="text-sm text-zinc-400 dark:text-zinc-500">還沒有更早的查詢紀錄。</p>
           )}
-          {historyBatches?.map((batch) => (
-            <div key={batch.id} className="space-y-1.5">
-              <p className="text-[11px] text-zinc-400 dark:text-zinc-500">{formatBatchTime(batch.createdAt)}</p>
-              <div className="space-y-2">
-                {batch.candidates.map((c) =>
-                  renderCandidateCard({ ...c, isCurrent: false }, `hist-${batch.id}-${candidateKey(c)}`)
+          {historyBatches?.map((batch) => {
+            const expanded = expandedBatchIds.has(batch.id);
+            return (
+              <div key={batch.id} className="space-y-1.5">
+                <button
+                  type="button"
+                  onClick={() => toggleBatch(batch.id)}
+                  className="flex items-center gap-1 text-[11px] text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 transition-colors"
+                >
+                  <svg
+                    className={`w-3 h-3 shrink-0 transition-transform ${expanded ? "rotate-90" : ""}`}
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                  {formatBatchTime(batch.createdAt)}（{batch.candidates.length} 筆）
+                </button>
+                {expanded && (
+                  <div className="space-y-2">
+                    {batch.candidates.map((c) =>
+                      renderCandidateCard({ ...c, isCurrent: false }, `hist-${batch.id}-${candidateKey(c)}`)
+                    )}
+                  </div>
                 )}
               </div>
-            </div>
-          ))}
+            );
+          })}
+          {historyNextCursor && (
+            <button
+              type="button"
+              onClick={loadMoreHistory}
+              disabled={historyLoadingMore}
+              className="text-xs text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 disabled:opacity-50 transition-colors"
+            >
+              {historyLoadingMore ? "載入中…" : "載入更多歷史"}
+            </button>
+          )}
         </div>
       )}
     </div>

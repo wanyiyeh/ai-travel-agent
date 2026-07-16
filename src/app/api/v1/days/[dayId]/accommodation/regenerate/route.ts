@@ -4,10 +4,12 @@ import { prisma, j } from "@/lib/db";
 import { getMockMode, mockDelay, MOCK_FIXTURES } from "@/lib/mockAi";
 import {
   fetchNearbyPlaceCandidates,
+  findNearestStation,
   getLodgingTypes,
   getPriceLevels,
 } from "@/lib/fetchCityRestaurants";
 import { resolveDayCoords } from "@/lib/itineraryGen";
+import { estimateLodgingCostPerNight, estimateLodgingCostRange } from "@/lib/priceLevelCost";
 import type { AccommodationCandidate } from "@/types/itinerary";
 
 const RequestSchema = z.object({
@@ -70,6 +72,7 @@ export async function POST(
     const config = itinerary.config as {
       flightInfo?: { arrivalCity?: string };
       preferences?: { budget?: "budget" | "moderate" | "luxury" };
+      currency?: string;
     };
     const budget = config.preferences?.budget;
 
@@ -103,13 +106,23 @@ export async function POST(
       typeof currentAccommodation?.name === "string" ? currentAccommodation.name : undefined;
     const normalize = (s: string) => s.toLowerCase().trim();
 
-    const newCandidates: AccommodationCandidate[] = hotels
-      .filter(
-        (h) =>
-          h.placeId !== currentPlaceId &&
-          (!currentName || normalize(h.name) !== normalize(currentName))
-      )
-      .map((h) => ({
+    const filteredHotels = hotels.filter(
+      (h) =>
+        h.placeId !== currentPlaceId &&
+        (!currentName || normalize(h.name) !== normalize(currentName))
+    );
+
+    // One Nearby Search per candidate to find its closest station — kept to
+    // the filtered list (not the raw `hotels`) so we don't spend calls on
+    // entries that get dropped anyway.
+    const nearestStations = await Promise.all(
+      filteredHotels.map((h) => findNearestStation({ lat: h.lat, lng: h.lng }, googleApiKey))
+    );
+
+    const newCandidates: AccommodationCandidate[] = filteredHotels.map((h, i) => {
+      const estimatedCost = estimateLodgingCostPerNight(config.currency, h.priceLevel);
+      const costRange = estimateLodgingCostRange(config.currency, h.priceLevel);
+      return {
         name: h.name,
         area: deriveArea(h.address),
         placeId: h.placeId,
@@ -117,7 +130,14 @@ export async function POST(
         lng: h.lng,
         address: h.address,
         rating: h.rating ?? null,
-      }));
+        priceLevel: h.priceLevel ?? null,
+        ...(estimatedCost !== undefined ? { estimated_cost: estimatedCost } : {}),
+        ...(costRange !== undefined
+          ? { estimated_cost_low: costRange[0], estimated_cost_high: costRange[1] }
+          : {}),
+        nearestStation: nearestStations[i],
+      };
+    });
 
     // Surface the day's existing accommodation as the first candidate so
     // picking it again (i.e. "keep what I had") costs nothing extra.
@@ -132,6 +152,18 @@ export async function POST(
             address:
               typeof currentAccommodation?.address === "string" ? currentAccommodation.address : undefined,
             rating: typeof currentAccommodation?.rating === "number" ? currentAccommodation.rating : null,
+            estimated_cost:
+              typeof currentAccommodation?.estimated_cost === "number"
+                ? currentAccommodation.estimated_cost
+                : undefined,
+            estimated_cost_low:
+              typeof currentAccommodation?.estimated_cost_low === "number"
+                ? currentAccommodation.estimated_cost_low
+                : undefined,
+            estimated_cost_high:
+              typeof currentAccommodation?.estimated_cost_high === "number"
+                ? currentAccommodation.estimated_cost_high
+                : undefined,
             isCurrent: true,
           },
           ...newCandidates,

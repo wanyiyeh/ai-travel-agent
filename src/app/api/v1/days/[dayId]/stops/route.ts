@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma, j } from "@/lib/db";
-import { openai } from "@/lib/openai";
 import { StopCandidateSchema } from "@/lib/schemas";
+import { lookupByQuery, upsertPlace } from "@/lib/placeCache";
+import { searchPlaceText, getCityCenter } from "@/lib/placesTextSearch";
 
 const RequestSchema = z.object({
   itineraryId: z.string().min(1),
@@ -14,13 +15,10 @@ const BatchRequestSchema = z.object({
   stops: z.array(StopCandidateSchema).min(1),
 });
 
-const AIResponseSchema = z.object({
-  description: z.string(),
-  duration_minutes: z.number().int().positive(),
-  estimated_cost: z.number().min(0),
-  time_of_day: z.enum(["morning", "afternoon", "evening"]),
-  transport_from_prev: z.string(),
-});
+// Default stay length for a manually-added stop — same fallback used by
+// stop-suggestions/route.ts for candidates without an AI-estimated duration;
+// user can adjust it after adding.
+const DEFAULT_DURATION_MINUTES = 60;
 
 export async function POST(
   request: Request,
@@ -106,57 +104,63 @@ export async function POST(
 
     const day = days[dayIndex];
     const stops = (day.stops as Record<string, unknown>[]) ?? [];
-    const prevStop = stops.length > 0 ? stops[stops.length - 1] : null;
 
-    const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
+    const apiKey = process.env.GOOGLE_PLACES_API_KEY;
+    if (!apiKey) {
+      return NextResponse.json({ error: "GOOGLE_PLACES_API_KEY not configured" }, { status: 503 });
+    }
 
-    const completion = await openai.chat.completions.create({
-      model,
-      messages: [
-        {
-          role: "system",
-          content: `你是專業的旅遊規劃專家，用繁體中文回覆。
-根據旅行行程與景點名稱，生成該景點的詳細資訊。
-回傳嚴格的 JSON 格式（不要其他文字）：
-{
-  "description": "景點的繁體中文簡介（1-2句）",
-  "duration_minutes": 建議停留分鐘數（整數）,
-  "estimated_cost": 門票/費用估算（行程貨幣，免費填0）,
-  "time_of_day": "morning" | "afternoon" | "evening",
-  "transport_from_prev": "從上一個景點前往的交通方式說明"
-}`,
-        },
-        {
-          role: "user",
-          content: `行程：${itinerary.title}
-第 ${day.day as number} 天主題：${(day.theme as string) ?? ""}
-貨幣：${(itinerary as unknown as Record<string, unknown>).currency ?? ""}
-${prevStop ? `上一個景點：${prevStop.name as string}` : "這是當天第一個景點"}
-現有景點：${stops.map((s) => s.name as string).join("、")}
+    // Same city-hint fallback chain as stops/[stopId]/enrich — biases the
+    // text search toward the day's actual city so a generic name doesn't
+    // resolve to a same-named place elsewhere.
+    const cityHint =
+      (typeof day.waypointCity === "string" ? day.waypointCity : "") ||
+      (typeof day.transitTo === "string" ? day.transitTo : "") ||
+      "";
+    const query = cityHint ? `${stopName} ${cityHint}` : stopName;
 
-請為「${stopName}」這個景點生成詳細資訊。`,
-        },
-      ],
-      response_format: { type: "json_object" },
-      temperature: 0.4,
-    });
+    let resolved: { placeId: string; name: string; lat: number; lng: number; address: string | null; rating: number | null };
 
-    const aiContent = completion.choices[0].message.content;
-    if (!aiContent) throw new Error("AI returned empty response");
-
-    const parsedAI = AIResponseSchema.safeParse(JSON.parse(aiContent));
-    if (!parsedAI.success) {
-      throw new Error(`AI response validation failed: ${parsedAI.error.message}`);
+    const cached = await lookupByQuery(query);
+    if (cached && cached.lat != null && cached.lng != null) {
+      resolved = { placeId: cached.placeId, name: cached.name, lat: cached.lat, lng: cached.lng, address: cached.address, rating: cached.rating };
+    } else {
+      const cityBias = await getCityCenter(cityHint, apiKey);
+      const place = await searchPlaceText(query, apiKey, cityBias);
+      if (!place) {
+        return NextResponse.json(
+          { error: "在 Google 地圖上找不到這個地點，請確認名稱是否正確" },
+          { status: 404 }
+        );
+      }
+      resolved = {
+        placeId: place.id,
+        name: place.displayName.text,
+        lat: place.location.latitude,
+        lng: place.location.longitude,
+        address: place.formattedAddress,
+        rating: place.rating ?? null,
+      };
+      await upsertPlace(query, {
+        placeId: place.id,
+        name: place.displayName.text,
+        address: place.formattedAddress,
+        lat: place.location.latitude,
+        lng: place.location.longitude,
+        rating: place.rating,
+      });
     }
 
     const newStop = {
       id: crypto.randomUUID(),
-      name: stopName,
-      description: parsedAI.data.description,
-      duration_minutes: parsedAI.data.duration_minutes,
-      estimated_cost: parsedAI.data.estimated_cost,
-      time_of_day: parsedAI.data.time_of_day,
-      transport_from_prev: parsedAI.data.transport_from_prev,
+      name: resolved.name,
+      description: resolved.rating ? `Google 評分 ${resolved.rating}★` : resolved.address ?? "",
+      duration_minutes: DEFAULT_DURATION_MINUTES,
+      placeId: resolved.placeId,
+      lat: resolved.lat,
+      lng: resolved.lng,
+      address: resolved.address,
+      rating: resolved.rating,
       orderIndex: stops.length,
     };
 
