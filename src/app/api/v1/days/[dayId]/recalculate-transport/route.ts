@@ -53,30 +53,46 @@ export async function POST(
     const dayNumber = day.day as number;
     const isFirstDay = dayIndex === 0;
 
-    const prevAccommodation =
+    const prevAccommodationObj =
       dayIndex > 0
-        ? (() => {
-            const prevDay = days[dayIndex - 1];
-            const acc = prevDay.accommodation as Record<string, unknown> | undefined;
-            return acc ? `${acc.name}（${acc.area}）` : null;
-          })()
-        : null;
+        ? (days[dayIndex - 1].accommodation as Record<string, unknown> | undefined)
+        : undefined;
+
+    const prevAccommodation = prevAccommodationObj
+      ? `${prevAccommodationObj.name}（${prevAccommodationObj.area}）`
+      : null;
 
     const originDesc = isFirstDay
       ? "機場（去程航班抵達）"
       : prevAccommodation ?? "前一天住宿";
 
-    const distanceResults = await getDistancesForStopPairs(
-      stops.map((s) => ({
+    // Prepend the previous night's accommodation (when it has coordinates) so the
+    // real Google distance for the *first* stop of the day is grounded too —
+    // otherwise the first stop's transport is pure AI guesswork.
+    const originPoint =
+      prevAccommodationObj &&
+      typeof prevAccommodationObj.lat === "number" &&
+      typeof prevAccommodationObj.lng === "number"
+        ? { id: "__origin__", lat: prevAccommodationObj.lat as number, lng: prevAccommodationObj.lng as number }
+        : null;
+
+    const distancePoints = [
+      ...(originPoint ? [originPoint] : []),
+      ...stops.map((s) => ({
         id: s.id as string,
         lat: s.lat as number | null | undefined,
         lng: s.lng as number | null | undefined,
-      }))
-    );
+      })),
+    ];
+
+    const distanceResults = await getDistancesForStopPairs(distancePoints);
+    // When an origin point was prepended, distanceResults[0] is origin->stops[0],
+    // so stop i's incoming leg is at distanceResults[i] instead of distanceResults[i-1].
+    const distanceOffset = originPoint ? 0 : -1;
 
     const stopList = stops
       .map((s, i) => {
-        const dist = i > 0 ? distanceResults[i - 1] : null;
+        const dist = i > 0 || originPoint ? distanceResults[i + distanceOffset] : null;
         const distInfo = dist
           ? `（Google Maps 實際：${dist.distanceText}，開車 ${dist.durationText}）`
           : "";

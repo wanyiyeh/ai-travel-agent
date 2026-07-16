@@ -8,6 +8,7 @@ interface MealPickerProps {
   dayId: string;
   mealType: MealType;
   mealLabel: string;
+  currency?: string;
   onCancel: () => void;
   onSelected: (meal: Meal) => void;
 }
@@ -17,6 +18,8 @@ type HistoryBatch = {
   createdAt: string;
   candidates: MealCandidate[];
 };
+
+const VISIBLE_CANDIDATES = 5;
 
 const candidateKey = (c: MealCandidate) => c.placeId ?? c.name;
 
@@ -33,6 +36,7 @@ export function MealPicker({
   dayId,
   mealType,
   mealLabel,
+  currency,
   onCancel,
   onSelected,
 }: MealPickerProps) {
@@ -40,11 +44,24 @@ export function MealPicker({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectingKey, setSelectingKey] = useState<string | null>(null);
+  const [showAllCandidates, setShowAllCandidates] = useState(false);
 
   const [showHistory, setShowHistory] = useState(false);
   const [historyBatches, setHistoryBatches] = useState<HistoryBatch[] | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyLoadingMore, setHistoryLoadingMore] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
+  const [historyNextCursor, setHistoryNextCursor] = useState<string | null>(null);
+  const [expandedBatchIds, setExpandedBatchIds] = useState<Set<string>>(new Set());
+
+  const toggleBatch = (batchId: string) => {
+    setExpandedBatchIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(batchId)) next.delete(batchId);
+      else next.add(batchId);
+      return next;
+    });
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -90,10 +107,30 @@ export function MealPicker({
       // The newest batch is whatever /regenerate just fetched above — skip it
       // here so the same candidates aren't shown twice.
       setHistoryBatches(((resData.history ?? []) as HistoryBatch[]).slice(1));
+      setHistoryNextCursor((resData.nextCursor as string | null) ?? null);
     } catch (err) {
       setHistoryError(err instanceof Error ? err.message : "取得歷史候選失敗");
     } finally {
       setHistoryLoading(false);
+    }
+  };
+
+  const loadMoreHistory = async () => {
+    if (!historyNextCursor) return;
+    setHistoryLoadingMore(true);
+    setHistoryError(null);
+    try {
+      const res = await fetch(
+        `/api/v1/days/${dayId}/meals/${mealType}/candidates-history?itineraryId=${encodeURIComponent(itineraryId)}&cursor=${encodeURIComponent(historyNextCursor)}`
+      );
+      const resData = await res.json();
+      if (!res.ok) throw new Error(resData.error || "取得歷史候選失敗");
+      setHistoryBatches((prev) => [...(prev ?? []), ...((resData.history ?? []) as HistoryBatch[])]);
+      setHistoryNextCursor((resData.nextCursor as string | null) ?? null);
+    } catch (err) {
+      setHistoryError(err instanceof Error ? err.message : "取得歷史候選失敗");
+    } finally {
+      setHistoryLoadingMore(false);
     }
   };
 
@@ -161,6 +198,11 @@ export function MealPicker({
                 {candidate.address}
               </p>
             )}
+            {candidate.estimated_cost !== undefined && (
+              <p className="text-xs text-emerald-600 dark:text-emerald-400 font-medium mt-1">
+                💴 {[currency, candidate.estimated_cost.toLocaleString()].filter(Boolean).join(" ")}
+              </p>
+            )}
           </div>
           {selecting && (
             <svg className="animate-spin w-4 h-4 shrink-0 text-amber-500" fill="none" viewBox="0 0 24 24">
@@ -188,8 +230,20 @@ export function MealPicker({
       )}
 
       <div className="space-y-2">
-        {candidates.map((candidate) => renderCandidateCard(candidate, candidateKey(candidate)))}
+        {(showAllCandidates ? candidates : candidates.slice(0, VISIBLE_CANDIDATES)).map((candidate) =>
+          renderCandidateCard(candidate, candidateKey(candidate))
+        )}
       </div>
+
+      {!showAllCandidates && candidates.length > VISIBLE_CANDIDATES && (
+        <button
+          type="button"
+          onClick={() => setShowAllCandidates(true)}
+          className="text-xs text-amber-500 hover:text-amber-600 dark:text-amber-400 dark:hover:text-amber-300 transition-colors"
+        >
+          顯示更多（還有 {candidates.length - VISIBLE_CANDIDATES} 筆）
+        </button>
+      )}
 
       <div className="flex items-center gap-3 pt-1">
         <button
@@ -221,16 +275,45 @@ export function MealPicker({
           {!historyLoading && !historyError && historyBatches?.length === 0 && (
             <p className="text-sm text-zinc-400 dark:text-zinc-500">還沒有更早的查詢紀錄。</p>
           )}
-          {historyBatches?.map((batch) => (
-            <div key={batch.id} className="space-y-1.5">
-              <p className="text-[11px] text-zinc-400 dark:text-zinc-500">{formatBatchTime(batch.createdAt)}</p>
-              <div className="space-y-2">
-                {batch.candidates.map((c) =>
-                  renderCandidateCard({ ...c, isCurrent: false }, `hist-${batch.id}-${candidateKey(c)}`)
+          {historyBatches?.map((batch) => {
+            const expanded = expandedBatchIds.has(batch.id);
+            return (
+              <div key={batch.id} className="space-y-1.5">
+                <button
+                  type="button"
+                  onClick={() => toggleBatch(batch.id)}
+                  className="flex items-center gap-1 text-[11px] text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 transition-colors"
+                >
+                  <svg
+                    className={`w-3 h-3 shrink-0 transition-transform ${expanded ? "rotate-90" : ""}`}
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                  {formatBatchTime(batch.createdAt)}（{batch.candidates.length} 筆）
+                </button>
+                {expanded && (
+                  <div className="space-y-2">
+                    {batch.candidates.map((c) =>
+                      renderCandidateCard({ ...c, isCurrent: false }, `hist-${batch.id}-${candidateKey(c)}`)
+                    )}
+                  </div>
                 )}
               </div>
-            </div>
-          ))}
+            );
+          })}
+          {historyNextCursor && (
+            <button
+              type="button"
+              onClick={loadMoreHistory}
+              disabled={historyLoadingMore}
+              className="text-xs text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 disabled:opacity-50 transition-colors"
+            >
+              {historyLoadingMore ? "載入中…" : "載入更多歷史"}
+            </button>
+          )}
         </div>
       )}
     </div>

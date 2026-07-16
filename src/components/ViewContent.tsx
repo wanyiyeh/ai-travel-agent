@@ -296,7 +296,7 @@ export default function ViewContent({ id }: ViewContentProps) {
     const cur = data.data.currency ?? "USD";
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const grandTotal = data.data.days.reduce((sum: number, d: any) =>
-      sum + calcDayCost(d.stops ?? []) + calcMealCost(d.meals), 0);
+      sum + calcDayCost(d.stops ?? []) + calcMealCost(d.meals) + (d.accommodation?.estimated_cost ?? 0), 0);
     return (
       <div className="rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 overflow-hidden">
         <div className="bg-gradient-to-r from-emerald-500 to-emerald-600 px-5 py-4">
@@ -325,7 +325,7 @@ export default function ViewContent({ id }: ViewContentProps) {
             <tbody>
               {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
               {data.data.days.map((day: any) => {
-                const cost = calcDayCost(day.stops ?? []) + calcMealCost(day.meals);
+                const cost = calcDayCost(day.stops ?? []) + calcMealCost(day.meals) + (day.accommodation?.estimated_cost ?? 0);
                 return (
                   <tr key={day.id || day.day} className="border-b border-zinc-50 dark:border-zinc-800/50">
                     <td className="py-1.5 text-zinc-700 dark:text-zinc-300">第 {day.day} 天</td>

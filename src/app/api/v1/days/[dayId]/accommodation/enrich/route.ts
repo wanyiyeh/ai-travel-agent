@@ -2,51 +2,9 @@ import { NextResponse } from "next/server";
 import { prisma, j } from "@/lib/db";
 import { iataToCity } from "@/lib/iataCity";
 import { lookupByQuery, upsertPlace } from "@/lib/placeCache";
-
-const PLACES_API_URL = "https://places.googleapis.com/v1/places:searchText";
-
-const PRICE_LEVEL_MAP: Record<string, number> = {
-  PRICE_LEVEL_FREE: 0,
-  PRICE_LEVEL_INEXPENSIVE: 1,
-  PRICE_LEVEL_MODERATE: 2,
-  PRICE_LEVEL_EXPENSIVE: 3,
-  PRICE_LEVEL_VERY_EXPENSIVE: 4,
-};
-
-interface PlaceResult {
-  id: string;
-  displayName: { text: string };
-  formattedAddress: string;
-  location: { latitude: number; longitude: number };
-  rating?: number;
-  priceLevel?: string;
-}
-
-async function searchPlace(query: string): Promise<PlaceResult | null> {
-  const apiKey = process.env.GOOGLE_PLACES_API_KEY;
-  if (!apiKey) throw new Error("GOOGLE_PLACES_API_KEY not configured");
-
-  const res = await fetch(PLACES_API_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Goog-Api-Key": apiKey,
-      "X-Goog-FieldMask": [
-        "places.id",
-        "places.displayName",
-        "places.formattedAddress",
-        "places.location",
-        "places.rating",
-        "places.priceLevel",
-      ].join(","),
-    },
-    body: JSON.stringify({ textQuery: query, maxResultCount: 1 }),
-  });
-
-  if (!res.ok) throw new Error(`Places API error: ${res.status}`);
-  const data = await res.json();
-  return data.places?.[0] ?? null;
-}
+import { searchPlaceText, getCityCenter } from "@/lib/placesTextSearch";
+import { PRICE_LEVEL_MAP } from "@/lib/fetchCityRestaurants";
+import { estimateLodgingCostPerNight, estimateLodgingCostRange } from "@/lib/priceLevelCost";
 
 export async function POST(
   request: Request,
@@ -89,10 +47,16 @@ export async function POST(
 
     const config = itinerary.config as {
       flightInfo?: { arrivalCity?: string };
+      currency?: string;
     };
 
     const accName = typeof accommodation.name === "string" ? accommodation.name : undefined;
     const accArea = typeof accommodation.area === "string" ? accommodation.area : undefined;
+
+    const apiKey = process.env.GOOGLE_PLACES_API_KEY;
+    if (!apiKey) {
+      return NextResponse.json({ error: "GOOGLE_PLACES_API_KEY not configured" }, { status: 503 });
+    }
 
     // Derive city name from waypointCity tag or IATA arrival code
     const waypointCity = typeof day.waypointCity === "string" ? day.waypointCity : undefined;
@@ -106,9 +70,12 @@ export async function POST(
       ? `${accName} ${accArea ?? ""} ${cityHint}`.trim()
       : `hotel ${accArea ?? ""} ${cityHint}`.trim();
 
+    const cityBias = await getCityCenter(cityHint, apiKey);
+
     // Check cache before hitting Google API
     const cached = await lookupByQuery(query);
     let placeId: string;
+    let placeName: string;
     let placeAddress: string | null;
     let placeLat: number;
     let placeLng: number;
@@ -117,12 +84,13 @@ export async function POST(
 
     if (cached && cached.lat != null && cached.lng != null) {
       placeId = cached.placeId;
+      placeName = cached.name;
       placeAddress = cached.address;
       placeLat = cached.lat;
       placeLng = cached.lng;
       placeRating = cached.rating;
     } else {
-      const place = await searchPlace(query);
+      const place = await searchPlaceText(query, apiKey, cityBias);
       if (!place) {
         return NextResponse.json(
           { error: "Accommodation not found on Google Maps" },
@@ -130,6 +98,7 @@ export async function POST(
         );
       }
       placeId = place.id;
+      placeName = place.displayName.text;
       placeAddress = place.formattedAddress;
       placeLat = place.location.latitude;
       placeLng = place.location.longitude;
@@ -138,14 +107,22 @@ export async function POST(
       await upsertPlace(query, { placeId: place.id, name: place.displayName.text, address: place.formattedAddress, lat: place.location.latitude, lng: place.location.longitude, rating: place.rating });
     }
 
+    const estimatedCost = estimateLodgingCostPerNight(config.currency, placePriceLevel);
+    const costRange = estimateLodgingCostRange(config.currency, placePriceLevel);
+
     const enriched = {
       ...accommodation,
+      name: accName ?? placeName,
       placeId,
       lat: placeLat,
       lng: placeLng,
       address: placeAddress,
       rating: placeRating,
       priceLevel: placePriceLevel,
+      ...(estimatedCost !== undefined ? { estimated_cost: estimatedCost } : {}),
+      ...(costRange !== undefined
+        ? { estimated_cost_low: costRange[0], estimated_cost_high: costRange[1] }
+        : {}),
     };
 
     days[dayIndex] = { ...day, accommodation: enriched };

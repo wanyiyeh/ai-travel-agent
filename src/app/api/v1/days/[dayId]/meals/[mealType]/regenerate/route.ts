@@ -8,6 +8,7 @@ import {
   getPriceLevels,
 } from "@/lib/fetchCityRestaurants";
 import { resolveDayCoords } from "@/lib/itineraryGen";
+import { estimateMealCost } from "@/lib/priceLevelCost";
 import { isMealType } from "@/types/itinerary";
 import type { MealCandidate } from "@/types/itinerary";
 
@@ -68,6 +69,7 @@ export async function POST(
     const config = itinerary.config as {
       flightInfo?: { arrivalCity?: string };
       preferences?: { budget?: "budget" | "moderate" | "luxury" };
+      currency?: string;
     };
     const budget = config.preferences?.budget;
 
@@ -113,6 +115,7 @@ export async function POST(
         lng: p.lng,
         address: p.address,
         rating: p.rating ?? null,
+        estimated_cost: estimateMealCost(config.currency, mealType, p.priceLevel),
       }));
 
     // Surface the day's existing meal as the first candidate so picking it

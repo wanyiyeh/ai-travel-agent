@@ -106,10 +106,12 @@ async function generateTransitDayStops(
         role: "system",
         content: `你是專業的旅遊規劃專家。請為旅行者規劃一個從 ${fromCity || "出發地"} 前往 ${toCity} 的移動日行程。
 
-【重要】請先評估兩城市之間的實際地理距離與交通時間，再規劃行程：
-- 短程（＜200km，如布拉格→維也納 4hr、巴黎→布魯塞爾 2hr）：抵達後仍有時間下午遊覽
-- 中程（200-400km，如維也納→布達佩斯 2.5hr、布拉格→柏林 4.5hr）：抵達後僅能輕鬆逛街或 Check-in
-- 長程（＞400km，如布達佩斯→捷克克魯姆洛夫 8-11hr、巴黎→羅馬需過夜）：交通佔全天，抵達已是傍晚甚至深夜，不安排觀光
+【重要】請先評估兩城市之間的實際地理距離與交通時間，再規劃行程（涵蓋各大洲的城市對，依實際距離判斷，不要只套用單一地區的直覺）：
+- 短程（車程＜90 分鐘，如大阪→京都 30min、東京→橫濱 30min、布拉格→布拉迪斯拉發 1hr）：抵達後幾乎是一整個白天都空著，務必安排 2-4 個抵達城市的真實熱門景點填滿下午（甚至傍晚），不可只寫「入住/晚餐」帶過
+- 中程（車程 90 分鐘－4 小時，如維也納→布達佩斯 2.5hr、大阪→廣島 1.5hr）：抵達後仍有半天，安排 1-2 個抵達城市的真實景點；若抵達已近傍晚則僅安排晚餐
+- 長程（車程＞4 小時或需過夜，如布達佩斯→捷克克魯姆洛夫 8-11hr）：交通佔全天，抵達已是傍晚甚至深夜，不安排觀光，只需 Check-in 或附近晚餐
+
+抵達時間必須用「出發時間＋交通 stop 的 duration_minutes」實際推算，不可憑感覺寫「已是下午/晚上」——如果推算出抵達時間是上午或中午，就必須安排下午的真實景點，不能用长程模板的措辭。
 
 回傳嚴格的 JSON 格式（不要其他文字）：
 {
@@ -126,13 +128,11 @@ async function generateTransitDayStops(
 }
 
 規則：
-- 共生成恰好 3 個 stop，依序為：
+- 依序為：
   1. ${fromCity ? `${fromCity} 出發前早晨微行程（車站附近早餐或快速景點，09:30 前完成，time_of_day: "morning"）` : `出發準備（time_of_day: "morning"）`}
   2. 交通本身（須填入真實交通工具、實際出發/抵達時間、正確車程時數，duration_minutes 必須反映真實車程）
-  3. 抵達後活動：
-     - 短程抵達（＜15:00）→ 下午遊覽，time_of_day: "afternoon"
-     - 中長程抵達（15:00-19:00）→ 僅 Check-in 或附近晚餐，time_of_day: "evening"
-     - 長程抵達（＞19:00）→ 休息，time_of_day: "evening"，description 說明已是晚上不宜安排活動
+  3. 抵達後活動（依上方短/中/長程規則決定要安排幾個真實景點，短程至少 2 個，中程 1-2 個，長程 1 個 check-in/晚餐）
+- 除了短程規則要求的多個景點外，總 stop 數不設死上限，依實際可安排內容決定
 - time_of_day 只能是 "morning"、"afternoon"、"evening" 之一
 - duration_minutes 為整數（分鐘），交通 stop 必須填入真實車程分鐘數
 - estimated_cost 為 ${currency} 整數，免費填 0
@@ -441,11 +441,26 @@ export async function POST(
       }
     }
 
-    const allDays = [...before, ...insertedBlock, ...(returnTransitDay ? [returnTransitDay] : []), ...finalAfter];
-    // Hard cap: overflow trimming may fall short when updatedAfter has too few removable
-    // candidates (e.g. overflow=4 but only 3 non-last days available). Slice to maxDays as
-    // a safety net so we never exceed the allowed trip length.
-    const cappedDays = maxDays != null ? allDays.slice(0, maxDays) : allDays;
+    let finalInsertedBlock = insertedBlock;
+    let stillOverflow =
+      maxDays != null
+        ? before.length + insertedBlock.length + (returnTransitDay ? 1 : 0) + finalAfter.length - maxDays
+        : 0;
+    if (stillOverflow > 0) {
+      // updatedAfter ran out of removable candidates. Keep trimming, but only from the
+      // newly inserted city's extra sightseeing days (never the transit-day headers,
+      // `returnTransitDay`, or `finalAfter`'s protected last/return day) — those must
+      // never be dropped, even if that means the trip ends up longer than `maxDays`.
+      finalInsertedBlock = [...insertedBlock];
+      for (let i = finalInsertedBlock.length - 1; i >= 0 && stillOverflow > 0; i--) {
+        if (finalInsertedBlock[i].isTransitDay !== true) {
+          finalInsertedBlock.splice(i, 1);
+          stillOverflow--;
+        }
+      }
+    }
+
+    const cappedDays = [...before, ...finalInsertedBlock, ...(returnTransitDay ? [returnTransitDay] : []), ...finalAfter];
     const updatedDays = cappedDays.map((d, i) => ({
       ...d,
       day: i + 1,

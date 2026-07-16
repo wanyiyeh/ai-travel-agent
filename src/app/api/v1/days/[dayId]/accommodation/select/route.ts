@@ -55,9 +55,10 @@ export async function POST(
     }
 
     if (accommodation.placeId && accommodation.lat != null && accommodation.lng != null) {
-      await upsertPlace(`${accommodation.name} ${accommodation.area}`.trim(), {
+      const accName = accommodation.name ?? accommodation.area;
+      await upsertPlace(`${accName} ${accommodation.area}`.trim(), {
         placeId: accommodation.placeId,
-        name: accommodation.name,
+        name: accName,
         address: accommodation.address ?? null,
         lat: accommodation.lat,
         lng: accommodation.lng,

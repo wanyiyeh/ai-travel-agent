@@ -73,40 +73,13 @@ export function buildSystemPrompt(
     ? `\n\n【重要：跨城市移動安排 — 總天數不得超過 ${days} 天】\n回程從${returnCityName}出發。在 ${days} 天的總行程中，預設情況下只需分配其中一天作為從${arrivalCityName}移動到${returnCityName}的移動日（isTransitDay: true）。移動日應安排在行程中段（第 2 天到第 ${days - 1} 天之間），依實際地理路線自然移動的時機決定；絕對不可放在第 ${days} 天——第 ${days} 天是旅客從${returnCityName}搭機返台的回程日，不是城際移動日。移動日的出發城市必須是「${arrivalCityName}」，stops 的 name 必須寫「搭乘交通工具從${arrivalCityName}前往${returnCityName}」，description 亦須說明從${arrivalCityName}出發。移動日的 transitTo 欄位填寫「${returnCityName}」（城市名稱，不是機場代碼）。移動日不是額外增加的天數，而是 ${days} 天中的一天。最後一天的景點安排在${returnCityName}。\n\n【多段移動（沿路漸進路線）】若行程本質上是沿同一條路線或區域逐站前進（例如沿海岸公路、鐵路幹線由${arrivalCityName}一路開往${returnCityName}，途中在合理的中途城鎮過夜），可以標記不只一天為移動日（isTransitDay: true）——每次實際換城鎮過夜的當天都標記一次，transitTo 填寫該次移動抵達的城鎮名稱；其中**最後一個**移動日的 transitTo 必須是「${returnCityName}」。這種情況下，中途城鎮不算違規新增的額外目的地（仍嚴禁自行加入路線以外的觀光新城市/國家，見規則 6），但每一天都必須誠實填寫 waypointCity 為當天實際所在城鎮，讓行程真實反映漸進路線。\n\n【移動日時機限制】每一個移動日都必須是旅客**第一次**入住其 transitTo 城鎮的當天——即移動日當晚住宿才開始換到新城鎮，之前的住宿都在上一個城鎮；嚴禁在旅客已連續住在某城鎮之後，於後段天次才出現該城鎮的移動日。`
     : "";
 
-  return `你是專業的旅遊規劃專家。請為用戶規劃 ${days} 天的旅遊行程。
-航班資訊：${routeDesc}。
-出發日期：${flightInfo.departureDate}，回程日期：${flightInfo.returnDate}。
-第 1 天對應 ${flightInfo.departureDate}，以此類推。${multiCityInstructions}${buildFlightTimePrompt(flightInfo)}${buildPreferencePrompt(preferences)}
-
-嚴格遵守以下 JSON 結構：
-{
-  "title": "行程標題（繁體中文）",
-  "currency": "JPY",
-  "days": [
-    {
-      "day": 1,
-      "theme": "主題（可選，繁體中文）",
-      "waypointCity": "${arrivalCityName}",
-      "stops": [
-        {
-          "name": "景點名稱",
-          "description": "景點描述",
-          "duration_minutes": 180,
-          "time_of_day": "morning",
-          "transport_from_prev": "從機場搭乘地鐵約 30 分鐘",
-          "estimated_cost": 1500
-        }
-      ],
-      "accommodation": {
-        "area": "住宿區域（如：新宿、淺草、銀座）",
-        "reason": "推薦此區域的理由（地理位置、交通便利性等，一句話）"
-      },
-      "meals": {
-        "breakfast": { "name": "早餐店名稱", "description": "簡短描述", "estimated_cost": 600 },
-        "lunch": { "name": "午餐店名稱", "description": "簡短描述", "estimated_cost": 1200 },
-        "dinner": { "name": "晚餐店名稱", "description": "簡短描述", "estimated_cost": 2500 }
-      }
-    },
+  // The transit-day example is only shown for multi-city trips — including it
+  // unconditionally in the JSON template previously primed the model to emit
+  // isTransitDay:true even for single-city trips (e.g. a national-park day
+  // trip), which validateItinerary then hard-rejects (TRANSIT_DAY_UNEXPECTED),
+  // deterministically failing generation every retry.
+  const transitDayExample = isMultiCity
+    ? `,
     {
       "day": "<中段某天，例如第 ${Math.ceil(days / 2)} 天，依地理路線決定>",
       "theme": "跨城移動日（僅多城市行程適用，絕不可放在第 ${days} 天）",
@@ -129,7 +102,48 @@ export function buildSystemPrompt(
         "lunch": { "name": "午餐店名稱", "description": "簡短描述", "estimated_cost": 1200 },
         "dinner": { "name": "晚餐店名稱", "description": "簡短描述", "estimated_cost": 2500 }
       }
-    }
+    }`
+    : "";
+
+  const singleCityReminder = isMultiCity
+    ? ""
+    : "\n\n【單一城市行程】此行程全程只在一個城市，絕對不可在任何一天設定 isTransitDay: true 或填寫 transitTo 欄位——即使某天安排的是郊區一日遊（如國家公園健行、近郊小鎮），當晚仍會返回同一城市過夜，不算移動日，isTransitDay 必須維持省略或 false。";
+
+  return `你是專業的旅遊規劃專家。請為用戶規劃 ${days} 天的旅遊行程。
+航班資訊：${routeDesc}。
+出發日期：${flightInfo.departureDate}，回程日期：${flightInfo.returnDate}。
+第 1 天對應 ${flightInfo.departureDate}，以此類推。${multiCityInstructions}${singleCityReminder}${buildFlightTimePrompt(flightInfo)}${buildPreferencePrompt(preferences)}
+
+嚴格遵守以下 JSON 結構：
+{
+  "title": "行程標題（繁體中文）",
+  "currency": "JPY",
+  "days": [
+    {
+      "day": 1,
+      "theme": "主題（可選，繁體中文）",
+      "waypointCity": "${arrivalCityName}",
+      "stops": [
+        {
+          "name": "景點名稱",
+          "district": "景點所在行政區/街區（例：新宿、淺草）",
+          "description": "景點描述",
+          "duration_minutes": 180,
+          "time_of_day": "morning",
+          "transport_from_prev": "從機場搭乘地鐵約 30 分鐘",
+          "estimated_cost": 1500
+        }
+      ],
+      "accommodation": {
+        "area": "住宿區域（如：新宿、淺草、銀座）",
+        "reason": "推薦此區域的理由（地理位置、交通便利性等，一句話）"
+      },
+      "meals": {
+        "breakfast": { "name": "早餐店名稱", "description": "簡短描述", "estimated_cost": 600 },
+        "lunch": { "name": "午餐店名稱", "description": "簡短描述", "estimated_cost": 1200 },
+        "dinner": { "name": "晚餐店名稱", "description": "簡短描述", "estimated_cost": 2500 }
+      }
+    }${transitDayExample}
   ]
 }
 
@@ -156,7 +170,8 @@ export function buildSystemPrompt(
 16. 景點名稱必須為具體可前往的單一地點（如「愛丁堡城堡」、「大英博物館」），禁止使用廣泛地理區域作為景點（如「蘇格蘭高地」、「海岸地帶」、「市郊鄉間」）；若要安排自然景觀體驗，必須指定具體地點名稱（如「格倫科峽谷 Glencoe」、「尼斯湖 Loch Ness」、「本尼維斯山基地步道」）。同樣嚴禁使用描述性泛稱代替真實地點名稱（如「名古屋美食街」、「海濱步道」、「XX之家」）——這類名稱在地圖上查無單一對應地點，容易被誤配對到其他城市甚至其他國家的同名地點；必須填寫該地點在 Google 地圖上可查詢到的實際名稱（如以「大須商店街」取代「名古屋美食街」、以「South Pointe Park」取代「海濱步道」）。若不確定具體名稱，寧可選擇該城市已知的真實街道、公園或商店街名稱，也不可自創泛稱
 17. 移動日（isTransitDay: true）若城際交通的 time_of_day 為 morning，代表旅客下午已抵達目的城市；stops 中必須加入至少 1 個 time_of_day 為 afternoon 或 evening 的輕鬆景點；若交通為 afternoon，則至少加入一個 evening 景點；移動日抵達後的時間不應完全空白；抵達後加入的景點必須位於**抵達城市市區範圍內**（活動類型可參考：市中心街道漫步、鄰近咖啡館、城市廣場、濱海步道等，但實際填入的景點名稱仍須是該城市真實可查詢的具體地點，不可直接使用類型詞本身作為景點名稱），**嚴禁安排需額外長途移動的郊外景點或一日遊**（例如飛抵墨爾本當天不可安排菲利普島、大洋路等需車程 1 小時以上的郊外行程）
 18. 同一行程中，同一景點名稱不得在不同天重複出現；若某景點已在前幾天安排，後續天數必須替換為不同景點，確保整份行程景點多元不重複
-19. waypointCity 為必填欄位，每一天都必須誠實填寫當天景點與住宿實際所在的城市或城鎮名稱（使用與 arrivalCity/returnDepartureCity 一致的城市命名方式）；一般情況下這個值就是 ${arrivalCityName}${isMultiCity ? ` 或 ${returnCityName}` : ""}，只有在【多段移動（沿路漸進路線）】情境下才會出現路線上的其他中途城鎮名稱${restaurantHintsPrompt}`;
+19. waypointCity 為必填欄位，每一天都必須誠實填寫當天景點與住宿實際所在的城市或城鎮名稱（使用與 arrivalCity/returnDepartureCity 一致的城市命名方式）；一般情況下這個值就是 ${arrivalCityName}${isMultiCity ? ` 或 ${returnCityName}` : ""}，只有在【多段移動（沿路漸進路線）】情境下才會出現路線上的其他中途城鎮名稱
+20. district 為每個景點必填欄位，填寫該景點實際所在的行政區、街區或鄰里名稱（例如東京景點填「新宿」「淺草」「澀谷」，京都景點填「祇園」「嵐山」，紐約景點填「Manhattan」「Brooklyn」）；此欄位用於在地圖上精確定位，避免同名景點分布在同一城市不同行政區（或不同城市甚至不同國家）時被誤配對到錯誤地點，因此務必填寫實際、具體的行政區名稱，不可留空或填寫與 waypointCity 重複的城市層級名稱${restaurantHintsPrompt}`;
 }
 
 /**

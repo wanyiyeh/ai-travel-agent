@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { prisma, j } from "@/lib/db";
 import { lookupByQuery, upsertPlace } from "@/lib/placeCache";
+import { searchPlaceText, getCityCenter } from "@/lib/placesTextSearch";
 import { haversineKm } from "@/lib/distanceMatrix";
+import { PRICE_LEVEL_MAP } from "@/lib/fetchCityRestaurants";
+import { estimateMealCost } from "@/lib/priceLevelCost";
 
 // If a stop is >80km from the centroid of its siblings, it's likely the wrong place
 const SUSPICIOUS_KM = 80;
@@ -9,27 +12,6 @@ const SUSPICIOUS_KM = 80;
 function centroid(pts: { lat: number; lng: number }[]): { lat: number; lng: number } {
   const sum = pts.reduce((a, p) => ({ lat: a.lat + p.lat, lng: a.lng + p.lng }), { lat: 0, lng: 0 });
   return { lat: sum.lat / pts.length, lng: sum.lng / pts.length };
-}
-
-const PLACES_API_URL = "https://places.googleapis.com/v1/places:searchText";
-
-async function searchPlace(query: string) {
-  const apiKey = process.env.GOOGLE_PLACES_API_KEY;
-  if (!apiKey) throw new Error("GOOGLE_PLACES_API_KEY not configured");
-
-  const res = await fetch(PLACES_API_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Goog-Api-Key": apiKey,
-      "X-Goog-FieldMask": "places.id,places.displayName,places.formattedAddress,places.location,places.rating",
-    },
-    body: JSON.stringify({ textQuery: query, maxResultCount: 1 }),
-  });
-
-  if (!res.ok) return null;
-  const data = await res.json();
-  return data.places?.[0] ?? null;
 }
 
 export async function POST(
@@ -44,6 +26,14 @@ export async function POST(
       return NextResponse.json({ error: "Itinerary not found" }, { status: 404 });
     }
 
+    const apiKey = process.env.GOOGLE_PLACES_API_KEY;
+    if (!apiKey) {
+      return NextResponse.json({ error: "GOOGLE_PLACES_API_KEY not configured" }, { status: 503 });
+    }
+
+    const config = itinerary.config as { currency?: string };
+    const currency = config.currency;
+
     const days = itinerary.days as Record<string, unknown>[];
     let enrichedCount = 0;
     let cachedCount = 0;
@@ -51,11 +41,23 @@ export async function POST(
     let failedCount = 0;
     const suspiciousStops: { name: string; day: number; reason: string }[] = [];
 
+    // Cache city-center lookups across the whole itinerary so repeat cities
+    // (most days) only resolve once instead of once per stop/meal.
+    const cityBiasCache = new Map<string, { lat: number; lng: number } | null>();
+    async function biasFor(city: string, key: string): Promise<{ lat: number; lng: number } | null> {
+      if (!city) return null;
+      if (!cityBiasCache.has(city)) {
+        cityBiasCache.set(city, await getCityCenter(city, key));
+      }
+      return cityBiasCache.get(city) ?? null;
+    }
+
     for (const day of days) {
       const cityHint =
         (typeof day.waypointCity === "string" ? day.waypointCity : "") ||
         (typeof day.transitTo === "string" ? day.transitTo : "") ||
         "";
+      const cityBias = await biasFor(cityHint, apiKey);
 
       const meals = day.meals as Record<string, Record<string, unknown>> | undefined;
       if (meals) {
@@ -78,11 +80,13 @@ export async function POST(
               };
               cachedCount++;
             } else {
-              const place = await searchPlace(query);
+              const place = await searchPlaceText(query, apiKey, cityBias);
               if (!place) {
                 failedCount++;
                 continue;
               }
+              const priceLevel = place.priceLevel ? (PRICE_LEVEL_MAP[place.priceLevel] ?? null) : null;
+              const estimatedCost = estimateMealCost(currency, mealKey, priceLevel);
               meals[mealKey] = {
                 ...meal,
                 placeId: place.id,
@@ -90,6 +94,7 @@ export async function POST(
                 lng: place.location.longitude,
                 address: place.formattedAddress,
                 rating: place.rating ?? null,
+                ...(estimatedCost !== undefined ? { estimated_cost: estimatedCost } : {}),
               };
               await upsertPlace(query, {
                 placeId: place.id,
@@ -128,9 +133,15 @@ export async function POST(
         // waypointCity can match an unrelated same-named place there instead.
         const stopCityHint = isTransitDay && i > 0 && arrivalCityHint ? arrivalCityHint : cityHint;
 
+        // District disambiguates same-named landmarks split across a city's
+        // wards/neighborhoods (see itineraryGen.ts rule 20) — city name alone
+        // isn't granular enough for cities like Tokyo or Kyoto.
+        const district = typeof stop.district === "string" ? stop.district : "";
+        const namePart = district ? `${stop.name} ${district}` : String(stop.name);
         const query = stopCityHint
-          ? `${stop.name} ${stopCityHint}`
-          : String(stop.name);
+          ? `${namePart} ${stopCityHint}`
+          : namePart;
+        const stopBias = stopCityHint === cityHint ? cityBias : await biasFor(stopCityHint, apiKey);
 
         try {
           const cached = await lookupByQuery(query);
@@ -150,7 +161,7 @@ export async function POST(
             };
             cachedCount++;
           } else {
-            const place = await searchPlace(query);
+            const place = await searchPlaceText(query, apiKey, stopBias);
             if (!place) {
               failedCount++;
               continue;

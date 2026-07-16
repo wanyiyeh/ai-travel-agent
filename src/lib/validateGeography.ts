@@ -9,8 +9,12 @@ export function validateGeography(itinerary: Itinerary): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
 
   for (const day of itinerary.days) {
-    if (day.isTransitDay) continue;
-    for (let i = 1; i < day.stops.length; i++) {
+    // On a transit day, stop 0 is the departure->arrival journey itself and is
+    // expected to be far from what follows — but stops from index 1 onward are
+    // all required to be in the arrival city (see itineraryGen.ts's generation
+    // prompt), so they should still cluster together like a normal day.
+    const startIndex = day.isTransitDay ? 2 : 1;
+    for (let i = startIndex; i < day.stops.length; i++) {
       const prev = day.stops[i - 1];
       const curr = day.stops[i];
       if (!prev.lat || !prev.lng || !curr.lat || !curr.lng) continue;

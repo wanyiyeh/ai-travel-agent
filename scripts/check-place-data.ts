@@ -166,10 +166,13 @@ async function main() {
       : itinerary.days) as Record<string, unknown>[];
 
     for (const day of days) {
-      if (day.isTransitDay) continue;
-      const stops = ((day.stops ?? []) as Record<string, unknown>[]).filter(
-        (s) => typeof s.lat === "number" && typeof s.lng === "number"
-      );
+      // On a transit day, stop 0 is the departure->arrival journey itself and
+      // is expected to be far from what follows; stops from index 1 onward
+      // are all required to be in the arrival city, so they're still checked
+      // against each other like a normal day.
+      const stops = ((day.stops ?? []) as Record<string, unknown>[])
+        .slice(day.isTransitDay ? 1 : 0)
+        .filter((s) => typeof s.lat === "number" && typeof s.lng === "number");
 
       for (let i = 0; i < stops.length; i++) {
         for (let j = i + 1; j < stops.length; j++) {

@@ -29,18 +29,30 @@ export const TripPreferencesSchema = z.object({
 export type TripPreferences = z.infer<typeof TripPreferencesSchema>;
 
 export const AccommodationSchema = z.object({
-  name: z.string(),
+  // Generation prompt (itineraryGen.ts rule 7) deliberately only asks the AI
+  // for an area + reason, not a specific hotel name (to avoid hallucinated
+  // hotel names) — name only shows up once the user picks a real candidate.
+  name: z.string().optional(),
   area: z.string(),
+  reason: z.string().optional(),
   placeId: z.string().optional(),
   lat: z.number().optional(),
   lng: z.number().optional(),
   address: z.string().optional(),
   rating: z.number().nullable().optional(),
   priceLevel: z.number().nullable().optional(),
+  estimated_cost: z.number().optional(),
+  estimated_cost_low: z.number().optional(),
+  estimated_cost_high: z.number().optional(),
+  nearestStation: z
+    .object({ name: z.string(), distanceMeters: z.number() })
+    .nullable()
+    .optional(),
 });
 
 export const StopSchema = z.object({
   name: z.string(),
+  district: z.string().optional(),
   description: z.string(),
   duration_minutes: z.number(),
   time_of_day: z.enum(["morning", "afternoon", "evening"]).optional(),
@@ -84,10 +96,12 @@ export const MealSchema = z.object({
   rating: z.number().nullable().optional(),
 });
 
+const nullableMeal = MealSchema.nullish().transform((v) => v ?? undefined);
+
 const DayMealsSchema = z.object({
-  breakfast: MealSchema.optional(),
-  lunch: MealSchema.optional(),
-  dinner: MealSchema.optional(),
+  breakfast: nullableMeal,
+  lunch: nullableMeal,
+  dinner: nullableMeal,
 });
 
 export const TransitRecommendationSchema = z.object({

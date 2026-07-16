@@ -161,7 +161,7 @@ export default function EditableItineraryCard({
   // so "導航" doesn't default to "current location".
   const overnightOrigin = (accommodation?: Accommodation | null) =>
     accommodation && accommodation.name !== "無需住宿"
-      ? accommodation.address || accommodation.name
+      ? accommodation.address || accommodation.name || accommodation.area
       : undefined;
 
   const findStopById = useCallback(
@@ -336,60 +336,6 @@ export default function EditableItineraryCard({
       afterDone?.();
     }
   }
-
-  const handleDelete = async (stopId: string, dayIndex: number) => {
-    if (!stopId) return;
-
-    const day = itinerary.days[dayIndex];
-    if (day.stops.length <= 1) {
-      setError("每天至少需要一個景點");
-      setTimeout(() => setError(null), 3000);
-      return;
-    }
-
-    if (!confirm("確定要刪除這個景點嗎？")) return;
-
-    setLoading(stopId);
-    setError(null);
-
-    try {
-      const res = await fetch(`/api/v1/stops/${stopId}`, {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ itineraryId: data.id }),
-      });
-
-      if (!res.ok) {
-        const resData = await res.json();
-        throw new Error(resData.error || "刪除失敗");
-      }
-
-      setItinerary((prev) => ({
-        ...prev,
-        days: prev.days.map((d, idx) =>
-          idx === dayIndex
-            ? {
-                ...d,
-                stops: d.stops
-                  .filter((s) => s.id !== stopId)
-                  .map((s) => ({ ...s, transport_from_prev: undefined, time_of_day: undefined })),
-              }
-            : d
-        ),
-      }));
-
-      if (day.id) {
-        // delay onUpdate until recalculation is done — otherwise fetchData overwrites the cleared state
-        recalculateTransport(day.id, onUpdate);
-      } else {
-        onUpdate?.();
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "刪除失敗");
-    } finally {
-      setLoading(null);
-    }
-  };
 
   const handleStartBulkEdit = (dayId: string, stops: Stop[]) => {
     setBulkEditDayId(dayId);
@@ -653,7 +599,7 @@ export default function EditableItineraryCard({
       }));
       setNewStopName("");
       setAddingToDay(null);
-      onUpdate?.();
+      recalculateTransport(dayId, onUpdate);
     } catch (err) {
       setError(err instanceof Error ? err.message : "新增景點失敗");
     } finally {
@@ -719,7 +665,7 @@ export default function EditableItineraryCard({
           const anyHasCost = itinerary.days.some((d) => hasCostData(d.stops));
           if (!anyHasCost) return null;
           const grandTotal = itinerary.days.reduce(
-            (sum, d) => sum + calculateDayCost(d.stops) + calculateMealCost(d.meals),
+            (sum, d) => sum + calculateDayCost(d.stops) + calculateMealCost(d.meals) + (d.accommodation?.estimated_cost ?? 0),
             0
           );
           const cur = itinerary.currency ?? "USD";
@@ -738,7 +684,10 @@ export default function EditableItineraryCard({
                   </thead>
                   <tbody>
                     {itinerary.days.map((day) => {
-                      const cost = calculateDayCost(day.stops) + calculateMealCost(day.meals);
+                      const cost =
+                        calculateDayCost(day.stops) +
+                        calculateMealCost(day.meals) +
+                        (day.accommodation?.estimated_cost ?? 0);
                       return (
                         <tr key={day.id || day.day} className="border-b border-zinc-50 dark:border-zinc-800/50">
                           <td className="py-2 text-zinc-700 dark:text-zinc-300">第 {day.day} 天</td>
@@ -922,6 +871,22 @@ export default function EditableItineraryCard({
                             預估花費：{formatCost(dayCost, itinerary.currency)}
                           </div>
                         )}
+                        <button
+                          onClick={() => day.id && recalculateTransport(day.id, onUpdate)}
+                          disabled={recalculatingDay !== null || !day.id}
+                          className="flex items-center gap-1 rounded-md bg-white/20 hover:bg-white/30 disabled:opacity-30 transition-colors px-2.5 py-1 text-xs font-medium text-white"
+                          title="重新計算本日交通方式與時間"
+                        >
+                          <svg
+                            className={`w-3.5 h-3.5 ${recalculatingDay === day.id ? "animate-spin" : ""}`}
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                          </svg>
+                          重算交通
+                        </button>
                         <a
                           href={buildGoogleMapsUrl(day.stops, overnightOrigin(prevDay?.accommodation))}
                           target="_blank"
@@ -954,7 +919,7 @@ export default function EditableItineraryCard({
                       <path d="M10 12.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z" />
                       <path fillRule="evenodd" d="M.664 10.59a1.651 1.651 0 0 1 0-1.186A10.004 10.004 0 0 1 10 3c4.257 0 7.893 2.66 9.336 6.41.147.381.146.804 0 1.186A10.004 10.004 0 0 1 10 17c-4.257 0-7.893-2.66-9.336-6.41ZM14 10a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z" clipRule="evenodd" />
                     </svg>
-                    住宿建議：{day.accommodation.name}{day.accommodation.area && day.accommodation.area !== day.accommodation.name ? `・${day.accommodation.area}` : ""}
+                    住宿建議：{day.accommodation.name || day.accommodation.area}{day.accommodation.name && day.accommodation.area && day.accommodation.area !== day.accommodation.name ? `・${day.accommodation.area}` : ""}
                   </div>
                 )}
               </div>
@@ -1082,7 +1047,6 @@ export default function EditableItineraryCard({
                                     : undefined
                                 }
                                 onEdit={handleEdit}
-                                onDelete={handleDelete}
                                 onSaveEdit={handleSaveEdit}
                                 onCancelEdit={() => setEditingStop(null)}
                                 onEditChange={setEditingStop}
@@ -1242,11 +1206,17 @@ export default function EditableItineraryCard({
                         <div className="flex items-start justify-between gap-3">
                           <div className="flex-1 min-w-0">
                             <p className="font-semibold text-zinc-800 dark:text-zinc-200 text-sm leading-snug">
-                              {day.accommodation.name}
+                              {day.accommodation.name || day.accommodation.area}
                             </p>
-                            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-                              {day.accommodation.area}
-                            </p>
+                            {day.accommodation.name ? (
+                              <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+                                {day.accommodation.area}
+                              </p>
+                            ) : day.accommodation.reason ? (
+                              <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+                                {day.accommodation.reason}
+                              </p>
+                            ) : null}
                             {day.accommodation.address && (
                               <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-1 leading-snug">
                                 {day.accommodation.address}
@@ -1261,6 +1231,31 @@ export default function EditableItineraryCard({
                               {day.accommodation.priceLevel != null && day.accommodation.priceLevel > 0 && (
                                 <span className="text-xs text-zinc-400 dark:text-zinc-500">
                                   {"$".repeat(day.accommodation.priceLevel)}
+                                </span>
+                              )}
+                              {day.accommodation.estimated_cost !== undefined && (
+                                <span className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">
+                                  💴{" "}
+                                  {day.accommodation.estimated_cost_low !== undefined &&
+                                  day.accommodation.estimated_cost_high !== undefined
+                                    ? [
+                                        itinerary.currency,
+                                        `${day.accommodation.estimated_cost_low.toLocaleString()}-${day.accommodation.estimated_cost_high.toLocaleString()}`,
+                                      ]
+                                        .filter(Boolean)
+                                        .join(" ")
+                                    : [itinerary.currency, day.accommodation.estimated_cost.toLocaleString()]
+                                        .filter(Boolean)
+                                        .join(" ")}
+                                  /晚
+                                </span>
+                              )}
+                              {day.accommodation.nearestStation && (
+                                <span className="text-xs text-zinc-400 dark:text-zinc-500">
+                                  距{day.accommodation.nearestStation.name}{" "}
+                                  {day.accommodation.nearestStation.distanceMeters >= 1000
+                                    ? `${(day.accommodation.nearestStation.distanceMeters / 1000).toFixed(1)}km`
+                                    : `${day.accommodation.nearestStation.distanceMeters}m`}
                                 </span>
                               )}
                             </div>
@@ -1307,6 +1302,7 @@ export default function EditableItineraryCard({
                       <AccommodationPicker
                         itineraryId={data.id}
                         dayId={day.id}
+                        currency={itinerary.currency}
                         onCancel={() => setPickingAccommodationDayId(null)}
                         onSelected={(acc) => {
                           updateDayAccommodation(day.id!, acc);
@@ -1414,6 +1410,7 @@ export default function EditableItineraryCard({
                         itineraryId={data.id}
                         dayId={pickingMeal.dayId}
                         mealType={pickingMeal.mealType}
+                        currency={itinerary.currency}
                         mealLabel={
                           { breakfast: "早餐", lunch: "午餐", dinner: "晚餐" }[pickingMeal.mealType]
                         }
