@@ -18,7 +18,6 @@ type EditingStop = {
 interface SortableStopProps {
   stop: Stop;
   index: number;
-  dayIndex: number;
   currency?: string;
   editingStop: EditingStop | null;
   isLoading: boolean;
@@ -31,12 +30,13 @@ interface SortableStopProps {
   onSaveEdit: () => void;
   onCancelEdit: () => void;
   onEditChange: (updated: EditingStop) => void;
+  onDelete?: (stop: Stop) => void;
+  deleteDisabled?: boolean;
 }
 
 export function SortableStop({
   stop,
   index,
-  dayIndex,
   currency,
   editingStop,
   isLoading,
@@ -49,6 +49,8 @@ export function SortableStop({
   onSaveEdit,
   onCancelEdit,
   onEditChange,
+  onDelete,
+  deleteDisabled = false,
 }: SortableStopProps) {
   const isEditing = editingStop?.id === stop.id;
 
@@ -306,6 +308,28 @@ export function SortableStop({
                   />
                 </svg>
               </button>
+              {onDelete && (
+                <button
+                  onClick={() => onDelete(stop)}
+                  disabled={isLoading || editingStop !== null || deleteDisabled}
+                  className="p-1 text-zinc-400 hover:text-red-600 disabled:opacity-30 transition-colors"
+                  title="刪除"
+                >
+                  <svg
+                    className="w-4 h-4"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                    />
+                  </svg>
+                </button>
+              )}
             </div>
           )
         )}
