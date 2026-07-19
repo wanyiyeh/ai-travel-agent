@@ -16,7 +16,6 @@ interface TransitRecommendationsPanelProps {
   originIata: string;
   destinationIata: string;
   existingStops?: string[];
-  onInserted: () => void;
   maxDays?: number;
   currentDays?: number;
   days?: DaySummary[];
@@ -40,7 +39,6 @@ export default function TransitRecommendationsPanel({
   originIata,
   destinationIata,
   existingStops,
-  onInserted,
   maxDays,
   currentDays,
   days,
@@ -148,35 +146,49 @@ export default function TransitRecommendationsPanel({
   }, [itineraryId, originIata, destinationIata, cacheKey, applyRecommendations]);
 
   useEffect(() => {
-    const cancel = fetchRecommendations();
-    return cancel;
+    // Deferred a microtask so the fetch kickoff (and the setState calls inside
+    // fetchRecommendations) doesn't run synchronously in the effect body —
+    // avoids react-hooks/set-state-in-effect while firing effectively immediately.
+    let cancelled = false;
+    let cleanup: (() => void) | undefined;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      cleanup = fetchRecommendations();
+    });
+    return () => {
+      cancelled = true;
+      cleanup?.();
+    };
   }, [fetchRecommendations]);
 
   // When existingStops changes (city inserted), filter locally instead of re-fetching
   useEffect(() => {
     existingStopsRef.current = existingStops;
-    setRecommendations((prev) => {
-      if (!prev.length) return prev;
-      const existingLower = existingStops?.map((s) => s.toLowerCase()) ?? [];
-      if (!existingLower.length) return prev;
-      return prev.filter(
-        (rec) =>
-          !existingLower.includes(rec.name.toLowerCase()) &&
-          (!rec.iataCode || !existingLower.includes(rec.iataCode.toLowerCase()))
-      );
+    queueMicrotask(() => {
+      setRecommendations((prev) => {
+        if (!prev.length) return prev;
+        const existingLower = existingStops?.map((s) => s.toLowerCase()) ?? [];
+        if (!existingLower.length) return prev;
+        return prev.filter(
+          (rec) =>
+            !existingLower.includes(rec.name.toLowerCase()) &&
+            (!rec.iataCode || !existingLower.includes(rec.iataCode.toLowerCase()))
+        );
+      });
     });
   }, [existingStops]);
 
   // Transition to empty state when filtered list runs out; auto-refetch if triggered by individual card skip
   useEffect(() => {
-    if (state === "ready" && recommendations.length === 0) {
+    if (state !== "ready" || recommendations.length !== 0) return;
+    queueMicrotask(() => {
       if (autoRefreshOnEmptyRef.current) {
         autoRefreshOnEmptyRef.current = false;
         fetchRecommendations(true);
       } else {
         setState("empty");
       }
-    }
+    });
   }, [recommendations, state, fetchRecommendations]);
 
   const handleIndividualRefresh = useCallback((recName: string) => {

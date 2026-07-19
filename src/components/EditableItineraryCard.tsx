@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect, useMemo, Fragment, type ReactNode } from "react";
+import { useState, useCallback, useEffect, useMemo, useRef, Fragment, type ReactNode } from "react";
 import {
   DndContext,
   closestCenter,
@@ -141,7 +141,11 @@ export default function EditableItineraryCard({
   const toggleDayCollapse = (dayNum: number) =>
     setCollapsedDays((prev) => {
       const next = new Set(prev);
-      next.has(dayNum) ? next.delete(dayNum) : next.add(dayNum);
+      if (next.has(dayNum)) {
+        next.delete(dayNum);
+      } else {
+        next.add(dayNum);
+      }
       return next;
     });
 
@@ -173,6 +177,17 @@ export default function EditableItineraryCard({
   const [bulkKeepIds, setBulkKeepIds] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkError, setBulkError] = useState<string | null>(null);
+
+  const [deletedStopInfo, setDeletedStopInfo] = useState<{
+    stop: Stop;
+    dayId: string;
+    index: number;
+  } | null>(null);
+  const [restoringStop, setRestoringStop] = useState(false);
+  // Tracks which deleted stop the pending "finalize" timeout / actions apply
+  // to — a ref (not state) so the timeout callback can check it without
+  // being a stale closure over deletedStopInfo.
+  const deletedStopIdRef = useRef<string | null>(null);
 
   const duplicateStopInfo = useMemo(() => {
     const firstSeenDay = new Map<string, number>();
@@ -341,15 +356,30 @@ export default function EditableItineraryCard({
       const day = itinerary.days[activeDayIndex];
       const activeIndex = day.stops.findIndex((s) => s.id === activeStopId);
       const overIndex = over ? day.stops.findIndex((s) => s.id === over.id) : -1;
+      const originalDayId = itinerary.days[originalDayIndex]?.id;
+      const recalcDayIds = [originalDayId, day.id].filter((id): id is string => !!id);
+      const clearMovedStop = (stops: Stop[]) =>
+        stops.map((stop) =>
+          stop.id === activeStopId
+            ? { ...stop, transport_from_prev: undefined, time_of_day: undefined }
+            : stop
+        );
 
       if (overIndex !== -1 && activeIndex !== -1 && overIndex !== activeIndex) {
         const newDays = [...itinerary.days];
-        newDays[activeDayIndex] = { ...day, stops: arrayMove(day.stops, activeIndex, overIndex) };
+        newDays[activeDayIndex] = {
+          ...day,
+          stops: clearMovedStop(arrayMove(day.stops, activeIndex, overIndex)),
+        };
         const newItinerary = { ...itinerary, days: newDays };
         setItinerary(newItinerary);
-        persistReorder(newItinerary);
+        persistReorder(newItinerary, recalcDayIds);
       } else {
-        persistReorder(itinerary);
+        const newDays = [...itinerary.days];
+        newDays[activeDayIndex] = { ...day, stops: clearMovedStop(day.stops) };
+        const newItinerary = { ...itinerary, days: newDays };
+        setItinerary(newItinerary);
+        persistReorder(newItinerary, recalcDayIds);
       }
       return;
     }
@@ -374,10 +404,17 @@ export default function EditableItineraryCard({
         const [movedStop] = sourceStops.splice(stopIndex, 1);
         const targetStops = newDays[overDayIndex].stops;
         const insertAt = emptyDayId ? targetStops.length : targetStops.findIndex((s) => s.id === overId);
-        targetStops.splice(insertAt >= 0 ? insertAt : targetStops.length, 0, movedStop);
+        targetStops.splice(insertAt >= 0 ? insertAt : targetStops.length, 0, {
+          ...movedStop,
+          transport_from_prev: undefined,
+          time_of_day: undefined,
+        });
         const newItinerary = { ...itinerary, days: newDays };
         setItinerary(newItinerary);
-        persistReorder(newItinerary);
+        const recalcDayIds = [newDays[activeDayIndex].id, newDays[overDayIndex].id].filter(
+          (id): id is string => !!id
+        );
+        persistReorder(newItinerary, recalcDayIds);
         return;
       }
     }
@@ -405,10 +442,10 @@ export default function EditableItineraryCard({
     };
     const newItinerary = { ...itinerary, days: newDays };
     setItinerary(newItinerary);
-    persistReorder(newItinerary, day.id ?? undefined);
+    persistReorder(newItinerary, day.id ? [day.id] : undefined);
   }
 
-  async function persistReorder(target: Itinerary, sameDayId?: string) {
+  async function persistReorder(target: Itinerary, recalcDayIds?: string[]) {
     try {
       const affectedDays = target.days
         .filter((day) => day.id)
@@ -427,9 +464,22 @@ export default function EditableItineraryCard({
 
       setSnapshotBeforeDrag(null);
 
-      if (sameDayId) {
-        // delay onUpdate until recalculation is done — otherwise fetchData overwrites the cleared state
-        recalculateTransport(sameDayId, onUpdate);
+      // Skip days left with no stops — nothing to recalculate, and it'd be a
+      // wasted AI call.
+      const uniqueDayIds = recalcDayIds
+        ? Array.from(new Set(recalcDayIds)).filter(
+            (dayId) => (target.days.find((d) => d.id === dayId)?.stops.length ?? 0) > 0
+          )
+        : [];
+      if (uniqueDayIds.length > 0) {
+        // Sequential, not Promise.all: the recalculate endpoint does a
+        // read-modify-write of the whole itinerary.days blob, so recalculating
+        // two days at once would race and one day's write could clobber the
+        // other's — delay onUpdate until every recalculation is done.
+        for (const dayId of uniqueDayIds) {
+          await recalculateTransport(dayId);
+        }
+        onUpdate?.();
       } else {
         onUpdate?.();
       }
@@ -573,6 +623,124 @@ export default function EditableItineraryCard({
     }));
 
     handleFinishBulkEdit(dayId);
+  };
+
+  // Toast-driven single-stop delete: removes immediately (optimistic), then
+  // gives the user a window to undo or jump straight to candidate
+  // suggestions before the day's transport actually gets recalculated —
+  // unlike the bulk-edit flow, viewing suggestions here is opt-in, not
+  // forced.
+  const DELETE_TOAST_MS = 8000;
+
+  const handleDeleteStop = async (dayId: string, stop: Stop) => {
+    if (!stop.id) return;
+    const day = itinerary.days.find((d) => d.id === dayId);
+    if (!day) return;
+    const index = day.stops.findIndex((s) => s.id === stop.id);
+    if (index === -1) return;
+    const stopId = stop.id;
+
+    setItinerary((prev) => ({
+      ...prev,
+      days: prev.days.map((d) =>
+        d.id === dayId ? { ...d, stops: d.stops.filter((s) => s.id !== stopId) } : d
+      ),
+    }));
+    deletedStopIdRef.current = stopId;
+    setDeletedStopInfo({ stop, dayId, index });
+
+    try {
+      const res = await fetch(`/api/v1/stops/${stopId}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ itineraryId: data.id }),
+      });
+      if (!res.ok) throw new Error("刪除失敗");
+    } catch (err) {
+      setItinerary((prev) => ({
+        ...prev,
+        days: prev.days.map((d) =>
+          d.id === dayId
+            ? { ...d, stops: [...d.stops.slice(0, index), stop, ...d.stops.slice(index)] }
+            : d
+        ),
+      }));
+      if (deletedStopIdRef.current === stopId) {
+        deletedStopIdRef.current = null;
+        setDeletedStopInfo(null);
+      }
+      setError(err instanceof Error ? err.message : "刪除失敗");
+      setTimeout(() => setError(null), 3000);
+      return;
+    }
+
+    setTimeout(() => {
+      if (deletedStopIdRef.current !== stopId) return;
+      deletedStopIdRef.current = null;
+      setDeletedStopInfo(null);
+      recalculateTransport(dayId, onUpdate);
+    }, DELETE_TOAST_MS);
+  };
+
+  const dismissDeleteToast = () => {
+    if (!deletedStopInfo) return;
+    const { dayId } = deletedStopInfo;
+    deletedStopIdRef.current = null;
+    setDeletedStopInfo(null);
+    recalculateTransport(dayId, onUpdate);
+  };
+
+  const handleUndoDeleteStop = async () => {
+    if (!deletedStopInfo) return;
+    const { stop, dayId, index } = deletedStopInfo;
+    deletedStopIdRef.current = null;
+    setDeletedStopInfo(null);
+    setRestoringStop(true);
+    try {
+      const candidate: StopCandidate = {
+        name: stop.name,
+        description: stop.description,
+        duration_minutes: stop.duration_minutes,
+        placeId: stop.placeId,
+        lat: stop.lat,
+        lng: stop.lng,
+        address: stop.address,
+        rating: stop.rating,
+      };
+      const res = await fetch(`/api/v1/days/${dayId}/stops`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ itineraryId: data.id, stops: [candidate] }),
+      });
+      if (!res.ok) throw new Error("復原失敗");
+      const { stops: newStops } = (await res.json()) as { stops: { id: string }[] };
+
+      const restoredStop: Stop = { ...stop, id: newStops[0].id };
+      const day = itinerary.days.find((d) => d.id === dayId);
+      if (!day) return;
+      const stops = [...day.stops];
+      stops.splice(Math.min(index, stops.length), 0, restoredStop);
+      const newDays = itinerary.days.map((d) => (d.id === dayId ? { ...d, stops } : d));
+      const newItinerary = { ...itinerary, days: newDays };
+      setItinerary(newItinerary);
+      await persistReorder(newItinerary, [dayId]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "復原失敗");
+      setTimeout(() => setError(null), 3000);
+    } finally {
+      setRestoringStop(false);
+    }
+  };
+
+  const handleViewSuggestionsForDeleted = () => {
+    if (!deletedStopInfo) return;
+    const { dayId } = deletedStopInfo;
+    deletedStopIdRef.current = null;
+    setDeletedStopInfo(null);
+    setBulkKeepIds(new Set());
+    setBulkError(null);
+    setBulkEditDayId(dayId);
+    setBulkPhase("suggest");
   };
 
   const handleEdit = (stop: Stop) => {
@@ -837,6 +1005,32 @@ export default function EditableItineraryCard({
             </svg>
             <span className="flex-1">{enrichWarning}</span>
             <button onClick={() => setEnrichWarning(null)} className="shrink-0 text-amber-500 hover:text-amber-700 dark:hover:text-amber-200">✕</button>
+          </div>
+        )}
+        {deletedStopInfo && (
+          <div className="flex items-center gap-3 rounded-lg border border-blue-200 bg-blue-50 dark:border-blue-800/60 dark:bg-blue-950/30 px-4 py-3 text-sm text-blue-800 dark:text-blue-300">
+            <span className="flex-1">已刪除「{deletedStopInfo.stop.name}」</span>
+            <button
+              onClick={handleUndoDeleteStop}
+              disabled={restoringStop}
+              className="font-medium underline hover:no-underline disabled:opacity-50 shrink-0"
+            >
+              {restoringStop ? "復原中…" : "復原"}
+            </button>
+            <button
+              onClick={handleViewSuggestionsForDeleted}
+              disabled={restoringStop}
+              className="font-medium underline hover:no-underline disabled:opacity-50 shrink-0"
+            >
+              看候選建議
+            </button>
+            <button
+              onClick={dismissDeleteToast}
+              disabled={restoringStop}
+              className="shrink-0 text-blue-500 hover:text-blue-700 dark:hover:text-blue-200 disabled:opacity-50"
+            >
+              ✕
+            </button>
           </div>
         )}
 
@@ -1208,11 +1402,10 @@ export default function EditableItineraryCard({
                           <SortableStop
                             stop={stop}
                             index={idx}
-                            dayIndex={dayIndex}
                             currency={itinerary.currency}
                             editingStop={editingStop}
                             isLoading={loading === stop.id}
-                            bulkMode={bulkEditDayId === day.id}
+                            bulkMode={bulkEditDayId === day.id && bulkPhase === "select"}
                             selected={!!stop.id && bulkKeepIds.has(stop.id)}
                             onToggleSelect={handleToggleBulkKeep}
                             isDuplicate={!!stop.id && duplicateStopInfo.has(stop.id)}
@@ -1225,6 +1418,8 @@ export default function EditableItineraryCard({
                             onSaveEdit={handleSaveEdit}
                             onCancelEdit={() => setEditingStop(null)}
                             onEditChange={setEditingStop}
+                            onDelete={(s) => day.id && handleDeleteStop(day.id, s)}
+                            deleteDisabled={bulkEditDayId !== null}
                           />
                         </div>
                       );
@@ -1281,6 +1476,11 @@ export default function EditableItineraryCard({
                         .flatMap((d) =>
                           d.stops
                             .filter((s) => {
+                              // A transit day's own stops span two cities by definition
+                              // (departure + arrival) — the city-match heuristic below
+                              // doesn't apply to them, so always offer them for reuse
+                              // regardless of which day is being edited.
+                              if (d.isTransitDay) return true;
                               // Prefer the stop's own coordinates over the day-level
                               // waypointCity tag — a transit day is tagged with its
                               // departure city even though some of its stops (e.g. the

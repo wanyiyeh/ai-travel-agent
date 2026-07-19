@@ -438,10 +438,10 @@ async function generateItinerary(scenario: Scenario, retries = 3): Promise<any> 
 function addIds(itinerary: any): any {
   return {
     ...itinerary,
-    days: itinerary.days.map((day: any) => ({
+    days: (itinerary.days as Record<string, unknown>[]).map((day) => ({
       ...day,
       id: randomUUID(),
-      stops: (day.stops ?? []).map((stop: any, idx: number) => ({
+      stops: ((day.stops as Record<string, unknown>[] | undefined) ?? []).map((stop, idx) => ({
         ...stop,
         id: randomUUID(),
         orderIndex: idx,

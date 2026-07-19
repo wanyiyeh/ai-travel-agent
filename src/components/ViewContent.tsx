@@ -156,7 +156,6 @@ export default function ViewContent({ id }: ViewContentProps) {
       maxDays = Math.max(1, Math.ceil((ret.getTime() - dep.getTime()) / (1000 * 60 * 60 * 24)));
     }
     const currentDays = (data.data?.days as unknown[])?.length;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const transitStopNames: string[] = (data.data?.days ?? [])
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .filter((d: any) => d.isTransitDay && d.transitTo)
@@ -358,7 +357,6 @@ export default function ViewContent({ id }: ViewContentProps) {
           originIata={transitPanelProps.originIata}
           destinationIata={transitPanelProps.destinationIata}
           existingStops={transitPanelProps.existingStops}
-          onInserted={fetchData}
           maxDays={transitPanelProps.maxDays}
           currentDays={transitPanelProps.currentDays}
           days={transitPanelProps.days}
