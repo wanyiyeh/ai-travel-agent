@@ -26,6 +26,17 @@ export async function POST(request: Request) {
 
     const days = itinerary.days as Record<string, unknown>[];
 
+    // A stop may have been dragged to a different day than the one it lives
+    // under in the DB, so look it up across the whole itinerary rather than
+    // just the day it's being reassigned to — otherwise a cross-day move
+    // silently drops the stop (its data only exists under its old day).
+    const globalStopMap = new Map<string, Record<string, unknown>>();
+    for (const day of days) {
+      for (const stop of day.stops as Record<string, unknown>[]) {
+        if (stop.id) globalStopMap.set(stop.id as string, stop);
+      }
+    }
+
     for (const reorderDay of reorderDays as {
       dayId: string;
       stopIds: string[];
@@ -34,10 +45,8 @@ export async function POST(request: Request) {
       const day = days.find((d) => d.id === dayId);
       if (!day) continue;
 
-      const stops = day.stops as Record<string, unknown>[];
-      const stopMap = new Map(stops.map((s) => [s.id, s]));
       day.stops = stopIds
-        .map((id) => stopMap.get(id))
+        .map((id) => globalStopMap.get(id))
         .filter(Boolean)
         .map((s, idx) => ({ ...(s as object), orderIndex: idx }));
     }

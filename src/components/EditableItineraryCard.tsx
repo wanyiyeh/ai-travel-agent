@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect, useMemo, Fragment } from "react";
+import { useState, useCallback, useEffect, useMemo, Fragment, type ReactNode } from "react";
 import {
   DndContext,
   closestCenter,
@@ -16,6 +16,7 @@ import {
 } from "@dnd-kit/core";
 import {
   SortableContext,
+  useSortable,
   verticalListSortingStrategy,
   arrayMove,
 } from "@dnd-kit/sortable";
@@ -38,6 +39,71 @@ const TIME_OF_DAY_LABELS: Record<string, string> = {
   afternoon: "下午",
   evening: "晚上",
 };
+
+// An empty day has no stops, so dnd-kit's SortableContext has nothing to
+// register as a drop target — dragging a stop onto it would silently fail.
+// This id namespace lets handleDragOver/handleDragEnd tell "hovering the
+// empty-day zone" apart from "hovering an actual stop".
+const EMPTY_DAY_DROPZONE_PREFIX = "day-empty:";
+const emptyDayDropzoneId = (dayId: string) => `${EMPTY_DAY_DROPZONE_PREFIX}${dayId}`;
+const dayIdFromEmptyDropzone = (id: string) =>
+  id.startsWith(EMPTY_DAY_DROPZONE_PREFIX) ? id.slice(EMPTY_DAY_DROPZONE_PREFIX.length) : null;
+
+// A bare useDroppable() zone for an empty day turned out to be unreliable as
+// a drop target for an item dragged out of a <SortableContext> — dnd-kit
+// would report the drag as cancelled instead of ended when it was dropped
+// there (a plain droppable doesn't carry the `sortable` container metadata
+// dnd-kit's own drag-end bookkeeping expects). Registering it via
+// useSortable's `disabled: { draggable: true, droppable: false }` — not
+// draggable itself, but a full sortable-aware drop target — is the pattern
+// used for empty containers, and behaves correctly.
+function EmptyDayPlaceholder({ id, isTransitDay }: { id: string; isTransitDay: boolean }) {
+  const { setNodeRef, isOver } = useSortable({
+    id,
+    disabled: { draggable: true, droppable: false },
+  });
+  return (
+    <div
+      ref={setNodeRef}
+      className={`rounded-lg border-2 border-dashed px-5 py-6 text-center text-sm transition-colors ${
+        isOver
+          ? "border-blue-400 bg-blue-50 text-blue-600 dark:border-blue-500 dark:bg-blue-950/30 dark:text-blue-400"
+          : "border-zinc-200 text-zinc-400 dark:border-zinc-700 dark:text-zinc-500"
+      }`}
+    >
+      {isTransitDay ? "移動日，無景點安排。" : "尚無景點。"}
+      可拖曳景點到這裡，或用下方「新增景點」自行安排行程。
+    </div>
+  );
+}
+
+// Wraps each day's stop list in a stable <SortableContext> that stays
+// mounted regardless of stop count, with an EmptyDayPlaceholder standing in
+// for the (registered but non-existent) first item when there are none —
+// this is what makes an empty day accept a drop at all.
+function DayStopsZone({
+  dayId,
+  stopIds,
+  isTransitDay,
+  children,
+}: {
+  dayId: string;
+  stopIds: string[];
+  isTransitDay: boolean;
+  children: ReactNode;
+}) {
+  const isEmpty = stopIds.length === 0;
+  const items = isEmpty ? [emptyDayDropzoneId(dayId)] : stopIds;
+  return (
+    <SortableContext items={items} strategy={verticalListSortingStrategy}>
+      {isEmpty ? (
+        <EmptyDayPlaceholder id={items[0]} isTransitDay={isTransitDay} />
+      ) : (
+        children
+      )}
+    </SortableContext>
+  );
+}
 
 interface EditableItineraryCardProps {
   data: {
@@ -90,6 +156,9 @@ export default function EditableItineraryCard({
   const [recalculatingDay, setRecalculatingDay] = useState<string | null>(null);
   const [pickingAccommodationDayId, setPickingAccommodationDayId] = useState<string | null>(null);
   const [pickingMeal, setPickingMeal] = useState<{ dayId: string; mealType: MealType } | null>(null);
+  const [togglingTransitDayId, setTogglingTransitDayId] = useState<string | null>(null);
+  const [transitToInput, setTransitToInput] = useState("");
+  const [savingTransitDayId, setSavingTransitDayId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [addingToDay, setAddingToDay] = useState<string | null>(null);
   const [newStopName, setNewStopName] = useState("");
@@ -193,13 +262,29 @@ export default function EditableItineraryCard({
     if (!over) return;
 
     const activeStopId = active.id as string;
-    const overStopId = over.id as string;
+    const overId = over.id as string;
+    const emptyDayId = dayIdFromEmptyDropzone(overId);
     const activeDayIndex = findDayIndexByStopId(activeStopId);
-    const overDayIndex = findDayIndexByStopId(overStopId);
+    const overDayIndex = emptyDayId
+      ? itinerary.days.findIndex((d) => d.id === emptyDayId)
+      : findDayIndexByStopId(overId);
 
     if (activeDayIndex === -1 || overDayIndex === -1) return;
     if (activeDayIndex === overDayIndex) return;
-    if (itinerary.days[activeDayIndex].stops.length <= 1) return;
+
+    // Skip the live preview when this move would flip a day's empty/
+    // non-empty status (dragging a day's last stop out, or landing on a
+    // still-empty target) — that flip swaps a day's rendered content
+    // between a placeholder and a real stop list, changing its height.
+    // Doing that mid-drag, on every hover tick, feeds back into collision
+    // detection: the reflow shifts the target's on-screen position, which
+    // flips the collision result, which reflows again — an infinite loop
+    // (observed as React's "Maximum update depth exceeded"). Deferring
+    // these specific moves to handleDragEnd (see below) avoids the
+    // mid-drag reflow entirely; ordinary populated-day-to-populated-day
+    // moves are unaffected and still preview live.
+    const sourceWouldEmpty = itinerary.days[activeDayIndex].stops.length === 1;
+    if (emptyDayId || sourceWouldEmpty) return;
 
     setItinerary((prev) => {
       const newDays = prev.days.map((d) => ({ ...d, stops: [...d.stops] }));
@@ -209,7 +294,7 @@ export default function EditableItineraryCard({
       if (stopIndex === -1) return prev;
 
       const [movedStop] = sourceStops.splice(stopIndex, 1);
-      const overIndex = targetStops.findIndex((s) => s.id === overStopId);
+      const overIndex = emptyDayId ? -1 : targetStops.findIndex((s) => s.id === overId);
       targetStops.splice(
         overIndex >= 0 ? overIndex : targetStops.length,
         0,
@@ -219,47 +304,108 @@ export default function EditableItineraryCard({
     });
   }
 
+  // dnd-kit sometimes classifies a drop dead-center in a just-emptied day's
+  // placeholder as a *cancel* rather than an end (observed: no native
+  // pointercancel fires, but DndContext still resolves to its DragCancel
+  // action). DragCancelEvent carries the same active/over payload as
+  // DragEndEvent, so onDragCancel is wired to this same handler below —
+  // from this app's point of view both mean "the pointer was released, here
+  // is where things ended up," and the logic here already tolerates a
+  // missing/stale `over` via the drag-start snapshot.
   function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
     setActiveId(null);
+
+    const activeStopId = active.id as string;
+    const activeDayIndex = findDayIndexByStopId(activeStopId);
+    if (activeDayIndex === -1) {
+      setSnapshotBeforeDrag(null);
+      return;
+    }
+
+    // Don't rely on `over` alone to detect a cross-day move: handleDragOver
+    // already relocated the stop live, and if the pointer settles without
+    // moving again, dnd-kit can report a stale or null `over` here — the
+    // snapshot from drag-start is the reliable way to know a move happened.
+    const originalDayIndex = snapshotBeforeDrag
+      ? snapshotBeforeDrag.days.findIndex((d) =>
+          d.stops.some((s) => s.id === activeStopId)
+        )
+      : activeDayIndex;
+    const crossedDay = originalDayIndex !== -1 && activeDayIndex !== originalDayIndex;
+
+    if (crossedDay) {
+      // handleDragOver already placed the stop in the target day; fine-tune
+      // its exact position only if we're still legitimately hovering a real
+      // stop within that same day.
+      const day = itinerary.days[activeDayIndex];
+      const activeIndex = day.stops.findIndex((s) => s.id === activeStopId);
+      const overIndex = over ? day.stops.findIndex((s) => s.id === over.id) : -1;
+
+      if (overIndex !== -1 && activeIndex !== -1 && overIndex !== activeIndex) {
+        const newDays = [...itinerary.days];
+        newDays[activeDayIndex] = { ...day, stops: arrayMove(day.stops, activeIndex, overIndex) };
+        const newItinerary = { ...itinerary, days: newDays };
+        setItinerary(newItinerary);
+        persistReorder(newItinerary);
+      } else {
+        persistReorder(itinerary);
+      }
+      return;
+    }
+
+    // handleDragOver deliberately skipped moves that would flip a day's
+    // empty/non-empty status (see the comment there) — resolve that here,
+    // once, now that the drag is ending and there's no more reflow to
+    // feed back into an in-progress collision check.
+    const overId = over ? (over.id as string) : null;
+    const emptyDayId = overId ? dayIdFromEmptyDropzone(overId) : null;
+    const overDayIndex = emptyDayId
+      ? itinerary.days.findIndex((d) => d.id === emptyDayId)
+      : overId
+        ? findDayIndexByStopId(overId)
+        : -1;
+
+    if (overDayIndex !== -1 && overDayIndex !== activeDayIndex) {
+      const newDays = itinerary.days.map((d) => ({ ...d, stops: [...d.stops] }));
+      const sourceStops = newDays[activeDayIndex].stops;
+      const stopIndex = sourceStops.findIndex((s) => s.id === activeStopId);
+      if (stopIndex !== -1) {
+        const [movedStop] = sourceStops.splice(stopIndex, 1);
+        const targetStops = newDays[overDayIndex].stops;
+        const insertAt = emptyDayId ? targetStops.length : targetStops.findIndex((s) => s.id === overId);
+        targetStops.splice(insertAt >= 0 ? insertAt : targetStops.length, 0, movedStop);
+        const newItinerary = { ...itinerary, days: newDays };
+        setItinerary(newItinerary);
+        persistReorder(newItinerary);
+        return;
+      }
+    }
 
     if (!over || active.id === over.id) {
       setSnapshotBeforeDrag(null);
       return;
     }
 
-    const activeDayIndex = findDayIndexByStopId(active.id as string);
-    const overDayIndex = findDayIndexByStopId(over.id as string);
-
-    if (activeDayIndex === -1 || overDayIndex === -1) {
+    const day = itinerary.days[activeDayIndex];
+    const oldIndex = day.stops.findIndex((s) => s.id === activeStopId);
+    const newIndex = day.stops.findIndex((s) => s.id === over.id);
+    if (oldIndex === -1 || newIndex === -1) {
       setSnapshotBeforeDrag(null);
       return;
     }
-
-    if (activeDayIndex === overDayIndex) {
-      const day = itinerary.days[activeDayIndex];
-      const oldIndex = day.stops.findIndex((s) => s.id === active.id);
-      const newIndex = day.stops.findIndex((s) => s.id === over.id);
-      if (oldIndex === -1 || newIndex === -1) {
-        setSnapshotBeforeDrag(null);
-        return;
-      }
-      const newDays = [...itinerary.days];
-      newDays[activeDayIndex] = {
-        ...day,
-        stops: arrayMove(day.stops, oldIndex, newIndex).map((stop) => ({
-          ...stop,
-          transport_from_prev: undefined,
-          time_of_day: undefined,
-        })),
-      };
-      const newItinerary = { ...itinerary, days: newDays };
-      setItinerary(newItinerary);
-      persistReorder(newItinerary, itinerary.days[activeDayIndex].id ?? undefined);
-      return;
-    }
-
-    persistReorder(itinerary);
+    const newDays = [...itinerary.days];
+    newDays[activeDayIndex] = {
+      ...day,
+      stops: arrayMove(day.stops, oldIndex, newIndex).map((stop) => ({
+        ...stop,
+        transport_from_prev: undefined,
+        time_of_day: undefined,
+      })),
+    };
+    const newItinerary = { ...itinerary, days: newDays };
+    setItinerary(newItinerary);
+    persistReorder(newItinerary, day.id ?? undefined);
   }
 
   async function persistReorder(target: Itinerary, sameDayId?: string) {
@@ -576,6 +722,66 @@ export default function EditableItineraryCard({
     }
   };
 
+  const handleStartSetTransit = (dayId: string) => {
+    setTogglingTransitDayId(dayId);
+    setTransitToInput("");
+  };
+
+  const handleCancelSetTransit = () => {
+    setTogglingTransitDayId(null);
+    setTransitToInput("");
+  };
+
+  const saveTransitDay = async (
+    dayId: string,
+    body: { isTransitDay: true; transitTo: string } | { isTransitDay: false }
+  ) => {
+    setSavingTransitDayId(dayId);
+    setError(null);
+    try {
+      const res = await fetch(`/api/v1/days/${dayId}/toggle-transit`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ itineraryId: data.id, ...body }),
+      });
+      if (!res.ok) {
+        const resData = await res.json();
+        throw new Error(resData.error || "更新移動日失敗");
+      }
+      setItinerary((prev) => ({
+        ...prev,
+        days: prev.days.map((d) =>
+          d.id === dayId
+            ? {
+                ...d,
+                isTransitDay: body.isTransitDay,
+                transitTo: body.isTransitDay ? body.transitTo : undefined,
+                accommodation: body.isTransitDay ? null : d.accommodation,
+              }
+            : d
+        ),
+      }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "更新移動日失敗");
+      setTimeout(() => setError(null), 6000);
+    } finally {
+      setSavingTransitDayId(null);
+    }
+  };
+
+  const handleConfirmSetTransit = async (dayId: string) => {
+    const transitTo = transitToInput.trim();
+    if (!transitTo) return;
+    await saveTransitDay(dayId, { isTransitDay: true, transitTo });
+    setTogglingTransitDayId(null);
+    setTransitToInput("");
+  };
+
+  const handleUnsetTransit = async (dayId: string) => {
+    if (!confirm("確定要取消這一天的移動日標記嗎？")) return;
+    await saveTransitDay(dayId, { isTransitDay: false });
+  };
+
   const handleAddStop = async (dayId: string) => {
     if (!newStopName.trim()) return;
     setAddingStop(true);
@@ -616,6 +822,7 @@ export default function EditableItineraryCard({
       onDragStart={handleDragStart}
       onDragOver={handleDragOver}
       onDragEnd={handleDragEnd}
+      onDragCancel={handleDragEnd}
     >
       <div className="space-y-6">
         {error && (
@@ -789,10 +996,10 @@ export default function EditableItineraryCard({
                     : "from-blue-500 to-blue-600"
                 }`}
               >
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-3">
                   <button
                     onClick={() => toggleDayCollapse(day.day)}
-                    className="flex items-center gap-2 text-left"
+                    className="flex items-center gap-2 text-left min-w-0"
                   >
                     <svg
                       className={`w-4 h-4 text-white/80 shrink-0 transition-transform duration-200 ${isCollapsed ? "-rotate-90" : ""}`}
@@ -802,10 +1009,10 @@ export default function EditableItineraryCard({
                     >
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                     </svg>
-                    <div className="text-lg font-bold text-white flex items-center gap-2">
-                      第 {day.day} 天
+                    <div className="text-lg font-bold text-white flex items-center gap-2 flex-wrap min-w-0">
+                      <span className="shrink-0">第 {day.day} 天</span>
                       {isTransitDay && (
-                        <span className="inline-flex items-center gap-1 text-xs font-semibold bg-white/25 px-2 py-0.5 rounded-full">
+                        <span className="inline-flex items-center gap-1 text-xs font-semibold bg-white/25 px-2 py-0.5 rounded-full shrink-0">
                           <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7M5 5l7 7-7 7" />
                           </svg>
@@ -813,106 +1020,150 @@ export default function EditableItineraryCard({
                         </span>
                       )}
                       {day.theme && (
-                        <span className="text-sm font-normal opacity-90">
+                        <span className="text-sm font-normal opacity-90 truncate">
                           · {day.theme}
                         </span>
                       )}
                     </div>
                   </button>
-                  <div className="flex items-center gap-3">
+                  {isTransitDay && day.transitTo && (
+                    <div className="flex items-center gap-2 shrink-0">
+                      <div className="text-sm text-white/90 flex items-center gap-1.5">
+                        <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                        前往 {day.transitTo}
+                      </div>
+                      <button
+                        onClick={() => handleRemoveWaypoint(day.transitTo!)}
+                        disabled={removingWaypoint === day.transitTo}
+                        className="flex items-center gap-1 rounded-md bg-white/20 hover:bg-red-500/60 disabled:opacity-50 transition-colors px-2 py-1 text-xs font-medium text-white"
+                        title="移除此城市段落"
+                      >
+                        {removingWaypoint === day.transitTo ? (
+                          <svg className="animate-spin w-3.5 h-3.5" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                          </svg>
+                        ) : (
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                        )}
+                        移除
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <div className="mt-2.5 flex items-center flex-wrap gap-2">
+                  {recalculatingDay === day.id && (
+                    <div className="flex items-center gap-1.5 text-sm text-white opacity-80">
+                      <svg className="animate-spin w-3.5 h-3.5" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                      </svg>
+                      更新交通中…
+                    </div>
+                  )}
+                  {recalculatingDay !== day.id && totalDuration > 0 && (
+                    <div className="text-sm text-white opacity-90">
+                      總時長：{formatDuration(totalDuration)}
+                    </div>
+                  )}
+                  {recalculatingDay !== day.id && showCost && (
+                    <div className="text-sm text-white opacity-90">
+                      預估花費：{formatCost(dayCost, itinerary.currency)}
+                    </div>
+                  )}
+                  <div className="flex items-center gap-2 ml-auto">
+                    <button
+                      onClick={() => day.id && recalculateTransport(day.id, onUpdate)}
+                      disabled={recalculatingDay !== null || !day.id}
+                      className="flex items-center gap-1 rounded-md bg-white/20 hover:bg-white/30 disabled:opacity-30 transition-colors px-2.5 py-1 text-xs font-medium text-white"
+                      title="重新計算本日交通方式與時間"
+                    >
+                      <svg
+                        className={`w-3.5 h-3.5 ${recalculatingDay === day.id ? "animate-spin" : ""}`}
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                      </svg>
+                      重算交通
+                    </button>
+                    <a
+                      href={buildGoogleMapsUrl(day.stops, overnightOrigin(prevDay?.accommodation))}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-1 rounded-md bg-white/20 hover:bg-white/30 transition-colors px-2.5 py-1 text-xs font-medium text-white"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="size-3.5">
+                        <path fillRule="evenodd" d="M9.69 18.933l.003.001C9.89 19.02 10 19 10 19s.11.02.308-.066l.002-.001.006-.003.018-.008a5.741 5.741 0 0 0 .281-.14c.186-.096.446-.24.757-.433.62-.384 1.445-.966 2.274-1.765C15.302 14.988 17 12.493 17 9A7 7 0 1 0 3 9c0 3.492 1.698 5.988 3.355 7.584a13.731 13.731 0 0 0 2.273 1.765 11.842 11.842 0 0 0 .976.544l.062.029.018.008.006.003ZM10 11.25a2.25 2.25 0 1 0 0-4.5 2.25 2.25 0 0 0 0 4.5Z" clipRule="evenodd" />
+                      </svg>
+                      導航
+                    </a>
+                    <button
+                      onClick={() =>
+                        bulkEditDayId === day.id
+                          ? handleCancelBulkEdit()
+                          : day.id && handleStartBulkEdit(day.id, day.stops)
+                      }
+                      disabled={bulkEditDayId !== null && bulkEditDayId !== day.id}
+                      className="flex items-center gap-1 rounded-md bg-white/20 hover:bg-white/30 disabled:opacity-30 transition-colors px-2.5 py-1 text-xs font-medium text-white"
+                    >
+                      {bulkEditDayId === day.id ? "取消編輯" : "編輯本日"}
+                    </button>
                     {isTransitDay ? (
-                      day.transitTo && (
-                        <div className="flex items-center gap-2">
-                          <div className="text-sm text-white/90 flex items-center gap-1.5">
-                            <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                            </svg>
-                            前往 {day.transitTo}
-                          </div>
-                          <button
-                            onClick={() => handleRemoveWaypoint(day.transitTo!)}
-                            disabled={removingWaypoint === day.transitTo}
-                            className="flex items-center gap-1 rounded-md bg-white/20 hover:bg-red-500/60 disabled:opacity-50 transition-colors px-2 py-1 text-xs font-medium text-white"
-                            title="移除此城市段落"
-                          >
-                            {removingWaypoint === day.transitTo ? (
-                              <svg className="animate-spin w-3.5 h-3.5" fill="none" viewBox="0 0 24 24">
-                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                              </svg>
-                            ) : (
-                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                              </svg>
-                            )}
-                            移除
-                          </button>
-                        </div>
-                      )
+                      <button
+                        onClick={() => day.id && handleUnsetTransit(day.id)}
+                        disabled={savingTransitDayId !== null || !day.id}
+                        className="flex items-center gap-1 rounded-md bg-white/20 hover:bg-white/30 disabled:opacity-30 transition-colors px-2.5 py-1 text-xs font-medium text-white"
+                      >
+                        取消移動日
+                      </button>
                     ) : (
-                      <>
-                        {recalculatingDay === day.id && (
-                          <div className="flex items-center gap-1.5 text-sm text-white opacity-80">
-                            <svg className="animate-spin w-3.5 h-3.5" fill="none" viewBox="0 0 24 24">
-                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                            </svg>
-                            更新交通中…
-                          </div>
-                        )}
-                        {recalculatingDay !== day.id && totalDuration > 0 && (
-                          <div className="text-sm text-white opacity-90">
-                            總時長：{formatDuration(totalDuration)}
-                          </div>
-                        )}
-                        {recalculatingDay !== day.id && showCost && (
-                          <div className="text-sm text-white opacity-90">
-                            預估花費：{formatCost(dayCost, itinerary.currency)}
-                          </div>
-                        )}
-                        <button
-                          onClick={() => day.id && recalculateTransport(day.id, onUpdate)}
-                          disabled={recalculatingDay !== null || !day.id}
-                          className="flex items-center gap-1 rounded-md bg-white/20 hover:bg-white/30 disabled:opacity-30 transition-colors px-2.5 py-1 text-xs font-medium text-white"
-                          title="重新計算本日交通方式與時間"
-                        >
-                          <svg
-                            className={`w-3.5 h-3.5 ${recalculatingDay === day.id ? "animate-spin" : ""}`}
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                          >
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                          </svg>
-                          重算交通
-                        </button>
-                        <a
-                          href={buildGoogleMapsUrl(day.stops, overnightOrigin(prevDay?.accommodation))}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex items-center gap-1 rounded-md bg-white/20 hover:bg-white/30 transition-colors px-2.5 py-1 text-xs font-medium text-white"
-                        >
-                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="size-3.5">
-                            <path fillRule="evenodd" d="M9.69 18.933l.003.001C9.89 19.02 10 19 10 19s.11.02.308-.066l.002-.001.006-.003.018-.008a5.741 5.741 0 0 0 .281-.14c.186-.096.446-.24.757-.433.62-.384 1.445-.966 2.274-1.765C15.302 14.988 17 12.493 17 9A7 7 0 1 0 3 9c0 3.492 1.698 5.988 3.355 7.584a13.731 13.731 0 0 0 2.273 1.765 11.842 11.842 0 0 0 .976.544l.062.029.018.008.006.003ZM10 11.25a2.25 2.25 0 1 0 0-4.5 2.25 2.25 0 0 0 0 4.5Z" clipRule="evenodd" />
-                          </svg>
-                          導航
-                        </a>
+                      dayIndex !== itinerary.days.length - 1 && (
                         <button
                           onClick={() =>
-                            bulkEditDayId === day.id
-                              ? handleCancelBulkEdit()
-                              : day.id && handleStartBulkEdit(day.id, day.stops)
+                            togglingTransitDayId === day.id
+                              ? handleCancelSetTransit()
+                              : day.id && handleStartSetTransit(day.id)
                           }
-                          disabled={bulkEditDayId !== null && bulkEditDayId !== day.id}
+                          disabled={savingTransitDayId !== null || !day.id}
                           className="flex items-center gap-1 rounded-md bg-white/20 hover:bg-white/30 disabled:opacity-30 transition-colors px-2.5 py-1 text-xs font-medium text-white"
                         >
-                          {bulkEditDayId === day.id ? "取消編輯" : "編輯本日"}
+                          {togglingTransitDayId === day.id ? "取消" : "設為移動日"}
                         </button>
-                      </>
+                      )
                     )}
                   </div>
                 </div>
+                {togglingTransitDayId === day.id && (
+                  <div className="mt-2.5 flex items-center gap-2">
+                    <input
+                      type="text"
+                      autoFocus
+                      value={transitToInput}
+                      onChange={(e) => setTransitToInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") handleConfirmSetTransit(day.id!);
+                        if (e.key === "Escape") handleCancelSetTransit();
+                      }}
+                      placeholder="前往哪個城市？"
+                      disabled={savingTransitDayId === day.id}
+                      className="flex-1 px-3 py-1.5 rounded-lg border border-white/30 bg-white/20 text-white placeholder-white/60 text-sm focus:outline-none focus:ring-2 focus:ring-white/50 disabled:opacity-50"
+                    />
+                    <button
+                      onClick={() => day.id && handleConfirmSetTransit(day.id)}
+                      disabled={savingTransitDayId === day.id || !transitToInput.trim()}
+                      className="px-3 py-1.5 bg-white/90 text-orange-700 text-sm font-medium rounded-lg hover:bg-white disabled:opacity-50 transition-colors shrink-0"
+                    >
+                      {savingTransitDayId === day.id ? "儲存中…" : "確認"}
+                    </button>
+                  </div>
+                )}
                 {day.accommodation && day.accommodation.name !== "無需住宿" && (
                   <div className="mt-2 flex items-center gap-1.5 text-xs text-white/80">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="size-3.5 shrink-0">
@@ -924,139 +1175,74 @@ export default function EditableItineraryCard({
                 )}
               </div>
 
-              {!isCollapsed && isTransitDay && day.stops.length === 0 && (
-                <div className="px-5 py-4 text-sm text-zinc-500 dark:text-zinc-400 flex items-center gap-2">
-                  <svg className="w-4 h-4 shrink-0 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-                  </svg>
-                  移動日，無景點安排。抵達後可自行新增行程。
-                </div>
-              )}
-
-              {!isCollapsed && isTransitDay && day.stops.length > 0 && (
-                <div className="p-5">
+              {!isCollapsed && (() => {
+                let lastTimeOfDay: string | undefined = undefined;
+                const stopsList = (
                   <div className="space-y-0">
-                    {(() => {
-                      let lastTimeOfDay: string | undefined = undefined;
-                      return day.stops.map((stop, idx) => {
-                        const showTimeHeader =
-                          stop.time_of_day !== undefined &&
-                          stop.time_of_day !== lastTimeOfDay;
-                        if (stop.time_of_day) lastTimeOfDay = stop.time_of_day;
-                        return (
-                          <div key={stop.id || idx}>
-                            {showTimeHeader && (
-                              <div className="flex items-center gap-2 py-2 mb-1">
-                                <span className="text-xs font-semibold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">
-                                  {TIME_OF_DAY_LABELS[stop.time_of_day!]}
-                                </span>
-                                <div className="flex-1 h-px bg-zinc-100 dark:bg-zinc-800" />
-                              </div>
-                            )}
-                            {stop.transport_from_prev && (
-                              <div className="flex items-center gap-2 py-1.5 pl-1 mb-1">
-                                <svg className="w-3.5 h-3.5 text-zinc-300 dark:text-zinc-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
-                                </svg>
-                                <span className="text-xs text-zinc-400 dark:text-zinc-500">
-                                  {stop.transport_from_prev}
-                                </span>
-                              </div>
-                            )}
-                            <div className="rounded-lg bg-amber-50 dark:bg-amber-950/20 border border-amber-100 dark:border-amber-900/40 p-3 mb-2">
-                              <div className="flex items-start gap-3">
-                                <div className="flex-1 min-w-0">
-                                  <p className="font-semibold text-zinc-800 dark:text-zinc-200 text-sm leading-snug">
-                                    {stop.name}
-                                  </p>
-                                  <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5 leading-snug">
-                                    {stop.description}
-                                  </p>
-                                  <div className="flex items-center gap-3 mt-1.5 flex-wrap">
-                                    {stop.duration_minutes > 0 && (
-                                      <span className="text-xs text-zinc-400 dark:text-zinc-500">
-                                        {formatDuration(stop.duration_minutes)}
-                                      </span>
-                                    )}
-                                    {stop.estimated_cost != null && stop.estimated_cost > 0 && (
-                                      <span className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">
-                                        {[itinerary.currency, stop.estimated_cost.toLocaleString()].filter(Boolean).join(" ")}
-                                      </span>
-                                    )}
-                                  </div>
-                                </div>
-                              </div>
+                    {day.stops.map((stop, idx) => {
+                      const showTimeHeader =
+                        stop.time_of_day !== undefined &&
+                        stop.time_of_day !== lastTimeOfDay;
+                      if (stop.time_of_day) lastTimeOfDay = stop.time_of_day;
+
+                      return (
+                        <div key={stop.id || idx}>
+                          {showTimeHeader && (
+                            <div className="flex items-center gap-2 py-2 mb-1">
+                              <span className="text-xs font-semibold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">
+                                {TIME_OF_DAY_LABELS[stop.time_of_day!]}
+                              </span>
+                              <div className="flex-1 h-px bg-zinc-100 dark:bg-zinc-800" />
                             </div>
-                          </div>
-                        );
-                      });
-                    })()}
+                          )}
+                          {stop.transport_from_prev && (
+                            <div className="flex items-center gap-2 py-1.5 pl-1 mb-1">
+                              <svg className="w-3.5 h-3.5 text-zinc-300 dark:text-zinc-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+                              </svg>
+                              <span className="text-xs text-zinc-400 dark:text-zinc-500">
+                                {stop.transport_from_prev}
+                              </span>
+                            </div>
+                          )}
+                          <SortableStop
+                            stop={stop}
+                            index={idx}
+                            dayIndex={dayIndex}
+                            currency={itinerary.currency}
+                            editingStop={editingStop}
+                            isLoading={loading === stop.id}
+                            bulkMode={bulkEditDayId === day.id}
+                            selected={!!stop.id && bulkKeepIds.has(stop.id)}
+                            onToggleSelect={handleToggleBulkKeep}
+                            isDuplicate={!!stop.id && duplicateStopInfo.has(stop.id)}
+                            duplicateReason={
+                              stop.id && duplicateStopInfo.has(stop.id)
+                                ? `與第 ${duplicateStopInfo.get(stop.id)!.originDay} 天的「${duplicateStopInfo.get(stop.id)!.name}」重複，建議進行編輯`
+                                : undefined
+                            }
+                            onEdit={handleEdit}
+                            onSaveEdit={handleSaveEdit}
+                            onCancelEdit={() => setEditingStop(null)}
+                            onEditChange={setEditingStop}
+                          />
+                        </div>
+                      );
+                    })}
                   </div>
-                </div>
-              )}
+                );
 
-              {!isCollapsed && !isTransitDay && (
-                <div className="p-5">
-                  <SortableContext
-                    items={stopIds}
-                    strategy={verticalListSortingStrategy}
-                  >
-                    <div className="space-y-0">
-                      {(() => {
-                        let lastTimeOfDay: string | undefined = undefined;
-                        return day.stops.map((stop, idx) => {
-                          const showTimeHeader =
-                            stop.time_of_day !== undefined &&
-                            stop.time_of_day !== lastTimeOfDay;
-                          if (stop.time_of_day) lastTimeOfDay = stop.time_of_day;
-
-                          return (
-                            <div key={stop.id || idx}>
-                              {showTimeHeader && (
-                                <div className="flex items-center gap-2 py-2 mb-1">
-                                  <span className="text-xs font-semibold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">
-                                    {TIME_OF_DAY_LABELS[stop.time_of_day!]}
-                                  </span>
-                                  <div className="flex-1 h-px bg-zinc-100 dark:bg-zinc-800" />
-                                </div>
-                              )}
-                              {stop.transport_from_prev && (
-                                <div className="flex items-center gap-2 py-1.5 pl-1 mb-1">
-                                  <svg className="w-3.5 h-3.5 text-zinc-300 dark:text-zinc-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
-                                  </svg>
-                                  <span className="text-xs text-zinc-400 dark:text-zinc-500">
-                                    {stop.transport_from_prev}
-                                  </span>
-                                </div>
-                              )}
-                              <SortableStop
-                                stop={stop}
-                                index={idx}
-                                dayIndex={dayIndex}
-                                currency={itinerary.currency}
-                                editingStop={editingStop}
-                                isLoading={loading === stop.id}
-                                bulkMode={bulkEditDayId === day.id}
-                                selected={!!stop.id && bulkKeepIds.has(stop.id)}
-                                onToggleSelect={handleToggleBulkKeep}
-                                isDuplicate={!!stop.id && duplicateStopInfo.has(stop.id)}
-                                duplicateReason={
-                                  stop.id && duplicateStopInfo.has(stop.id)
-                                    ? `與第 ${duplicateStopInfo.get(stop.id)!.originDay} 天的「${duplicateStopInfo.get(stop.id)!.name}」重複，建議進行編輯`
-                                    : undefined
-                                }
-                                onEdit={handleEdit}
-                                onSaveEdit={handleSaveEdit}
-                                onCancelEdit={() => setEditingStop(null)}
-                                onEditChange={setEditingStop}
-                              />
-                            </div>
-                          );
-                        });
-                      })()}
-                    </div>
-                  </SortableContext>
+                return (
+                  <div className="p-5">
+                    {day.id ? (
+                      <DayStopsZone dayId={day.id} stopIds={stopIds} isTransitDay={isTransitDay}>
+                        {stopsList}
+                      </DayStopsZone>
+                    ) : (
+                      <SortableContext items={stopIds} strategy={verticalListSortingStrategy}>
+                        {stopsList}
+                      </SortableContext>
+                    )}
 
                   {bulkEditDayId === day.id && bulkPhase === "select" && day.id && (
                     <div className="mt-4 pt-4 border-t border-zinc-100 dark:border-zinc-800 space-y-3">
@@ -1178,10 +1364,11 @@ export default function EditableItineraryCard({
                       )}
                     </div>
                   )}
-                </div>
-              )}
+                  </div>
+                );
+              })()}
 
-              {!isCollapsed && !isTransitDay && day.accommodation?.name !== "無需住宿" && (
+              {!isCollapsed && day.accommodation?.name !== "無需住宿" && (
                 <div className="px-5 pb-5">
                   <div className="border-t border-zinc-100 dark:border-zinc-800 pt-4">
                     <div className="flex items-center justify-between mb-3">
