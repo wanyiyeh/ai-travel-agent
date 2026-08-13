@@ -19,44 +19,112 @@ model User {
 
 
 model Itinerary {
-  id        String   @id @default(uuid())
-  userId    String   @map("user_id")
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  title     String
-  days      String
-  config    String
-  stops     Stop[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
-model Stop {
-  id              String    @id @default(cuid())
-  itineraryId     String    @map("itinerary_id")
-  itinerary       Itinerary @relation(fields: [itineraryId], references: [id], onDelete: Cascade)
-  dayIndex        Int       @map("day_index")
-  orderIndex      Int       @map("order_index")
-  name            String
-  description     String?
-  durationMinutes Int?      @map("duration_minutes")
-  placeId         String?   @map("place_id")
-  lat             Float?
-  lng             Float?
-  address         String?
-  rating          Float?
-  openingHours    String?   @map("opening_hours")
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  id                          String                       @id @default(uuid())
+  userId                      String                       @map("user_id")
+  user                        User                         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title                       String
+  days                        String
+  config                      String
+  createdAt                   DateTime                     @default(now())
+  updatedAt                   DateTime                     @updatedAt
+  accommodationCandidateLogs  AccommodationCandidateLog[]
+  mealCandidateLogs           MealCandidateLog[]
+  deletedStops                DeletedStop[]
+  deletedDays                 DeletedDay[]
 }
 
 
 model Place {
-  id          String   @id
-  name        String
-  address     String?
-  location    String?
-  rating      Float?
-  userRatings Int?
-  photoRef    String?
-  updatedAt   DateTime @updatedAt
+  id        String        @id
+  name      String
+  address   String?
+  lat       Float?
+  lng       Float?
+  rating    Float?
+  types     String?       // JSON-encoded string[] from Google Places (e.g. ["restaurant","food"])
+  photoName String?       // Places API photo resource name (e.g. "places/{id}/photos/{ref}"), not a URL — see /api/v1/places/[placeId]/photo
+  updatedAt DateTime      @updatedAt
+  queries   PlaceQuery[]
+}
+
+model PlaceQuery {
+  query    String   @id
+  placeId  String
+  place    Place    @relation(fields: [placeId], references: [id])
+  cachedAt DateTime @default(now())
+}
+
+// Full history of every accommodation candidate batch shown to the user for a
+// given day (one row per POST /accommodation/regenerate call) — lets the user
+// review what options existed even after picking a different one.
+model AccommodationCandidateLog {
+  id          String    @id @default(uuid())
+  itineraryId String    @map("itinerary_id")
+  itinerary   Itinerary @relation(fields: [itineraryId], references: [id], onDelete: Cascade)
+  dayId       String    @map("day_id")
+  candidates  String    // JSON-encoded AccommodationCandidate[]
+  createdAt   DateTime  @default(now())
+
+  @@index([itineraryId, dayId])
+}
+
+// Same idea as AccommodationCandidateLog, but scoped per meal slot — one row
+// per POST /meals/[mealType]/regenerate call (mealType: "breakfast" | "lunch" | "dinner" | "snack").
+model MealCandidateLog {
+  id          String    @id @default(uuid())
+  itineraryId String    @map("itinerary_id")
+  itinerary   Itinerary @relation(fields: [itineraryId], references: [id], onDelete: Cascade)
+  dayId       String    @map("day_id")
+  mealType    String    @map("meal_type")
+  candidates  String    // JSON-encoded MealCandidate[]
+  createdAt   DateTime  @default(now())
+
+  @@index([itineraryId, dayId, mealType])
+}
+
+// A stop removed from an itinerary, kept around so it can be browsed and
+// restored from a "trash bin" view instead of being lost immediately.
+model DeletedStop {
+  id            String    @id @default(uuid())
+  itineraryId   String    @map("itinerary_id")
+  itinerary     Itinerary @relation(fields: [itineraryId], references: [id], onDelete: Cascade)
+  dayId         String    @map("day_id")
+  dayNumber     Int       @map("day_number")
+  originalIndex Int       @map("original_index")
+  stop          String    // JSON-encoded Stop
+  deletedAt     DateTime  @default(now())
+
+  @@index([itineraryId])
+}
+
+// Same idea as DeletedStop, but for a whole day removed by the restructure
+// flow (e.g. shrinking a city's day count) — snapshots the full Day object
+// so it can be restored intact, including its own stops/accommodation/meals.
+model DeletedDay {
+  id            String    @id @default(uuid())
+  itineraryId   String    @map("itinerary_id")
+  itinerary     Itinerary @relation(fields: [itineraryId], references: [id], onDelete: Cascade)
+  originalIndex Int       @map("original_index")
+  day           String    // JSON-encoded Day (full object, incl. its stops)
+  deletedAt     DateTime  @default(now())
+
+  @@index([itineraryId])
+}
+
+// Corridor-specific stopovers between two distinct airports (the "順路推薦" case).
+model TransitRecommendationCache {
+  originIata      String
+  destinationIata String
+  recommendations String   // JSON-encoded TransitRecommendation[]
+  updatedAt       DateTime @updatedAt
+
+  @@id([originIata, destinationIata])
+}
+
+// Nearby-destination pool for a single airport (e.g. Kyoto/Nara/Kobe for KIX),
+// shared by single-city trips and by each leg of a multi-city corridor.
+model AirportRecommendationCache {
+  iata            String   @id
+  recommendations String   // JSON-encoded TransitRecommendation[]
+  updatedAt       DateTime @updatedAt
 }

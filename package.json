@@ -6,7 +6,11 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "seed": "tsx scripts/seed-test-data.ts",
+    "backfill-places": "tsx scripts/backfill-place-cache.ts",
+    "enrich-all": "tsx scripts/enrich-all-itineraries.ts",
+    "check-places": "tsx scripts/check-place-data.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
@@ -27,8 +31,10 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
+    "playwright": "^1.60.0",
     "prisma": "^5.22.0",
     "tailwindcss": "^4",
+    "tsx": "^4.22.4",
     "typescript": "^5"
   }
 }
