@@ -48,6 +48,7 @@ export const AccommodationSchema = z.object({
     .object({ name: z.string(), distanceMeters: z.number() })
     .nullable()
     .optional(),
+  photoName: z.string().nullable().optional(),
 });
 
 export const StopSchema = z.object({
@@ -69,6 +70,7 @@ export const StopCandidateSchema = z.object({
   lng: z.number().optional(),
   address: z.string().optional(),
   rating: z.number().nullable().optional(),
+  photoName: z.string().nullable().optional(),
   suspicious: z.boolean().optional(),
   suspiciousReason: z.string().optional(),
 });
@@ -94,6 +96,7 @@ export const MealSchema = z.object({
   lng: z.number().optional(),
   address: z.string().optional(),
   rating: z.number().nullable().optional(),
+  photoName: z.string().nullable().optional(),
 });
 
 const nullableMeal = MealSchema.nullish().transform((v) => v ?? undefined);
@@ -102,6 +105,7 @@ const DayMealsSchema = z.object({
   breakfast: nullableMeal,
   lunch: nullableMeal,
   dinner: nullableMeal,
+  snack: nullableMeal,
 });
 
 export const TransitRecommendationSchema = z.object({
@@ -130,6 +134,7 @@ export const DaySchema = z.object({
   isTransitDay: z.boolean().optional(),
   transitTo: z.string().nullish().transform(v => v ?? undefined),
   waypointCity: z.string().optional(),
+  isLocked: z.boolean().optional(),
 });
 
 export const ItinerarySchema = z.object({

@@ -53,6 +53,9 @@ export async function POST(
       if (dayIndex === -1) {
         return NextResponse.json({ error: "Day not found" }, { status: 404 });
       }
+      if (days[dayIndex].isLocked === true) {
+        return NextResponse.json({ error: "此天已鎖定為單一景點，無法新增" }, { status: 400 });
+      }
 
       const stops = (days[dayIndex].stops as Record<string, unknown>[]) ?? [];
       const newStops = candidates.map((c, i) => ({
@@ -101,6 +104,9 @@ export async function POST(
     if (dayIndex === -1) {
       return NextResponse.json({ error: "Day not found" }, { status: 404 });
     }
+    if (days[dayIndex].isLocked === true) {
+      return NextResponse.json({ error: "此天已鎖定為單一景點，無法新增" }, { status: 400 });
+    }
 
     const day = days[dayIndex];
     const stops = (day.stops as Record<string, unknown>[]) ?? [];
@@ -148,6 +154,7 @@ export async function POST(
         lat: place.location.latitude,
         lng: place.location.longitude,
         rating: place.rating,
+        photoName: place.photos?.[0]?.name ?? null,
       });
     }
 

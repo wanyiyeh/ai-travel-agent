@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma, j } from "@/lib/db";
 import { lookupByQuery, lookupByPlaceId, upsertPlace } from "@/lib/placeCache";
-import { searchPlaceText, getCityCenter } from "@/lib/placesTextSearch";
+import { searchPlaceText, getCityCenter, buildStopQuery } from "@/lib/placesTextSearch";
 
 export async function POST(
   request: Request,
@@ -84,12 +84,7 @@ export async function POST(
     // wards/neighborhoods (see itineraryGen.ts rule 20) — city name alone isn't
     // granular enough for cities like Tokyo or Kyoto.
     const district = typeof targetStop.district === "string" ? targetStop.district : "";
-    const namePart = district ? `${targetStop.name} ${district}` : String(targetStop.name);
-    const query = cityHint
-      ? `${namePart} ${cityHint}`
-      : context
-      ? `${namePart} ${context}`
-      : namePart;
+    const query = buildStopQuery(String(targetStop.name), district, cityHint || context || "");
 
     // Bias results toward the day's city so vague/generic stop names (e.g.
     // "咖啡文化體驗") don't resolve to a same-keyword place elsewhere in the
@@ -113,7 +108,7 @@ export async function POST(
           return NextResponse.json({ error: "Place not found on Google Maps" }, { status: 404 });
         }
         enriched = { placeId: place.id, lat: place.location.latitude, lng: place.location.longitude, address: place.formattedAddress, rating: place.rating ?? null };
-        await upsertPlace(query, { placeId: place.id, name: place.displayName.text, address: place.formattedAddress, lat: place.location.latitude, lng: place.location.longitude, rating: place.rating });
+        await upsertPlace(query, { placeId: place.id, name: place.displayName.text, address: place.formattedAddress, lat: place.location.latitude, lng: place.location.longitude, rating: place.rating, photoName: place.photos?.[0]?.name ?? null });
       }
     } else {
       const place = await searchPlaceText(query, apiKey, cityBias);

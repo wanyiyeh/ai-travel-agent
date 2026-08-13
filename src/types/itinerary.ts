@@ -15,6 +15,7 @@ export type Stop = {
   address?: string;
   rating?: number | null;
   openingHours?: string | null;
+  photoName?: string | null;
   suspicious?: boolean;
   suspiciousReason?: string;
 };
@@ -35,6 +36,7 @@ export type Accommodation = {
   estimated_cost_low?: number;
   estimated_cost_high?: number;
   nearestStation?: { name: string; distanceMeters: number } | null;
+  photoName?: string | null;
 };
 
 // Candidates always come from a real Google Places result, so unlike the
@@ -53,19 +55,21 @@ export type Meal = {
   lng?: number;
   address?: string;
   rating?: number | null;
+  photoName?: string | null;
 };
 
 export type DayMeals = {
   breakfast?: Meal;
   lunch?: Meal;
   dinner?: Meal;
+  snack?: Meal;
 };
 
 export type MealCandidate = Meal & {
   isCurrent?: boolean;
 };
 
-export const MEAL_TYPES = ["breakfast", "lunch", "dinner"] as const;
+export const MEAL_TYPES = ["breakfast", "lunch", "dinner", "snack"] as const;
 export type MealType = (typeof MEAL_TYPES)[number];
 
 export function isMealType(value: string): value is MealType {
@@ -81,6 +85,7 @@ export type StopCandidate = {
   lng?: number;
   address?: string;
   rating?: number | null;
+  photoName?: string | null;
   suspicious?: boolean;
   suspiciousReason?: string;
 };
@@ -116,6 +121,9 @@ export type Day = {
   isTransitDay?: boolean;
   transitTo?: string;
   waypointCity?: string;
+  // A locked day's `stops` holds exactly one full-day attraction; guarded
+  // against regeneration/trimming/reordering by every day-mutating route.
+  isLocked?: boolean;
 };
 
 export type Itinerary = {

@@ -147,7 +147,7 @@ export function validateItinerary(
       });
     }
 
-    if (!day.meals || (!day.meals.breakfast && !day.meals.lunch && !day.meals.dinner)) {
+    if (!day.meals || (!day.meals.breakfast && !day.meals.lunch && !day.meals.dinner && !day.meals.snack)) {
       issues.push({
         severity: "warning",
         code: "DAY_MISSING_MEALS",

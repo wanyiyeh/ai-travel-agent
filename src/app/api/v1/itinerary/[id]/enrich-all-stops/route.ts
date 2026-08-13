@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma, j } from "@/lib/db";
 import { lookupByQuery, upsertPlace } from "@/lib/placeCache";
-import { searchPlaceText, getCityCenter } from "@/lib/placesTextSearch";
+import { searchPlaceText, getCityCenter, buildStopQuery, buildMealQuery } from "@/lib/placesTextSearch";
 import { haversineKm } from "@/lib/distanceMatrix";
 import { PRICE_LEVEL_MAP } from "@/lib/fetchCityRestaurants";
 import { estimateMealCost } from "@/lib/priceLevelCost";
@@ -61,11 +61,11 @@ export async function POST(
 
       const meals = day.meals as Record<string, Record<string, unknown>> | undefined;
       if (meals) {
-        for (const mealKey of ["breakfast", "lunch", "dinner"] as const) {
+        for (const mealKey of ["breakfast", "lunch", "dinner", "snack"] as const) {
           const meal = meals[mealKey];
           if (!meal || meal.placeId) continue;
 
-          const query = cityHint ? `${meal.name} ${cityHint}` : String(meal.name);
+          const query = buildMealQuery(String(meal.name), cityHint);
 
           try {
             const cached = await lookupByQuery(query);
@@ -103,6 +103,7 @@ export async function POST(
                 lat: place.location.latitude,
                 lng: place.location.longitude,
                 rating: place.rating,
+                photoName: place.photos?.[0]?.name ?? null,
               });
               enrichedCount++;
             }
@@ -137,10 +138,7 @@ export async function POST(
         // wards/neighborhoods (see itineraryGen.ts rule 20) — city name alone
         // isn't granular enough for cities like Tokyo or Kyoto.
         const district = typeof stop.district === "string" ? stop.district : "";
-        const namePart = district ? `${stop.name} ${district}` : String(stop.name);
-        const query = stopCityHint
-          ? `${namePart} ${stopCityHint}`
-          : namePart;
+        const query = buildStopQuery(String(stop.name), district, stopCityHint);
         const stopBias = stopCityHint === cityHint ? cityBias : await biasFor(stopCityHint, apiKey);
 
         try {
@@ -182,6 +180,7 @@ export async function POST(
               lat: enrichedLat,
               lng: enrichedLng,
               rating: place.rating,
+              photoName: place.photos?.[0]?.name ?? null,
             });
             enrichedCount++;
           }

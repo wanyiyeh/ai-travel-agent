@@ -29,6 +29,8 @@ model Itinerary {
   updatedAt                   DateTime                     @updatedAt
   accommodationCandidateLogs  AccommodationCandidateLog[]
   mealCandidateLogs           MealCandidateLog[]
+  deletedStops                DeletedStop[]
+  deletedDays                 DeletedDay[]
 }
 
 
@@ -40,6 +42,7 @@ model Place {
   lng       Float?
   rating    Float?
   types     String?       // JSON-encoded string[] from Google Places (e.g. ["restaurant","food"])
+  photoName String?       // Places API photo resource name (e.g. "places/{id}/photos/{ref}"), not a URL — see /api/v1/places/[placeId]/photo
   updatedAt DateTime      @updatedAt
   queries   PlaceQuery[]
 }
@@ -66,7 +69,7 @@ model AccommodationCandidateLog {
 }
 
 // Same idea as AccommodationCandidateLog, but scoped per meal slot — one row
-// per POST /meals/[mealType]/regenerate call (mealType: "breakfast" | "lunch" | "dinner").
+// per POST /meals/[mealType]/regenerate call (mealType: "breakfast" | "lunch" | "dinner" | "snack").
 model MealCandidateLog {
   id          String    @id @default(uuid())
   itineraryId String    @map("itinerary_id")
@@ -77,6 +80,35 @@ model MealCandidateLog {
   createdAt   DateTime  @default(now())
 
   @@index([itineraryId, dayId, mealType])
+}
+
+// A stop removed from an itinerary, kept around so it can be browsed and
+// restored from a "trash bin" view instead of being lost immediately.
+model DeletedStop {
+  id            String    @id @default(uuid())
+  itineraryId   String    @map("itinerary_id")
+  itinerary     Itinerary @relation(fields: [itineraryId], references: [id], onDelete: Cascade)
+  dayId         String    @map("day_id")
+  dayNumber     Int       @map("day_number")
+  originalIndex Int       @map("original_index")
+  stop          String    // JSON-encoded Stop
+  deletedAt     DateTime  @default(now())
+
+  @@index([itineraryId])
+}
+
+// Same idea as DeletedStop, but for a whole day removed by the restructure
+// flow (e.g. shrinking a city's day count) — snapshots the full Day object
+// so it can be restored intact, including its own stops/accommodation/meals.
+model DeletedDay {
+  id            String    @id @default(uuid())
+  itineraryId   String    @map("itinerary_id")
+  itinerary     Itinerary @relation(fields: [itineraryId], references: [id], onDelete: Cascade)
+  originalIndex Int       @map("original_index")
+  day           String    // JSON-encoded Day (full object, incl. its stops)
+  deletedAt     DateTime  @default(now())
+
+  @@index([itineraryId])
 }
 
 // Corridor-specific stopovers between two distinct airports (the "順路推薦" case).

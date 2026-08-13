@@ -31,9 +31,13 @@ export async function POST(request: Request) {
     // just the day it's being reassigned to — otherwise a cross-day move
     // silently drops the stop (its data only exists under its old day).
     const globalStopMap = new Map<string, Record<string, unknown>>();
+    // Stops belonging to a locked day can never be dragged into/out of it —
+    // track their ids so they get stripped from any other day's target list.
+    const lockedStopIds = new Set<string>();
     for (const day of days) {
       for (const stop of day.stops as Record<string, unknown>[]) {
         if (stop.id) globalStopMap.set(stop.id as string, stop);
+        if (stop.id && day.isLocked === true) lockedStopIds.add(stop.id as string);
       }
     }
 
@@ -44,8 +48,10 @@ export async function POST(request: Request) {
       const { dayId, stopIds } = reorderDay;
       const day = days.find((d) => d.id === dayId);
       if (!day) continue;
+      if (day.isLocked === true) continue; // locked day's single stop never reorders
 
       day.stops = stopIds
+        .filter((id) => !lockedStopIds.has(id))
         .map((id) => globalStopMap.get(id))
         .filter(Boolean)
         .map((s, idx) => ({ ...(s as object), orderIndex: idx }));

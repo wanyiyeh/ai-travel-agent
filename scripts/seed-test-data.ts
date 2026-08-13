@@ -35,7 +35,7 @@ import {
   repairTransitDayDepartureCities,
   tagWaypointCities,
 } from "@/lib/itineraryGen";
-import { fetchCityRestaurants, fetchCityBreakfastPlaces, buildRestaurantHintsPrompt, PRICE_LEVEL_MAP } from "@/lib/fetchCityRestaurants";
+import { fetchCityRestaurants, fetchCityBreakfastPlaces, fetchCitySnackPlaces, buildRestaurantHintsPrompt, PRICE_LEVEL_MAP } from "@/lib/fetchCityRestaurants";
 import { lookupByQuery, upsertPlace } from "@/lib/placeCache";
 import { validateItinerary } from "@/lib/validateItinerary";
 import { estimateLodgingCostPerNight, estimateLodgingCostRange } from "@/lib/priceLevelCost";
@@ -342,20 +342,24 @@ async function generateItinerary(scenario: Scenario, retries = 3): Promise<any> 
     const iataCodes = [...new Set([flightInfo.arrivalCity, flightInfo.returnDepartureCity])];
     const cityEntries = await Promise.all(
       iataCodes.map(async (code) => {
-        const [breakfastPlaces, mainMealPlaces] = await Promise.all([
+        const [breakfastPlaces, mainMealPlaces, snackPlaces] = await Promise.all([
           fetchCityBreakfastPlaces(code, googleApiKey),
           fetchCityRestaurants(code, googleApiKey),
+          fetchCitySnackPlaces(code, googleApiKey),
         ]);
-        return { cityNameZh: iataToCity(code), iataCode: code, breakfastPlaces, mainMealPlaces };
+        return { cityNameZh: iataToCity(code), iataCode: code, breakfastPlaces, mainMealPlaces, snackPlaces };
       })
     );
     restaurantHintsPrompt = buildRestaurantHintsPrompt(cityEntries);
-    for (const { cityNameZh, breakfastPlaces, mainMealPlaces } of cityEntries) {
+    for (const { cityNameZh, breakfastPlaces, mainMealPlaces, snackPlaces } of cityEntries) {
       if (breakfastPlaces.length > 0) {
         console.log(`    📍 ${cityNameZh}：取得 ${breakfastPlaces.length} 家真實早餐地點`);
       }
       if (mainMealPlaces.length > 0) {
         console.log(`    📍 ${cityNameZh}：取得 ${mainMealPlaces.length} 家真實餐廳`);
+      }
+      if (snackPlaces.length > 0) {
+        console.log(`    📍 ${cityNameZh}：取得 ${snackPlaces.length} 家真實點心地點`);
       }
     }
   }
@@ -462,6 +466,7 @@ interface PlaceEnrichment {
   address: string | null;
   rating?: number;
   priceLevel?: number | null;
+  photoName?: string | null;
 }
 
 async function searchPlaceForSeed(
@@ -476,6 +481,7 @@ async function searchPlaceForSeed(
       "places.formattedAddress",
       "places.location",
       "places.rating",
+      "places.photos",
       ...(withPriceLevel ? ["places.priceLevel"] : []),
     ];
     const res = await fetch(PLACES_TEXT_SEARCH_URL, {
@@ -505,6 +511,7 @@ async function searchPlaceForSeed(
       address: place.formattedAddress,
       rating: place.rating ?? undefined,
       priceLevel: place.priceLevel ? (PRICE_LEVEL_MAP[place.priceLevel] ?? null) : null,
+      photoName: place.photos?.[0]?.name ?? null,
     };
   } catch (err) {
     console.warn(`    [Places] 查詢失敗 "${query}":`, err);
@@ -529,11 +536,11 @@ async function enrichAccommodation(accommodation: any, city: string, apiKey: str
   let placeData: PlaceEnrichment | null = null;
 
   if (cached && cached.lat != null && cached.lng != null) {
-    placeData = { placeId: cached.placeId, name: cached.name, lat: cached.lat, lng: cached.lng, address: cached.address, rating: cached.rating ?? undefined, priceLevel: null };
+    placeData = { placeId: cached.placeId, name: cached.name, lat: cached.lat, lng: cached.lng, address: cached.address, rating: cached.rating ?? undefined, priceLevel: null, photoName: cached.photoName };
   } else {
     placeData = await searchPlaceForSeed(query, apiKey, { withPriceLevel: true });
     if (placeData) {
-      await upsertPlace(query, { placeId: placeData.placeId, name: placeData.name, address: placeData.address, lat: placeData.lat, lng: placeData.lng, rating: placeData.rating });
+      await upsertPlace(query, { placeId: placeData.placeId, name: placeData.name, address: placeData.address, lat: placeData.lat, lng: placeData.lng, rating: placeData.rating, photoName: placeData.photoName });
     }
     await new Promise(r => setTimeout(r, 150));
   }
@@ -551,6 +558,7 @@ async function enrichAccommodation(accommodation: any, city: string, apiKey: str
     address: placeData.address,
     rating: placeData.rating ?? null,
     priceLevel: placeData.priceLevel ?? null,
+    photoName: placeData.photoName ?? null,
     ...(estimatedCost !== undefined ? { estimated_cost: estimatedCost } : {}),
     ...(costRange !== undefined ? { estimated_cost_low: costRange[0], estimated_cost_high: costRange[1] } : {}),
   };
@@ -563,7 +571,7 @@ async function enrichMeals(meals: any, city: string, apiKey: string): Promise<{ 
   let skipped = 0;
   const result = { ...meals };
 
-  for (const mealType of ["breakfast", "lunch", "dinner"]) {
+  for (const mealType of ["breakfast", "lunch", "dinner", "snack"]) {
     const meal = meals[mealType];
     if (!meal) continue;
 
@@ -571,15 +579,15 @@ async function enrichMeals(meals: any, city: string, apiKey: string): Promise<{ 
 
     const cached = await lookupByQuery(query);
     if (cached && cached.lat != null && cached.lng != null) {
-      result[mealType] = { ...meal, placeId: cached.placeId, lat: cached.lat, lng: cached.lng, address: cached.address, rating: cached.rating };
+      result[mealType] = { ...meal, placeId: cached.placeId, lat: cached.lat, lng: cached.lng, address: cached.address, rating: cached.rating, photoName: cached.photoName };
       cacheHits++;
       continue;
     }
 
     const placeData = await searchPlaceForSeed(query, apiKey);
     if (placeData) {
-      await upsertPlace(query, { placeId: placeData.placeId, name: placeData.name, address: placeData.address, lat: placeData.lat, lng: placeData.lng, rating: placeData.rating });
-      result[mealType] = { ...meal, placeId: placeData.placeId, lat: placeData.lat, lng: placeData.lng, address: placeData.address, rating: placeData.rating ?? null };
+      await upsertPlace(query, { placeId: placeData.placeId, name: placeData.name, address: placeData.address, lat: placeData.lat, lng: placeData.lng, rating: placeData.rating, photoName: placeData.photoName });
+      result[mealType] = { ...meal, placeId: placeData.placeId, lat: placeData.lat, lng: placeData.lng, address: placeData.address, rating: placeData.rating ?? null, photoName: placeData.photoName ?? null };
       enriched++;
     } else {
       skipped++;
@@ -619,7 +627,7 @@ async function enrichDaysWithPlaces(days: any[], apiKey: string, currency?: stri
       // Check DB cache first — skip API call if already known
       const cached = await lookupByQuery(query);
       if (cached && cached.lat != null && cached.lng != null) {
-        enrichedStops.push({ ...stop, placeId: cached.placeId, lat: cached.lat, lng: cached.lng, address: cached.address, rating: cached.rating });
+        enrichedStops.push({ ...stop, placeId: cached.placeId, lat: cached.lat, lng: cached.lng, address: cached.address, rating: cached.rating, photoName: cached.photoName });
         cacheHits++;
         continue;
       }
@@ -627,8 +635,8 @@ async function enrichDaysWithPlaces(days: any[], apiKey: string, currency?: stri
       const placeData = await searchPlaceForSeed(query, apiKey);
 
       if (placeData) {
-        await upsertPlace(query, { placeId: placeData.placeId, name: placeData.name, address: placeData.address, lat: placeData.lat, lng: placeData.lng, rating: placeData.rating });
-        enrichedStops.push({ ...stop, placeId: placeData.placeId, lat: placeData.lat, lng: placeData.lng, address: placeData.address, rating: placeData.rating ?? null });
+        await upsertPlace(query, { placeId: placeData.placeId, name: placeData.name, address: placeData.address, lat: placeData.lat, lng: placeData.lng, rating: placeData.rating, photoName: placeData.photoName });
+        enrichedStops.push({ ...stop, placeId: placeData.placeId, lat: placeData.lat, lng: placeData.lng, address: placeData.address, rating: placeData.rating ?? null, photoName: placeData.photoName ?? null });
         enriched++;
       } else {
         enrichedStops.push(stop);

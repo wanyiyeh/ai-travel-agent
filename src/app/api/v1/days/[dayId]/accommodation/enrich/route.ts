@@ -104,7 +104,7 @@ export async function POST(
       placeLng = place.location.longitude;
       placeRating = place.rating ?? null;
       placePriceLevel = place.priceLevel ? (PRICE_LEVEL_MAP[place.priceLevel] ?? null) : null;
-      await upsertPlace(query, { placeId: place.id, name: place.displayName.text, address: place.formattedAddress, lat: place.location.latitude, lng: place.location.longitude, rating: place.rating });
+      await upsertPlace(query, { placeId: place.id, name: place.displayName.text, address: place.formattedAddress, lat: place.location.latitude, lng: place.location.longitude, rating: place.rating, photoName: place.photos?.[0]?.name ?? null });
     }
 
     const estimatedCost = estimateLodgingCostPerNight(config.currency, placePriceLevel);

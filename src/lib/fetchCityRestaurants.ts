@@ -38,6 +38,13 @@ const BUDGET_LABEL: Record<BudgetLevel, string> = {
 // and also surfaces local morning diners (e.g. Japanese teishoku spots).
 const BREAKFAST_TYPES = ["breakfast_restaurant", "brunch_restaurant", "cafe", "bakery"];
 
+// Snack/afternoon-tea slot — dessert-appropriate Table A types (see
+// docs/google-places-types.md). Overlaps with BREAKFAST_TYPES (cafe/bakery),
+// which is fine: the same physical venue can surface in both hint lists, and
+// the generation prompt's anti-repeat rule (not this type set) is what stops
+// the LLM from picking the same store for both meals.
+const SNACK_TYPES = ["cafe", "bakery", "ice_cream_shop"];
+
 // Lunch/dinner still centre on `restaurant`, widened per budget so a
 // "budget" trip also surfaces fast_food_restaurant and a "luxury" trip
 // surfaces fine_dining_restaurant.
@@ -51,9 +58,11 @@ function getMainMealTypes(budget?: BudgetLevel): string[] {
   return budget ? MAIN_MEAL_TYPES_BY_BUDGET[budget] : ["restaurant"];
 }
 
-/** Place Types to search for a given meal slot — breakfast uses BREAKFAST_TYPES, lunch/dinner use the budget-aware main-meal types. */
-export function getMealPlaceTypes(mealType: "breakfast" | "lunch" | "dinner", budget?: BudgetLevel): string[] {
-  return mealType === "breakfast" ? BREAKFAST_TYPES : getMainMealTypes(budget);
+/** Place Types to search for a given meal slot — breakfast uses BREAKFAST_TYPES, snack uses SNACK_TYPES, lunch/dinner use the budget-aware main-meal types. */
+export function getMealPlaceTypes(mealType: "breakfast" | "lunch" | "dinner" | "snack", budget?: BudgetLevel): string[] {
+  if (mealType === "breakfast") return BREAKFAST_TYPES;
+  if (mealType === "snack") return SNACK_TYPES;
+  return getMainMealTypes(budget);
 }
 
 // Table A lodging subtypes (see docs/google-places-types.md), picked per budget
@@ -188,6 +197,23 @@ export async function fetchCityBreakfastPlaces(
   return searchNearbyHints(coords, apiKey, BREAKFAST_TYPES, 8000, maxCount);
 }
 
+/**
+ * Fetch top snack/afternoon-tea-appropriate places (cafés/bakeries/ice cream
+ * shops) near a city. Kept separate from fetchCityRestaurants for the same
+ * reason as fetchCityBreakfastPlaces — `restaurant` results aren't dessert
+ * venues.
+ */
+export async function fetchCitySnackPlaces(
+  iataCode: string,
+  apiKey: string,
+  maxCount = 15,
+): Promise<RestaurantHint[]> {
+  const coords = IATA_COORDS[iataCode];
+  if (!coords) return [];
+
+  return searchNearbyHints(coords, apiKey, SNACK_TYPES, 8000, maxCount);
+}
+
 export function getIataCoords(iataCode: string): { lat: number; lng: number } | null {
   return IATA_COORDS[iataCode] ?? null;
 }
@@ -227,6 +253,7 @@ export interface PlaceCandidate {
   lat: number;
   lng: number;
   address: string;
+  photoName?: string | null;
 }
 
 /**
@@ -248,7 +275,7 @@ export async function fetchNearbyPlaceCandidates(
       headers: {
         "Content-Type": "application/json",
         "X-Goog-Api-Key": apiKey,
-        "X-Goog-FieldMask": "places.id,places.displayName,places.rating,places.location,places.formattedAddress,places.priceLevel",
+        "X-Goog-FieldMask": "places.id,places.displayName,places.rating,places.location,places.formattedAddress,places.priceLevel,places.photos",
       },
       body: JSON.stringify({
         includedTypes: types,
@@ -271,7 +298,7 @@ export async function fetchNearbyPlaceCandidates(
 
     const data = await res.json();
     return (data.places ?? [])
-      .map((p: { id?: string; displayName?: { text?: string }; rating?: number; priceLevel?: string; location?: { latitude?: number; longitude?: number }; formattedAddress?: string }) => ({
+      .map((p: { id?: string; displayName?: { text?: string }; rating?: number; priceLevel?: string; location?: { latitude?: number; longitude?: number }; formattedAddress?: string; photos?: { name: string }[] }) => ({
         name: p.displayName?.text ?? "",
         rating: p.rating,
         priceLevel: p.priceLevel ? (PRICE_LEVEL_MAP[p.priceLevel] ?? null) : null,
@@ -279,6 +306,7 @@ export async function fetchNearbyPlaceCandidates(
         lat: p.location?.latitude ?? 0,
         lng: p.location?.longitude ?? 0,
         address: p.formattedAddress ?? "",
+        photoName: p.photos?.[0]?.name ?? null,
       }))
       .filter((c: PlaceCandidate) => c.name.length > 0 && c.placeId.length > 0);
   } catch (err) {
@@ -359,9 +387,10 @@ function formatHintSections(
 
 /**
  * Build the restaurant hints section to inject into the system prompt.
- * breakfastPlaces come from cafe/bakery Place Types and mainMealPlaces from
- * restaurant-family Place Types (see docs/google-places-types.md), so each
- * meal slot is backed by a list that actually matches what it can recommend.
+ * breakfastPlaces/snackPlaces come from cafe/bakery/ice-cream Place Types and
+ * mainMealPlaces from restaurant-family Place Types (see
+ * docs/google-places-types.md), so each meal slot is backed by a list that
+ * actually matches what it can recommend.
  */
 export function buildRestaurantHintsPrompt(
   cityEntries: Array<{
@@ -369,6 +398,7 @@ export function buildRestaurantHintsPrompt(
     iataCode: string;
     breakfastPlaces: RestaurantHint[];
     mainMealPlaces: RestaurantHint[];
+    snackPlaces: RestaurantHint[];
   }>,
   budget?: BudgetLevel,
 ): string {
@@ -390,6 +420,13 @@ export function buildRestaurantHintsPrompt(
     .filter((e) => e.places.length > 0);
   if (mainMealEntries.length > 0) {
     prompt += `\n\n【已驗證當地餐廳清單${budgetNote} — 午、晚餐必須優先使用】\n午餐、晚餐推薦**必須優先從以下清單中選取**，清單均為 Google Maps 真實存在的餐廳。每家餐廳在整份行程中只能使用一次，不可重複。若行程途經克魯格國家公園等偏遠地區且清單無對應餐廳，才可使用園區內的實際營地餐廳（如 Skukuza Camp Restaurant、Cattle Baron），但同一家仍不得重複使用。\n\n${formatHintSections(mainMealEntries)}`;
+  }
+
+  const snackEntries = cityEntries
+    .map(({ cityNameZh, snackPlaces }) => ({ cityNameZh, places: snackPlaces }))
+    .filter((e) => e.places.length > 0);
+  if (snackEntries.length > 0) {
+    prompt += `\n\n【已驗證當地點心地點清單 — 點心必須優先使用】\n點心（snack，下午茶／甜點）推薦**必須優先從以下清單中選取**，清單均為 Google Maps 真實存在的咖啡館、甜點店或冰淇淋店。此清單可能與上方【已驗證當地早餐地點清單】出現同一家店，仍須遵守整份行程「同一餐廳/店名只能使用一次」的規則——即使某店同時出現在早餐與點心清單中，也只能在其中一餐使用一次，不可兩餐都選它。若清單數量不足以填滿所有天數，再適量補充其他知名真實甜點店、咖啡館或冰淇淋店。\n\n${formatHintSections(snackEntries)}`;
   }
 
   return prompt;

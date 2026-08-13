@@ -211,6 +211,7 @@ export async function POST(
         lat: c.lat,
         lng: c.lng,
         rating: c.rating ?? null,
+        photoName: c.photoName ?? null,
       });
     }
 
@@ -223,6 +224,7 @@ export async function POST(
       lng: c.lng,
       address: c.address,
       rating: c.rating ?? null,
+      photoName: c.photoName ?? null,
     }));
 
     try {
