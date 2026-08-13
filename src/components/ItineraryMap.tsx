@@ -31,7 +31,40 @@ interface MapStop {
   rating?: number | null;
   dayIndex: number;
   stopIndex: number;
+  timeOfDay?: "morning" | "afternoon" | "evening";
 }
+
+interface MapAccommodation {
+  dayId: string;
+  name: string;
+  area: string;
+  lat: number;
+  lng: number;
+  address?: string;
+  rating?: number | null;
+  placeId?: string;
+  dayIndex: number;
+}
+
+type MealType = "breakfast" | "lunch" | "dinner" | "snack";
+
+interface MapMeal {
+  dayId: string;
+  mealType: MealType;
+  name: string;
+  lat: number;
+  lng: number;
+  address?: string;
+  rating?: number | null;
+  dayIndex: number;
+}
+
+const MEAL_META: Record<MealType, { icon: string; label: string }> = {
+  breakfast: { icon: "🌅", label: "早餐" },
+  lunch: { icon: "☀️", label: "午餐" },
+  snack: { icon: "🍰", label: "點心" },
+  dinner: { icon: "🌙", label: "晚餐" },
+};
 
 interface ItineraryMapProps {
   itineraryId: string;
@@ -42,41 +75,87 @@ interface ItineraryMapProps {
 // --- Inner component: has access to map instance via useMap ---
 function MapContent({
   visibleStops,
+  visibleAccommodations,
+  visibleMeals,
   selectedStop,
+  selectedAccommodation,
+  selectedMeal,
   onStopClick,
+  onAccommodationClick,
+  onMealClick,
   onCloseInfoWindow,
 }: {
   visibleStops: MapStop[];
+  visibleAccommodations: MapAccommodation[];
+  visibleMeals: MapMeal[];
   selectedStop: MapStop | null;
+  selectedAccommodation: MapAccommodation | null;
+  selectedMeal: MapMeal | null;
   onStopClick: (stop: MapStop) => void;
+  onAccommodationClick: (acc: MapAccommodation) => void;
+  onMealClick: (meal: MapMeal) => void;
   onCloseInfoWindow: () => void;
 }) {
   const map = useMap();
 
-  // Auto-fit bounds whenever visible stops change
+  // Auto-fit bounds whenever visible stops, accommodations, or meals change
   useEffect(() => {
-    if (!map || visibleStops.length === 0) return;
+    const allPoints = [
+      ...visibleStops.map((s) => ({ lat: s.lat, lng: s.lng })),
+      ...visibleAccommodations.map((a) => ({ lat: a.lat, lng: a.lng })),
+      ...visibleMeals.map((m) => ({ lat: m.lat, lng: m.lng })),
+    ];
+    if (!map || allPoints.length === 0) return;
     const bounds = new google.maps.LatLngBounds();
-    visibleStops.forEach((s) => bounds.extend({ lat: s.lat, lng: s.lng }));
+    allPoints.forEach((p) => bounds.extend(p));
     map.fitBounds(bounds, 60);
-  }, [map, visibleStops]);
+  }, [map, visibleStops, visibleAccommodations, visibleMeals]);
 
-  // Draw polylines per day group (sorted by stopIndex)
+  // Draw polylines per day group, weaving meals in by time of day
   useEffect(() => {
-    if (!map || visibleStops.length < 2) return;
+    if (!map || visibleStops.length + visibleMeals.length < 2) return;
 
-    const dayGroups: Record<number, MapStop[]> = {};
-    visibleStops.forEach((stop) => {
-      if (!dayGroups[stop.dayIndex]) dayGroups[stop.dayIndex] = [];
-      dayGroups[stop.dayIndex].push(stop);
-    });
+    const dayIndices = new Set([
+      ...visibleStops.map((s) => s.dayIndex),
+      ...visibleMeals.map((m) => m.dayIndex),
+    ]);
 
     const polylines: google.maps.Polyline[] = [];
 
-    (Object.entries(dayGroups) as [string, MapStop[]][]).forEach(([key, stops]) => {
-      const dayIndex = Number(key);
-      const sorted = [...stops].sort((a, b) => a.stopIndex - b.stopIndex);
-      const path = sorted.map((s) => ({ lat: s.lat, lng: s.lng }));
+    dayIndices.forEach((dayIndex) => {
+      const sorted = visibleStops
+        .filter((s) => s.dayIndex === dayIndex)
+        .sort((a, b) => a.stopIndex - b.stopIndex);
+      const meals = visibleMeals.filter((m) => m.dayIndex === dayIndex);
+      const breakfast = meals.find((m) => m.mealType === "breakfast");
+      const lunch = meals.find((m) => m.mealType === "lunch");
+      const snack = meals.find((m) => m.mealType === "snack");
+      const dinner = meals.find((m) => m.mealType === "dinner");
+
+      // Insert lunch right before the first afternoon-tagged stop; if no stop
+      // is tagged, fall back to the midpoint of the day's stops.
+      const withLunch: Array<MapStop | MapMeal> = [];
+      let lunchInserted = false;
+      sorted.forEach((s) => {
+        if (lunch && !lunchInserted && s.timeOfDay === "afternoon") {
+          withLunch.push(lunch);
+          lunchInserted = true;
+        }
+        withLunch.push(s);
+      });
+      if (lunch && !lunchInserted) {
+        withLunch.splice(Math.ceil(withLunch.length / 2), 0, lunch);
+      }
+
+      const ordered: Array<MapStop | MapMeal> = [];
+      if (breakfast) ordered.push(breakfast);
+      ordered.push(...withLunch);
+      if (snack) ordered.push(snack);
+      if (dinner) ordered.push(dinner);
+
+      if (ordered.length < 2) return;
+
+      const path = ordered.map((s) => ({ lat: s.lat, lng: s.lng }));
 
       const polyline = new google.maps.Polyline({
         path,
@@ -121,7 +200,7 @@ function MapContent({
     return () => {
       polylines.forEach((p) => p.setMap(null));
     };
-  }, [map, visibleStops]);
+  }, [map, visibleStops, visibleMeals]);
 
   return (
     <>
@@ -153,6 +232,60 @@ function MapContent({
         </AdvancedMarker>
       ))}
 
+      {visibleAccommodations.map((acc) => (
+        <AdvancedMarker
+          key={`acc-${acc.dayId}`}
+          position={{ lat: acc.lat, lng: acc.lng }}
+          onClick={() => onAccommodationClick(acc)}
+        >
+          <div
+            style={{
+              background: "#6366f1",
+              color: "white",
+              borderRadius: "6px",
+              width: "28px",
+              height: "28px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: "14px",
+              border: "2px solid white",
+              boxShadow: "0 2px 6px rgba(0,0,0,0.35)",
+              cursor: "pointer",
+            }}
+          >
+            🏨
+          </div>
+        </AdvancedMarker>
+      ))}
+
+      {visibleMeals.map((meal) => (
+        <AdvancedMarker
+          key={`meal-${meal.dayId}-${meal.mealType}`}
+          position={{ lat: meal.lat, lng: meal.lng }}
+          onClick={() => onMealClick(meal)}
+        >
+          <div
+            style={{
+              background: "#f59e0b",
+              color: "white",
+              borderRadius: "6px",
+              width: "28px",
+              height: "28px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: "14px",
+              border: "2px solid white",
+              boxShadow: "0 2px 6px rgba(0,0,0,0.35)",
+              cursor: "pointer",
+            }}
+          >
+            {MEAL_META[meal.mealType].icon}
+          </div>
+        </AdvancedMarker>
+      ))}
+
       {selectedStop && (
         <InfoWindow
           position={{ lat: selectedStop.lat, lng: selectedStop.lng }}
@@ -172,6 +305,58 @@ function MapContent({
           </div>
         </InfoWindow>
       )}
+
+      {selectedAccommodation && (
+        <InfoWindow
+          position={{ lat: selectedAccommodation.lat, lng: selectedAccommodation.lng }}
+          onCloseClick={onCloseInfoWindow}
+        >
+          <div className="p-1 max-w-[220px] space-y-1">
+            <div className="font-semibold text-zinc-900 text-sm">
+              🏨 {selectedAccommodation.name}
+            </div>
+            <div className="text-xs text-zinc-500">{selectedAccommodation.area}</div>
+            {selectedAccommodation.address && (
+              <div className="text-xs text-zinc-500">{selectedAccommodation.address}</div>
+            )}
+            {selectedAccommodation.rating != null && (
+              <div className="text-xs text-amber-500">★ {selectedAccommodation.rating}</div>
+            )}
+            {selectedAccommodation.placeId && (
+              <a
+                href={`https://www.google.com/maps/place/?q=place_id:${selectedAccommodation.placeId}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block text-xs text-indigo-600 font-medium hover:underline mt-1"
+              >
+                在地圖上查看 →
+              </a>
+            )}
+          </div>
+        </InfoWindow>
+      )}
+
+      {selectedMeal && (
+        <InfoWindow
+          position={{ lat: selectedMeal.lat, lng: selectedMeal.lng }}
+          onCloseClick={onCloseInfoWindow}
+        >
+          <div className="p-1 max-w-[220px] space-y-1">
+            <div className="font-semibold text-zinc-900 text-sm">
+              {MEAL_META[selectedMeal.mealType].icon} {selectedMeal.name}
+            </div>
+            <div className="text-xs text-zinc-500">
+              {MEAL_META[selectedMeal.mealType].label}
+            </div>
+            {selectedMeal.address && (
+              <div className="text-xs text-zinc-500">{selectedMeal.address}</div>
+            )}
+            {selectedMeal.rating != null && (
+              <div className="text-xs text-amber-500">★ {selectedMeal.rating}</div>
+            )}
+          </div>
+        </InfoWindow>
+      )}
     </>
   );
 }
@@ -183,10 +368,14 @@ export default function ItineraryMap({
   context,
 }: ItineraryMapProps) {
   const [mapStops, setMapStops] = useState<MapStop[]>([]);
+  const [mapAccommodations, setMapAccommodations] = useState<MapAccommodation[]>([]);
+  const [mapMeals, setMapMeals] = useState<MapMeal[]>([]);
   const [enriching, setEnriching] = useState(false);
   const [enrichProgress, setEnrichProgress] = useState(0);
   const [totalToEnrich, setTotalToEnrich] = useState(0);
   const [selectedStop, setSelectedStop] = useState<MapStop | null>(null);
+  const [selectedAccommodation, setSelectedAccommodation] = useState<MapAccommodation | null>(null);
+  const [selectedMeal, setSelectedMeal] = useState<MapMeal | null>(null);
   const [selectedDayIndex, setSelectedDayIndex] = useState<number | null>(null);
 
   useEffect(() => {
@@ -198,7 +387,11 @@ export default function ItineraryMap({
         description: string;
         dayIndex: number;
         stopIndex: number;
+        timeOfDay?: "morning" | "afternoon" | "evening";
       }> = [];
+
+      setMapAccommodations([]);
+      setMapMeals([]);
 
       days.forEach((day, dayIndex) => {
         day.stops.forEach((stop, stopIndex) => {
@@ -214,6 +407,7 @@ export default function ItineraryMap({
               rating: stop.rating,
               dayIndex,
               stopIndex,
+              timeOfDay: stop.time_of_day,
             });
           } else {
             needsEnrich.push({
@@ -222,12 +416,102 @@ export default function ItineraryMap({
               description: stop.description,
               dayIndex,
               stopIndex,
+              timeOfDay: stop.time_of_day,
             });
           }
         });
       });
 
       setMapStops(alreadyEnriched);
+
+      // Collect meals with lat/lng already available
+      days.forEach((day, dayIndex) => {
+        if (!day.id || !day.meals) return;
+        (["breakfast", "lunch", "dinner", "snack"] as const).forEach((mealType) => {
+          const meal = day.meals?.[mealType];
+          if (!meal || !meal.lat || !meal.lng) return;
+          setMapMeals((prev) => {
+            if (prev.some((m) => m.dayId === day.id && m.mealType === mealType)) return prev;
+            return [
+              ...prev,
+              {
+                dayId: day.id!,
+                mealType,
+                name: meal.name,
+                lat: meal.lat!,
+                lng: meal.lng!,
+                address: meal.address,
+                rating: meal.rating,
+                dayIndex,
+              },
+            ];
+          });
+        });
+      });
+
+      // Collect accommodations with lat/lng already available
+      days.forEach((day, dayIndex) => {
+        if (!day.id || !day.accommodation) return;
+        const acc = day.accommodation;
+        if (acc.lat && acc.lng) {
+          setMapAccommodations((prev) => {
+            if (prev.some((a) => a.dayId === day.id)) return prev;
+            return [
+              ...prev,
+              {
+                dayId: day.id!,
+                name: acc.name ?? acc.area,
+                area: acc.area,
+                lat: acc.lat!,
+                lng: acc.lng!,
+                address: acc.address,
+                rating: acc.rating,
+                placeId: acc.placeId,
+                dayIndex,
+              },
+            ];
+          });
+        }
+      });
+
+      // Enrich accommodations that lack lat/lng
+      const needsAccEnrich = days
+        .map((day, dayIndex) => ({ day, dayIndex }))
+        .filter(({ day }) => day.id && day.accommodation && !day.accommodation.lat);
+
+      for (const { day, dayIndex } of needsAccEnrich) {
+        try {
+          const res = await fetch(`/api/v1/days/${day.id}/accommodation/enrich`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ itineraryId }),
+          });
+          if (res.ok) {
+            const { accommodation: acc } = await res.json();
+            if (acc.lat && acc.lng) {
+              setMapAccommodations((prev) => {
+                if (prev.some((a) => a.dayId === day.id)) return prev;
+                return [
+                  ...prev,
+                  {
+                    dayId: day.id!,
+                    name: acc.name ?? acc.area,
+                    area: acc.area,
+                    lat: acc.lat,
+                    lng: acc.lng,
+                    address: acc.address,
+                    rating: acc.rating,
+                    placeId: acc.placeId,
+                    dayIndex,
+                  },
+                ];
+              });
+            }
+          }
+        } catch {
+          // skip
+        }
+      }
 
       if (needsEnrich.length === 0) return;
 
@@ -259,6 +543,7 @@ export default function ItineraryMap({
                   rating: result.rating,
                   dayIndex: stop.dayIndex,
                   stopIndex: stop.stopIndex,
+                  timeOfDay: stop.timeOfDay,
                 },
               ];
             });
@@ -274,12 +559,22 @@ export default function ItineraryMap({
 
     run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [days]);
 
   const visibleStops =
     selectedDayIndex === null
       ? mapStops
       : mapStops.filter((s) => s.dayIndex === selectedDayIndex);
+
+  const visibleAccommodations =
+    selectedDayIndex === null
+      ? mapAccommodations
+      : mapAccommodations.filter((a) => a.dayIndex === selectedDayIndex);
+
+  const visibleMeals =
+    selectedDayIndex === null
+      ? mapMeals
+      : mapMeals.filter((m) => m.dayIndex === selectedDayIndex);
 
   const center =
     visibleStops.length > 0
@@ -296,6 +591,8 @@ export default function ItineraryMap({
   function handleDaySelect(idx: number | null) {
     setSelectedDayIndex(idx);
     setSelectedStop(null);
+    setSelectedAccommodation(null);
+    setSelectedMeal(null);
   }
 
   return (
@@ -363,7 +660,7 @@ export default function ItineraryMap({
         </div>
       )}
 
-      {visibleStops.length > 0 && (
+      {(visibleStops.length > 0 || visibleAccommodations.length > 0 || visibleMeals.length > 0) && (
         <APIProvider apiKey={process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY!}>
           <div
             className="rounded-xl overflow-hidden border border-zinc-200 dark:border-zinc-700"
@@ -380,13 +677,33 @@ export default function ItineraryMap({
             >
               <MapContent
                 visibleStops={visibleStops}
+                visibleAccommodations={visibleAccommodations}
+                visibleMeals={visibleMeals}
                 selectedStop={selectedStop}
-                onStopClick={(stop) =>
-                  setSelectedStop((prev) =>
-                    prev?.id === stop.id ? null : stop
-                  )
-                }
-                onCloseInfoWindow={() => setSelectedStop(null)}
+                selectedAccommodation={selectedAccommodation}
+                selectedMeal={selectedMeal}
+                onStopClick={(stop) => {
+                  setSelectedAccommodation(null);
+                  setSelectedMeal(null);
+                  setSelectedStop((prev) => prev?.id === stop.id ? null : stop);
+                }}
+                onAccommodationClick={(acc) => {
+                  setSelectedStop(null);
+                  setSelectedMeal(null);
+                  setSelectedAccommodation((prev) => prev?.dayId === acc.dayId ? null : acc);
+                }}
+                onMealClick={(meal) => {
+                  setSelectedStop(null);
+                  setSelectedAccommodation(null);
+                  setSelectedMeal((prev) =>
+                    prev?.dayId === meal.dayId && prev?.mealType === meal.mealType ? null : meal
+                  );
+                }}
+                onCloseInfoWindow={() => {
+                  setSelectedStop(null);
+                  setSelectedAccommodation(null);
+                  setSelectedMeal(null);
+                }}
               />
             </Map>
           </div>

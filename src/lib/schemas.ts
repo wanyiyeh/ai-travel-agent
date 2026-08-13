@@ -8,6 +8,7 @@ export const FlightInfoSchema = z.object({
   departureCity: iataCode,      // 去程出發機場 IATA 代號，例：TPE
   arrivalCity: iataCode,        // 去程抵達機場 IATA 代號，例：SYD
   returnDepartureCity: iataCode, // 回程出發機場 IATA 代號，例：MEL
+  returnArrivalCity: iataCode.optional(), // 回程抵達機場 IATA 代號，例：TPE（預設同去程出發地）
   departureDate: z.string().min(1),      // YYYY-MM-DD
   returnDate: z.string().min(1),         // YYYY-MM-DD
   arrivalTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),         // 去程航班抵達時間 HH:MM
@@ -22,17 +23,37 @@ export const TripPreferencesSchema = z.object({
   interests: z
     .array(z.enum(["food", "culture", "nature", "shopping", "adventure"]))
     .optional(),
+  travelers: z.number().int().min(1).max(20).optional(),
 });
 
 export type TripPreferences = z.infer<typeof TripPreferencesSchema>;
 
 export const AccommodationSchema = z.object({
-  name: z.string(),
+  // Generation prompt (itineraryGen.ts rule 7) deliberately only asks the AI
+  // for an area + reason, not a specific hotel name (to avoid hallucinated
+  // hotel names) — name only shows up once the user picks a real candidate.
+  name: z.string().optional(),
   area: z.string(),
+  reason: z.string().optional(),
+  placeId: z.string().optional(),
+  lat: z.number().optional(),
+  lng: z.number().optional(),
+  address: z.string().optional(),
+  rating: z.number().nullable().optional(),
+  priceLevel: z.number().nullable().optional(),
+  estimated_cost: z.number().optional(),
+  estimated_cost_low: z.number().optional(),
+  estimated_cost_high: z.number().optional(),
+  nearestStation: z
+    .object({ name: z.string(), distanceMeters: z.number() })
+    .nullable()
+    .optional(),
+  photoName: z.string().nullable().optional(),
 });
 
 export const StopSchema = z.object({
   name: z.string(),
+  district: z.string().optional(),
   description: z.string(),
   duration_minutes: z.number(),
   time_of_day: z.enum(["morning", "afternoon", "evening"]).optional(),
@@ -40,24 +61,80 @@ export const StopSchema = z.object({
   estimated_cost: z.number().optional(),
 });
 
-const MealSchema = z.object({
+export const StopCandidateSchema = z.object({
+  name: z.string(),
+  description: z.string(),
+  duration_minutes: z.number(),
+  placeId: z.string().optional(),
+  lat: z.number().optional(),
+  lng: z.number().optional(),
+  address: z.string().optional(),
+  rating: z.number().nullable().optional(),
+  photoName: z.string().nullable().optional(),
+  suspicious: z.boolean().optional(),
+  suspiciousReason: z.string().optional(),
+});
+
+// Internal schema for parsing the LLM's description-fill response — matched
+// 1:1 by index against real Places candidate names, never used to invent places.
+export const StopDescriptionFillSchema = z.object({
+  candidates: z.array(
+    z.object({
+      name: z.string(),
+      description: z.string(),
+      duration_minutes: z.number(),
+    })
+  ),
+});
+
+export const MealSchema = z.object({
   name: z.string(),
   description: z.string().optional(),
   estimated_cost: z.number().optional(),
+  placeId: z.string().optional(),
+  lat: z.number().optional(),
+  lng: z.number().optional(),
+  address: z.string().optional(),
+  rating: z.number().nullable().optional(),
+  photoName: z.string().nullable().optional(),
 });
 
+const nullableMeal = MealSchema.nullish().transform((v) => v ?? undefined);
+
 const DayMealsSchema = z.object({
-  breakfast: MealSchema.optional(),
-  lunch: MealSchema.optional(),
-  dinner: MealSchema.optional(),
+  breakfast: nullableMeal,
+  lunch: nullableMeal,
+  dinner: nullableMeal,
+  snack: nullableMeal,
 });
+
+export const TransitRecommendationSchema = z.object({
+  name: z.string(),
+  type: z.enum(["city", "country"]),
+  country: z.string(),
+  iataCode: z.string().optional(),
+  transitTimeHours: z.number(),
+  transitMode: z.string(),
+  suggestedStayDaysMin: z.number().int().min(1),
+  suggestedStayDaysMax: z.number().int().min(1),
+  popularity: z.enum(["high", "medium", "low"]),
+  topAttractions: z.array(z.string()).length(3),
+  lat: z.number(),
+  lng: z.number(),
+});
+
+export type TransitRecommendation = z.infer<typeof TransitRecommendationSchema>;
 
 export const DaySchema = z.object({
   day: z.number(),
   theme: z.string().optional(),
   stops: z.array(StopSchema),
-  accommodation: AccommodationSchema.optional(),
+  accommodation: AccommodationSchema.nullable().optional(),
   meals: DayMealsSchema.optional(),
+  isTransitDay: z.boolean().optional(),
+  transitTo: z.string().nullish().transform(v => v ?? undefined),
+  waypointCity: z.string().optional(),
+  isLocked: z.boolean().optional(),
 });
 
 export const ItinerarySchema = z.object({

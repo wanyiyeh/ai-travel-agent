@@ -1,0 +1,168 @@
+"use client";
+
+import { useState } from "react";
+import type { TransitRecommendation } from "@/types/itinerary";
+
+interface TransitRecommendationCardProps {
+  recommendation: TransitRecommendation;
+  isInCart: boolean;
+  onAddToCart: (rec: TransitRecommendation, stayDays: number) => void;
+  onRefresh?: () => void;
+  maxDays?: number;
+  currentDays?: number;
+}
+
+const POPULARITY_LABELS: Record<TransitRecommendation["popularity"], string> = {
+  high: "熱門",
+  medium: "一般",
+  low: "小眾",
+};
+
+const POPULARITY_COLORS: Record<TransitRecommendation["popularity"], string> = {
+  high: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400",
+  medium: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
+  low: "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400",
+};
+
+export default function TransitRecommendationCard({
+  recommendation,
+  isInCart,
+  onAddToCart,
+  onRefresh,
+  maxDays,
+  currentDays,
+}: TransitRecommendationCardProps) {
+  const defaultDays = Math.ceil(
+    (recommendation.suggestedStayDaysMin + recommendation.suggestedStayDaysMax) / 2
+  );
+  const [stayDays, setStayDays] = useState(defaultDays);
+
+  const handleAddToCart = () => {
+    onAddToCart(recommendation, stayDays);
+  };
+
+  if (isInCart) {
+    return (
+      <div className="rounded-xl border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/30 p-4 flex items-center gap-3">
+        <svg className="w-5 h-5 text-blue-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+        </svg>
+        <span className="text-sm font-medium text-blue-700 dark:text-blue-400">
+          {recommendation.name} 已加入待選清單
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 overflow-hidden">
+      {/* Header */}
+      <div className="px-4 pt-4 pb-3 flex items-start justify-between gap-3">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <h3 className="text-base font-bold text-zinc-900 dark:text-zinc-50">
+              {recommendation.name}
+            </h3>
+            {recommendation.type === "country" ? (
+              <span className="text-xs font-medium px-1.5 py-0.5 rounded-full bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400">
+                國家
+              </span>
+            ) : (
+              <span className="text-xs font-medium px-1.5 py-0.5 rounded-full bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
+                城市
+              </span>
+            )}
+            {recommendation.type === "city" && (
+              <span className="text-sm text-zinc-500 dark:text-zinc-400">
+                {recommendation.country}
+              </span>
+            )}
+            <span
+              className={`text-xs font-medium px-1.5 py-0.5 rounded-full ${POPULARITY_COLORS[recommendation.popularity]}`}
+            >
+              {POPULARITY_LABELS[recommendation.popularity]}
+            </span>
+          </div>
+          <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+            {recommendation.transitMode} · 約 {recommendation.transitTimeHours} 小時{/航|渡輪|船/.test(recommendation.transitMode) ? "航程" : /機|航班|廉航|飛/.test(recommendation.transitMode) ? "飛行時間" : "車程"}
+          </p>
+        </div>
+        {onRefresh && (
+          <button
+            onClick={onRefresh}
+            className="text-zinc-300 hover:text-zinc-500 dark:text-zinc-600 dark:hover:text-zinc-400 transition-colors p-0.5 rounded shrink-0 mt-0.5"
+            aria-label="跳過此推薦"
+            title="不感興趣，跳過（清單清空後自動換一批）"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        )}
+      </div>
+
+      {/* Top attractions */}
+      <div className="px-4 pb-3">
+        <p className="text-xs font-semibold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider mb-2">
+          {recommendation.type === "country" ? "Top 3 必訪城市 / 景點" : "Top 3 必去"}
+        </p>
+        <ul className="space-y-1">
+          {recommendation.topAttractions.map((attraction, i) => (
+            <li key={i} className="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
+              <span className="text-zinc-300 dark:text-zinc-600 shrink-0 font-mono text-xs">
+                {i + 1}.
+              </span>
+              {attraction}
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      {/* Day compression notice */}
+      {maxDays != null && currentDays != null && currentDays + 1 + stayDays > maxDays && (
+        <div className="mx-4 mb-3 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+          加入後將從原行程移除 {currentDays + 1 + stayDays - maxDays} 天，以配合機票固定的 {maxDays} 天日程
+        </div>
+      )}
+
+      {/* Footer: stay days stepper + add to cart button */}
+      <div className="px-4 pb-4 pt-3 border-t border-zinc-100 dark:border-zinc-800 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-zinc-500 dark:text-zinc-400">停留</span>
+          <div className="flex items-center border border-zinc-200 dark:border-zinc-700 rounded-lg overflow-hidden">
+            <button
+              onClick={() => setStayDays((d) => Math.max(recommendation.suggestedStayDaysMin, d - 1))}
+              className="px-2.5 py-1 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-sm font-medium"
+              aria-label="減少天數"
+            >
+              −
+            </button>
+            <span className="px-3 text-sm font-semibold text-zinc-900 dark:text-zinc-50 min-w-[2rem] text-center">
+              {stayDays}
+            </span>
+            <button
+              onClick={() => setStayDays((d) => Math.min(recommendation.suggestedStayDaysMax, d + 1))}
+              className="px-2.5 py-1 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-sm font-medium"
+              aria-label="增加天數"
+            >
+              +
+            </button>
+          </div>
+          <span className="text-xs text-zinc-400 dark:text-zinc-500">
+            天（建議 {recommendation.suggestedStayDaysMin}–{recommendation.suggestedStayDaysMax} 天）
+          </span>
+        </div>
+
+        <button
+          onClick={handleAddToCart}
+          className="shrink-0 flex items-center gap-1.5 rounded-lg bg-violet-600 hover:bg-violet-700 dark:bg-violet-500 dark:hover:bg-violet-600 px-3.5 py-1.5 text-sm font-medium text-white transition-colors"
+        >
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+          </svg>
+          加入待選清單
+        </button>
+      </div>
+    </div>
+  );
+}
