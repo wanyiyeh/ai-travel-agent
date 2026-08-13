@@ -10,8 +10,14 @@ export interface TextSearchPlace {
   location: { latitude: number; longitude: number };
   rating?: number;
   priceLevel?: string;
+  photos?: { name: string; widthPx?: number; heightPx?: number }[];
 }
 
+// `photos` is a Pro-tier field, same tier as `rating`/`priceLevel` are
+// Enterprise-tier — since the mask already has Enterprise fields, the whole
+// request bills at Enterprise regardless, so adding `photos` here doesn't
+// add cost. It only returns photo *metadata* (a resource name); the actual
+// image bytes are a separate billable call via the Photo Media endpoint.
 const FIELD_MASK = [
   "places.id",
   "places.displayName",
@@ -19,6 +25,7 @@ const FIELD_MASK = [
   "places.location",
   "places.rating",
   "places.priceLevel",
+  "places.photos",
 ].join(",");
 
 // Appending a city name to the query text only nudges Google's text ranking —
@@ -35,6 +42,23 @@ const CITY_BIAS_RADIUS_METERS = 50000;
 // lost to a same-keyword homonym, so reject rather than save a wrong-place
 // match (mirrors the threshold in scripts/enrich-all-itineraries.ts).
 const REJECT_KM_THRESHOLD = 1500;
+
+// Single source of truth for how a stop's Text Search query (and therefore
+// its PlaceQuery cache key) is built. Every caller — the single-stop enrich
+// route, the bulk enrich-all-stops route, the enrich-all-itineraries script,
+// and the cache-only backfill script — must build this string identically,
+// or the same real-world place ends up under different cache keys and silently
+// re-bills Google on every "backfill" that doesn't actually hit the same key.
+export function buildStopQuery(name: string, district: string | null | undefined, cityHint: string): string {
+  const namePart = district ? `${name} ${district}` : name;
+  return cityHint ? `${namePart} ${cityHint}` : namePart;
+}
+
+// Same idea for meals — kept separate from buildStopQuery since meals have
+// no district field.
+export function buildMealQuery(name: string, cityHint: string): string {
+  return cityHint ? `${name} ${cityHint}` : name;
+}
 
 export async function searchPlaceText(
   query: string,

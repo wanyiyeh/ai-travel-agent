@@ -21,10 +21,13 @@ import {
   arrayMove,
 } from "@dnd-kit/sortable";
 import { SortableStop } from "@/components/SortableStop";
+import { InlinePriceEditor } from "@/components/InlinePriceEditor";
 import { StopDragPreview } from "@/components/StopDragPreview";
 import { DayBulkEditPanel } from "@/components/DayBulkEditPanel";
 import { AccommodationPicker } from "@/components/AccommodationPicker";
 import { MealPicker } from "@/components/MealPicker";
+import { StopPicker } from "@/components/StopPicker";
+import { PlacePhotoThumb } from "@/components/PlacePhotoThumb";
 import { haversineKm } from "@/lib/distanceMatrix";
 import { formatDuration } from "@/types/itinerary";
 import type { Itinerary, Stop, DayMeals, Meal, MealType, Accommodation, StopCandidate } from "@/types/itinerary";
@@ -121,6 +124,7 @@ type EditingStop = {
   name: string;
   description: string;
   duration_minutes: number;
+  estimated_cost?: number;
 };
 
 export default function EditableItineraryCard({
@@ -160,9 +164,7 @@ export default function EditableItineraryCard({
   const [recalculatingDay, setRecalculatingDay] = useState<string | null>(null);
   const [pickingAccommodationDayId, setPickingAccommodationDayId] = useState<string | null>(null);
   const [pickingMeal, setPickingMeal] = useState<{ dayId: string; mealType: MealType } | null>(null);
-  const [togglingTransitDayId, setTogglingTransitDayId] = useState<string | null>(null);
-  const [transitToInput, setTransitToInput] = useState("");
-  const [savingTransitDayId, setSavingTransitDayId] = useState<string | null>(null);
+  const [pickingStopId, setPickingStopId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [addingToDay, setAddingToDay] = useState<string | null>(null);
   const [newStopName, setNewStopName] = useState("");
@@ -182,6 +184,7 @@ export default function EditableItineraryCard({
     stop: Stop;
     dayId: string;
     index: number;
+    deletedStopId: string;
   } | null>(null);
   const [restoringStop, setRestoringStop] = useState(false);
   // Tracks which deleted stop the pending "finalize" timeout / actions apply
@@ -226,7 +229,8 @@ export default function EditableItineraryCard({
   const calculateMealCost = (meals?: DayMeals) =>
     (meals?.breakfast?.estimated_cost ?? 0) +
     (meals?.lunch?.estimated_cost ?? 0) +
-    (meals?.dinner?.estimated_cost ?? 0);
+    (meals?.dinner?.estimated_cost ?? 0) +
+    (meals?.snack?.estimated_cost ?? 0);
 
   const hasCostData = (stops: Stop[]) =>
     stops.some((s) => s.estimated_cost !== undefined);
@@ -493,6 +497,32 @@ export default function EditableItineraryCard({
     }
   }
 
+  // Non-drag alternative to cross-day dnd: same optimistic-move + recalc
+  // path as handleDragEnd's cross-day branch, but reachable without having
+  // to drag across a long, scrolled day list (painful once days are far
+  // apart, especially on mobile).
+  const handleMoveStop = (sourceDayId: string, stop: Stop, targetDayId: string) => {
+    if (!stop.id || sourceDayId === targetDayId) return;
+    setSnapshotBeforeDrag(structuredClone(itinerary));
+    setLoading(stop.id);
+
+    const newDays = itinerary.days.map((d) => ({ ...d, stops: [...d.stops] }));
+    const sourceDay = newDays.find((d) => d.id === sourceDayId);
+    const targetDay = newDays.find((d) => d.id === targetDayId);
+    const stopIndex = sourceDay?.stops.findIndex((s) => s.id === stop.id) ?? -1;
+    if (!sourceDay || !targetDay || stopIndex === -1) {
+      setLoading(null);
+      return;
+    }
+
+    const [movedStop] = sourceDay.stops.splice(stopIndex, 1);
+    targetDay.stops.push({ ...movedStop, transport_from_prev: undefined, time_of_day: undefined });
+
+    const newItinerary = { ...itinerary, days: newDays };
+    setItinerary(newItinerary);
+    persistReorder(newItinerary, [sourceDayId, targetDayId]).finally(() => setLoading(null));
+  };
+
   async function recalculateTransport(dayId: string, afterDone?: () => void) {
     setRecalculatingDay(dayId);
     try {
@@ -647,7 +677,6 @@ export default function EditableItineraryCard({
       ),
     }));
     deletedStopIdRef.current = stopId;
-    setDeletedStopInfo({ stop, dayId, index });
 
     try {
       const res = await fetch(`/api/v1/stops/${stopId}`, {
@@ -656,6 +685,8 @@ export default function EditableItineraryCard({
         body: JSON.stringify({ itineraryId: data.id }),
       });
       if (!res.ok) throw new Error("刪除失敗");
+      const { deletedStopId } = (await res.json()) as { deletedStopId: string };
+      setDeletedStopInfo({ stop, dayId, index, deletedStopId });
     } catch (err) {
       setItinerary((prev) => ({
         ...prev,
@@ -692,30 +723,22 @@ export default function EditableItineraryCard({
 
   const handleUndoDeleteStop = async () => {
     if (!deletedStopInfo) return;
-    const { stop, dayId, index } = deletedStopInfo;
+    const { dayId, index, deletedStopId } = deletedStopInfo;
     deletedStopIdRef.current = null;
     setDeletedStopInfo(null);
     setRestoringStop(true);
     try {
-      const candidate: StopCandidate = {
-        name: stop.name,
-        description: stop.description,
-        duration_minutes: stop.duration_minutes,
-        placeId: stop.placeId,
-        lat: stop.lat,
-        lng: stop.lng,
-        address: stop.address,
-        rating: stop.rating,
-      };
-      const res = await fetch(`/api/v1/days/${dayId}/stops`, {
+      // Reuse the same trash-restore endpoint the persistent Trash page uses,
+      // so an undo brings back the exact original stop (all fields intact)
+      // and clears the matching deletedStop record — instead of re-creating
+      // the stop from a StopCandidate, which drops fields it doesn't carry
+      // (estimated_cost, time_of_day, etc.) and leaves a stale trash entry.
+      const res = await fetch(`/api/v1/itinerary/${data.id}/trash/${deletedStopId}/restore`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ itineraryId: data.id, stops: [candidate] }),
       });
       if (!res.ok) throw new Error("復原失敗");
-      const { stops: newStops } = (await res.json()) as { stops: { id: string }[] };
+      const { stop: restoredStop } = (await res.json()) as { stop: Stop };
 
-      const restoredStop: Stop = { ...stop, id: newStops[0].id };
       const day = itinerary.days.find((d) => d.id === dayId);
       if (!day) return;
       const stops = [...day.stops];
@@ -750,6 +773,7 @@ export default function EditableItineraryCard({
       name: stop.name,
       description: stop.description,
       duration_minutes: stop.duration_minutes,
+      estimated_cost: stop.estimated_cost,
     });
   };
 
@@ -766,6 +790,7 @@ export default function EditableItineraryCard({
           name: editingStop.name,
           description: editingStop.description,
           duration_minutes: editingStop.duration_minutes,
+          estimated_cost: editingStop.estimated_cost ?? null,
           itineraryId: data.id,
         }),
       });
@@ -786,6 +811,7 @@ export default function EditableItineraryCard({
                   name: editingStop.name,
                   description: editingStop.description,
                   duration_minutes: editingStop.duration_minutes,
+                  estimated_cost: editingStop.estimated_cost,
                 }
               : s
           ),
@@ -799,6 +825,15 @@ export default function EditableItineraryCard({
     } finally {
       setLoading(null);
     }
+  };
+
+  const updateStop = (dayId: string, stopId: string, stop: Stop) => {
+    setItinerary((prev) => ({
+      ...prev,
+      days: prev.days.map((d) =>
+        d.id === dayId ? { ...d, stops: d.stops.map((s) => (s.id === stopId ? stop : s)) } : d
+      ),
+    }));
   };
 
   const updateDayAccommodation = (dayId: string, accommodation: Accommodation) => {
@@ -817,6 +852,53 @@ export default function EditableItineraryCard({
         d.id === dayId ? { ...d, meals: { ...d.meals, [mealType]: meal } } : d
       ),
     }));
+  };
+
+  // Both accommodation and meals only expose a "select" endpoint that
+  // replaces the whole record — reused here for a cost-only edit. Setting a
+  // manual estimated_cost drops any AI-estimated low/high range, since the
+  // two would otherwise disagree once the user overrides one number.
+  const handleUpdateAccommodationCost = async (dayId: string, value: number | undefined) => {
+    const accommodation = itinerary.days.find((d) => d.id === dayId)?.accommodation;
+    if (!accommodation) return;
+    const updated: Accommodation = {
+      ...accommodation,
+      estimated_cost: value,
+      estimated_cost_low: undefined,
+      estimated_cost_high: undefined,
+    };
+    try {
+      const res = await fetch(`/api/v1/days/${dayId}/accommodation/select`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ itineraryId: data.id, accommodation: updated }),
+      });
+      if (!res.ok) throw new Error("更新住宿價格失敗");
+      updateDayAccommodation(dayId, updated);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "更新住宿價格失敗");
+      setTimeout(() => setError(null), 3000);
+      throw err;
+    }
+  };
+
+  const handleUpdateMealCost = async (dayId: string, mealType: MealType, value: number | undefined) => {
+    const meal = itinerary.days.find((d) => d.id === dayId)?.meals?.[mealType];
+    if (!meal) return;
+    const updated: Meal = { ...meal, estimated_cost: value };
+    try {
+      const res = await fetch(`/api/v1/days/${dayId}/meals/${mealType}/select`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ itineraryId: data.id, meal: updated }),
+      });
+      if (!res.ok) throw new Error("更新餐費失敗");
+      updateDayMeal(dayId, mealType, updated);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "更新餐費失敗");
+      setTimeout(() => setError(null), 3000);
+      throw err;
+    }
   };
 
   useEffect(() => {
@@ -888,66 +970,6 @@ export default function EditableItineraryCard({
     } finally {
       setRemovingWaypoint(null);
     }
-  };
-
-  const handleStartSetTransit = (dayId: string) => {
-    setTogglingTransitDayId(dayId);
-    setTransitToInput("");
-  };
-
-  const handleCancelSetTransit = () => {
-    setTogglingTransitDayId(null);
-    setTransitToInput("");
-  };
-
-  const saveTransitDay = async (
-    dayId: string,
-    body: { isTransitDay: true; transitTo: string } | { isTransitDay: false }
-  ) => {
-    setSavingTransitDayId(dayId);
-    setError(null);
-    try {
-      const res = await fetch(`/api/v1/days/${dayId}/toggle-transit`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ itineraryId: data.id, ...body }),
-      });
-      if (!res.ok) {
-        const resData = await res.json();
-        throw new Error(resData.error || "更新移動日失敗");
-      }
-      setItinerary((prev) => ({
-        ...prev,
-        days: prev.days.map((d) =>
-          d.id === dayId
-            ? {
-                ...d,
-                isTransitDay: body.isTransitDay,
-                transitTo: body.isTransitDay ? body.transitTo : undefined,
-                accommodation: body.isTransitDay ? null : d.accommodation,
-              }
-            : d
-        ),
-      }));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "更新移動日失敗");
-      setTimeout(() => setError(null), 6000);
-    } finally {
-      setSavingTransitDayId(null);
-    }
-  };
-
-  const handleConfirmSetTransit = async (dayId: string) => {
-    const transitTo = transitToInput.trim();
-    if (!transitTo) return;
-    await saveTransitDay(dayId, { isTransitDay: true, transitTo });
-    setTogglingTransitDayId(null);
-    setTransitToInput("");
-  };
-
-  const handleUnsetTransit = async (dayId: string) => {
-    if (!confirm("確定要取消這一天的移動日標記嗎？")) return;
-    await saveTransitDay(dayId, { isTransitDay: false });
   };
 
   const handleAddStop = async (dayId: string) => {
@@ -1130,6 +1152,7 @@ export default function EditableItineraryCard({
 
           const isCollapsed = collapsedDays.has(day.day);
           const isTransitDay = day.isTransitDay === true;
+          const isLocked = day.isLocked === true;
 
           // Cross-border connector appears before each transit day (when prev day is non-transit)
           const showCrossBorderConnector = isTransitDay && prevDay && !prevDay.isTransitDay;
@@ -1185,7 +1208,9 @@ export default function EditableItineraryCard({
             >
               <div
                 className={`px-5 py-4 bg-gradient-to-r ${
-                  isTransitDay
+                  isLocked
+                    ? "from-purple-500 to-pink-500"
+                    : isTransitDay
                     ? "from-amber-500 to-orange-500"
                     : "from-blue-500 to-blue-600"
                 }`}
@@ -1205,6 +1230,11 @@ export default function EditableItineraryCard({
                     </svg>
                     <div className="text-lg font-bold text-white flex items-center gap-2 flex-wrap min-w-0">
                       <span className="shrink-0">第 {day.day} 天</span>
+                      {isLocked && (
+                        <span className="inline-flex items-center gap-1 text-xs font-semibold bg-white/25 px-2 py-0.5 rounded-full shrink-0">
+                          🔒 整天鎖定
+                        </span>
+                      )}
                       {isTransitDay && (
                         <span className="inline-flex items-center gap-1 text-xs font-semibold bg-white/25 px-2 py-0.5 rounded-full shrink-0">
                           <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1298,66 +1328,21 @@ export default function EditableItineraryCard({
                       </svg>
                       導航
                     </a>
-                    <button
-                      onClick={() =>
-                        bulkEditDayId === day.id
-                          ? handleCancelBulkEdit()
-                          : day.id && handleStartBulkEdit(day.id, day.stops)
-                      }
-                      disabled={bulkEditDayId !== null && bulkEditDayId !== day.id}
-                      className="flex items-center gap-1 rounded-md bg-white/20 hover:bg-white/30 disabled:opacity-30 transition-colors px-2.5 py-1 text-xs font-medium text-white"
-                    >
-                      {bulkEditDayId === day.id ? "取消編輯" : "編輯本日"}
-                    </button>
-                    {isTransitDay ? (
+                    {!isLocked && (
                       <button
-                        onClick={() => day.id && handleUnsetTransit(day.id)}
-                        disabled={savingTransitDayId !== null || !day.id}
+                        onClick={() =>
+                          bulkEditDayId === day.id
+                            ? handleCancelBulkEdit()
+                            : day.id && handleStartBulkEdit(day.id, day.stops)
+                        }
+                        disabled={bulkEditDayId !== null && bulkEditDayId !== day.id}
                         className="flex items-center gap-1 rounded-md bg-white/20 hover:bg-white/30 disabled:opacity-30 transition-colors px-2.5 py-1 text-xs font-medium text-white"
                       >
-                        取消移動日
+                        {bulkEditDayId === day.id ? "取消編輯" : "編輯本日"}
                       </button>
-                    ) : (
-                      dayIndex !== itinerary.days.length - 1 && (
-                        <button
-                          onClick={() =>
-                            togglingTransitDayId === day.id
-                              ? handleCancelSetTransit()
-                              : day.id && handleStartSetTransit(day.id)
-                          }
-                          disabled={savingTransitDayId !== null || !day.id}
-                          className="flex items-center gap-1 rounded-md bg-white/20 hover:bg-white/30 disabled:opacity-30 transition-colors px-2.5 py-1 text-xs font-medium text-white"
-                        >
-                          {togglingTransitDayId === day.id ? "取消" : "設為移動日"}
-                        </button>
-                      )
                     )}
                   </div>
                 </div>
-                {togglingTransitDayId === day.id && (
-                  <div className="mt-2.5 flex items-center gap-2">
-                    <input
-                      type="text"
-                      autoFocus
-                      value={transitToInput}
-                      onChange={(e) => setTransitToInput(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") handleConfirmSetTransit(day.id!);
-                        if (e.key === "Escape") handleCancelSetTransit();
-                      }}
-                      placeholder="前往哪個城市？"
-                      disabled={savingTransitDayId === day.id}
-                      className="flex-1 px-3 py-1.5 rounded-lg border border-white/30 bg-white/20 text-white placeholder-white/60 text-sm focus:outline-none focus:ring-2 focus:ring-white/50 disabled:opacity-50"
-                    />
-                    <button
-                      onClick={() => day.id && handleConfirmSetTransit(day.id)}
-                      disabled={savingTransitDayId === day.id || !transitToInput.trim()}
-                      className="px-3 py-1.5 bg-white/90 text-orange-700 text-sm font-medium rounded-lg hover:bg-white disabled:opacity-50 transition-colors shrink-0"
-                    >
-                      {savingTransitDayId === day.id ? "儲存中…" : "確認"}
-                    </button>
-                  </div>
-                )}
                 {day.accommodation && day.accommodation.name !== "無需住宿" && (
                   <div className="mt-2 flex items-center gap-1.5 text-xs text-white/80">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="size-3.5 shrink-0">
@@ -1420,7 +1405,30 @@ export default function EditableItineraryCard({
                             onEditChange={setEditingStop}
                             onDelete={(s) => day.id && handleDeleteStop(day.id, s)}
                             deleteDisabled={bulkEditDayId !== null}
+                            onSwap={(s) => s.id && setPickingStopId(s.id)}
+                            isPicking={pickingStopId === stop.id}
+                            onMove={(s, targetDayId) => day.id && handleMoveStop(day.id, s, targetDayId)}
+                            moveTargets={itinerary.days
+                              .filter((d) => d.id && d.id !== day.id)
+                              .map((d) => ({
+                                id: d.id!,
+                                label: `第 ${d.day} 天${d.theme ? "・" + d.theme : ""}`,
+                              }))}
+                            locked={isLocked}
                           />
+                          {pickingStopId === stop.id && day.id && stop.id && (
+                            <StopPicker
+                              itineraryId={data.id}
+                              dayId={day.id}
+                              stopId={stop.id}
+                              currency={itinerary.currency}
+                              onCancel={() => setPickingStopId(null)}
+                              onSelected={(updatedStop) => {
+                                updateStop(day.id!, stop.id!, updatedStop);
+                                setPickingStopId(null);
+                              }}
+                            />
+                          )}
                         </div>
                       );
                     })}
@@ -1513,7 +1521,7 @@ export default function EditableItineraryCard({
                   )}
 
                   {/* Add stop */}
-                  {day.id && bulkEditDayId !== day.id && (
+                  {day.id && bulkEditDayId !== day.id && !isLocked && (
                     <div className="mt-4 pt-4 border-t border-zinc-100 dark:border-zinc-800">
                       {addingToDay === day.id ? (
                         <div className="flex gap-2">
@@ -1591,6 +1599,11 @@ export default function EditableItineraryCard({
                     {day.accommodation ? (
                       <div className="rounded-lg bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-100 dark:border-indigo-900/50 p-3">
                         <div className="flex items-start justify-between gap-3">
+                          <PlacePhotoThumb
+                            placeId={day.accommodation.placeId}
+                            photoName={day.accommodation.photoName}
+                            size={56}
+                          />
                           <div className="flex-1 min-w-0">
                             <p className="font-semibold text-zinc-800 dark:text-zinc-200 text-sm leading-snug">
                               {day.accommodation.name || day.accommodation.area}
@@ -1620,22 +1633,28 @@ export default function EditableItineraryCard({
                                   {"$".repeat(day.accommodation.priceLevel)}
                                 </span>
                               )}
-                              {day.accommodation.estimated_cost !== undefined && (
+                              {day.accommodation.estimated_cost !== undefined &&
+                              day.accommodation.estimated_cost_low !== undefined &&
+                              day.accommodation.estimated_cost_high !== undefined ? (
                                 <span className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">
                                   💴{" "}
-                                  {day.accommodation.estimated_cost_low !== undefined &&
-                                  day.accommodation.estimated_cost_high !== undefined
-                                    ? [
-                                        itinerary.currency,
-                                        `${day.accommodation.estimated_cost_low.toLocaleString()}-${day.accommodation.estimated_cost_high.toLocaleString()}`,
-                                      ]
-                                        .filter(Boolean)
-                                        .join(" ")
-                                    : [itinerary.currency, day.accommodation.estimated_cost.toLocaleString()]
-                                        .filter(Boolean)
-                                        .join(" ")}
+                                  {[
+                                    itinerary.currency,
+                                    `${day.accommodation.estimated_cost_low.toLocaleString()}-${day.accommodation.estimated_cost_high.toLocaleString()}`,
+                                  ]
+                                    .filter(Boolean)
+                                    .join(" ")}
                                   /晚
                                 </span>
+                              ) : (
+                                day.id && (
+                                  <InlinePriceEditor
+                                    value={day.accommodation.estimated_cost}
+                                    currency={itinerary.currency}
+                                    suffix="/晚"
+                                    onSave={(value) => handleUpdateAccommodationCost(day.id!, value)}
+                                  />
+                                )
                               )}
                               {day.accommodation.nearestStation && (
                                 <span className="text-xs text-zinc-400 dark:text-zinc-500">
@@ -1707,11 +1726,12 @@ export default function EditableItineraryCard({
                     <p className="text-xs font-semibold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider mb-3">
                       餐廳推薦
                     </p>
-                    <div className="grid grid-cols-3 gap-2">
+                    <div className="grid grid-cols-4 gap-2">
                       {(
                         [
                           { key: "breakfast", label: "早餐", icon: "🌅" },
                           { key: "lunch",     label: "午餐", icon: "☀️" },
+                          { key: "snack",     label: "點心", icon: "🍰" },
                           { key: "dinner",    label: "晚餐", icon: "🌙" },
                         ] as const
                       ).map(({ key, label, icon }) => {
@@ -1756,37 +1776,46 @@ export default function EditableItineraryCard({
                                 </button>
                               )}
                             </div>
-                            <p className="text-sm font-semibold text-zinc-800 dark:text-zinc-200 leading-snug">
-                              {meal.name}
-                            </p>
-                            {meal.description && (
-                              <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5 leading-snug">
-                                {meal.description}
-                              </p>
-                            )}
-                            {meal.address && (
-                              <div className="flex items-center gap-1 mt-1">
-                                <span className="text-[11px] text-zinc-400 dark:text-zinc-500 leading-tight line-clamp-1">
-                                  {meal.address}
-                                </span>
-                                {meal.placeId && (
-                                  <a
-                                    href={`https://www.google.com/maps/place/?q=place_id:${meal.placeId}`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="shrink-0 text-[11px] text-blue-400 hover:text-blue-600 dark:text-blue-500 dark:hover:text-blue-300 transition-colors"
-                                    title="在 Google Maps 上導航"
-                                  >
-                                    ↗
-                                  </a>
+                            <div className="flex items-start gap-2">
+                              <PlacePhotoThumb placeId={meal.placeId} photoName={meal.photoName} size={40} />
+                              <div className="min-w-0 flex-1">
+                                <p className="text-sm font-semibold text-zinc-800 dark:text-zinc-200 leading-snug">
+                                  {meal.name}
+                                </p>
+                                {meal.description && (
+                                  <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5 leading-snug">
+                                    {meal.description}
+                                  </p>
+                                )}
+                                {meal.address && (
+                                  <div className="flex items-center gap-1 mt-1">
+                                    <span className="text-[11px] text-zinc-400 dark:text-zinc-500 leading-tight line-clamp-1">
+                                      {meal.address}
+                                    </span>
+                                    {meal.placeId && (
+                                      <a
+                                        href={`https://www.google.com/maps/place/?q=place_id:${meal.placeId}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="shrink-0 text-[11px] text-blue-400 hover:text-blue-600 dark:text-blue-500 dark:hover:text-blue-300 transition-colors"
+                                        title="在 Google Maps 上導航"
+                                      >
+                                        ↗
+                                      </a>
+                                    )}
+                                  </div>
+                                )}
+                                {day.id && (
+                                  <p className="mt-1">
+                                    <InlinePriceEditor
+                                      value={meal.estimated_cost}
+                                      currency={itinerary.currency}
+                                      onSave={(value) => handleUpdateMealCost(day.id!, key, value)}
+                                    />
+                                  </p>
                                 )}
                               </div>
-                            )}
-                            {meal.estimated_cost !== undefined && (
-                              <p className="text-xs text-emerald-600 dark:text-emerald-400 font-medium mt-1">
-                                💴 {[itinerary.currency, meal.estimated_cost.toLocaleString()].filter(Boolean).join(" ")}
-                              </p>
-                            )}
+                            </div>
                           </div>
                         );
                       })}
@@ -1799,7 +1828,7 @@ export default function EditableItineraryCard({
                         mealType={pickingMeal.mealType}
                         currency={itinerary.currency}
                         mealLabel={
-                          { breakfast: "早餐", lunch: "午餐", dinner: "晚餐" }[pickingMeal.mealType]
+                          { breakfast: "早餐", lunch: "午餐", dinner: "晚餐", snack: "點心" }[pickingMeal.mealType]
                         }
                         onCancel={() => setPickingMeal(null)}
                         onSelected={(meal) => {

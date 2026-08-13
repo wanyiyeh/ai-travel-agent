@@ -7,7 +7,7 @@ import {
 } from "@/lib/schemas";
 import { validateItinerary } from "@/lib/validateItinerary";
 import { iataToCity } from "@/lib/iataCity";
-import { fetchCityRestaurants, fetchCityBreakfastPlaces, buildRestaurantHintsPrompt, fetchCityAttractions, buildAttractionHintsPrompt, type BudgetLevel } from "@/lib/fetchCityRestaurants";
+import { fetchCityRestaurants, fetchCityBreakfastPlaces, fetchCitySnackPlaces, buildRestaurantHintsPrompt, fetchCityAttractions, buildAttractionHintsPrompt, type BudgetLevel } from "@/lib/fetchCityRestaurants";
 import { prisma, j } from "@/lib/db";
 import { buildSystemPrompt, calcDays, repairTransitDayDepartureCities, tagWaypointCities } from "@/lib/itineraryGen";
 
@@ -76,12 +76,13 @@ export async function POST(request: Request) {
             const iataCodes = [...new Set([flightInfo.arrivalCity, flightInfo.returnDepartureCity])];
             const cityEntries = await Promise.all(
               iataCodes.map(async (code) => {
-                const [breakfastPlaces, mainMealPlaces, attractions] = await Promise.all([
+                const [breakfastPlaces, mainMealPlaces, snackPlaces, attractions] = await Promise.all([
                   fetchCityBreakfastPlaces(code, googleApiKey),
                   fetchCityRestaurants(code, googleApiKey, budget),
+                  fetchCitySnackPlaces(code, googleApiKey),
                   fetchCityAttractions(code, googleApiKey),
                 ]);
-                return { cityNameZh: iataToCity(code), iataCode: code, breakfastPlaces, mainMealPlaces, attractions };
+                return { cityNameZh: iataToCity(code), iataCode: code, breakfastPlaces, mainMealPlaces, snackPlaces, attractions };
               })
             );
             hintsPrompt = buildAttractionHintsPrompt(cityEntries) + buildRestaurantHintsPrompt(cityEntries, budget);

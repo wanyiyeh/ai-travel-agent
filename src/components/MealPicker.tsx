@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { Meal, MealCandidate, MealType } from "@/types/itinerary";
+import { PlacePhotoThumb } from "@/components/PlacePhotoThumb";
 
 interface MealPickerProps {
   itineraryId: string;
@@ -151,6 +152,7 @@ export function MealPicker({
         lng: candidate.lng,
         address: candidate.address,
         rating: candidate.rating,
+        photoName: candidate.photoName,
       };
       const res = await fetch(`/api/v1/days/${dayId}/meals/${mealType}/select`, {
         method: "POST",
@@ -181,7 +183,8 @@ export function MealPicker({
         }`}
       >
         <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0">
+          <PlacePhotoThumb placeId={candidate.placeId} photoName={candidate.photoName} size={56} />
+          <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1.5 flex-wrap">
               <p className="font-medium text-sm text-zinc-900 dark:text-zinc-50">{candidate.name}</p>
               {candidate.rating != null && (

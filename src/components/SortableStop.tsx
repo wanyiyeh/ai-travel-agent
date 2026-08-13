@@ -1,9 +1,11 @@
 "use client";
 
+import { useState } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { formatDuration } from "@/types/itinerary";
 import type { Stop } from "@/types/itinerary";
+import { PlacePhotoThumb } from "@/components/PlacePhotoThumb";
 
 const DURATION_STEP = 15;
 const DURATION_PRESETS = [30, 60, 90, 120, 180, 240];
@@ -13,6 +15,7 @@ type EditingStop = {
   name: string;
   description: string;
   duration_minutes: number;
+  estimated_cost?: number;
 };
 
 interface SortableStopProps {
@@ -32,6 +35,13 @@ interface SortableStopProps {
   onEditChange: (updated: EditingStop) => void;
   onDelete?: (stop: Stop) => void;
   deleteDisabled?: boolean;
+  onSwap?: (stop: Stop) => void;
+  isPicking?: boolean;
+  onMove?: (stop: Stop, targetDayId: string) => void;
+  moveTargets?: { id: string; label: string }[];
+  // A locked day's single attraction stop — no drag, no edit/swap/move/delete.
+  // See the `isLocked` guards mirrored server-side in the stop mutation routes.
+  locked?: boolean;
 }
 
 export function SortableStop({
@@ -51,8 +61,14 @@ export function SortableStop({
   onEditChange,
   onDelete,
   deleteDisabled = false,
+  onSwap,
+  isPicking = false,
+  onMove,
+  moveTargets,
+  locked = false,
 }: SortableStopProps) {
   const isEditing = editingStop?.id === stop.id;
+  const [showMoveMenu, setShowMoveMenu] = useState(false);
 
   const {
     attributes,
@@ -63,7 +79,7 @@ export function SortableStop({
     isDragging,
   } = useSortable({
     id: stop.id!,
-    disabled: isEditing || isLoading || bulkMode,
+    disabled: isEditing || isLoading || bulkMode || isPicking || locked,
   });
 
   const style = {
@@ -83,9 +99,9 @@ export function SortableStop({
       <div className="shrink-0">
         <div
           className={`w-9 h-9 bg-blue-50 dark:bg-blue-950 rounded-full flex items-center justify-center${
-            isEditing || isLoading ? "" : " cursor-grab active:cursor-grabbing"
+            isEditing || isLoading || locked ? "" : " cursor-grab active:cursor-grabbing"
           }`}
-          {...(isEditing || isLoading ? {} : { ...attributes, ...listeners })}
+          {...(isEditing || isLoading || locked ? {} : { ...attributes, ...listeners })}
         >
           {/* Grip icon */}
           <svg
@@ -103,6 +119,11 @@ export function SortableStop({
           </svg>
         </div>
       </div>
+
+      {/* Photo */}
+      {!isEditing && (
+        <PlacePhotoThumb placeId={stop.placeId} photoName={stop.photoName} size={64} />
+      )}
 
       {/* Content */}
       <div className="flex-1 min-w-0">
@@ -183,6 +204,31 @@ export function SortableStop({
                 </button>
               </div>
             </div>
+            <div className="space-y-2">
+              <label className="text-sm text-zinc-500 dark:text-zinc-400">
+                預估花費
+              </label>
+              <div className="flex items-center gap-1.5">
+                {currency && (
+                  <span className="text-xs text-zinc-400 dark:text-zinc-500">{currency}</span>
+                )}
+                <input
+                  type="number"
+                  min={0}
+                  step="any"
+                  value={editingStop.estimated_cost ?? ""}
+                  onChange={(e) =>
+                    onEditChange({
+                      ...editingStop,
+                      estimated_cost:
+                        e.target.value.trim() === "" ? undefined : Number(e.target.value),
+                    })
+                  }
+                  placeholder="未設定"
+                  className="w-24 px-2 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-sm text-zinc-900 dark:text-zinc-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </div>
             <div className="flex gap-2">
               <button
                 onClick={onSaveEdit}
@@ -259,7 +305,7 @@ export function SortableStop({
               </p>
             )}
             {stop.estimated_cost !== undefined && (
-              <p className="text-xs text-emerald-600 dark:text-emerald-400 font-medium mt-0.5">
+              <p className="mt-0.5 text-xs text-emerald-600 dark:text-emerald-400 font-medium">
                 {stop.estimated_cost === 0
                   ? "免費"
                   : `💴 ${[currency, stop.estimated_cost.toLocaleString()].filter(Boolean).join(" ")}`}
@@ -277,7 +323,9 @@ export function SortableStop({
           </span>
         </div>
 
-        {bulkMode && stop.id ? (
+        {locked ? (
+          <span className="text-base" title="整天鎖定，無法編輯">🔒</span>
+        ) : bulkMode && stop.id ? (
           <input
             type="checkbox"
             checked={selected}
@@ -290,7 +338,7 @@ export function SortableStop({
             <div className="flex gap-1">
               <button
                 onClick={() => onEdit(stop)}
-                disabled={isLoading || editingStop !== null}
+                disabled={isLoading || editingStop !== null || isPicking}
                 className="p-1 text-zinc-400 hover:text-blue-600 disabled:opacity-30 transition-colors"
                 title="編輯"
               >
@@ -308,10 +356,79 @@ export function SortableStop({
                   />
                 </svg>
               </button>
+              {onSwap && (
+                <button
+                  onClick={() => onSwap(stop)}
+                  disabled={isLoading || editingStop !== null || isPicking}
+                  className="p-1 text-zinc-400 hover:text-emerald-600 disabled:opacity-30 transition-colors"
+                  title="換一個"
+                >
+                  <svg
+                    className="w-4 h-4"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                    />
+                  </svg>
+                </button>
+              )}
+              {onMove && moveTargets && moveTargets.length > 0 && (
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setShowMoveMenu((v) => !v)}
+                    disabled={isLoading || editingStop !== null || isPicking}
+                    className="p-1 text-zinc-400 hover:text-indigo-600 disabled:opacity-30 transition-colors"
+                    title="移到別天"
+                  >
+                    <svg
+                      className="w-4 h-4"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M13 16l4-4m0 0l-4-4m4 4H3m13 9a9 9 0 100-18 9 9 0 000 18z"
+                      />
+                    </svg>
+                  </button>
+                  {showMoveMenu && (
+                    <select
+                      autoFocus
+                      defaultValue=""
+                      onChange={(e) => {
+                        const targetDayId = e.target.value;
+                        setShowMoveMenu(false);
+                        if (targetDayId) onMove(stop, targetDayId);
+                      }}
+                      onBlur={() => setShowMoveMenu(false)}
+                      className="absolute right-0 top-8 z-10 w-40 text-xs rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1.5 text-zinc-700 dark:text-zinc-300 shadow-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    >
+                      <option value="" disabled>
+                        移到...
+                      </option>
+                      {moveTargets.map((d) => (
+                        <option key={d.id} value={d.id}>
+                          {d.label}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+              )}
               {onDelete && (
                 <button
                   onClick={() => onDelete(stop)}
-                  disabled={isLoading || editingStop !== null || deleteDisabled}
+                  disabled={isLoading || editingStop !== null || deleteDisabled || isPicking}
                   className="p-1 text-zinc-400 hover:text-red-600 disabled:opacity-30 transition-colors"
                   title="刪除"
                 >

@@ -116,6 +116,7 @@ export async function POST(
         address: p.address,
         rating: p.rating ?? null,
         estimated_cost: estimateMealCost(config.currency, mealType, p.priceLevel),
+        photoName: p.photoName ?? null,
       }));
 
     // Surface the day's existing meal as the first candidate so picking it
@@ -133,6 +134,7 @@ export async function POST(
             lng: typeof currentMeal?.lng === "number" ? currentMeal.lng : undefined,
             address: typeof currentMeal?.address === "string" ? currentMeal.address : undefined,
             rating: typeof currentMeal?.rating === "number" ? currentMeal.rating : null,
+            photoName: typeof currentMeal?.photoName === "string" ? currentMeal.photoName : null,
             isCurrent: true,
           },
           ...newCandidates,

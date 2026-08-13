@@ -8,6 +8,7 @@
 import { PrismaClient } from "@prisma/client";
 import { readFileSync } from "fs";
 import { resolve } from "path";
+import { buildStopQuery } from "@/lib/placesTextSearch";
 
 try {
   const envContent = readFileSync(resolve(process.cwd(), ".env"), "utf-8");
@@ -44,13 +45,15 @@ async function main() {
         "";
 
       for (const stop of stops) {
-        const { placeId, name, address, lat, lng, rating } = stop as {
+        const { placeId, name, address, lat, lng, rating, photoName, district } = stop as {
           placeId?: string;
           name?: string;
           address?: string;
           lat?: number;
           lng?: number;
           rating?: number | null;
+          photoName?: string | null;
+          district?: string;
         };
 
         if (!placeId || lat == null || lng == null) {
@@ -59,7 +62,10 @@ async function main() {
         }
 
         const placeName = typeof name === "string" ? name : placeId;
-        const query = cityHint ? `${placeName} ${cityHint}` : placeName;
+        // Must match the query the live enrich routes build (see buildStopQuery),
+        // or this backfilled cache entry sits under a key those routes never
+        // look up and just gets ignored — silently re-billing Google later.
+        const query = buildStopQuery(placeName, district ?? "", cityHint);
 
         await prisma.place.upsert({
           where: { id: placeId },
@@ -70,6 +76,7 @@ async function main() {
             lat,
             lng,
             rating: rating ?? null,
+            photoName: photoName ?? null,
           },
           update: {
             name: placeName,
@@ -77,6 +84,7 @@ async function main() {
             lat,
             lng,
             rating: rating ?? null,
+            ...(photoName ? { photoName } : {}),
           },
         });
 

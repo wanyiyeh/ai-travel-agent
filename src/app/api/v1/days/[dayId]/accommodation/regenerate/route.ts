@@ -136,6 +136,7 @@ export async function POST(
           ? { estimated_cost_low: costRange[0], estimated_cost_high: costRange[1] }
           : {}),
         nearestStation: nearestStations[i],
+        photoName: h.photoName ?? null,
       };
     });
 
@@ -164,6 +165,8 @@ export async function POST(
               typeof currentAccommodation?.estimated_cost_high === "number"
                 ? currentAccommodation.estimated_cost_high
                 : undefined,
+            photoName:
+              typeof currentAccommodation?.photoName === "string" ? currentAccommodation.photoName : null,
             isCurrent: true,
           },
           ...newCandidates,

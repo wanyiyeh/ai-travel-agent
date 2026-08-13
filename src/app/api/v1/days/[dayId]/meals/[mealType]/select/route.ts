@@ -67,6 +67,7 @@ export async function POST(
         lat: meal.lat,
         lng: meal.lng,
         rating: meal.rating ?? null,
+        photoName: meal.photoName ?? null,
       });
     }
 

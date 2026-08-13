@@ -8,6 +8,7 @@ export interface CachedPlace {
   lng: number | null;
   rating: number | null;
   types: string[] | null;
+  photoName: string | null;
 }
 
 function parseTypes(raw: string | null): string[] | null {
@@ -26,18 +27,18 @@ export async function lookupByQuery(query: string): Promise<CachedPlace | null> 
   });
   if (!hit) return null;
   const p = hit.place;
-  return { placeId: p.id, name: p.name, address: p.address, lat: p.lat, lng: p.lng, rating: p.rating, types: parseTypes(p.types) };
+  return { placeId: p.id, name: p.name, address: p.address, lat: p.lat, lng: p.lng, rating: p.rating, types: parseTypes(p.types), photoName: p.photoName };
 }
 
 export async function lookupByPlaceId(placeId: string): Promise<CachedPlace | null> {
   const p = await prisma.place.findUnique({ where: { id: placeId } });
   if (!p) return null;
-  return { placeId: p.id, name: p.name, address: p.address, lat: p.lat, lng: p.lng, rating: p.rating, types: parseTypes(p.types) };
+  return { placeId: p.id, name: p.name, address: p.address, lat: p.lat, lng: p.lng, rating: p.rating, types: parseTypes(p.types), photoName: p.photoName };
 }
 
 export async function upsertPlace(
   query: string,
-  data: { placeId: string; name: string; address: string | null; lat: number; lng: number; rating?: number | null; types?: string[] | null }
+  data: { placeId: string; name: string; address: string | null; lat: number; lng: number; rating?: number | null; types?: string[] | null; photoName?: string | null }
 ): Promise<void> {
   const types = data.types ? JSON.stringify(data.types) : undefined;
 
@@ -51,6 +52,7 @@ export async function upsertPlace(
       lng: data.lng,
       rating: data.rating ?? null,
       types: types ?? null,
+      photoName: data.photoName ?? null,
     },
     update: {
       name: data.name,
@@ -59,6 +61,7 @@ export async function upsertPlace(
       lng: data.lng,
       rating: data.rating ?? null,
       ...(types !== undefined ? { types } : {}),
+      ...(data.photoName !== undefined ? { photoName: data.photoName } : {}),
     },
   });
 

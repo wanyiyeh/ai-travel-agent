@@ -4,11 +4,18 @@
  *
  * Run: npm run enrich-all
  * Skip API and only write already-enriched stops to cache: npm run enrich-all -- --cache-only
+ *
+ * Photo backfill (a separate Place Details call per already-enriched place
+ * lacking a photo) is opt-in — it scans the *entire* local database, so left
+ * on by default it silently re-bills a whole new SKU every time this script
+ * is run for its normal geocoding purpose:
+ * npm run enrich-all -- --backfill-photos --photo-limit=50
  */
 
 import { PrismaClient } from "@prisma/client";
 import { readFileSync } from "fs";
 import { resolve } from "path";
+import { buildStopQuery, buildMealQuery } from "@/lib/placesTextSearch";
 
 try {
   const envContent = readFileSync(resolve(process.cwd(), ".env"), "utf-8");
@@ -20,6 +27,36 @@ try {
 
 const prisma = new PrismaClient();
 const PLACES_URL = "https://places.googleapis.com/v1/places:searchText";
+const PLACE_DETAILS_URL = "https://places.googleapis.com/v1/places";
+
+// Places already enriched (has placeId/lat/lng) skip the full Text Search —
+// this dedupes Place Details lookups for those across the whole run so the
+// same placeId (e.g. a hotel reused across days) isn't billed twice.
+const photoBackfillCache = new Map<string, string | null>();
+
+// Cheap way to backfill just the photo for an already-enriched place: Place
+// Details with a `photos`-only field mask is Pro-tier, not Enterprise, and
+// avoids re-running the full Text Search (which could also re-match a
+// different place than what's already stored).
+async function fetchPlacePhotoName(placeId: string, apiKey: string): Promise<string | null> {
+  if (photoBackfillCache.has(placeId)) return photoBackfillCache.get(placeId)!;
+
+  let photoName: string | null = null;
+  try {
+    const res = await fetch(`${PLACE_DETAILS_URL}/${placeId}`, {
+      headers: { "X-Goog-Api-Key": apiKey, "X-Goog-FieldMask": "photos" },
+    });
+    if (res.ok) {
+      const data = await res.json();
+      photoName = data.photos?.[0]?.name ?? null;
+    }
+  } catch {
+    // leave photoName null — a missing photo isn't worth failing the run over
+  }
+
+  photoBackfillCache.set(placeId, photoName);
+  return photoName;
+}
 
 // Some itineraries store an airport/city code instead of a geocodable name.
 const CITY_HINT_ALIASES: Record<string, string> = {
@@ -81,7 +118,7 @@ async function searchPlace(
     headers: {
       "Content-Type": "application/json",
       "X-Goog-Api-Key": apiKey,
-      "X-Goog-FieldMask": "places.id,places.displayName,places.formattedAddress,places.location,places.rating",
+      "X-Goog-FieldMask": "places.id,places.displayName,places.formattedAddress,places.location,places.rating,places.photos",
     },
     body: JSON.stringify(body),
   });
@@ -93,6 +130,9 @@ async function searchPlace(
 async function main() {
   const apiKey = process.env.GOOGLE_PLACES_API_KEY;
   const cacheOnly = process.argv.includes("--cache-only");
+  const backfillPhotos = process.argv.includes("--backfill-photos");
+  const photoLimitArg = process.argv.find((a) => a.startsWith("--photo-limit="));
+  const photoLimit = photoLimitArg ? Number(photoLimitArg.split("=")[1]) : Infinity;
 
   if (!apiKey && !cacheOnly) {
     throw new Error("GOOGLE_PLACES_API_KEY 未設定");
@@ -102,12 +142,24 @@ async function main() {
     select: { id: true, title: true, days: true },
   });
 
-  console.log(`找到 ${itineraries.length} 筆行程\n`);
+  console.log(`找到 ${itineraries.length} 筆行程`);
+  if (backfillPhotos) {
+    console.log(
+      Number.isFinite(photoLimit)
+        ? `補圖已啟用，本次最多補 ${photoLimit} 筆（每筆是一次額外的 Place Details 付費呼叫）`
+        : `補圖已啟用，未設 --photo-limit，將對資料庫內所有缺照片的地點逐一呼叫 Place Details`
+    );
+  }
+  console.log("");
 
   let totalEnriched = 0;
   let totalCached = 0;
   let totalSkipped = 0;
   let totalFailed = 0;
+  let totalPhotosBackfilled = 0;
+  // Live counter (unlike totalPhotosBackfilled, which only updates once an
+  // itinerary finishes) so the --photo-limit cap can stop mid-itinerary.
+  let photoCallsMade = 0;
 
   for (const itinerary of itineraries) {
     const days = (typeof itinerary.days === "string"
@@ -115,7 +167,7 @@ async function main() {
       : itinerary.days) as Record<string, unknown>[];
 
     let changed = false;
-    let enriched = 0, cached = 0, skipped = 0, failed = 0;
+    let enriched = 0, cached = 0, skipped = 0, failed = 0, photosBackfilled = 0;
 
     for (const day of days) {
       const stops = (day.stops ?? []) as Record<string, unknown>[];
@@ -133,17 +185,29 @@ async function main() {
 
       const meals = day.meals as Record<string, Record<string, unknown>> | undefined;
       if (meals) {
-        for (const mealKey of ["breakfast", "lunch", "dinner"] as const) {
+        for (const mealKey of ["breakfast", "lunch", "dinner", "snack"] as const) {
           const meal = meals[mealKey];
           if (!meal) continue;
 
           // Already enriched
           if (meal.placeId && meal.lat != null && meal.lng != null) {
-            const query = cityHint ? `${meal.name} ${cityHint}` : String(meal.name);
+            const query = buildMealQuery(String(meal.name), cityHint);
+            const existing = await prisma.place.findUnique({ where: { id: String(meal.placeId) } });
+            let photoName = existing?.photoName ?? null;
+            if (!photoName && !cacheOnly && backfillPhotos && photoCallsMade < photoLimit) {
+              photoCallsMade++;
+              photoName = await fetchPlacePhotoName(String(meal.placeId), apiKey!);
+              if (photoName) {
+                meals[mealKey] = { ...meal, photoName };
+                changed = true;
+                photosBackfilled++;
+              }
+              await new Promise((r) => setTimeout(r, 50));
+            }
             await prisma.place.upsert({
               where: { id: String(meal.placeId) },
-              create: { id: String(meal.placeId), name: String(meal.name), address: meal.address as string ?? null, lat: meal.lat as number, lng: meal.lng as number, rating: meal.rating as number ?? null },
-              update: { lat: meal.lat as number, lng: meal.lng as number },
+              create: { id: String(meal.placeId), name: String(meal.name), address: meal.address as string ?? null, lat: meal.lat as number, lng: meal.lng as number, rating: meal.rating as number ?? null, photoName },
+              update: { lat: meal.lat as number, lng: meal.lng as number, ...(photoName ? { photoName } : {}) },
             });
             await prisma.placeQuery.upsert({
               where: { query },
@@ -159,7 +223,7 @@ async function main() {
             continue;
           }
 
-          const query = cityHint ? `${meal.name} ${cityHint}` : String(meal.name);
+          const query = buildMealQuery(String(meal.name), cityHint);
 
           const hit = await prisma.placeQuery.findUnique({
             where: { query },
@@ -174,6 +238,7 @@ async function main() {
               lng: hit.place.lng,
               address: hit.place.address,
               rating: hit.place.rating,
+              photoName: hit.place.photoName,
             };
             changed = true;
             cached++;
@@ -196,6 +261,7 @@ async function main() {
             }
 
             if (place) {
+              const photoName = place.photos?.[0]?.name ?? null;
               meals[mealKey] = {
                 ...meal,
                 placeId: place.id,
@@ -203,11 +269,12 @@ async function main() {
                 lng: place.location.longitude,
                 address: place.formattedAddress,
                 rating: place.rating ?? null,
+                photoName,
               };
               await prisma.place.upsert({
                 where: { id: place.id },
-                create: { id: place.id, name: place.displayName?.text ?? String(meal.name), address: place.formattedAddress, lat: place.location.latitude, lng: place.location.longitude, rating: place.rating ?? null },
-                update: { name: place.displayName?.text ?? String(meal.name), address: place.formattedAddress, lat: place.location.latitude, lng: place.location.longitude, rating: place.rating ?? null },
+                create: { id: place.id, name: place.displayName?.text ?? String(meal.name), address: place.formattedAddress, lat: place.location.latitude, lng: place.location.longitude, rating: place.rating ?? null, photoName },
+                update: { name: place.displayName?.text ?? String(meal.name), address: place.formattedAddress, lat: place.location.latitude, lng: place.location.longitude, rating: place.rating ?? null, ...(photoName ? { photoName } : {}) },
               });
               await prisma.placeQuery.upsert({
                 where: { query },
@@ -235,16 +302,27 @@ async function main() {
         // wards/neighborhoods (see itineraryGen.ts rule 20) — city name alone
         // isn't granular enough for cities like Tokyo or Kyoto.
         const stopDistrict = typeof stop.district === "string" ? stop.district : "";
-        const stopNamePart = stopDistrict ? `${stop.name} ${stopDistrict}` : String(stop.name);
 
         // Already enriched
         if (stop.placeId && stop.lat != null && stop.lng != null) {
           // Still upsert to cache in case it's missing
-          const query = stopCityHint ? `${stopNamePart} ${stopCityHint}` : stopNamePart;
+          const query = buildStopQuery(String(stop.name), stopDistrict, stopCityHint);
+          const existing = await prisma.place.findUnique({ where: { id: String(stop.placeId) } });
+          let photoName = existing?.photoName ?? null;
+          if (!photoName && !cacheOnly && backfillPhotos && photoCallsMade < photoLimit) {
+            photoCallsMade++;
+            photoName = await fetchPlacePhotoName(String(stop.placeId), apiKey!);
+            if (photoName) {
+              stops[i] = { ...stop, photoName };
+              changed = true;
+              photosBackfilled++;
+            }
+            await new Promise((r) => setTimeout(r, 50));
+          }
           await prisma.place.upsert({
             where: { id: String(stop.placeId) },
-            create: { id: String(stop.placeId), name: String(stop.name), address: stop.address as string ?? null, lat: stop.lat as number, lng: stop.lng as number, rating: stop.rating as number ?? null },
-            update: { lat: stop.lat as number, lng: stop.lng as number },
+            create: { id: String(stop.placeId), name: String(stop.name), address: stop.address as string ?? null, lat: stop.lat as number, lng: stop.lng as number, rating: stop.rating as number ?? null, photoName },
+            update: { lat: stop.lat as number, lng: stop.lng as number, ...(photoName ? { photoName } : {}) },
           });
           await prisma.placeQuery.upsert({
             where: { query },
@@ -268,7 +346,7 @@ async function main() {
           continue;
         }
 
-        const query = stopCityHint ? `${stopNamePart} ${stopCityHint}` : stopNamePart;
+        const query = buildStopQuery(String(stop.name), stopDistrict, stopCityHint);
 
         // Check PlaceQuery cache first
         const hit = await prisma.placeQuery.findUnique({
@@ -284,6 +362,7 @@ async function main() {
             lng: hit.place.lng,
             address: hit.place.address,
             rating: hit.place.rating,
+            photoName: hit.place.photoName,
           };
           changed = true;
           cached++;
@@ -308,6 +387,7 @@ async function main() {
           }
 
           if (place) {
+            const photoName = place.photos?.[0]?.name ?? null;
             stops[i] = {
               ...stop,
               placeId: place.id,
@@ -315,11 +395,12 @@ async function main() {
               lng: place.location.longitude,
               address: place.formattedAddress,
               rating: place.rating ?? null,
+              photoName,
             };
             await prisma.place.upsert({
               where: { id: place.id },
-              create: { id: place.id, name: place.displayName?.text ?? String(stop.name), address: place.formattedAddress, lat: place.location.latitude, lng: place.location.longitude, rating: place.rating ?? null },
-              update: { name: place.displayName?.text ?? String(stop.name), address: place.formattedAddress, lat: place.location.latitude, lng: place.location.longitude, rating: place.rating ?? null },
+              create: { id: place.id, name: place.displayName?.text ?? String(stop.name), address: place.formattedAddress, lat: place.location.latitude, lng: place.location.longitude, rating: place.rating ?? null, photoName },
+              update: { name: place.displayName?.text ?? String(stop.name), address: place.formattedAddress, lat: place.location.latitude, lng: place.location.longitude, rating: place.rating ?? null, ...(photoName ? { photoName } : {}) },
             });
             await prisma.placeQuery.upsert({
               where: { query },
@@ -348,14 +429,18 @@ async function main() {
     }
 
     const label = itinerary.title.slice(0, 45).padEnd(45);
-    console.log(`  ${label} API:${enriched} 快取:${cached} 跳過:${skipped} 失敗:${failed}`);
+    console.log(`  ${label} API:${enriched} 快取:${cached} 跳過:${skipped} 失敗:${failed} 補圖:${photosBackfilled}`);
     totalEnriched += enriched;
     totalCached += cached;
     totalSkipped += skipped;
     totalFailed += failed;
+    totalPhotosBackfilled += photosBackfilled;
   }
 
-  console.log(`\n完成  API:${totalEnriched}  快取:${totalCached}  跳過:${totalSkipped}  失敗:${totalFailed}`);
+  console.log(`\n完成  API:${totalEnriched}  快取:${totalCached}  跳過:${totalSkipped}  失敗:${totalFailed}  補圖:${totalPhotosBackfilled}`);
+  if (backfillPhotos && photoCallsMade >= photoLimit) {
+    console.log(`已達 --photo-limit=${photoLimit} 上限提前停止補圖，還有地點未補；可重新執行以繼續。`);
+  }
 }
 
 main()

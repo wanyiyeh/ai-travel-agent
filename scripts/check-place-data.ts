@@ -204,7 +204,7 @@ async function main() {
       const meals = day.meals as Record<string, Record<string, unknown>> | undefined;
       if (!meals) continue;
 
-      for (const mealType of ["breakfast", "lunch", "dinner"]) {
+      for (const mealType of ["breakfast", "lunch", "dinner", "snack"]) {
         const meal = meals[mealType];
         const placeId = meal?.placeId as string | undefined;
         if (!meal || !placeId) continue;

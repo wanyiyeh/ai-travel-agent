@@ -63,6 +63,7 @@ export async function POST(
         lat: accommodation.lat,
         lng: accommodation.lng,
         rating: accommodation.rating ?? null,
+        photoName: accommodation.photoName ?? null,
       });
     }
 

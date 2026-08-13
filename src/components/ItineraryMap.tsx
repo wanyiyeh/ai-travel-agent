@@ -46,7 +46,7 @@ interface MapAccommodation {
   dayIndex: number;
 }
 
-type MealType = "breakfast" | "lunch" | "dinner";
+type MealType = "breakfast" | "lunch" | "dinner" | "snack";
 
 interface MapMeal {
   dayId: string;
@@ -62,6 +62,7 @@ interface MapMeal {
 const MEAL_META: Record<MealType, { icon: string; label: string }> = {
   breakfast: { icon: "🌅", label: "早餐" },
   lunch: { icon: "☀️", label: "午餐" },
+  snack: { icon: "🍰", label: "點心" },
   dinner: { icon: "🌙", label: "晚餐" },
 };
 
@@ -128,6 +129,7 @@ function MapContent({
       const meals = visibleMeals.filter((m) => m.dayIndex === dayIndex);
       const breakfast = meals.find((m) => m.mealType === "breakfast");
       const lunch = meals.find((m) => m.mealType === "lunch");
+      const snack = meals.find((m) => m.mealType === "snack");
       const dinner = meals.find((m) => m.mealType === "dinner");
 
       // Insert lunch right before the first afternoon-tagged stop; if no stop
@@ -148,6 +150,7 @@ function MapContent({
       const ordered: Array<MapStop | MapMeal> = [];
       if (breakfast) ordered.push(breakfast);
       ordered.push(...withLunch);
+      if (snack) ordered.push(snack);
       if (dinner) ordered.push(dinner);
 
       if (ordered.length < 2) return;
@@ -424,7 +427,7 @@ export default function ItineraryMap({
       // Collect meals with lat/lng already available
       days.forEach((day, dayIndex) => {
         if (!day.id || !day.meals) return;
-        (["breakfast", "lunch", "dinner"] as const).forEach((mealType) => {
+        (["breakfast", "lunch", "dinner", "snack"] as const).forEach((mealType) => {
           const meal = day.meals?.[mealType];
           if (!meal || !meal.lat || !meal.lng) return;
           setMapMeals((prev) => {

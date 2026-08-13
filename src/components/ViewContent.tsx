@@ -5,6 +5,7 @@ import Link from "next/link";
 import EditableItineraryCard from "@/components/EditableItineraryCard";
 import ItineraryMap from "@/components/ItineraryMap";
 import TransitRecommendationsPanel from "@/components/TransitRecommendationsPanel";
+import RestructurePanel from "@/components/RestructurePanel";
 import type { TransitRecommendation, CartItem } from "@/types/itinerary";
 
 const DEFAULT_EXCHANGE_RATES: Record<string, number> = {
@@ -42,6 +43,7 @@ export default function ViewContent({ id }: ViewContentProps) {
   const [isApplying, setIsApplying] = useState(false);
   const [insertionReason, setInsertionReason] = useState("");
   const [insertAfterDay, setInsertAfterDay] = useState<number | undefined>(undefined);
+  const [showRestructure, setShowRestructure] = useState(false);
   const transitPanelRef = useRef<HTMLDivElement>(null);
 
   const handleAddToCart = (rec: TransitRecommendation, stayDays: number) => {
@@ -106,7 +108,8 @@ export default function ViewContent({ id }: ViewContentProps) {
   const calcMealCost = (meals: any) =>
     (meals?.breakfast?.estimated_cost ?? 0) +
     (meals?.lunch?.estimated_cost ?? 0) +
-    (meals?.dinner?.estimated_cost ?? 0);
+    (meals?.dinner?.estimated_cost ?? 0) +
+    (meals?.snack?.estimated_cost ?? 0);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const hasAnyCost = (days: any[]) =>
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -348,6 +351,38 @@ export default function ViewContent({ id }: ViewContentProps) {
     );
   };
 
+  const renderRestructurePanel = () => {
+    if (!data) return null;
+    if (!showRestructure) {
+      return (
+        <button
+          onClick={() => setShowRestructure(true)}
+          className="w-full rounded-xl border border-indigo-200 dark:border-indigo-800/50 bg-indigo-50 dark:bg-indigo-950/20 px-4 py-3 text-sm font-semibold text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/30 transition-colors"
+        >
+          重新規劃行程
+        </button>
+      );
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const restructureDays = (data.data?.days ?? []).map((d: any) => ({
+      id: d.id as string,
+      day: d.day as number,
+      theme: d.theme as string | undefined,
+      isTransitDay: d.isTransitDay === true,
+      isLocked: d.isLocked === true,
+      waypointCity: d.waypointCity as string | undefined,
+      stopCount: Array.isArray(d.stops) ? d.stops.length : 0,
+    }));
+    return (
+      <RestructurePanel
+        itineraryId={data.id}
+        days={restructureDays}
+        onClose={() => setShowRestructure(false)}
+        onApplied={fetchData}
+      />
+    );
+  };
+
   const renderTransitPanel = () => {
     if (!transitPanelProps) return null;
     return (
@@ -413,6 +448,12 @@ export default function ViewContent({ id }: ViewContentProps) {
               </div>
             )}
             <Link
+              href={`/view/${id}/trash`}
+              className="text-sm text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 underline underline-offset-4"
+            >
+              垃圾桶
+            </Link>
+            <Link
               href="/itineraries"
               className="text-sm text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 underline underline-offset-4"
             >
@@ -472,6 +513,7 @@ export default function ViewContent({ id }: ViewContentProps) {
               {/* Sidebar */}
               <div className="space-y-4 lg:sticky lg:top-4 max-h-screen lg:overflow-y-auto lg:pb-4">
                 {renderCostSummary()}
+                {renderRestructurePanel()}
                 {renderTransitPanel()}
               </div>
             </div>

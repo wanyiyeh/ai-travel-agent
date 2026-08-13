@@ -61,10 +61,11 @@ async function main() {
       }
 
       if (d.meals) {
-        const { breakfast, lunch, dinner } = d.meals;
+        const { breakfast, lunch, dinner, snack } = d.meals;
         const fmtMeal = (m) => m ? `${m.name} $${m.estimated_cost}` : "N/A";
         console.log(`  早餐: ${fmtMeal(breakfast)}`);
         console.log(`  午餐: ${fmtMeal(lunch)}`);
+        console.log(`  點心: ${fmtMeal(snack)}`);
         console.log(`  晚餐: ${fmtMeal(dinner)}`);
       }
       console.log();

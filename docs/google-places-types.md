@@ -66,6 +66,7 @@ Google 官方把 Place Types 分成兩個表：
 |------|------|----------|
 | `breakfast_restaurant`、`brunch_restaurant`、`cafe`、`bakery` | 早餐推薦（AI 提示用）——`restaurant` 多數不供應早餐，故早餐改用獨立清單；納入 `breakfast_restaurant`/`brunch_restaurant` 是為了不侷限於西式咖啡館／麵包店，也能涵蓋日式定食屋等當地早餐店 | [fetchCityRestaurants.ts `fetchCityBreakfastPlaces()`](../src/lib/fetchCityRestaurants.ts) |
 | `restaurant`（budget 再疊加 `fast_food_restaurant`，luxury 再疊加 `fine_dining_restaurant`） | 午餐、晚餐推薦（AI 提示用） | [fetchCityRestaurants.ts `fetchCityRestaurants()`](../src/lib/fetchCityRestaurants.ts) |
+| `cafe`、`bakery`、`ice_cream_shop` | 點心/下午茶推薦（AI 提示用）——與早餐清單共用部分類型，靠反重複規則避免早餐、點心選到同一家店 | [fetchCityRestaurants.ts `fetchCitySnackPlaces()`](../src/lib/fetchCityRestaurants.ts) |
 | `tourist_attraction` | 景點推薦（AI 提示用） | [fetchCityRestaurants.ts `fetchCityAttractions()`](../src/lib/fetchCityRestaurants.ts) |
 | `tourist_attraction`、`museum`、`park`、`amusement_park` | 單日行程點的候選地點（可直接加入行程） | [stop-suggestions/route.ts:126](../src/app/api/v1/days/[dayId]/stop-suggestions/route.ts#L126) |
 | `hotel`、`resort_hotel`、`hostel`、`guest_house`、`bed_and_breakfast`、`motel`、`lodging`（依旅客預算挑選子集） | 住宿地點候選（重新產生住宿建議），並將 AI 選中的候選之 `placeId`/`lat`/`lng`/`address`/`rating` 寫回住宿資料 | [accommodation/regenerate/route.ts](../src/app/api/v1/days/[dayId]/accommodation/regenerate/route.ts)、[fetchCityRestaurants.ts `getLodgingTypes()`](../src/lib/fetchCityRestaurants.ts) |
