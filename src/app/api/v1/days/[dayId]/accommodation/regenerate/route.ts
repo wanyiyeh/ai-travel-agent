@@ -9,6 +9,8 @@ import {
   getPriceLevels,
 } from "@/lib/fetchCityRestaurants";
 import { resolveDayCoords } from "@/lib/itineraryGen";
+import { cityToIata } from "@/lib/iataCity";
+import { getIataCoords } from "@/lib/fetchCityRestaurants";
 import { estimateLodgingCostPerNight, estimateLodgingCostRange } from "@/lib/priceLevelCost";
 import type { AccommodationCandidate } from "@/types/itinerary";
 
@@ -81,7 +83,12 @@ export async function POST(
       return NextResponse.json({ error: "住宿搜尋功能未設定" }, { status: 503 });
     }
 
-    const coords = resolveDayCoords(days, day, config.flightInfo?.arrivalCity);
+    // Transit days sleep in transitTo that night, not around the day's own
+    // stop (the departure-side transit stop) — search accommodation there.
+    const transitTo = typeof day.transitTo === "string" ? day.transitTo : undefined;
+    const transitToIata = day.isTransitDay && transitTo ? cityToIata(transitTo) : undefined;
+    const coords = (transitToIata ? getIataCoords(transitToIata) : null)
+      ?? resolveDayCoords(days, day, config.flightInfo?.arrivalCity);
 
     if (!coords) {
       return NextResponse.json(

@@ -86,3 +86,17 @@ export const IATA_CITY_ZH: Record<string, string> = {
 export function iataToCity(iata: string): string {
   return IATA_CITY_ZH[iata] ?? iata;
 }
+
+// Reverse of IATA_CITY_ZH, first code wins per city name (coords are
+// identical across a city's codes, e.g. NRT/HND both "東京", so which one
+// wins doesn't matter). Every itinerary day's waypointCity/transitTo is
+// itself derived from IATA_CITY_ZH names (see itineraryGen.ts's
+// arrivalCityName/returnCityName), so this round-trips cleanly.
+const CITY_ZH_TO_IATA: Record<string, string> = {};
+for (const [code, name] of Object.entries(IATA_CITY_ZH)) {
+  if (!(name in CITY_ZH_TO_IATA)) CITY_ZH_TO_IATA[name] = code;
+}
+
+export function cityToIata(cityName: string): string | undefined {
+  return CITY_ZH_TO_IATA[cityName];
+}
