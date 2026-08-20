@@ -85,15 +85,6 @@ export function validateItinerary(
         day: td.day,
       });
     }
-
-    if (td.accommodation != null) {
-      issues.push({
-        severity: "warning",
-        code: "TRANSIT_DAY_HAS_ACCOMMODATION",
-        message: `第 ${td.day} 天（移動日）不應有住宿，但 accommodation 不為 null`,
-        day: td.day,
-      });
-    }
   }
 
   const lastDay = days[days.length - 1];
@@ -110,12 +101,12 @@ export function validateItinerary(
     });
   }
 
-  // Accommodation per day
+  // Accommodation per day. Transit days need it too — the traveler is
+  // already sleeping in transitTo that night, not the departure city.
   for (const day of days) {
     const isLast = day.day === days.length;
-    const isTransit = day.isTransitDay === true;
 
-    if (!isLast && !isTransit && !day.accommodation) {
+    if (!isLast && !day.accommodation) {
       issues.push({
         severity: "error",
         code: "ACCOMMODATION_MISSING",

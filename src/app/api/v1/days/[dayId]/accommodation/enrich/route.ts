@@ -58,12 +58,15 @@ export async function POST(
       return NextResponse.json({ error: "GOOGLE_PLACES_API_KEY not configured" }, { status: 503 });
     }
 
-    // Derive city name from waypointCity tag or IATA arrival code
+    // Derive city name to search around. Transit days sleep in transitTo that
+    // night, not the day's own waypointCity (which is where the day's stops —
+    // i.e. the departure point — are), so prefer transitTo for those.
+    const transitTo = typeof day.transitTo === "string" ? day.transitTo : undefined;
     const waypointCity = typeof day.waypointCity === "string" ? day.waypointCity : undefined;
     const iataCity = config.flightInfo?.arrivalCity
       ? iataToCity(config.flightInfo.arrivalCity)
       : undefined;
-    const cityHint = waypointCity ?? iataCity ?? "";
+    const cityHint = (day.isTransitDay ? transitTo : undefined) ?? waypointCity ?? iataCity ?? "";
 
     // Build a precise query: prefer hotel name, fall back to "hotel in area, city"
     const query = accName
