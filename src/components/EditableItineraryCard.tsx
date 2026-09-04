@@ -4,16 +4,12 @@ import { useState, useCallback, useEffect, useMemo, useRef, Fragment, type React
 import {
   DndContext,
   closestCenter,
-  KeyboardSensor,
-  PointerSensor,
-  TouchSensor,
-  useSensor,
-  useSensors,
   DragOverlay,
   type DragStartEvent,
   type DragOverEvent,
   type DragEndEvent,
 } from "@dnd-kit/core";
+import { useItinerarySensors } from "@/hooks/useItinerarySensors";
 import {
   SortableContext,
   useSortable,
@@ -29,8 +25,10 @@ import { MealPicker } from "@/components/MealPicker";
 import { StopPicker } from "@/components/StopPicker";
 import { PlacePhotoThumb } from "@/components/PlacePhotoThumb";
 import { haversineKm } from "@/lib/distanceMatrix";
+import { calculateStopsCost, calculateDayTotalCost } from "@/lib/costCalculations";
+import { buildPlaceMapsUrl, buildDirectionsUrl, buildSearchMapsUrl } from "@/lib/googleMapsUrl";
 import { formatDuration } from "@/types/itinerary";
-import type { Itinerary, Stop, DayMeals, Meal, MealType, Accommodation, StopCandidate } from "@/types/itinerary";
+import type { Itinerary, Stop, Meal, MealType, Accommodation, StopCandidate } from "@/types/itinerary";
 
 // A candidate from another day counts as "same city" if it's within this
 // distance of the edited day's own stop centroid — used to build the reuse
@@ -175,7 +173,6 @@ export default function EditableItineraryCard({
   const [enrichWarning, setEnrichWarning] = useState<string | null>(null);
 
   const [bulkEditDayId, setBulkEditDayId] = useState<string | null>(null);
-  const [bulkPhase, setBulkPhase] = useState<"select" | "suggest">("select");
   const [bulkKeepIds, setBulkKeepIds] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkError, setBulkError] = useState<string | null>(null);
@@ -210,27 +207,10 @@ export default function EditableItineraryCard({
     return result;
   }, [itinerary.days]);
 
-  const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: { distance: 8 },
-    }),
-    useSensor(TouchSensor, {
-      activationConstraint: { delay: 200, tolerance: 5 },
-    }),
-    useSensor(KeyboardSensor)
-  );
+  const sensors = useItinerarySensors();
 
   const calculateDayDuration = (stops: Stop[]) =>
     stops.reduce((total, s) => total + (s.duration_minutes || 0), 0);
-
-  const calculateDayCost = (stops: Stop[]) =>
-    stops.reduce((total, s) => total + (s.estimated_cost ?? 0), 0);
-
-  const calculateMealCost = (meals?: DayMeals) =>
-    (meals?.breakfast?.estimated_cost ?? 0) +
-    (meals?.lunch?.estimated_cost ?? 0) +
-    (meals?.dinner?.estimated_cost ?? 0) +
-    (meals?.snack?.estimated_cost ?? 0);
 
   const hasCostData = (stops: Stop[]) =>
     stops.some((s) => s.estimated_cost !== undefined);
@@ -240,8 +220,7 @@ export default function EditableItineraryCard({
 
   const buildGoogleMapsUrl = (stops: Stop[], origin?: string) => {
     const points = [origin, ...stops.map((s) => s.name)].filter((p): p is string => !!p);
-    const waypoints = points.map((p) => encodeURIComponent(p)).join("/");
-    return `https://www.google.com/maps/dir/${waypoints}`;
+    return buildDirectionsUrl(points);
   };
 
   // The previous day's accommodation is where the user actually starts this
@@ -565,7 +544,6 @@ export default function EditableItineraryCard({
 
   const handleStartBulkEdit = (dayId: string, stops: Stop[]) => {
     setBulkEditDayId(dayId);
-    setBulkPhase("select");
     setBulkKeepIds(new Set(stops.map((s) => s.id!).filter(Boolean)));
     setBulkError(null);
   };
@@ -580,7 +558,6 @@ export default function EditableItineraryCard({
 
   const handleCancelBulkEdit = () => {
     setBulkEditDayId(null);
-    setBulkPhase("select");
     setBulkKeepIds(new Set());
     setBulkError(null);
   };
@@ -618,8 +595,6 @@ export default function EditableItineraryCard({
           ),
         }));
       }
-
-      setBulkPhase("suggest");
     } catch (err) {
       setBulkError(err instanceof Error ? err.message : "刪除失敗");
     } finally {
@@ -760,10 +735,10 @@ export default function EditableItineraryCard({
     const { dayId } = deletedStopInfo;
     deletedStopIdRef.current = null;
     setDeletedStopInfo(null);
-    setBulkKeepIds(new Set());
+    const day = itinerary.days.find((d) => d.id === dayId);
+    setBulkKeepIds(new Set((day?.stops ?? []).map((s) => s.id!).filter(Boolean)));
     setBulkError(null);
     setBulkEditDayId(dayId);
-    setBulkPhase("suggest");
   };
 
   const handleEdit = (stop: Stop) => {
@@ -827,6 +802,10 @@ export default function EditableItineraryCard({
     }
   };
 
+  // These three all patch local state for an instant UI update, then notify
+  // the parent (ViewContent) so its own cost summary — kept in sync with the
+  // server, not with this component's local state — refetches too. Without
+  // onUpdate, that summary stayed stale until a manual page refresh.
   const updateStop = (dayId: string, stopId: string, stop: Stop) => {
     setItinerary((prev) => ({
       ...prev,
@@ -834,6 +813,7 @@ export default function EditableItineraryCard({
         d.id === dayId ? { ...d, stops: d.stops.map((s) => (s.id === stopId ? stop : s)) } : d
       ),
     }));
+    onUpdate?.();
   };
 
   const updateDayAccommodation = (dayId: string, accommodation: Accommodation) => {
@@ -843,6 +823,7 @@ export default function EditableItineraryCard({
         d.id === dayId ? { ...d, accommodation } : d
       ),
     }));
+    onUpdate?.();
   };
 
   const updateDayMeal = (dayId: string, mealType: MealType, meal: Meal) => {
@@ -852,6 +833,7 @@ export default function EditableItineraryCard({
         d.id === dayId ? { ...d, meals: { ...d.meals, [mealType]: meal } } : d
       ),
     }));
+    onUpdate?.();
   };
 
   // Both accommodation and meals only expose a "select" endpoint that
@@ -1087,10 +1069,7 @@ export default function EditableItineraryCard({
         {!hideCostSummary && (() => {
           const anyHasCost = itinerary.days.some((d) => hasCostData(d.stops));
           if (!anyHasCost) return null;
-          const grandTotal = itinerary.days.reduce(
-            (sum, d) => sum + calculateDayCost(d.stops) + calculateMealCost(d.meals) + (d.accommodation?.estimated_cost ?? 0),
-            0
-          );
+          const grandTotal = itinerary.days.reduce((sum, d) => sum + calculateDayTotalCost(d), 0);
           const cur = itinerary.currency ?? "USD";
           return (
             <div className="rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 overflow-hidden">
@@ -1107,10 +1086,7 @@ export default function EditableItineraryCard({
                   </thead>
                   <tbody>
                     {itinerary.days.map((day) => {
-                      const cost =
-                        calculateDayCost(day.stops) +
-                        calculateMealCost(day.meals) +
-                        (day.accommodation?.estimated_cost ?? 0);
+                      const cost = calculateDayTotalCost(day);
                       return (
                         <tr key={day.id || day.day} className="border-b border-zinc-50 dark:border-zinc-800/50">
                           <td className="py-2 text-zinc-700 dark:text-zinc-300">第 {day.day} 天</td>
@@ -1134,7 +1110,7 @@ export default function EditableItineraryCard({
         {itinerary.days.map((day, dayIndex) => {
           const prevDay = dayIndex > 0 ? itinerary.days[dayIndex - 1] : null;
           const totalDuration = calculateDayDuration(day.stops);
-          const dayCost = calculateDayCost(day.stops);
+          const dayCost = calculateStopsCost(day.stops);
           const showCost = hasCostData(day.stops);
           const stopIds = day.stops.map((s) => s.id!).filter(Boolean);
 
@@ -1328,19 +1304,17 @@ export default function EditableItineraryCard({
                       </svg>
                       導航
                     </a>
-                    {!isLocked && (
-                      <button
-                        onClick={() =>
-                          bulkEditDayId === day.id
-                            ? handleCancelBulkEdit()
-                            : day.id && handleStartBulkEdit(day.id, day.stops)
-                        }
-                        disabled={bulkEditDayId !== null && bulkEditDayId !== day.id}
-                        className="flex items-center gap-1 rounded-md bg-white/20 hover:bg-white/30 disabled:opacity-30 transition-colors px-2.5 py-1 text-xs font-medium text-white"
-                      >
-                        {bulkEditDayId === day.id ? "取消編輯" : "編輯本日"}
-                      </button>
-                    )}
+                    <button
+                      onClick={() =>
+                        bulkEditDayId === day.id
+                          ? handleCancelBulkEdit()
+                          : day.id && handleStartBulkEdit(day.id, day.stops)
+                      }
+                      disabled={bulkEditDayId !== null && bulkEditDayId !== day.id}
+                      className="flex items-center gap-1 rounded-md bg-white/20 hover:bg-white/30 disabled:opacity-30 transition-colors px-2.5 py-1 text-xs font-medium text-white"
+                    >
+                      {bulkEditDayId === day.id ? "取消編輯" : "編輯本日"}
+                    </button>
                   </div>
                 </div>
                 {day.accommodation && day.accommodation.name !== "無需住宿" && (
@@ -1390,7 +1364,7 @@ export default function EditableItineraryCard({
                             currency={itinerary.currency}
                             editingStop={editingStop}
                             isLoading={loading === stop.id}
-                            bulkMode={bulkEditDayId === day.id && bulkPhase === "select"}
+                            bulkMode={bulkEditDayId === day.id}
                             selected={!!stop.id && bulkKeepIds.has(stop.id)}
                             onToggleSelect={handleToggleBulkKeep}
                             isDuplicate={!!stop.id && duplicateStopInfo.has(stop.id)}
@@ -1414,7 +1388,6 @@ export default function EditableItineraryCard({
                                 id: d.id!,
                                 label: `第 ${d.day} 天${d.theme ? "・" + d.theme : ""}`,
                               }))}
-                            locked={isLocked}
                           />
                           {pickingStopId === stop.id && day.id && stop.id && (
                             <StopPicker
@@ -1447,7 +1420,7 @@ export default function EditableItineraryCard({
                       </SortableContext>
                     )}
 
-                  {bulkEditDayId === day.id && bulkPhase === "select" && day.id && (
+                  {bulkEditDayId === day.id && day.id && (
                     <div className="mt-4 pt-4 border-t border-zinc-100 dark:border-zinc-800 space-y-3">
                       {bulkError && (
                         <p className="text-sm text-red-600 dark:text-red-400">{bulkError}</p>
@@ -1475,7 +1448,7 @@ export default function EditableItineraryCard({
                     </div>
                   )}
 
-                  {bulkEditDayId === day.id && bulkPhase === "suggest" && day.id && (
+                  {bulkEditDayId === day.id && day.id && (
                     <DayBulkEditPanel
                       itineraryId={data.id}
                       dayId={day.id}
@@ -1521,7 +1494,7 @@ export default function EditableItineraryCard({
                   )}
 
                   {/* Add stop */}
-                  {day.id && bulkEditDayId !== day.id && !isLocked && (
+                  {day.id && bulkEditDayId !== day.id && (
                     <div className="mt-4 pt-4 border-t border-zinc-100 dark:border-zinc-800">
                       {addingToDay === day.id ? (
                         <div className="flex gap-2">
@@ -1668,7 +1641,7 @@ export default function EditableItineraryCard({
                           </div>
                           {day.accommodation.placeId && (
                             <a
-                              href={`https://www.google.com/maps/place/?q=place_id:${day.accommodation.placeId}`}
+                              href={buildPlaceMapsUrl(day.accommodation.placeId)}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="shrink-0 rounded-md bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 px-2.5 py-1.5 text-xs font-medium text-white transition-colors"
@@ -1685,7 +1658,7 @@ export default function EditableItineraryCard({
                         </p>
                         <div className="flex items-center gap-3 flex-wrap">
                           <a
-                            href={`https://www.google.com/maps/search/hotels+near+${encodeURIComponent(day.theme ?? "")}`}
+                            href={buildSearchMapsUrl(`hotels near ${day.theme ?? ""}`)}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="text-xs text-blue-500 hover:text-blue-600 dark:text-blue-400 underline transition-colors"
@@ -1794,7 +1767,7 @@ export default function EditableItineraryCard({
                                     </span>
                                     {meal.placeId && (
                                       <a
-                                        href={`https://www.google.com/maps/place/?q=place_id:${meal.placeId}`}
+                                        href={buildPlaceMapsUrl(meal.placeId)}
                                         target="_blank"
                                         rel="noopener noreferrer"
                                         className="shrink-0 text-[11px] text-blue-400 hover:text-blue-600 dark:text-blue-500 dark:hover:text-blue-300 transition-colors"

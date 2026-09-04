@@ -9,6 +9,7 @@
     "lint": "eslint",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:integration": "vitest run --config vitest.integration.config.mts",
     "seed": "tsx scripts/seed-test-data.ts",
     "backfill-places": "tsx scripts/backfill-place-cache.ts",
     "enrich-all": "tsx scripts/enrich-all-itineraries.ts",

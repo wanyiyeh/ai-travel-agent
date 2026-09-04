@@ -5,8 +5,8 @@ import type { TransitRecommendation } from "@/types/itinerary";
 
 interface TransitRecommendationCardProps {
   recommendation: TransitRecommendation;
-  isInCart: boolean;
-  onAddToCart: (rec: TransitRecommendation, stayDays: number) => void;
+  isAdded: boolean;
+  onAdd: (rec: TransitRecommendation, stayDays: number) => void;
   onRefresh?: () => void;
   maxDays?: number;
   currentDays?: number;
@@ -26,8 +26,8 @@ const POPULARITY_COLORS: Record<TransitRecommendation["popularity"], string> = {
 
 export default function TransitRecommendationCard({
   recommendation,
-  isInCart,
-  onAddToCart,
+  isAdded,
+  onAdd,
   onRefresh,
   maxDays,
   currentDays,
@@ -37,18 +37,18 @@ export default function TransitRecommendationCard({
   );
   const [stayDays, setStayDays] = useState(defaultDays);
 
-  const handleAddToCart = () => {
-    onAddToCart(recommendation, stayDays);
+  const handleAdd = () => {
+    onAdd(recommendation, stayDays);
   };
 
-  if (isInCart) {
+  if (isAdded) {
     return (
       <div className="rounded-xl border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/30 p-4 flex items-center gap-3">
         <svg className="w-5 h-5 text-blue-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
         </svg>
         <span className="text-sm font-medium text-blue-700 dark:text-blue-400">
-          {recommendation.name} 已加入待選清單
+          {recommendation.name} 已加入城市清單
         </span>
       </div>
     );
@@ -119,9 +119,9 @@ export default function TransitRecommendationCard({
       </div>
 
       {/* Day compression notice */}
-      {maxDays != null && currentDays != null && currentDays + 1 + stayDays > maxDays && (
+      {maxDays != null && currentDays != null && currentDays + stayDays > maxDays && (
         <div className="mx-4 mb-3 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
-          加入後將從原行程移除 {currentDays + 1 + stayDays - maxDays} 天，以配合機票固定的 {maxDays} 天日程
+          加入後將從原行程移除 {currentDays + stayDays - maxDays} 天，以配合機票固定的 {maxDays} 天日程
         </div>
       )}
 
@@ -154,13 +154,13 @@ export default function TransitRecommendationCard({
         </div>
 
         <button
-          onClick={handleAddToCart}
+          onClick={handleAdd}
           className="shrink-0 flex items-center gap-1.5 rounded-lg bg-violet-600 hover:bg-violet-700 dark:bg-violet-500 dark:hover:bg-violet-600 px-3.5 py-1.5 text-sm font-medium text-white transition-colors"
         >
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
           </svg>
-          加入待選清單
+          加入城市清單
         </button>
       </div>
     </div>

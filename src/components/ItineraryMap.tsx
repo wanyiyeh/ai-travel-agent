@@ -9,6 +9,7 @@ import {
   useMap,
 } from "@vis.gl/react-google-maps";
 import type { Day } from "@/types/itinerary";
+import { buildPlaceMapsUrl, buildDirectionsUrl } from "@/lib/googleMapsUrl";
 
 const DAY_COLORS = [
   "#3b82f6",
@@ -179,19 +180,8 @@ function MapContent({
 
       // Click polyline → open Google Maps directions for this day's route
       polyline.addListener("click", () => {
-        const origin = `${path[0].lat},${path[0].lng}`;
-        const destination = `${path[path.length - 1].lat},${path[path.length - 1].lng}`;
-        const waypoints = path
-          .slice(1, -1)
-          .map((p) => `${p.lat},${p.lng}`)
-          .join("|");
-        const url = new URL("https://www.google.com/maps/dir/");
-        url.searchParams.set("api", "1");
-        url.searchParams.set("origin", origin);
-        url.searchParams.set("destination", destination);
-        if (waypoints) url.searchParams.set("waypoints", waypoints);
-        url.searchParams.set("travelmode", "driving");
-        window.open(url.toString(), "_blank");
+        const url = buildDirectionsUrl(path.map((p) => `${p.lat},${p.lng}`), "driving");
+        window.open(url, "_blank");
       });
 
       polylines.push(polyline);
@@ -324,7 +314,7 @@ function MapContent({
             )}
             {selectedAccommodation.placeId && (
               <a
-                href={`https://www.google.com/maps/place/?q=place_id:${selectedAccommodation.placeId}`}
+                href={buildPlaceMapsUrl(selectedAccommodation.placeId)}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="block text-xs text-indigo-600 font-medium hover:underline mt-1"

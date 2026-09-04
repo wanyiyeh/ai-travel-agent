@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma, j } from "@/lib/db";
 import { lookupByQuery, lookupByPlaceId, upsertPlace } from "@/lib/placeCache";
 import { searchPlaceText, getCityCenter, buildStopQuery } from "@/lib/placesTextSearch";
+import { findStopAcrossDays, getCityHintForDay } from "@/lib/itineraryDays";
 
 export async function POST(
   request: Request,
@@ -31,36 +32,14 @@ export async function POST(
     }
 
     const days = itinerary.days as Record<string, unknown>[];
-    let targetStop: Record<string, unknown> | null = null;
-    let cityHint = "";
+    const location = findStopAcrossDays(days, stopId);
 
-    for (const day of days) {
-      const stops = day.stops as Record<string, unknown>[];
-      if (!stops) continue;
-      const stopIndex = stops.findIndex((s) => s.id === stopId);
-      if (stopIndex >= 0) {
-        targetStop = stops[stopIndex];
-        // Prefer waypointCity (set by tagWaypointCities), fall back to transitTo
-        const departureCityHint =
-          (typeof day.waypointCity === "string" ? day.waypointCity : "") ||
-          (typeof day.transitTo === "string" ? day.transitTo : "") ||
-          "";
-        // On a transit day, only the first stop is the departure->arrival journey
-        // itself; every later stop is required to be in the arrival city (see
-        // itineraryGen.ts's generation prompt), so it must be geocoded against
-        // transitTo rather than the departure-tagged waypointCity.
-        const arrivalCityHint = typeof day.transitTo === "string" ? day.transitTo : "";
-        cityHint =
-          day.isTransitDay === true && stopIndex > 0 && arrivalCityHint
-            ? arrivalCityHint
-            : departureCityHint;
-        break;
-      }
-    }
-
-    if (!targetStop) {
+    if (!location) {
       return NextResponse.json({ error: "Stop not found" }, { status: 404 });
     }
+
+    const targetStop = (location.day.stops as Record<string, unknown>[])[location.stopIndex];
+    const cityHint = getCityHintForDay(location.day, location.stopIndex);
 
     // Early return if already fully enriched
     if (targetStop.placeId && targetStop.lat && targetStop.lng) {
@@ -119,15 +98,8 @@ export async function POST(
       await upsertPlace(query, { placeId: place.id, name: place.displayName.text, address: place.formattedAddress, lat: place.location.latitude, lng: place.location.longitude, rating: place.rating });
     }
 
-    for (const day of days) {
-      const stops = day.stops as Record<string, unknown>[];
-      if (!stops) continue;
-      const idx = stops.findIndex((s) => s.id === stopId);
-      if (idx >= 0) {
-        stops[idx] = { ...stops[idx], ...enriched };
-        break;
-      }
-    }
+    const stops = location.day.stops as Record<string, unknown>[];
+    stops[location.stopIndex] = { ...stops[location.stopIndex], ...enriched };
 
     await prisma.itinerary.update({
       where: { id: itineraryId },

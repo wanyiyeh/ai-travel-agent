@@ -70,16 +70,20 @@ export function DayBulkEditPanel({
 
   useEffect(() => {
     let cancelled = false;
+    // Other days' stops already appear in the reuse pool above — never
+    // re-suggest them as "new" candidates too.
+    const reuseNames = new Set(reusableStops.map(({ candidate }) => normalizeName(candidate.name)));
     (async () => {
       setLoading(true);
       setError(null);
       try {
-        const { candidates } = await fetchBatch([]);
+        const { candidates: fetched } = await fetchBatch(Array.from(reuseNames));
         if (cancelled) return;
+        const candidates = fetched.filter((c) => !reuseNames.has(normalizeName(c.name)));
         setPool(candidates);
         setPoolCursor(Math.min(BATCH_SIZE, candidates.length));
         setNewCandidates(candidates.slice(0, BATCH_SIZE));
-        setSeenNewNames(new Set(candidates.map((c) => normalizeName(c.name))));
+        setSeenNewNames(new Set([...reuseNames, ...candidates.map((c) => normalizeName(c.name))]));
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : "取得建議失敗");
       } finally {

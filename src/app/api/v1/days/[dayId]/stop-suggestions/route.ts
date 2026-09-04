@@ -7,22 +7,14 @@ import type { StopCandidate } from "@/types/itinerary";
 import { getMockMode, mockDelay, MOCK_FIXTURES } from "@/lib/mockAi";
 import { fetchNearbyPlaceCandidates, type PlaceCandidate } from "@/lib/fetchCityRestaurants";
 import { upsertPlace } from "@/lib/placeCache";
-import { haversineKm } from "@/lib/distanceMatrix";
+import { haversineKm, centroid, SUSPICIOUS_DISTANCE_KM as SUSPICIOUS_KM } from "@/lib/distanceMatrix";
+import { findDayIndex, getCityHintForDay } from "@/lib/itineraryDays";
 
 const RequestSchema = z.object({
   itineraryId: z.string().min(1),
   context: z.string().optional(),
   excludeNames: z.array(z.string()).optional(),
 });
-
-// If a candidate is >80km from the centroid of the day's remaining stops,
-// it's likely a bad match — same heuristic as enrich-all-stops/route.ts.
-const SUSPICIOUS_KM = 80;
-
-function centroid(pts: { lat: number; lng: number }[]): { lat: number; lng: number } {
-  const sum = pts.reduce((a, p) => ({ lat: a.lat + p.lat, lng: a.lng + p.lng }), { lat: 0, lng: 0 });
-  return { lat: sum.lat / pts.length, lng: sum.lng / pts.length };
-}
 
 async function suggestFallbackText(
   model: string,
@@ -93,7 +85,7 @@ export async function POST(
     }
 
     const days = itinerary.days as Record<string, unknown>[];
-    const dayIndex = days.findIndex((d) => d.id === dayId);
+    const dayIndex = findDayIndex(days, dayId);
     if (dayIndex === -1) {
       return NextResponse.json({ error: "Day not found" }, { status: 404 });
     }
@@ -109,10 +101,7 @@ export async function POST(
     const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
     const tripContext = context ?? itinerary.title;
     const dayTheme = typeof day.theme === "string" ? day.theme : "";
-    const cityHint =
-      (typeof day.waypointCity === "string" ? day.waypointCity : "") ||
-      (typeof day.transitTo === "string" ? day.transitTo : "") ||
-      "";
+    const cityHint = getCityHintForDay(day);
 
     let anchor = stops.find(
       (s) => typeof s.lat === "number" && typeof s.lng === "number"

@@ -19,6 +19,9 @@
 | `db.ts` | Prisma Client 單例，含 SQLite JSON 欄位自動序列化擴充 |
 | `openai.ts` | OpenAI SDK client 單例 |
 | `mockAi.ts` | `MOCK_AI` 環境變數控制的假資料，供 UI 測試不打真實 API |
+| `itineraryCityGen.ts` | AI 生成單一城市的移動日/觀光日/住宿餐食，供「重新規劃行程」的 restructure route 使用 |
+| `placesTextSearch.ts` | Google Places Text Search 封裝，含城市中心座標快取（`getCityCenter`） |
+| `nearestCity.ts` | 計算一個座標離哪個候選城市中心最近，用於把搜尋到的景點自動歸類到城市 |
 
 ---
 
@@ -136,7 +139,7 @@
 | `getIataCoords(iataCode)` | 查表拿城市中心座標 |
 
 ### 注意事項
-- **`IATA_COORDS` 是寫死的城市中心座標表**，只涵蓋 seed scenario 用到的機場代碼（東亞、歐洲、大洋洲、北美、非洲各幾個）。如果之後 seed 新增新地區（例如新的機場代碼），這裡要記得同步補上，否則 `fetchCityRestaurants`/`fetchCityAttractions` 會直接回傳空陣列（找不到座標就靜默跳過，不會報錯）。
+- **城市座標（原本這裡叫 `IATA_COORDS`）已整併進 `src/lib/airports.ts` 的 `AIRPORTS` 單一表**，`getIataCoords` 現在只是從那份表查表後轉發，見下方「已整併」小節。如果之後新增新地區的機場代碼，只需要改 `airports.ts` 一處。
 - 這裡的「城市中心點」概念跟 `scripts/enrich-all-itineraries.ts` 裡用來做 location bias 防止地點誤配對的 city-center 邏輯是分開的兩套（一套寫死表格，一套動態呼叫 Places API 現查），沒有共用。
 
 ---
@@ -169,16 +172,16 @@
 
 ---
 
-## 7. `iataCity.ts` — IATA 代碼對照表
+## 7. `iataCity.ts` — IATA 代碼對照表（薄轉發層）
 
 ### 用途
 單純的查表函式：`iataToCity("NRT")` → `"東京"`。查不到的代碼會原樣回傳（例如冷門機場代碼），不會報錯。
 
 ### 涵蓋範圍
-東北亞、東南亞、大洋洲、歐洲、中東、北美、台灣，共約 60 個機場代碼。同一城市的多個機場會對應同一個城市名（如 `CDG`/`ORY` 都是「巴黎」，`NRT`/`HND` 都是「東京」）。
+現在只是 `src/lib/airports.ts` 的 `AIRPORTS` 表的薄轉發層（`iataToCity`/`cityToIata`/`IATA_CITY_ZH` 都從那裡衍生），本檔案保留只是為了不動既有 import path。涵蓋東北亞、東南亞、大洋洲、歐洲、中東、非洲、北美、台灣，共 95 個機場代碼。同一城市的多個機場會對應同一個城市名（如 `CDG`/`ORY` 都是「巴黎」，`NRT`/`HND` 都是「東京」）。
 
-### 注意事項
-- 這份表跟 `fetchCityRestaurants.ts` 的 `IATA_COORDS` 表是分開維護的兩份資料——`iataCity.ts` 只有城市中文名，沒有座標；`IATA_COORDS` 只有座標，且涵蓋範圍更小（只涵蓋 seed 場景實際用到的機場）。新增地區時兩邊都要記得更新。
+### 已整併（原本的技術債）
+過去 `iataCity.ts`（城市名）、`src/app/page.tsx` 的 `IATA_CITY`、`ViewContent.tsx` 的 `IATA_DISPLAY`、`fetchCityRestaurants.ts` 的 `IATA_COORDS`（座標）是四份分開維護、範圍互不相同的表，新增機場代碼很容易漏改其中幾份。現在都改成從 `src/lib/airports.ts` 的單一 `AIRPORTS: Record<code, {cityZh, lat, lng}>` 衍生，新增地區只需要改一處。
 
 ---
 
@@ -258,10 +261,68 @@
 
 ---
 
+## 12. `itineraryCityGen.ts` — 單一城市的 AI 內容生成（重新規劃行程專用）
+
+### 用途
+把「生成一個城市值得的行程內容」這件事拆成三個獨立的 AI 呼叫，供 restructure route（[docs/api-overview.md](api-overview.md) 的 `itinerary/[id]/restructure`）生成新城市內容使用，避免各處各自維護一份幾乎一樣的 prompt。
+
+### 主要匯出
+
+| 函式 | 功能 |
+|---|---|
+| `generateTransitDayStops(fromCity, toCity, currency)` | 生成一個移動日的行程（依短/中/長程車程決定抵達後安排幾個真實景點） |
+| `generateDayStops(cityName, stayDays, currency)` | 生成 `stayDays` 天份的觀光景點（每天 3-4 個） |
+| `generateMealsAndAccommodation(cityName, stayDays, currency)` | 生成整段停留期間共用的住宿建議，以及每天的早/午/晚/點心四餐推薦 |
+
+### 注意事項
+- 三個函式各自獨立呼叫 OpenAI（`response_format: { type: "json_object" }`），彼此無依賴，restructure route 用 `Promise.all` 平行呼叫。
+- 只回傳 AI 生成的原始內容（含新指派的 `crypto.randomUUID()` id），不寫資料庫、不做地理資訊補全——經緯度/地址等 Places 資料仍要靠既有的 enrich 系列 route 事後補齊。
+- 目前沒有 mock 模式（`mockAi.ts` 沒有涵蓋這裡），呼叫 restructure route 一定會打真實 OpenAI API。
+
+### 被誰使用
+- `src/app/api/v1/itinerary/[id]/restructure/route.ts`
+
+---
+
+## 13. `placesTextSearch.ts` — Google Places Text Search 封裝
+
+### 用途
+呼叫 Google Places API 的 Text Search 端點，依查詢字串找單一最相關的地點；同時提供城市名稱 → 中心座標的查詢（`getCityCenter`，經 `placeCache.ts` 快取，避免同一城市重複打 API）。
+
+### 主要匯出
+
+| 函式/常數 | 功能 |
+|---|---|
+| `searchPlaceText(query, apiKey, locationBias?)` | 文字搜尋，可選帶 `locationBias`（50km 圓形偏向）；結果距離 bias 中心超過 1500km 視為誤配對，回傳 `null` |
+| `getCityCenter(cityName, apiKey)` | 查城市中心座標，走 `city-center:` 前綴的快取 key，避免與一般景點查詢的快取碰撞 |
+| `buildStopQuery(name, district, cityHint)` / `buildMealQuery(name, cityHint)` | 組出景點/餐廳查詢字串的單一事實來源，供多個 enrich route 及腳本共用，避免同一地點因查詢字串組法不一致而快取到不同 key |
+
+### 被誰使用
+- `src/app/api/v1/places/search/route.ts`（重新規劃行程的城市/景點搜尋）
+- `src/lib/nearestCity.ts`（透過 `getCityCenter` 取候選城市座標）
+- 多支 enrich 系列 route 與 `scripts/*.ts`（透過 `buildStopQuery`/`buildMealQuery` 統一查詢字串組法）
+
+---
+
+## 14. `nearestCity.ts` — 座標最近城市判斷
+
+### 用途
+給一個座標和一組候選城市名稱，回傳距離最近的城市與公里數。用於「重新規劃行程」搜尋必去景點時，自動判斷這個景點該歸到使用者已加入的哪個城市，超過 `NEAREST_CITY_KM_THRESHOLD`（80km，與 `stop-suggestions`/`enrich-all-stops` 的可疑地點門檻同一慣例）就不自動指派，交由使用者手動選。
+
+### 主要匯出
+- `nearestCity(point, candidateCityNames, apiKey)`：內部用 `getCityCenter` 平行解析每個候選城市的中心座標，再用 `haversineKm` 逐一比較取最近者。
+- `NEAREST_CITY_KM_THRESHOLD`：現在等於 `distanceMatrix.ts` 匯出的 `SUSPICIOUS_DISTANCE_KM`（80）。`RestructurePanel.tsx` 前端也是直接 import `distanceMatrix.ts` 的同一個常數（不能 import `nearestCity.ts` 本身，因為它會拉入 server-only 的 Google API key 與 prisma 依賴，但 `distanceMatrix.ts` 沒有這個問題），不再各自維護複本。
+
+### 被誰使用
+- `src/app/api/v1/places/search/route.ts`
+
+---
+
 ## 已知的技術債 / 之後可以整理的地方
 
 1. **`validateGeography.ts` 沒有被引用**——邏輯跟 `scripts/check-place-data.ts` 裡手刻的版本重複，應該讓後者改成呼叫前者，或是把 `validateGeography` 真正接進生成流程的驗證步驟裡。
 2. **`validateItinerary.ts` 的 `TRANSIT_DAY_DUPLICATE` 語意過時**——`itineraryGen.ts` 的 prompt 已經支援合理的多段移動日，但驗證邏輯還停留在「只能有 1 個移動日」的假設，需要更新判斷條件（見上方第 2 節的詳細說明）。
 3. **`scripts/*.ts` 和 `src/lib/placeCache.ts` 的快取邏輯是兩套平行實作**——腳本自己 `new PrismaClient()` 手動處理 upsert，跟 `placeCache.ts` 提供的 `upsertPlace`/`lookupByQuery` 邏輯幾乎一樣，只是沒有共用同一份程式碼。
-4. **`iataCity.ts` 與 `fetchCityRestaurants.ts` 的 `IATA_COORDS` 是兩份分開維護的機場資料表**，涵蓋範圍不同步，新增地區時容易漏改其中一份。
+4. ~~`iataCity.ts` 與 `fetchCityRestaurants.ts` 的 `IATA_COORDS` 是兩份分開維護的機場資料表`~~ — 已整併成 `src/lib/airports.ts` 的單一 `AIRPORTS` 表（連同 `page.tsx`/`ViewContent.tsx` 各自的城市名表一起併入），見上方第 7 節。
 5. **`AccommodationSchema.name` 為必填，但 prompt 規則實際只要求 `area`/`reason`**——型別定義與 prompt 實際輸出有落差，需確認是否有轉換層，或該把 schema 改成 optional。
+6. ~~`NEAREST_CITY_KM_THRESHOLD` 在 `nearestCity.ts` 與 `RestructurePanel.tsx` 各維護一份`~~ — 已改成兩邊都從 `distanceMatrix.ts` 的 `SUSPICIOUS_DISTANCE_KM` 匯入，並統一了 `enrich-all-stops`/`stop-suggestions` route 裡重複定義的 `centroid()`/`SUSPICIOUS_KM`。
