@@ -37,18 +37,30 @@
 
 ---
 
-## `itinerary/[id]/batch-insert-waypoints`
+## `itinerary/[id]/restructure`
 
-### `POST /api/v1/itinerary/[id]/batch-insert-waypoints`
+### `POST /api/v1/itinerary/[id]/restructure`
 
-批次插入多個中途城市，自動生成各城市的移動日景點、停留天景點、住宿、三餐，並用 AI 找最佳插入位置。插入時會快照原始後段行程（`_originalAfter`）供日後 remove-waypoint 還原用。
+「重新規劃行程」精靈（`RestructurePanel`）的套用端點——這支路由同時也是原本「順路推薦／周邊推薦」批次插入功能併入後的唯一套用入口（原本獨立的 `batch-insert-waypoints` 路由與其對應的 cart UI 已移除）。前端一次送出使用者想要的最終城市清單（每個城市標記是否為新城市、目標天數、要保留的既有 day id、以及鎖定的必去景點，順序即為最終行程順序），後端據此**整份重建** `days` 陣列並整包覆寫（單一 transaction，非逐步編輯）——不像其他天數編輯 route 各自獨立呼叫，這支一次算完整份行程再一起寫入，避免中途狀態不一致。既有城市保留天數不足的部分用 AI 補新的觀光天；新城市則生成一個移動日 + AI 觀光天 + 住宿/三餐。移動日、回程日等「結構性天」一律視為必留，不受前端傳入的 `keepDayIds` 影響。若某個既有城市在新順序中的「下一站」變了（例如使用者把一個新城市拖到它後面），該城市自己重用的出發移動日會被判定為過時（原本的 `transitTo` 不再等於新的下一站），重新呼叫 AI 生成該移動日內容，其餘天數維持重用不變。被丟棄的天會寫入 `deletedDay` 表，供垃圾桶功能還原。
 
 | lib 檔案 | 用途 |
 |---|---|
-| `lib/db.ts` | 讀取行程、更新 days |
-| `lib/schemas.ts` | `TransitRecommendationSchema` 驗證請求中的城市資料 |
-| `lib/openai.ts` | 生成移動日景點、住宿餐廳、最佳插入位置判斷 |
-| `lib/iataCity.ts` | 從 flightInfo 取得出發 / 返回城市名稱 |
+| `lib/db.ts` | 讀取行程、整包覆寫 `days`、寫入 `deletedDay` |
+| `lib/iataCity.ts` | 從 `config.flightInfo` 推斷起始城市，作為第一個新城市的出發地 |
+| `lib/itineraryCityGen.ts` | `generateTransitDayStops`/`generateDayStops`/`generateMealsAndAccommodation`，生成新城市與補足天數所需的移動日、觀光日、住宿與三餐內容 |
+
+---
+
+## `places/search`
+
+### `POST /api/v1/places/search`
+
+通用地點文字搜尋端點，供「重新規劃行程」面板的兩種搜尋情境共用：搜尋城市（不帶 `cityHint`）與搜尋必去景點（帶 `cityHint` 讓結果偏向指定城市）。搜尋景點時若帶入 `candidateCities`，回應會附上離景點最近的候選城市，讓前端自動把景點歸類到對應城市，超出門檻距離則交由使用者手動選擇。
+
+| lib 檔案 | 用途 |
+|---|---|
+| `lib/placesTextSearch.ts` | `searchPlaceText` 呼叫 Google Places Text Search；`getCityCenter` 取得城市中心座標（同時供 location bias 與 nearestCity 使用，經快取） |
+| `lib/nearestCity.ts` | `nearestCity`，計算搜到的景點座標離哪個候選城市中心最近 |
 
 ---
 
@@ -56,7 +68,7 @@
 
 ### `DELETE /api/v1/itinerary/[id]/remove-waypoint`
 
-移除行程中的某個中途城市（含移動日和停留天）。優先使用插入時快照的 `_originalAfter` 完整還原後段行程；若無快照則回退到局部修復模式。
+移除行程中的某個中途城市（含移動日和停留天）。優先使用插入時快照的 `_originalAfter` 完整還原後段行程（僅舊資料可能帶有此欄位，`batch-insert-waypoints` 移除後已無路由會再寫入）；若無快照則回退到局部修復模式，這也是目前所有經 `restructure` 新增的城市會走的路徑。
 
 | lib 檔案 | 用途 |
 |---|---|
@@ -68,7 +80,7 @@
 
 ### `POST /api/v1/itinerary/[id]/transit-recommendations`
 
-根據起點 / 終點 IATA 代碼，用 AI 推薦中途可順遊的城市或國家（3–5 個）。單城市行程推薦周邊城市；多城市行程推薦兩機場之間的過境目的地。支援 mock 模式。
+根據起點 / 終點 IATA 代碼，用 AI 推薦中途可順遊的城市或國家（3–5 個）。單城市行程推薦周邊城市；多城市行程推薦兩機場之間的過境目的地。支援 mock 模式。由 `RestructurePanel` 第 1 步的推薦區塊呼叫（原本獨立的 `TransitRecommendationsPanel` 已併入）。
 
 | lib 檔案 | 用途 |
 |---|---|
@@ -228,11 +240,14 @@
 
 | lib 檔案 | 說明 | 被使用的 API 數量 |
 |---|---|---|
-| `lib/db.ts` | Prisma client 與 JSON 序列化工具 | 13（全部） |
+| `lib/db.ts` | Prisma client 與 JSON 序列化工具 | 15（全部） |
 | `lib/openai.ts` | OpenAI client 封裝 | 8 |
 | `lib/schemas.ts` | Zod schema 定義（行程、航班、景點等） | 5 |
 | `lib/mockAi.ts` | 開發用 mock 模式控制與 fixture 資料 | 3 |
-| `lib/iataCity.ts` | IATA 代碼轉中文城市名稱 | 2 |
+| `lib/iataCity.ts` | IATA 代碼轉中文城市名稱 | 3 |
 | `lib/distanceMatrix.ts` | Google Distance Matrix API 封裝 | 1 |
 | `lib/validateItinerary.ts` | 行程邏輯驗證（天數、移動日等） | 1 |
 | `lib/fetchCityRestaurants.ts` | 透過 Google Places 取得城市餐廳清單 | 1 |
+| `lib/itineraryCityGen.ts` | AI 生成移動日/觀光日/住宿餐食（重新規劃行程專用） | 1 |
+| `lib/placesTextSearch.ts` | Google Places Text Search 封裝，含城市中心座標快取 | 1 |
+| `lib/nearestCity.ts` | 計算座標離哪個候選城市最近 | 1 |

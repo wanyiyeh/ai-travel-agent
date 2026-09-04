@@ -2,17 +2,10 @@ import { NextResponse } from "next/server";
 import { prisma, j } from "@/lib/db";
 import { lookupByQuery, upsertPlace } from "@/lib/placeCache";
 import { searchPlaceText, getCityCenter, buildStopQuery, buildMealQuery } from "@/lib/placesTextSearch";
-import { haversineKm } from "@/lib/distanceMatrix";
+import { haversineKm, centroid, SUSPICIOUS_DISTANCE_KM as SUSPICIOUS_KM } from "@/lib/distanceMatrix";
 import { PRICE_LEVEL_MAP } from "@/lib/fetchCityRestaurants";
 import { estimateMealCost } from "@/lib/priceLevelCost";
-
-// If a stop is >80km from the centroid of its siblings, it's likely the wrong place
-const SUSPICIOUS_KM = 80;
-
-function centroid(pts: { lat: number; lng: number }[]): { lat: number; lng: number } {
-  const sum = pts.reduce((a, p) => ({ lat: a.lat + p.lat, lng: a.lng + p.lng }), { lat: 0, lng: 0 });
-  return { lat: sum.lat / pts.length, lng: sum.lng / pts.length };
-}
+import { getCityHintForDay } from "@/lib/itineraryDays";
 
 export async function POST(
   _request: Request,
@@ -53,10 +46,7 @@ export async function POST(
     }
 
     for (const day of days) {
-      const cityHint =
-        (typeof day.waypointCity === "string" ? day.waypointCity : "") ||
-        (typeof day.transitTo === "string" ? day.transitTo : "") ||
-        "";
+      const cityHint = getCityHintForDay(day);
       const cityBias = await biasFor(cityHint, apiKey);
 
       const meals = day.meals as Record<string, Record<string, unknown>> | undefined;
@@ -117,7 +107,6 @@ export async function POST(
       if (!stops) continue;
 
       const isTransitDay = day.isTransitDay === true;
-      const arrivalCityHint = typeof day.transitTo === "string" ? day.transitTo : "";
 
       for (let i = 0; i < stops.length; i++) {
         const stop = stops[i];
@@ -132,7 +121,7 @@ export async function POST(
         // itself; every later stop is required (by the generation prompt) to be
         // in the arrival city, so geocoding it against the departure-tagged
         // waypointCity can match an unrelated same-named place there instead.
-        const stopCityHint = isTransitDay && i > 0 && arrivalCityHint ? arrivalCityHint : cityHint;
+        const stopCityHint = getCityHintForDay(day, i);
 
         // District disambiguates same-named landmarks split across a city's
         // wards/neighborhoods (see itineraryGen.ts rule 20) — city name alone

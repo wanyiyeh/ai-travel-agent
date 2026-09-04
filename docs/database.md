@@ -16,6 +16,9 @@
 | `Itinerary` | 一份完整行程（含所有天數、景點，以 JSON 字串存放） |
 | `Place` | Google Places 查詢結果快取（以 `place_id` 為主鍵） |
 | `PlaceQuery` | 查詢字串 → `Place` 的映射，讓同義查詢字串共用同一筆快取 |
+| `DeletedDay` | 被移除的行程天（垃圾桶），供還原用 |
+
+> `schema.prisma` 目前還定義了 `AccommodationCandidateLog`、`MealCandidateLog` 等模型，本文件尚未涵蓋，之後補上。
 
 ---
 
@@ -86,6 +89,23 @@
 **關係**：多對一 → `Place`。
 
 **設計目的**：同一個地點可能被多種不同查詢字串命中（例如「金門大橋 舊金山」與「Golden Gate Bridge」可能指向同一個 `placeId`），用獨立表把「查詢字串」與「地點資料」拆開，避免重複打 Google Places API。詳見 [docs/lib.md](lib.md) 第 6 節 `placeCache.ts` 的說明，其中也記錄了 cache key 帶城市提示可能造成的誤配對問題。
+
+---
+
+## DeletedDay（已刪除的行程天／垃圾桶）
+
+| 欄位 | 型別 | 說明 |
+|---|---|---|
+| `id` | String | 主鍵，UUID 自動生成 |
+| `itineraryId` | String | 外鍵，對應 `Itinerary.id`（DB 欄名 `itinerary_id`） |
+| `itinerary` | Itinerary | 反向關聯 |
+| `originalIndex` | Int | 這一天在被刪除當下於 `days` 陣列中的原始索引，供還原時定位插入點 |
+| `day` | String | **JSON 序列化字串**：整個 Day 物件（含其所有 stops），格式與 `Itinerary.days` 陣列中的單一元素相同 |
+| `deletedAt` | DateTime | 刪除時間 |
+
+**關係**：多對一 → `Itinerary`，`Itinerary` 被刪除時連帶刪除（`onDelete: Cascade`）；`@@index([itineraryId])`。
+
+**寫入來源**：`POST /api/v1/itinerary/[id]/restructure` 整份重建行程時，把使用者未勾選保留的既有天寫入此表（見 [docs/api-overview.md](api-overview.md) 的 restructure 端點）。
 
 ---
 

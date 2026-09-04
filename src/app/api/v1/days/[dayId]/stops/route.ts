@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma, j } from "@/lib/db";
-import { StopCandidateSchema } from "@/lib/schemas";
+import { StopCandidateSchema, StopDescriptionFillSchema } from "@/lib/schemas";
 import { lookupByQuery, upsertPlace } from "@/lib/placeCache";
 import { searchPlaceText, getCityCenter } from "@/lib/placesTextSearch";
+import { openai } from "@/lib/openai";
+import { findDayIndex, getCityHintForDay } from "@/lib/itineraryDays";
 
 const RequestSchema = z.object({
   itineraryId: z.string().min(1),
@@ -19,6 +21,46 @@ const BatchRequestSchema = z.object({
 // stop-suggestions/route.ts for candidates without an AI-estimated duration;
 // user can adjust it after adding.
 const DEFAULT_DURATION_MINUTES = 60;
+
+// Manually-added stops otherwise show a bare "Google 評分 X★" line instead of
+// the descriptive sentence AI-generated stops get — ask the model for one so
+// both read the same way. Best-effort: any failure keeps the rating fallback.
+async function describeStopWithAI(
+  name: string,
+  tripContext: string,
+  cityHint: string,
+): Promise<string | null> {
+  try {
+    const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
+    const completion = await openai.chat.completions.create({
+      model,
+      messages: [
+        {
+          role: "system",
+          content: `你是專業的旅遊規劃專家。Always respond in Traditional Chinese (繁體中文).
+Output strictly valid JSON matching this schema:
+{ "candidates": [{ "name": string, "description": string, "duration_minutes": number }] }
+The array MUST have exactly 1 item, with the EXACT SAME "name" value as given: "${name}". Do not rename it — only fill in "description" and "duration_minutes".`,
+        },
+        {
+          role: "user",
+          content: `Trip: ${tripContext}${cityHint ? `. City: ${cityHint}` : ""}. Write a short (one sentence) Traditional Chinese description and a suggested visit duration (minutes) for "${name}".`,
+        },
+      ],
+      response_format: { type: "json_object" },
+    });
+
+    const aiContent = completion.choices[0].message.content;
+    if (!aiContent) return null;
+
+    const parsedAI = StopDescriptionFillSchema.safeParse(JSON.parse(aiContent));
+    if (!parsedAI.success) return null;
+
+    return parsedAI.data.candidates[0]?.description ?? null;
+  } catch {
+    return null;
+  }
+}
 
 export async function POST(
   request: Request,
@@ -49,12 +91,9 @@ export async function POST(
       }
 
       const days = itinerary.days as Record<string, unknown>[];
-      const dayIndex = days.findIndex((d) => d.id === dayId);
+      const dayIndex = findDayIndex(days, dayId);
       if (dayIndex === -1) {
         return NextResponse.json({ error: "Day not found" }, { status: 404 });
-      }
-      if (days[dayIndex].isLocked === true) {
-        return NextResponse.json({ error: "此天已鎖定為單一景點，無法新增" }, { status: 400 });
       }
 
       const stops = (days[dayIndex].stops as Record<string, unknown>[]) ?? [];
@@ -99,13 +138,10 @@ export async function POST(
     }
 
     const days = itinerary.days as Record<string, unknown>[];
-    const dayIndex = days.findIndex((d) => d.id === dayId);
+    const dayIndex = findDayIndex(days, dayId);
 
     if (dayIndex === -1) {
       return NextResponse.json({ error: "Day not found" }, { status: 404 });
-    }
-    if (days[dayIndex].isLocked === true) {
-      return NextResponse.json({ error: "此天已鎖定為單一景點，無法新增" }, { status: 400 });
     }
 
     const day = days[dayIndex];
@@ -119,10 +155,7 @@ export async function POST(
     // Same city-hint fallback chain as stops/[stopId]/enrich — biases the
     // text search toward the day's actual city so a generic name doesn't
     // resolve to a same-named place elsewhere.
-    const cityHint =
-      (typeof day.waypointCity === "string" ? day.waypointCity : "") ||
-      (typeof day.transitTo === "string" ? day.transitTo : "") ||
-      "";
+    const cityHint = getCityHintForDay(day);
     const query = cityHint ? `${stopName} ${cityHint}` : stopName;
 
     let resolved: { placeId: string; name: string; lat: number; lng: number; address: string | null; rating: number | null };
@@ -158,10 +191,15 @@ export async function POST(
       });
     }
 
+    const fallbackDescription = resolved.rating
+      ? `Google 評分 ${resolved.rating}★`
+      : resolved.address ?? "";
+    const aiDescription = await describeStopWithAI(resolved.name, itinerary.title, cityHint);
+
     const newStop = {
       id: crypto.randomUUID(),
       name: resolved.name,
-      description: resolved.rating ? `Google 評分 ${resolved.rating}★` : resolved.address ?? "",
+      description: aiDescription ?? fallbackDescription,
       duration_minutes: DEFAULT_DURATION_MINUTES,
       placeId: resolved.placeId,
       lat: resolved.lat,

@@ -1,12 +1,27 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import {
+  DndContext,
+  closestCenter,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  verticalListSortingStrategy,
+  arrayMove,
+} from "@dnd-kit/sortable";
 import { PlacePhotoThumb } from "@/components/PlacePhotoThumb";
+import TransitRecommendationCard from "@/components/TransitRecommendationCard";
+import type { TransitRecommendation } from "@/types/itinerary";
+import { SUSPICIOUS_DISTANCE_KM as NEAREST_CITY_KM_THRESHOLD } from "@/lib/distanceMatrix";
+import { useItinerarySensors } from "@/hooks/useItinerarySensors";
+import { useSortableItem } from "@/hooks/useSortableItem";
 
-// Mirrors NEAREST_CITY_KM_THRESHOLD in src/lib/nearestCity.ts — duplicated
-// here because that helper pulls in server-only deps (Google API key, prisma
-// place cache) that can't ship to the client bundle.
-const NEAREST_CITY_KM_THRESHOLD = 80;
+// Same threshold as src/lib/nearestCity.ts's NEAREST_CITY_KM_THRESHOLD —
+// imported from distanceMatrix.ts (not nearestCity.ts itself) because that
+// module pulls in server-only deps (Google API key, prisma place cache) that
+// can't ship to the client bundle.
 const PRIMARY_CITY_KEY = "__primary__";
 const MAX_TARGET_DAYS = 14;
 
@@ -36,10 +51,10 @@ interface CityEntryState {
   name: string;
   isNew: boolean;
   existingDayIds: string[]; // original day order — empty for new cities
-  structuralDayIds: Set<string>; // transit-out / trip-return days — always kept, excluded from targetDays budget
+  structuralDayIds: Set<string>; // transit-out / trip-return days — always kept
   keepDayIds: Set<string>;
   touchedKeep: boolean;
-  targetDays: number;
+  targetDays: number; // total days for this city, including structural days
   lockedAttractions: LockedAttractionState[];
 }
 
@@ -48,7 +63,20 @@ interface RestructurePanelProps {
   days: RestructureDayLite[];
   onClose: () => void;
   onApplied: () => void;
+  originIata?: string;
+  destinationIata?: string;
+  isSingleCity?: boolean;
+  existingStops?: string[];
 }
+
+type RecommendationState = "loading" | "ready" | "error" | "empty";
+
+const HOUR_FILTERS: { label: string; value: number | null }[] = [
+  { label: "不限", value: null },
+  { label: "≤ 2 小時", value: 2 },
+  { label: "≤ 4 小時", value: 4 },
+  { label: "≤ 8 小時", value: 8 },
+];
 
 // A transit day or the trip's very last day doesn't represent a day actually
 // spent sightseeing in its assigned city — mirrors isStructuralDay in the
@@ -71,7 +99,6 @@ function groupExistingDays(days: RestructureDayLite[], structuralIds: Set<string
   return Array.from(buckets.entries()).map(([key, bucketDays]) => {
     const ids = bucketDays.map((d) => d.id);
     const cityStructuralIds = new Set(ids.filter((id) => structuralIds.has(id)));
-    const sightseeingCount = ids.length - cityStructuralIds.size;
     return {
       key: crypto.randomUUID(),
       name: key === PRIMARY_CITY_KEY ? "" : key,
@@ -80,27 +107,147 @@ function groupExistingDays(days: RestructureDayLite[], structuralIds: Set<string
       structuralDayIds: cityStructuralIds,
       keepDayIds: new Set(ids),
       touchedKeep: false,
-      targetDays: sightseeingCount,
+      targetDays: ids.length,
       lockedAttractions: [],
     };
   });
 }
 
-// Total days actually spent on this city block, including the structural
-// (transit/return) days that are always kept but aren't part of the AI
-// sightseeing budget in `targetDays` — this is what's shown to the user, who
-// shouldn't need to reason about the sightseeing/structural split.
+// Number of structural (transit/return) days baked into a city's targetDays:
+// a new city always has exactly 1 (its leading transit day); an existing
+// city has however many of its kept days are structural.
+function structuralCount(city: CityEntryState): number {
+  return city.isNew ? 1 : city.structuralDayIds.size;
+}
+
+// Total days actually spent on this city block. `targetDays` is the total
+// the user sets and sees directly — what you set is what you get — so this
+// is just an alias kept for readability at call sites.
 function totalCityDays(city: CityEntryState): number {
-  return city.isNew ? city.targetDays + 1 : city.targetDays + city.structuralDayIds.size;
+  return city.targetDays;
 }
 
 function defaultKeepIds(city: CityEntryState): Set<string> {
   const sightseeingIds = city.existingDayIds.filter((id) => !city.structuralDayIds.has(id));
-  const cap = Math.max(0, city.targetDays - city.lockedAttractions.length);
+  const cap = Math.max(0, city.targetDays - structuralCount(city) - city.lockedAttractions.length);
   return new Set([...sightseeingIds.slice(0, cap), ...city.structuralDayIds]);
 }
 
-export default function RestructurePanel({ itineraryId, days, onClose, onApplied }: RestructurePanelProps) {
+// Reconciles keepDayIds against `city`'s (already-updated) targetDays and
+// lockedAttractions. Untouched cities just get the recommended keep list
+// recomputed. A touched city's manual picks are preserved as-is UNLESS the
+// new, lower targetDays no longer has room for all of them — in that case
+// the excess manually-kept sightseeing days (latest-first) are dropped so
+// the actual day count restructure will produce can never exceed what this
+// panel displays. Without this, shrinking a city after hand-picking which
+// days to keep silently produced more days than targetDays, pushing the
+// trip over its original total.
+function syncKeepDaysForTarget(city: CityEntryState): CityEntryState {
+  if (!city.touchedKeep) return { ...city, keepDayIds: defaultKeepIds(city) };
+  const sightseeingKeepOrder = city.existingDayIds.filter(
+    (id) => !city.structuralDayIds.has(id) && city.keepDayIds.has(id)
+  );
+  const cap = Math.max(0, city.targetDays - structuralCount(city) - city.lockedAttractions.length);
+  if (sightseeingKeepOrder.length <= cap) return city;
+  return {
+    ...city,
+    keepDayIds: new Set([...sightseeingKeepOrder.slice(0, cap), ...city.structuralDayIds]),
+  };
+}
+
+function SortableCityEntry({
+  city,
+  draggable,
+  onNameChange,
+  onRemove,
+  onRemoveAttraction,
+}: {
+  city: CityEntryState;
+  draggable: boolean;
+  onNameChange: (name: string) => void;
+  onRemove: () => void;
+  onRemoveAttraction: (attractionKey: string) => void;
+}) {
+  const { attributes, listeners, setNodeRef, isDragging, style: sortableStyle } = useSortableItem(city.key);
+
+  const style = { ...sortableStyle, opacity: isDragging ? 0.5 : 1 };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-3"
+    >
+      <div className="flex items-center justify-between gap-2">
+        {draggable && (
+          <button
+            {...attributes}
+            {...listeners}
+            className="shrink-0 text-zinc-300 dark:text-zinc-600 cursor-grab active:cursor-grabbing touch-none"
+            aria-label="拖曳排序"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8h16M4 16h16" />
+            </svg>
+          </button>
+        )}
+        {city.name ? (
+          <p className="flex-1 text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+            {city.name}
+            {!city.isNew && <span className="ml-1.5 text-xs font-normal text-zinc-400">（既有）</span>}
+            {city.isNew && <span className="ml-1.5 text-xs font-normal text-emerald-600 dark:text-emerald-400">（新增）</span>}
+          </p>
+        ) : (
+          <input
+            type="text"
+            placeholder="這是哪個城市？例：名古屋"
+            onChange={(e) => onNameChange(e.target.value)}
+            className="flex-1 px-2 py-1 rounded border border-amber-300 dark:border-amber-700 bg-white dark:bg-zinc-800 text-sm text-zinc-900 dark:text-zinc-50 focus:outline-none focus:ring-2 focus:ring-amber-500"
+          />
+        )}
+        {city.isNew && (
+          <button
+            onClick={onRemove}
+            className="text-zinc-300 dark:text-zinc-600 hover:text-red-400 transition-colors shrink-0"
+            aria-label={`移除 ${city.name}`}
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        )}
+      </div>
+      {city.lockedAttractions.length > 0 && (
+        <div className="mt-2 space-y-1.5">
+          {city.lockedAttractions.map((a) => (
+            <div key={a.key} className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-300">
+              <span>🔒</span>
+              <PlacePhotoThumb placeId={a.placeId} photoName={a.photoName} size={28} />
+              <span className="flex-1">{a.name}</span>
+              <button
+                onClick={() => onRemoveAttraction(a.key)}
+                className="text-zinc-300 dark:text-zinc-600 hover:text-red-400 transition-colors"
+              >
+                移除
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function RestructurePanel({
+  itineraryId,
+  days,
+  onClose,
+  onApplied,
+  originIata,
+  destinationIata,
+  isSingleCity = false,
+  existingStops,
+}: RestructurePanelProps) {
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
   const [cities, setCities] = useState<CityEntryState[]>(() =>
     groupExistingDays(days, computeStructuralDayIds(days))
@@ -112,40 +259,231 @@ export default function RestructurePanel({ itineraryId, days, onClose, onApplied
   const [pendingAttraction, setPendingAttraction] = useState<LockedAttractionState | null>(null);
   const [applying, setApplying] = useState(false);
   const [applyError, setApplyError] = useState<string | null>(null);
+  const [dirty, setDirty] = useState(false);
+  const [capHint, setCapHint] = useState<{ cityKey: string; text: string } | null>(null);
+
+  // Suggested nearby/onward cities, fetched once on mount and reused across steps.
+  const [recState, setRecState] = useState<RecommendationState>(
+    originIata && destinationIata ? "loading" : "empty"
+  );
+  const [recommendations, setRecommendations] = useState<TransitRecommendation[]>([]);
+  const [maxTransitHours, setMaxTransitHours] = useState<number | null>(null);
+  const dismissedNamesRef = useRef<Set<string>>(new Set());
+  const autoRefreshOnEmptyRef = useRef(false);
+  const cacheKey = `transit-rec-${originIata}-${destinationIata}`;
 
   const daysById = new Map(days.map((d) => [d.id, d]));
+  // The trip's original total day count — the restructure only reshuffles
+  // days between cities, it never grows the trip itself, so this is the hard
+  // ceiling for totalAfter below.
+  const totalBefore = days.length;
+  const totalAfter = cities.reduce((sum, c) => sum + totalCityDays(c), 0);
+  const overBudget = totalAfter > totalBefore;
+
+  const applyRecommendations = useCallback(
+    (recs: TransitRecommendation[]) => {
+      const existingLower = existingStops?.map((s) => s.toLowerCase()) ?? [];
+      const dismissed = dismissedNamesRef.current;
+      const filtered = recs.filter(
+        (rec) =>
+          !dismissed.has(rec.name) &&
+          !existingLower.includes(rec.name.toLowerCase()) &&
+          (!rec.iataCode || !existingLower.includes(rec.iataCode.toLowerCase()))
+      );
+      if (filtered.length === 0) {
+        setRecState("empty");
+      } else {
+        setRecommendations(filtered);
+        setRecState("ready");
+      }
+    },
+    [existingStops]
+  );
+
+  const fetchRecommendations = useCallback(
+    (forceRefresh = false) => {
+      if (!originIata || !destinationIata) return () => {};
+
+      if (!forceRefresh) {
+        try {
+          const cached = sessionStorage.getItem(cacheKey);
+          if (cached) {
+            applyRecommendations(JSON.parse(cached) as TransitRecommendation[]);
+            return () => {};
+          }
+        } catch {
+          // ignore parse errors, fall through to fetch
+        }
+      }
+
+      setRecState("loading");
+      setRecommendations([]);
+      let cancelled = false;
+
+      fetch(`/api/v1/itinerary/${itineraryId}/transit-recommendations`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ originIata, destinationIata, existingStops, forceRefresh }),
+      })
+        .then((res) => {
+          if (!res.ok) throw new Error("推薦失敗");
+          return res.json() as Promise<{ recommendations: TransitRecommendation[] }>;
+        })
+        .then((data) => {
+          if (cancelled) return;
+          try {
+            sessionStorage.setItem(cacheKey, JSON.stringify(data.recommendations));
+          } catch {
+            // storage quota exceeded — ignore
+          }
+          applyRecommendations(data.recommendations);
+        })
+        .catch(() => {
+          if (!cancelled) setRecState("error");
+        });
+
+      return () => {
+        cancelled = true;
+      };
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [itineraryId, originIata, destinationIata, cacheKey, applyRecommendations]
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    let cleanup: (() => void) | undefined;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      cleanup = fetchRecommendations();
+    });
+    return () => {
+      cancelled = true;
+      cleanup?.();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fetchRecommendations]);
+
+  useEffect(() => {
+    if (recState !== "ready" || recommendations.length !== 0) return;
+    queueMicrotask(() => {
+      if (autoRefreshOnEmptyRef.current) {
+        autoRefreshOnEmptyRef.current = false;
+        fetchRecommendations(true);
+      } else {
+        setRecState("empty");
+      }
+    });
+  }, [recommendations, recState, fetchRecommendations]);
+
+  const handleIndividualRefresh = useCallback((recName: string) => {
+    dismissedNamesRef.current.add(recName);
+    setRecommendations((prev) => {
+      const next = prev.filter((r) => r.name !== recName);
+      if (next.length === 0) autoRefreshOnEmptyRef.current = true;
+      return next;
+    });
+  }, []);
+
+  const visibleRecommendations =
+    maxTransitHours === null
+      ? recommendations
+      : recommendations.filter((r) => r.transitTimeHours <= maxTransitHours);
+
+  const dragSensors = useItinerarySensors();
+
+  const handleCityDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    setDirty(true);
+    setCities((prev) => {
+      const oldIndex = prev.findIndex((c) => c.key === active.id);
+      const newIndex = prev.findIndex((c) => c.key === over.id);
+      if (oldIndex === -1 || newIndex === -1) return prev;
+      return arrayMove(prev, oldIndex, newIndex);
+    });
+  };
 
   const updateCity = (key: string, updater: (c: CityEntryState) => CityEntryState) => {
+    setDirty(true);
     setCities((prev) => prev.map((c) => (c.key === key ? updater(c) : c)));
+  };
+
+  const handleClose = () => {
+    if (dirty && !confirm("目前的變更尚未套用，確定要放棄並關閉嗎？")) return;
+    onClose();
   };
 
   const addAttractionToCity = (cityKey: string, attraction: LockedAttractionState) => {
     updateCity(cityKey, (c) => {
       const lockedAttractions = [...c.lockedAttractions, attraction];
       const targetDays = c.targetDays + 1;
-      const next = { ...c, lockedAttractions, targetDays };
-      return c.touchedKeep ? next : { ...next, keepDayIds: defaultKeepIds(next) };
+      return syncKeepDaysForTarget({ ...c, lockedAttractions, targetDays });
     });
   };
 
   const removeAttraction = (cityKey: string, attractionKey: string) => {
     updateCity(cityKey, (c) => {
       const lockedAttractions = c.lockedAttractions.filter((a) => a.key !== attractionKey);
-      const targetDays = Math.max(1, c.targetDays - 1);
-      const next = { ...c, lockedAttractions, targetDays };
-      return c.touchedKeep ? next : { ...next, keepDayIds: defaultKeepIds(next) };
+      const minDays = Math.max(1, lockedAttractions.length + structuralCount(c));
+      const targetDays = Math.max(minDays, c.targetDays - 1);
+      return syncKeepDaysForTarget({ ...c, lockedAttractions, targetDays });
     });
   };
 
   const removeCity = (key: string) => {
+    setDirty(true);
     setCities((prev) => prev.filter((c) => c.key !== key));
+  };
+
+  const addRecommendedCity = (rec: TransitRecommendation, targetDays: number) => {
+    if (cities.some((c) => c.name === rec.name)) return;
+    setDirty(true);
+    setCities((prev) => [
+      ...prev,
+      {
+        key: crypto.randomUUID(),
+        name: rec.name,
+        isNew: true,
+        existingDayIds: [],
+        structuralDayIds: new Set(),
+        keepDayIds: new Set(),
+        touchedKeep: false,
+        targetDays,
+        lockedAttractions: [],
+      },
+    ]);
   };
 
   const setTargetDays = (key: string, targetDays: number) => {
     updateCity(key, (c) => {
-      const clamped = Math.max(Math.max(1, c.lockedAttractions.length), Math.min(MAX_TARGET_DAYS, targetDays));
-      const next = { ...c, targetDays: clamped };
-      return c.touchedKeep ? next : { ...next, keepDayIds: defaultKeepIds(next) };
+      const minDays = Math.max(1, c.lockedAttractions.length + structuralCount(c));
+      let clamped = Math.max(minDays, Math.min(MAX_TARGET_DAYS, targetDays));
+      let hintText: string | null = null;
+
+      if (targetDays > c.targetDays) {
+        // Increasing this city's days — never let the trip-wide total climb
+        // past what the user originally planned.
+        const othersTotal = cities.reduce(
+          (sum, other) => sum + (other.key === key ? 0 : other.targetDays),
+          0
+        );
+        const budgetMax = Math.max(minDays, totalBefore - othersTotal);
+        if (clamped > budgetMax) {
+          clamped = budgetMax;
+          hintText = `已達原本規劃的總天數上限（${totalBefore} 天），請先減少其他城市天數`;
+        } else if (targetDays > MAX_TARGET_DAYS) {
+          hintText = `已達單一城市最多 ${MAX_TARGET_DAYS} 天`;
+        }
+      } else if (targetDays < minDays) {
+        hintText = "已達最少天數（含鎖定景點與交通日）";
+      }
+
+      if (hintText) {
+        setCapHint({ cityKey: key, text: hintText });
+        window.setTimeout(() => setCapHint((h) => (h?.cityKey === key ? null : h)), 2500);
+      }
+      return syncKeepDaysForTarget({ ...c, targetDays: clamped });
     });
   };
 
@@ -188,6 +526,7 @@ export default function RestructurePanel({ itineraryId, days, onClose, onApplied
           setSearchError("已經加入過這個城市了");
           return;
         }
+        setDirty(true);
         setCities((prev) => [
           ...prev,
           {
@@ -198,7 +537,7 @@ export default function RestructurePanel({ itineraryId, days, onClose, onApplied
             structuralDayIds: new Set(),
             keepDayIds: new Set(),
             touchedKeep: false,
-            targetDays: 2,
+            targetDays: 3, // 1 transit day + 2 sightseeing days by default
             lockedAttractions: [],
           },
         ]);
@@ -294,9 +633,6 @@ export default function RestructurePanel({ itineraryId, days, onClose, onApplied
     }
   };
 
-  const totalBefore = days.length;
-  const totalAfter = cities.reduce((sum, c) => sum + totalCityDays(c), 0);
-
   return (
     <div className="rounded-xl border border-indigo-200 dark:border-indigo-800/50 bg-indigo-50 dark:bg-indigo-950/20 overflow-hidden">
       <div className="px-4 py-3 border-b border-indigo-200 dark:border-indigo-800/50 flex items-center justify-between">
@@ -305,9 +641,11 @@ export default function RestructurePanel({ itineraryId, days, onClose, onApplied
           <p className="text-xs text-indigo-600 dark:text-indigo-400 mt-0.5">第 {step} / 4 步</p>
         </div>
         <button
-          onClick={onClose}
-          className="text-indigo-400 hover:text-indigo-600 dark:hover:text-indigo-300 transition-colors"
+          onClick={handleClose}
+          disabled={applying}
+          className="text-indigo-400 hover:text-indigo-600 dark:hover:text-indigo-300 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
           aria-label="關閉"
+          title={applying ? "套用中，請稍候" : undefined}
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -379,56 +717,134 @@ export default function RestructurePanel({ itineraryId, days, onClose, onApplied
               </div>
             )}
 
-            <div className="space-y-2">
-              {cities.map((city) => (
-                <div key={city.key} className="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-3">
-                  <div className="flex items-center justify-between gap-2">
-                    {city.name ? (
-                      <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
-                        {city.name}
-                        {!city.isNew && <span className="ml-1.5 text-xs font-normal text-zinc-400">（既有）</span>}
-                        {city.isNew && <span className="ml-1.5 text-xs font-normal text-emerald-600 dark:text-emerald-400">（新增）</span>}
-                      </p>
-                    ) : (
-                      <input
-                        type="text"
-                        placeholder="這是哪個城市？例：名古屋"
-                        onChange={(e) => updateCity(city.key, (c) => ({ ...c, name: e.target.value }))}
-                        className="flex-1 px-2 py-1 rounded border border-amber-300 dark:border-amber-700 bg-white dark:bg-zinc-800 text-sm text-zinc-900 dark:text-zinc-50 focus:outline-none focus:ring-2 focus:ring-amber-500"
-                      />
-                    )}
-                    {city.isNew && (
-                      <button
-                        onClick={() => removeCity(city.key)}
-                        className="text-zinc-300 dark:text-zinc-600 hover:text-red-400 transition-colors shrink-0"
-                        aria-label={`移除 ${city.name}`}
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                      </button>
-                    )}
+            <DndContext sensors={dragSensors} collisionDetection={closestCenter} onDragEnd={handleCityDragEnd}>
+              <SortableContext items={cities.map((c) => c.key)} strategy={verticalListSortingStrategy}>
+                <div className="space-y-2">
+                  {cities.map((city) => (
+                    <SortableCityEntry
+                      key={city.key}
+                      city={city}
+                      draggable={city.isNew}
+                      onNameChange={(name) => updateCity(city.key, (c) => ({ ...c, name }))}
+                      onRemove={() => removeCity(city.key)}
+                      onRemoveAttraction={(attractionKey) => removeAttraction(city.key, attractionKey)}
+                    />
+                  ))}
+                </div>
+              </SortableContext>
+            </DndContext>
+
+            {mode === "city" && originIata && destinationIata && (
+              <div className="rounded-lg border border-violet-200 dark:border-violet-800/50 bg-violet-50 dark:bg-violet-950/20 overflow-hidden">
+                <div className="px-3 py-2.5 flex items-center justify-between border-b border-violet-200 dark:border-violet-800/50">
+                  <div>
+                    <h5 className="text-xs font-bold text-violet-900 dark:text-violet-100">
+                      {isSingleCity ? "周邊推薦" : "順路推薦"}
+                    </h5>
+                    <p className="text-xs text-violet-600 dark:text-violet-400">
+                      {isSingleCity
+                        ? `從 ${originIata} 出發可順遊的周邊城市，加入後可拖曳到清單任意位置`
+                        : `${originIata} → ${destinationIata} 途中值得停留的城市，加入後可拖曳到清單任意位置`}
+                    </p>
                   </div>
-                  {city.lockedAttractions.length > 0 && (
-                    <div className="mt-2 space-y-1.5">
-                      {city.lockedAttractions.map((a) => (
-                        <div key={a.key} className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-300">
-                          <span>🔒</span>
-                          <PlacePhotoThumb placeId={a.placeId} photoName={a.photoName} size={28} />
-                          <span className="flex-1">{a.name}</span>
-                          <button
-                            onClick={() => removeAttraction(city.key, a.key)}
-                            className="text-zinc-300 dark:text-zinc-600 hover:text-red-400 transition-colors"
-                          >
-                            移除
-                          </button>
-                        </div>
+                  {recState !== "loading" && (
+                    <button
+                      onClick={() => fetchRecommendations(true)}
+                      className="text-violet-400 hover:text-violet-600 dark:hover:text-violet-300 transition-colors p-1 rounded shrink-0"
+                      aria-label="換一批推薦"
+                      title="換一批"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                      </svg>
+                    </button>
+                  )}
+                </div>
+
+                <div className="px-3 py-2 border-b border-violet-200 dark:border-violet-800/50 flex items-center gap-2 flex-wrap">
+                  <span className="text-xs text-violet-500 dark:text-violet-400 shrink-0">車程上限</span>
+                  <div className="flex gap-1.5">
+                    {HOUR_FILTERS.map(({ label, value }) => (
+                      <button
+                        key={label}
+                        onClick={() => setMaxTransitHours(value)}
+                        className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
+                          maxTransitHours === value
+                            ? "bg-violet-600 text-white dark:bg-violet-500"
+                            : "bg-violet-100 text-violet-600 hover:bg-violet-200 dark:bg-violet-900/40 dark:text-violet-300 dark:hover:bg-violet-900/60"
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="p-3">
+                  {recState === "loading" && (
+                    <div className="flex items-center gap-3 py-2 text-sm text-violet-600 dark:text-violet-400">
+                      <svg className="animate-spin w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                      </svg>
+                      正在分析行程，尋找推薦城市…
+                    </div>
+                  )}
+
+                  {recState === "error" && (
+                    <div className="text-center py-3">
+                      <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-2">暫時無法取得推薦，稍後再試看看？</p>
+                      <button
+                        onClick={() => fetchRecommendations(true)}
+                        className="text-sm px-3 py-1.5 rounded-lg bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 transition-colors"
+                      >
+                        重新整理
+                      </button>
+                    </div>
+                  )}
+
+                  {recState === "empty" && (
+                    <div className="text-center py-2">
+                      <p className="text-sm text-violet-600 dark:text-violet-400 mb-2">已沒有其他推薦城市。</p>
+                      <button
+                        onClick={() => fetchRecommendations(true)}
+                        className="text-sm px-3 py-1.5 rounded-lg bg-violet-100 hover:bg-violet-200 dark:bg-violet-900/40 dark:hover:bg-violet-900/60 text-violet-700 dark:text-violet-300 transition-colors"
+                      >
+                        換一批推薦
+                      </button>
+                    </div>
+                  )}
+
+                  {recState === "ready" && visibleRecommendations.length === 0 && (
+                    <div className="text-center py-2">
+                      <p className="text-sm text-violet-600 dark:text-violet-400 mb-2">
+                        目前篩選條件下沒有符合的城市，試試放寬車程上限？
+                      </p>
+                      <button
+                        onClick={() => setMaxTransitHours(null)}
+                        className="text-sm px-3 py-1.5 rounded-lg bg-violet-100 hover:bg-violet-200 dark:bg-violet-900/40 dark:hover:bg-violet-900/60 text-violet-700 dark:text-violet-300 transition-colors"
+                      >
+                        顯示全部
+                      </button>
+                    </div>
+                  )}
+
+                  {recState === "ready" && visibleRecommendations.length > 0 && (
+                    <div className="space-y-3">
+                      {visibleRecommendations.map((rec) => (
+                        <TransitRecommendationCard
+                          key={`${rec.name}-${rec.country}`}
+                          recommendation={rec}
+                          isAdded={cities.some((c) => c.name === rec.name)}
+                          onAdd={addRecommendedCity}
+                          onRefresh={() => handleIndividualRefresh(rec.name)}
+                        />
                       ))}
                     </div>
                   )}
                 </div>
-              ))}
-            </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -438,32 +854,49 @@ export default function RestructurePanel({ itineraryId, days, onClose, onApplied
             <p className="text-xs text-zinc-500 dark:text-zinc-400">
               已依你加入的必去景點試算建議天數，可用 +/- 微調每個城市的總天數。
             </p>
+            <div
+              className={`flex items-center justify-between rounded-lg border px-3 py-2 text-xs font-semibold ${
+                overBudget
+                  ? "border-red-300 dark:border-red-800/50 bg-red-50 dark:bg-red-950/20 text-red-600 dark:text-red-400"
+                  : "border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-300"
+              }`}
+            >
+              <span>總天數（原訂 {totalBefore} 天）</span>
+              <span>{totalAfter} / {totalBefore} 天</span>
+            </div>
             {cities.map((city) => (
-              <div key={city.key} className="flex items-center gap-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-2.5">
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-50 truncate">{city.name}</p>
-                  {city.lockedAttractions.length > 0 && (
-                    <p className="text-xs text-zinc-400 dark:text-zinc-500 truncate">
-                      含 {city.lockedAttractions.length} 個鎖定景點日
-                    </p>
-                  )}
+              <div key={city.key} className="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-2.5">
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-50 truncate">{city.name}</p>
+                    {city.lockedAttractions.length > 0 && (
+                      <p className="text-xs text-zinc-400 dark:text-zinc-500 truncate">
+                        含 {city.lockedAttractions.length} 個鎖定景點日
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      onClick={() => setTargetDays(city.key, city.targetDays - 1)}
+                      className="w-6 h-6 flex items-center justify-center rounded border border-zinc-200 dark:border-zinc-700 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-sm transition-colors"
+                    >
+                      −
+                    </button>
+                    <span className="text-sm font-semibold text-zinc-900 dark:text-zinc-50 w-6 text-center">{totalCityDays(city)}</span>
+                    <button
+                      onClick={() => setTargetDays(city.key, city.targetDays + 1)}
+                      disabled={totalAfter >= totalBefore}
+                      title={totalAfter >= totalBefore ? `已達原本規劃的總天數上限（${totalBefore} 天）` : undefined}
+                      className="w-6 h-6 flex items-center justify-center rounded border border-zinc-200 dark:border-zinc-700 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-sm transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                    >
+                      +
+                    </button>
+                    <span className="text-xs text-zinc-400 ml-0.5">天</span>
+                  </div>
                 </div>
-                <div className="flex items-center gap-1 shrink-0">
-                  <button
-                    onClick={() => setTargetDays(city.key, city.targetDays - 1)}
-                    className="w-6 h-6 flex items-center justify-center rounded border border-zinc-200 dark:border-zinc-700 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-sm transition-colors"
-                  >
-                    −
-                  </button>
-                  <span className="text-sm font-semibold text-zinc-900 dark:text-zinc-50 w-6 text-center">{totalCityDays(city)}</span>
-                  <button
-                    onClick={() => setTargetDays(city.key, city.targetDays + 1)}
-                    className="w-6 h-6 flex items-center justify-center rounded border border-zinc-200 dark:border-zinc-700 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-sm transition-colors"
-                  >
-                    +
-                  </button>
-                  <span className="text-xs text-zinc-400 ml-0.5">天</span>
-                </div>
+                {capHint?.cityKey === city.key && (
+                  <p className="text-xs text-amber-600 dark:text-amber-400 mt-1 text-right">{capHint.text}</p>
+                )}
               </div>
             ))}
           </div>
@@ -529,7 +962,10 @@ export default function RestructurePanel({ itineraryId, days, onClose, onApplied
               const sightseeingKeptCount = city.existingDayIds.filter(
                 (id) => city.keepDayIds.has(id) && !city.structuralDayIds.has(id)
               ).length;
-              const addedAiDays = Math.max(0, city.targetDays - sightseeingKeptCount - city.lockedAttractions.length);
+              const addedAiDays = Math.max(
+                0,
+                city.targetDays - structuralCount(city) - sightseeingKeptCount - city.lockedAttractions.length
+              );
               return (
                 <div key={city.key} className="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-3 space-y-1.5">
                   <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
@@ -559,11 +995,20 @@ export default function RestructurePanel({ itineraryId, days, onClose, onApplied
                 <span className="text-zinc-500 dark:text-zinc-400">原有天數</span>
                 <span className="font-semibold text-zinc-700 dark:text-zinc-300">{totalBefore} 天</span>
               </div>
-              <div className="flex items-center justify-between text-xs font-bold border-t border-zinc-200 dark:border-zinc-700 pt-1.5 mt-1">
+              <div
+                className={`flex items-center justify-between text-xs font-bold border-t border-zinc-200 dark:border-zinc-700 pt-1.5 mt-1 ${
+                  overBudget ? "text-red-600 dark:text-red-400" : ""
+                }`}
+              >
                 <span>套用後總天數</span>
                 <span>{totalAfter} 天</span>
               </div>
             </div>
+            {overBudget && (
+              <p className="text-xs text-red-600 dark:text-red-400 font-semibold">
+                套用後總天數（{totalAfter} 天）超過原本規劃的 {totalBefore} 天，請回到「天數設定」減少城市天數或移除必去景點後再套用。
+              </p>
+            )}
             {applyError && <p className="text-xs text-red-600 dark:text-red-400">{applyError}</p>}
           </div>
         )}
@@ -572,7 +1017,7 @@ export default function RestructurePanel({ itineraryId, days, onClose, onApplied
         <div className="flex items-center justify-between pt-2 border-t border-indigo-100 dark:border-indigo-900/40">
           <button
             onClick={() => setStep((s) => (s > 1 ? ((s - 1) as 1 | 2 | 3) : s))}
-            disabled={step === 1}
+            disabled={step === 1 || applying}
             className="px-3 py-1.5 text-sm text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 disabled:opacity-30 transition-colors"
           >
             上一步
@@ -588,8 +1033,9 @@ export default function RestructurePanel({ itineraryId, days, onClose, onApplied
           ) : (
             <button
               onClick={handleApply}
-              disabled={applying}
-              className="px-4 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white text-sm font-semibold transition-colors"
+              disabled={applying || overBudget}
+              title={overBudget ? `套用後總天數超過原本規劃的 ${totalBefore} 天` : undefined}
+              className="px-4 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed text-white text-sm font-semibold transition-colors"
             >
               {applying ? "套用中…" : "套用至行程"}
             </button>

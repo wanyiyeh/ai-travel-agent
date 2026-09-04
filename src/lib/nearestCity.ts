@@ -1,11 +1,12 @@
 import { getCityCenter } from "@/lib/placesTextSearch";
-import { haversineKm } from "@/lib/distanceMatrix";
+import { haversineKm, SUSPICIOUS_DISTANCE_KM } from "@/lib/distanceMatrix";
 
-// Same threshold convention as the suspicious-stop centroid check
-// (enrich-all-stops/route.ts, stop-suggestions/route.ts): beyond this, an
-// attraction is not confidently "in" any candidate city, so the caller
-// should ask the user to confirm/pick instead of silently assigning it.
-export const NEAREST_CITY_KM_THRESHOLD = 80;
+// Beyond this, an attraction is not confidently "in" any candidate city, so
+// the caller should ask the user to confirm/pick instead of silently
+// assigning it. Same threshold convention as the suspicious-stop centroid
+// check (enrich-all-stops/route.ts, stop-suggestions/route.ts) — see
+// SUSPICIOUS_DISTANCE_KM's doc comment in distanceMatrix.ts.
+export const NEAREST_CITY_KM_THRESHOLD = SUSPICIOUS_DISTANCE_KM;
 
 // There's no reverse-geocode-to-city helper anywhere in this codebase — this
 // resolves each candidate city's center (cached) and picks the closest one,

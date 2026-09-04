@@ -5,6 +5,7 @@ import { lookupByQuery, upsertPlace } from "@/lib/placeCache";
 import { searchPlaceText, getCityCenter } from "@/lib/placesTextSearch";
 import { PRICE_LEVEL_MAP } from "@/lib/fetchCityRestaurants";
 import { estimateLodgingCostPerNight, estimateLodgingCostRange } from "@/lib/priceLevelCost";
+import { findDayIndex } from "@/lib/itineraryDays";
 
 export async function POST(
   request: Request,
@@ -28,7 +29,7 @@ export async function POST(
     }
 
     const days = itinerary.days as Record<string, unknown>[];
-    const dayIndex = days.findIndex((d) => d.id === dayId);
+    const dayIndex = findDayIndex(days, dayId);
 
     if (dayIndex === -1) {
       return NextResponse.json({ error: "Day not found" }, { status: 404 });

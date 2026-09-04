@@ -10,6 +10,7 @@ import {
 import { resolveDayCoords } from "@/lib/itineraryGen";
 import { estimateMealCost } from "@/lib/priceLevelCost";
 import { isMealType } from "@/types/itinerary";
+import { findDayIndex } from "@/lib/itineraryDays";
 import type { MealCandidate } from "@/types/itinerary";
 
 const RequestSchema = z.object({
@@ -56,7 +57,7 @@ export async function POST(
     }
 
     const days = itinerary.days as Record<string, unknown>[];
-    const dayIndex = days.findIndex((d) => d.id === dayId);
+    const dayIndex = findDayIndex(days, dayId);
 
     if (dayIndex === -1) {
       return NextResponse.json({ error: "Day not found" }, { status: 404 });

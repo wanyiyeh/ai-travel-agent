@@ -14,6 +14,18 @@ export function haversineKm(
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+// Beyond this, a candidate/stop is not confidently "in" the same city as its
+// siblings, so callers should flag it as suspicious (enrich-all-stops,
+// stop-suggestions) or ask the user to confirm/pick instead of silently
+// assigning it (nearestCity). Single source of truth for this convention —
+// previously three separate 80 constants that had to be kept in sync by hand.
+export const SUSPICIOUS_DISTANCE_KM = 80;
+
+export function centroid(pts: { lat: number; lng: number }[]): { lat: number; lng: number } {
+  const sum = pts.reduce((a, p) => ({ lat: a.lat + p.lat, lng: a.lng + p.lng }), { lat: 0, lng: 0 });
+  return { lat: sum.lat / pts.length, lng: sum.lng / pts.length };
+}
+
 export interface DistanceResult {
   distanceText: string;
   distanceMeters: number;

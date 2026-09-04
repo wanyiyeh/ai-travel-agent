@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma, j } from "@/lib/db";
 import { openai } from "@/lib/openai";
 import { getDistancesForStopPairs } from "@/lib/distanceMatrix";
+import { findDayIndex } from "@/lib/itineraryDays";
 
 const RequestSchema = z.object({
   itineraryId: z.string().min(1),
@@ -42,7 +43,7 @@ export async function POST(
     }
 
     const days = itinerary.days as Record<string, unknown>[];
-    const dayIndex = days.findIndex((d) => d.id === dayId);
+    const dayIndex = findDayIndex(days, dayId);
 
     if (dayIndex === -1) {
       return NextResponse.json({ error: "Day not found" }, { status: 404 });
@@ -59,7 +60,9 @@ export async function POST(
         : undefined;
 
     const prevAccommodation = prevAccommodationObj
-      ? `${prevAccommodationObj.name}（${prevAccommodationObj.area}）`
+      ? prevAccommodationObj.name
+        ? `${prevAccommodationObj.name}（${prevAccommodationObj.area}）`
+        : `${prevAccommodationObj.area}`
       : null;
 
     const originDesc = isFirstDay

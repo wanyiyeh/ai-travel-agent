@@ -1,11 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { useSortable } from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
+import { useSortableItem } from "@/hooks/useSortableItem";
 import { formatDuration } from "@/types/itinerary";
 import type { Stop } from "@/types/itinerary";
 import { PlacePhotoThumb } from "@/components/PlacePhotoThumb";
+import { buildPlaceMapsUrl } from "@/lib/googleMapsUrl";
 
 const DURATION_STEP = 15;
 const DURATION_PRESETS = [30, 60, 90, 120, 180, 240];
@@ -39,9 +39,6 @@ interface SortableStopProps {
   isPicking?: boolean;
   onMove?: (stop: Stop, targetDayId: string) => void;
   moveTargets?: { id: string; label: string }[];
-  // A locked day's single attraction stop — no drag, no edit/swap/move/delete.
-  // See the `isLocked` guards mirrored server-side in the stop mutation routes.
-  locked?: boolean;
 }
 
 export function SortableStop({
@@ -65,27 +62,13 @@ export function SortableStop({
   isPicking = false,
   onMove,
   moveTargets,
-  locked = false,
 }: SortableStopProps) {
   const isEditing = editingStop?.id === stop.id;
   const [showMoveMenu, setShowMoveMenu] = useState(false);
 
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({
-    id: stop.id!,
-    disabled: isEditing || isLoading || bulkMode || isPicking || locked,
+  const { attributes, listeners, setNodeRef, isDragging, style } = useSortableItem(stop.id!, {
+    disabled: isEditing || isLoading || bulkMode || isPicking,
   });
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-  };
 
   return (
     <div
@@ -99,9 +82,9 @@ export function SortableStop({
       <div className="shrink-0">
         <div
           className={`w-9 h-9 bg-blue-50 dark:bg-blue-950 rounded-full flex items-center justify-center${
-            isEditing || isLoading || locked ? "" : " cursor-grab active:cursor-grabbing"
+            isEditing || isLoading ? "" : " cursor-grab active:cursor-grabbing"
           }`}
-          {...(isEditing || isLoading || locked ? {} : { ...attributes, ...listeners })}
+          {...(isEditing || isLoading ? {} : { ...attributes, ...listeners })}
         >
           {/* Grip icon */}
           <svg
@@ -288,7 +271,7 @@ export function SortableStop({
                 </span>
                 {stop.placeId && (
                   <a
-                    href={`https://www.google.com/maps/place/?q=place_id:${stop.placeId}`}
+                    href={buildPlaceMapsUrl(stop.placeId)}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="shrink-0 text-[11px] text-blue-400 hover:text-blue-600 dark:text-blue-500 dark:hover:text-blue-300 transition-colors"
@@ -323,9 +306,7 @@ export function SortableStop({
           </span>
         </div>
 
-        {locked ? (
-          <span className="text-base" title="整天鎖定，無法編輯">🔒</span>
-        ) : bulkMode && stop.id ? (
+        {bulkMode && stop.id ? (
           <input
             type="checkbox"
             checked={selected}
