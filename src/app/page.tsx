@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useStreamingGenerate } from "@/hooks/useStreamingGenerate";
 import StreamingPreview from "@/components/StreamingPreview";
 import type { TripPreferences, FlightInfo } from "@/lib/schemas";
-import { iataToCity } from "@/lib/airports";
+import { AIRPORTS, iataToCity } from "@/lib/airports";
+import { IATA_COUNTRY_ZH } from "@/lib/iataCountry";
 
 const PACE_OPTIONS: { value: TripPreferences["pace"]; label: string; desc: string }[] = [
   { value: "relaxed", label: "悠閒", desc: "每天 ≤3 個景點" },
@@ -27,6 +28,11 @@ const INTEREST_OPTIONS: { value: NonNullable<TripPreferences["interests"]>[numbe
   { value: "shopping", label: "購物" },
   { value: "adventure", label: "冒險戶外" },
 ];
+
+const CITY_OPTIONS: { code: string; name: string; country: string }[] = Object.entries(AIRPORTS)
+  .map(([code, airport]) => ({ code, name: airport.cityZh, country: IATA_COUNTRY_ZH[code] ?? "" }))
+  .sort((a, b) => a.name.localeCompare(b.name, "zh-Hant"));
+
 
 type NearbySuggestion = { name: string; country: string; transitTime: string; mode: string };
 
@@ -104,7 +110,6 @@ function getNearby(dep: string, arr: string): NearbySuggestion[] | null {
   return ROUTE_NEARBY[`${dep}-${arr}`] || ROUTE_NEARBY[`${arr}-${dep}`] || null;
 }
 
-
 function calcDays(departureDate: string, returnDate: string): number {
   if (!departureDate || !returnDate) return 0;
   const dep = new Date(departureDate);
@@ -112,16 +117,195 @@ function calcDays(departureDate: string, returnDate: string): number {
   return Math.max(0, Math.ceil((ret.getTime() - dep.getTime()) / (1000 * 60 * 60 * 24)));
 }
 
+function ChevronIcon({ direction }: { direction: "up" | "down" }) {
+  return (
+    <svg
+      className="w-4 h-4 text-zinc-400 shrink-0"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      viewBox="0 0 24 24"
+    >
+      {direction === "down" ? <polyline points="6 9 12 15 18 9" /> : <polyline points="18 15 12 9 6 15" />}
+    </svg>
+  );
+}
+
+const toIATA = (val: string) => val.toUpperCase().replace(/[^A-Z]/g, "").slice(0, 3);
+
+function CityCombobox({
+  label,
+  value,
+  onChange,
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (code: string) => void;
+  placeholder: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [manualMode, setManualMode] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  if (manualMode) {
+    return (
+      <div>
+        <div className="flex items-center justify-between mb-1">
+          <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+            {label}
+          </label>
+          <button
+            type="button"
+            onClick={() => setManualMode(false)}
+            className="text-xs text-zinc-400 underline underline-offset-4 hover:text-zinc-700 dark:hover:text-zinc-200"
+          >
+            改用城市搜尋
+          </button>
+        </div>
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => onChange(toIATA(e.target.value))}
+          placeholder="機場代號，例如 TPE"
+          maxLength={3}
+          className="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-3 py-2.5 text-sm font-mono uppercase tracking-widest text-zinc-900 dark:text-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-100"
+        />
+      </div>
+    );
+  }
+
+  const selected = CITY_OPTIONS.find((c) => c.code === value);
+  const matches = (
+    query
+      ? CITY_OPTIONS.filter(
+          (c) =>
+            c.name.includes(query) ||
+            c.country.includes(query) ||
+            c.code.includes(query.toUpperCase())
+        )
+      : CITY_OPTIONS
+  ).slice(0, 8);
+
+  // 依國家分組顯示，讓打國家名稱時能一眼看到該國有哪些城市可選
+  const groups: { country: string; cities: typeof matches }[] = [];
+  for (const c of matches) {
+    const group = groups.find((g) => g.country === c.country);
+    if (group) group.cities.push(c);
+    else groups.push({ country: c.country, cities: [c] });
+  }
+
+  return (
+    <div ref={containerRef} className="relative">
+      <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+        {label}
+      </label>
+      <button
+        type="button"
+        onClick={() => {
+          setOpen((o) => !o);
+          setQuery("");
+        }}
+        className="w-full flex items-center justify-between rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-3 py-2.5 text-sm text-left focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-100"
+      >
+        {value ? (
+          <span className="flex items-baseline gap-1.5 min-w-0">
+            <span className="text-zinc-900 dark:text-zinc-50 truncate">{selected?.name ?? value}</span>
+            {selected && (
+              <span className="text-xs text-zinc-400 font-mono shrink-0">{selected.code}</span>
+            )}
+          </span>
+        ) : (
+          <span className="text-zinc-400 truncate">{placeholder}</span>
+        )}
+        <ChevronIcon direction={open ? "up" : "down"} />
+      </button>
+
+      {open && (
+        <div className="absolute z-10 mt-1 w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 shadow-lg overflow-hidden">
+          <input
+            autoFocus
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="輸入城市或國家名稱"
+            className="w-full border-b border-zinc-100 dark:border-zinc-800 px-3 py-2 text-sm bg-transparent text-zinc-900 dark:text-zinc-50 focus:outline-none"
+          />
+          <div className="max-h-56 overflow-y-auto">
+            {matches.length === 0 && (
+              <div className="px-3 py-2 text-sm text-zinc-400">找不到符合的城市</div>
+            )}
+            {groups.map((g) => (
+              <div key={g.country || "unknown"}>
+                {g.country && (
+                  <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-50 dark:bg-zinc-800/60">
+                    <span className="text-[10px] font-medium border border-zinc-300 dark:border-zinc-600 rounded px-1 py-0.5 text-zinc-500 dark:text-zinc-400">
+                      國家
+                    </span>
+                    <span className="text-xs font-medium text-zinc-600 dark:text-zinc-300">
+                      {g.country}
+                    </span>
+                  </div>
+                )}
+                {g.cities.map((c) => (
+                  <button
+                    key={c.code}
+                    type="button"
+                    onClick={() => {
+                      onChange(c.code);
+                      setOpen(false);
+                      setQuery("");
+                    }}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-zinc-50 dark:hover:bg-zinc-800"
+                  >
+                    <span className="text-zinc-300 dark:text-zinc-600">└</span>
+                    <span className="flex-1 text-zinc-900 dark:text-zinc-50">{c.name}</span>
+                    <span className="text-xs text-zinc-400 font-mono">{c.code}</span>
+                  </button>
+                ))}
+              </div>
+            ))}
+          </div>
+          {matches.length === 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                setManualMode(true);
+                setOpen(false);
+              }}
+              className="w-full text-left px-3 py-2 text-xs text-zinc-500 dark:text-zinc-400 underline underline-offset-4 hover:text-zinc-900 dark:hover:text-zinc-100 border-t border-zinc-100 dark:border-zinc-800"
+            >
+              找不到城市？直接輸入機場代號
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Home() {
   const router = useRouter();
 
-  // 機票資訊（IATA 機場代號）
+  // 機票資訊（IATA 機場代號，透過城市搜尋選取）
   const [departureCity, setDepartureCity] = useState("");
   const [arrivalCity, setArrivalCity] = useState("");
   const [returnDepartureCity, setReturnDepartureCity] = useState("");
   const [returnArrivalCity, setReturnArrivalCity] = useState("");
 
-  const toIATA = (val: string) => val.toUpperCase().replace(/[^A-Z]/g, "").slice(0, 3);
   const [departureDate, setDepartureDate] = useState("");
   const [returnDate, setReturnDate] = useState("");
   const [arrivalTime, setArrivalTime] = useState("");
@@ -134,6 +318,10 @@ export default function Home() {
   const [interests, setInterests] = useState<NonNullable<TripPreferences["interests"]>>([]);
   const [travelers, setTravelers] = useState(2);
   const [selectedWaypoints, setSelectedWaypoints] = useState<string[]>([]);
+
+  // 進階選項的展開狀態
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [returnCityDiffers, setReturnCityDiffers] = useState(false);
 
   const { state, partialData, id, error, retryInfo, generate, reset, isLoading } =
     useStreamingGenerate();
@@ -164,8 +352,8 @@ export default function Home() {
     const flightInfo: FlightInfo = {
       departureCity,
       arrivalCity,
-      returnDepartureCity: returnDepartureCity || arrivalCity,
-      returnArrivalCity: returnArrivalCity || undefined,
+      returnDepartureCity: (returnCityDiffers && returnDepartureCity) || arrivalCity,
+      returnArrivalCity: (returnCityDiffers && returnArrivalCity) || undefined,
       departureDate,
       returnDate,
       arrivalTime: arrivalTime || undefined,
@@ -220,167 +408,63 @@ export default function Home() {
         {!isStreaming && state !== "complete" && (
           <form onSubmit={handleSubmit} className="space-y-6">
 
-            {/* 機票資訊 */}
+            {/* 機票資訊 – 核心欄位 */}
             <div className="rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-5 space-y-4">
               <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300 uppercase tracking-wide">
                 機票資訊
               </h2>
 
-              {/* 去程 */}
-              <div>
-                <p className="text-xs text-zinc-400 dark:text-zinc-500 mb-2">去程</p>
-                <div className="grid grid-cols-2 gap-3 mb-3">
-                  <div>
-                    <label
-                      htmlFor="departureCity"
-                      className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1"
-                    >
-                      出發機場代號
-                    </label>
-                    <input
-                      id="departureCity"
-                      type="text"
-                      value={departureCity}
-                      onChange={(e) => setDepartureCity(toIATA(e.target.value))}
-                      placeholder="TPE"
-                      maxLength={3}
-                      required
-                      className="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-3 py-2.5 text-zinc-900 dark:text-zinc-50 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-100 text-sm font-mono tracking-widest"
-                    />
-                  </div>
-                  <div>
-                    <label
-                      htmlFor="arrivalCity"
-                      className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1"
-                    >
-                      抵達機場代號
-                    </label>
-                    <input
-                      id="arrivalCity"
-                      type="text"
-                      value={arrivalCity}
-                      onChange={(e) => {
-                        const code = toIATA(e.target.value);
-                        setArrivalCity(code);
-                        if (!returnDepartureCity) setReturnDepartureCity(code);
-                      }}
-                      placeholder="SYD"
-                      maxLength={3}
-                      required
-                      className="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-3 py-2.5 text-zinc-900 dark:text-zinc-50 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-100 text-sm font-mono tracking-widest"
-                    />
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label
-                      htmlFor="departureDate"
-                      className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1"
-                    >
-                      去程日期
-                    </label>
-                    <input
-                      id="departureDate"
-                      type="date"
-                      value={departureDate}
-                      onChange={(e) => setDepartureDate(e.target.value)}
-                      required
-                      className="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-3 py-2.5 text-zinc-900 dark:text-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-100 text-sm"
-                    />
-                  </div>
-                  <div>
-                    <label
-                      htmlFor="arrivalTime"
-                      className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1"
-                    >
-                      航班抵達時間
-                      <span className="font-normal text-zinc-400 ml-1">（選填）</span>
-                    </label>
-                    <input
-                      id="arrivalTime"
-                      type="time"
-                      value={arrivalTime}
-                      onChange={(e) => setArrivalTime(e.target.value)}
-                      className="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-3 py-2.5 text-zinc-900 dark:text-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-100 text-sm"
-                    />
-                  </div>
-                </div>
+              <div className="grid grid-cols-2 gap-3">
+                <CityCombobox
+                  label="出發城市"
+                  value={departureCity}
+                  onChange={setDepartureCity}
+                  placeholder="搜尋城市，例如：台北"
+                />
+                <CityCombobox
+                  label="抵達城市"
+                  value={arrivalCity}
+                  onChange={(code) => {
+                    setArrivalCity(code);
+                    if (!returnDepartureCity) setReturnDepartureCity(code);
+                  }}
+                  placeholder="搜尋城市，例如：東京"
+                />
               </div>
 
-              {/* 回程 */}
-              <div>
-                <p className="text-xs text-zinc-400 dark:text-zinc-500 mb-2">回程</p>
-                <div className="grid grid-cols-2 gap-3 mb-3">
-                  <div>
-                    <label
-                      htmlFor="returnDepartureCity"
-                      className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1"
-                    >
-                      出發機場代號
-                      <span className="font-normal text-zinc-400 ml-1">（若與抵達地不同）</span>
-                    </label>
-                    <input
-                      id="returnDepartureCity"
-                      type="text"
-                      value={returnDepartureCity}
-                      onChange={(e) => setReturnDepartureCity(toIATA(e.target.value))}
-                      placeholder={arrivalCity || "MEL"}
-                      maxLength={3}
-                      className="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-3 py-2.5 text-zinc-900 dark:text-zinc-50 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-100 text-sm font-mono tracking-widest"
-                    />
-                  </div>
-                  <div>
-                    <label
-                      htmlFor="returnArrivalCity"
-                      className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1"
-                    >
-                      抵達機場代號
-                    </label>
-                    <input
-                      id="returnArrivalCity"
-                      type="text"
-                      value={returnArrivalCity}
-                      onChange={(e) => setReturnArrivalCity(toIATA(e.target.value))}
-                      placeholder={departureCity || "TPE"}
-                      maxLength={3}
-                      className="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-3 py-2.5 text-zinc-900 dark:text-zinc-50 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-100 text-sm font-mono tracking-widest"
-                    />
-                  </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label
+                    htmlFor="departureDate"
+                    className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1"
+                  >
+                    去程日期
+                  </label>
+                  <input
+                    id="departureDate"
+                    type="date"
+                    value={departureDate}
+                    onChange={(e) => setDepartureDate(e.target.value)}
+                    required
+                    className="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-3 py-2.5 text-zinc-900 dark:text-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-100 text-sm"
+                  />
                 </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label
-                      htmlFor="returnDate"
-                      className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1"
-                    >
-                      回程日期
-                    </label>
-                    <input
-                      id="returnDate"
-                      type="date"
-                      value={returnDate}
-                      min={departureDate}
-                      onChange={(e) => setReturnDate(e.target.value)}
-                      required
-                      className="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-3 py-2.5 text-zinc-900 dark:text-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-100 text-sm"
-                    />
-                  </div>
-                  <div>
-                    <label
-                      htmlFor="returnDepartureTime"
-                      className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1"
-                    >
-                      航班出發時間
-                      <span className="font-normal text-zinc-400 ml-1">（選填）</span>
-                    </label>
-                    <input
-                      id="returnDepartureTime"
-                      type="time"
-                      value={returnDepartureTime}
-                      onChange={(e) => setReturnDepartureTime(e.target.value)}
-                      className="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-3 py-2.5 text-zinc-900 dark:text-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-100 text-sm"
-                    />
-                  </div>
+                <div>
+                  <label
+                    htmlFor="returnDate"
+                    className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1"
+                  >
+                    回程日期
+                  </label>
+                  <input
+                    id="returnDate"
+                    type="date"
+                    value={returnDate}
+                    min={departureDate}
+                    onChange={(e) => setReturnDate(e.target.value)}
+                    required
+                    className="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-3 py-2.5 text-zinc-900 dark:text-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-100 text-sm"
+                  />
                 </div>
               </div>
 
@@ -464,102 +548,182 @@ export default function Home() {
               />
             </div>
 
-            {/* 步調 */}
-            <div>
-              <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">
-                步調與節奏
-              </label>
-              <div className="flex gap-2">
-                {PACE_OPTIONS.map((opt) => (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    onClick={() => setPace(pace === opt.value ? undefined : opt.value)}
-                    className={`flex-1 rounded-lg border px-3 py-2 text-sm transition-colors ${
-                      pace === opt.value
-                        ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-900"
-                        : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
-                    }`}
-                  >
-                    <div className="font-medium">{opt.label}</div>
-                    <div className="text-xs opacity-60">{opt.desc}</div>
-                  </button>
-                ))}
-              </div>
-            </div>
+            {/* 更多選項 – 航班細節與旅遊偏好，預設收合 */}
+            <div className="rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setMoreOpen((o) => !o)}
+                className="w-full flex items-center justify-between px-4 py-3.5 text-left"
+              >
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-sm font-medium text-zinc-900 dark:text-zinc-50">更多選項</span>
+                  <span className="text-xs text-zinc-400">航班時間、旅遊偏好、人數</span>
+                </div>
+                <ChevronIcon direction={moreOpen ? "up" : "down"} />
+              </button>
 
-            {/* 預算 */}
-            <div>
-              <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">
-                預算區間
-              </label>
-              <div className="flex gap-2">
-                {BUDGET_OPTIONS.map((opt) => (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    onClick={() => setBudget(budget === opt.value ? undefined : opt.value)}
-                    className={`flex-1 rounded-lg border px-3 py-2 text-sm transition-colors ${
-                      budget === opt.value
-                        ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-900"
-                        : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
-                    }`}
-                  >
-                    <div className="font-medium">{opt.label}</div>
-                    <div className="text-xs opacity-60">{opt.desc}</div>
-                  </button>
-                ))}
-              </div>
-            </div>
+              {moreOpen && (
+                <div className="border-t border-zinc-100 dark:border-zinc-800 p-4 space-y-5">
+                  {/* 航班細節 */}
+                  <div className="space-y-2.5">
+                    <span className="block text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
+                      航班細節
+                    </span>
+                    <div className="grid grid-cols-2 gap-2.5">
+                      <div>
+                        <label
+                          htmlFor="arrivalTime"
+                          className="block text-xs text-zinc-500 dark:text-zinc-400 mb-1"
+                        >
+                          抵達時間 <span className="text-zinc-400">（選填）</span>
+                        </label>
+                        <input
+                          id="arrivalTime"
+                          type="time"
+                          value={arrivalTime}
+                          onChange={(e) => setArrivalTime(e.target.value)}
+                          className="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-3 py-2 text-zinc-900 dark:text-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-100 text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label
+                          htmlFor="returnDepartureTime"
+                          className="block text-xs text-zinc-500 dark:text-zinc-400 mb-1"
+                        >
+                          回程出發時間 <span className="text-zinc-400">（選填）</span>
+                        </label>
+                        <input
+                          id="returnDepartureTime"
+                          type="time"
+                          value={returnDepartureTime}
+                          onChange={(e) => setReturnDepartureTime(e.target.value)}
+                          className="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-3 py-2 text-zinc-900 dark:text-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-100 text-sm"
+                        />
+                      </div>
+                    </div>
 
-            {/* 特殊偏好 */}
-            <div>
-              <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">
-                特殊偏好 <span className="font-normal text-zinc-400">（可複選）</span>
-              </label>
-              <div className="flex flex-wrap gap-2">
-                {INTEREST_OPTIONS.map((opt) => (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    onClick={() => toggleInterest(opt.value)}
-                    className={`rounded-full border px-4 py-1.5 text-sm transition-colors ${
-                      interests.includes(opt.value)
-                        ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-900"
-                        : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
-                    }`}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-            </div>
+                    {!returnCityDiffers ? (
+                      <button
+                        type="button"
+                        onClick={() => setReturnCityDiffers(true)}
+                        className="text-xs text-zinc-500 dark:text-zinc-400 underline underline-offset-4 hover:text-zinc-900 dark:hover:text-zinc-100"
+                      >
+                        + 回程城市不同？
+                      </button>
+                    ) : (
+                      <div className="grid grid-cols-2 gap-2.5 pt-1">
+                        <CityCombobox
+                          label="回程出發城市"
+                          value={returnDepartureCity}
+                          onChange={setReturnDepartureCity}
+                          placeholder={AIRPORTS[arrivalCity]?.cityZh || "同抵達城市"}
+                        />
+                        <CityCombobox
+                          label="回程抵達城市"
+                          value={returnArrivalCity}
+                          onChange={setReturnArrivalCity}
+                          placeholder={AIRPORTS[departureCity]?.cityZh || "同出發城市"}
+                        />
+                      </div>
+                    )}
+                  </div>
 
-            {/* 旅行人數 */}
-            <div>
-              <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">
-                旅行人數
-              </label>
-              <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => setTravelers((n) => Math.max(1, n - 1))}
-                  className="w-8 h-8 rounded-full border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors flex items-center justify-center font-medium"
-                >
-                  −
-                </button>
-                <span className="w-8 text-center text-sm font-semibold text-zinc-900 dark:text-zinc-50">
-                  {travelers}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setTravelers((n) => Math.min(20, n + 1))}
-                  className="w-8 h-8 rounded-full border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors flex items-center justify-center font-medium"
-                >
-                  +
-                </button>
-                <span className="text-xs text-zinc-400">人</span>
-              </div>
+                  <div className="h-px bg-zinc-100 dark:bg-zinc-800" />
+
+                  {/* 旅遊偏好：合併成一區 */}
+                  <div className="space-y-3">
+                    <span className="block text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
+                      旅遊偏好
+                    </span>
+
+                    <div className="flex items-center gap-2.5">
+                      <span className="w-11 shrink-0 text-xs text-zinc-500 dark:text-zinc-400">步調</span>
+                      <div className="flex gap-1.5 flex-1">
+                        {PACE_OPTIONS.map((opt) => (
+                          <button
+                            key={opt.value}
+                            type="button"
+                            title={opt.desc}
+                            onClick={() => setPace(pace === opt.value ? undefined : opt.value)}
+                            className={`flex-1 rounded-lg border px-2 py-1.5 text-xs transition-colors ${
+                              pace === opt.value
+                                ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-900"
+                                : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
+                            }`}
+                          >
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2.5">
+                      <span className="w-11 shrink-0 text-xs text-zinc-500 dark:text-zinc-400">預算</span>
+                      <div className="flex gap-1.5 flex-1">
+                        {BUDGET_OPTIONS.map((opt) => (
+                          <button
+                            key={opt.value}
+                            type="button"
+                            title={opt.desc}
+                            onClick={() => setBudget(budget === opt.value ? undefined : opt.value)}
+                            className={`flex-1 rounded-lg border px-2 py-1.5 text-xs transition-colors ${
+                              budget === opt.value
+                                ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-900"
+                                : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
+                            }`}
+                          >
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="flex items-start gap-2.5">
+                      <span className="w-11 shrink-0 text-xs text-zinc-500 dark:text-zinc-400 mt-1.5">偏好</span>
+                      <div className="flex flex-wrap gap-1.5 flex-1">
+                        {INTEREST_OPTIONS.map((opt) => (
+                          <button
+                            key={opt.value}
+                            type="button"
+                            onClick={() => toggleInterest(opt.value)}
+                            className={`rounded-full border px-3 py-1 text-xs transition-colors ${
+                              interests.includes(opt.value)
+                                ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-900"
+                                : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
+                            }`}
+                          >
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2.5">
+                      <span className="w-11 shrink-0 text-xs text-zinc-500 dark:text-zinc-400">人數</span>
+                      <div className="flex items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={() => setTravelers((n) => Math.max(1, n - 1))}
+                          className="w-7 h-7 rounded-full border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors flex items-center justify-center font-medium text-sm"
+                        >
+                          −
+                        </button>
+                        <span className="w-6 text-center text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+                          {travelers}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setTravelers((n) => Math.min(20, n + 1))}
+                          className="w-7 h-7 rounded-full border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors flex items-center justify-center font-medium text-sm"
+                        >
+                          +
+                        </button>
+                        <span className="text-xs text-zinc-400">人</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             <button

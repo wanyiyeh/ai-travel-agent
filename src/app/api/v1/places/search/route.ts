@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { searchPlaceText, getCityCenter } from "@/lib/placesTextSearch";
+import { searchPlaceText, getCityCenter, type TextSearchPlace } from "@/lib/placesTextSearch";
 import { nearestCity } from "@/lib/nearestCity";
+import { haversineKm } from "@/lib/distanceMatrix";
 
 const RequestSchema = z.object({
   query: z.string().min(1),
@@ -15,9 +16,9 @@ const RequestSchema = z.object({
   candidateCities: z.array(z.string()).optional(),
 });
 
-// Backs both "search a city to add" (no cityHint) and "search a named
-// attraction" (cityHint = the city it should belong to) in the restructure
-// flow's place-search step.
+// Backs both "search a city to add" (no candidateCities) and "search a named
+// attraction" (candidateCities = the trip's cities, used to bias the search
+// and then classify the match) in the restructure flow's place-search step.
 export async function POST(request: Request) {
   const apiKey = process.env.GOOGLE_PLACES_API_KEY;
   if (!apiKey) {
@@ -31,8 +32,40 @@ export async function POST(request: Request) {
   }
   const { query, cityHint, candidateCities } = parsed.data;
 
-  const locationBias = cityHint ? await getCityCenter(cityHint, apiKey) : null;
-  const place = await searchPlaceText(query, apiKey, locationBias);
+  let place: TextSearchPlace | null;
+
+  if (candidateCities && candidateCities.length > 0) {
+    // Attraction search: an unbiased text search's single "best match" can
+    // land on a same-named/generic place near an entirely different city
+    // than any of the ones the user has actually added (e.g. a Tokyo trip's
+    // attraction search surfacing a same-named spot in Taipei). Bias against
+    // every candidate city instead and keep whichever result lands closest
+    // to the city it was biased toward.
+    const centers = await Promise.all(
+      candidateCities.map(async (city) => ({ city, center: await getCityCenter(city, apiKey) })),
+    );
+    const biased = await Promise.all(
+      centers
+        .filter((c): c is { city: string; center: { lat: number; lng: number } } => c.center !== null)
+        .map(async ({ center }) => {
+          const found = await searchPlaceText(query, apiKey, center);
+          if (!found) return null;
+          const distanceKm = haversineKm(found.location.latitude, found.location.longitude, center.lat, center.lng);
+          return { place: found, distanceKm };
+        }),
+    );
+    const best = biased
+      .filter((r): r is { place: TextSearchPlace; distanceKm: number } => r !== null)
+      .sort((a, b) => a.distanceKm - b.distanceKm)[0];
+    // Fall back to an unbiased search if nothing turned up near any
+    // candidate city, so a legitimately-distant/ambiguous attraction still
+    // surfaces something rather than a hard "not found" — the frontend's
+    // nearestCity threshold check below sends those to manual disambiguation.
+    place = best ? best.place : await searchPlaceText(query, apiKey);
+  } else {
+    const locationBias = cityHint ? await getCityCenter(cityHint, apiKey) : null;
+    place = await searchPlaceText(query, apiKey, locationBias);
+  }
 
   const nearest =
     place && candidateCities && candidateCities.length > 0

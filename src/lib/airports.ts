@@ -100,6 +100,12 @@ export const AIRPORTS: Record<string, Airport> = {
   DXB: { cityZh: "杜拜", lat: 25.2048, lng: 55.2708 },
   AUH: { cityZh: "阿布達比", lat: 24.4539, lng: 54.3773 },
   DOH: { cityZh: "多哈", lat: 25.2854, lng: 51.531 },
+  // 南亞
+  KTM: { cityZh: "加德滿都", lat: 27.7172, lng: 85.324 },
+  PKR: { cityZh: "波卡拉", lat: 28.2096, lng: 83.9856 },
+  DEL: { cityZh: "德里", lat: 28.6139, lng: 77.209 },
+  BOM: { cityZh: "孟買", lat: 19.076, lng: 72.8777 },
+  CMB: { cityZh: "可倫坡", lat: 6.9271, lng: 79.8612 },
   // 非洲
   CAI: { cityZh: "開羅", lat: 30.0444, lng: 31.2357 },
   CMN: { cityZh: "卡薩布蘭加", lat: 33.5731, lng: -7.5898 },
