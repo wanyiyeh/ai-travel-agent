@@ -10,6 +10,7 @@ export function useStreamingGenerate() {
   const [result, setResult] = useState<Itinerary | null>(null);
   const [id, setId] = useState<string | null>(null);
   const [error, setError] = useState<string>("");
+  const [retryInfo, setRetryInfo] = useState<{ attempt: number; maxAttempts: number } | null>(null);
 
   const generate = useCallback(async (prompt: string, flightInfo: FlightInfo, preferences?: TripPreferences) => {
     setState("connecting");
@@ -17,6 +18,7 @@ export function useStreamingGenerate() {
     setResult(null);
     setId(null);
     setError("");
+    setRetryInfo(null);
 
     try {
       const response = await fetch("/api/v1/generate-stream", {
@@ -56,6 +58,12 @@ export function useStreamingGenerate() {
 
             if (data.type === "chunk") {
               setPartialData(data.content);
+            } else if (data.type === "retry") {
+              // Server found an issue with the previous attempt and is
+              // regenerating from scratch — clear stale partial content so
+              // the preview doesn't show a mix of two attempts.
+              setPartialData("");
+              setRetryInfo({ attempt: data.attempt, maxAttempts: data.maxAttempts });
             } else if (data.type === "complete") {
               setResult(data.data);
               setId(data.id || null);
@@ -81,6 +89,7 @@ export function useStreamingGenerate() {
     setResult(null);
     setId(null);
     setError("");
+    setRetryInfo(null);
   }, []);
 
   return {
@@ -89,6 +98,7 @@ export function useStreamingGenerate() {
     result,
     id,
     error,
+    retryInfo,
     generate,
     reset,
     isLoading: state === "connecting" || state === "streaming",

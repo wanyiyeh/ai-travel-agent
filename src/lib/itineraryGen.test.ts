@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  repairMissingAccommodation,
   repairTransitDayDepartureCities,
   resolveDayCoords,
   tagWaypointCities,
@@ -132,5 +133,48 @@ describe("repairTransitDayDepartureCities", () => {
     const [repaired] = repairTransitDayDepartureCities(days);
     expect(repaired.stops[0].name).toBe("淺草寺");
     expect(repaired.stops[0].description).toBe("從京都出發的錯誤描述");
+  });
+});
+
+describe("repairMissingAccommodation", () => {
+  it("carries forward the nearest earlier day's accommodation when one is missing", () => {
+    const days = [
+      { day: 1, accommodation: { name: "東京飯店" } },
+      { day: 2, accommodation: null },
+      { day: 3, accommodation: { name: "大阪飯店" } },
+    ];
+    const repaired = repairMissingAccommodation(days);
+    expect(repaired[1].accommodation).toEqual({ name: "東京飯店" });
+    // Untouched days keep their own reference/value
+    expect(repaired[0].accommodation).toEqual({ name: "東京飯店" });
+    expect(repaired[2].accommodation).toEqual({ name: "大阪飯店" });
+  });
+
+  it("does not touch the last day even when it has no accommodation", () => {
+    const days = [
+      { day: 1, accommodation: { name: "東京飯店" } },
+      { day: 2, accommodation: null },
+    ];
+    const repaired = repairMissingAccommodation(days);
+    expect(repaired[1].accommodation).toBeNull();
+  });
+
+  it("does not touch a transit day even when it has no accommodation", () => {
+    const days = [
+      { day: 1, accommodation: { name: "東京飯店" } },
+      { day: 2, isTransitDay: true, accommodation: null },
+      { day: 3, accommodation: { name: "大阪飯店" } },
+    ];
+    const repaired = repairMissingAccommodation(days);
+    expect(repaired[1].accommodation).toBeNull();
+  });
+
+  it("leaves a missing day as-is when no earlier day has accommodation to reuse", () => {
+    const days = [
+      { day: 1, accommodation: null },
+      { day: 2, accommodation: { name: "大阪飯店" } },
+    ];
+    const repaired = repairMissingAccommodation(days);
+    expect(repaired[0].accommodation).toBeNull();
   });
 });

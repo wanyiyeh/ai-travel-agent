@@ -303,3 +303,29 @@ export function repairTransitDayDepartureCities<
   });
 }
 
+// The AI occasionally omits `accommodation` on a day it shouldn't (every day
+// except the last needs somewhere to sleep). Rather than failing the whole
+// generation over one gap, carry forward the nearest earlier day's
+// accommodation — same city in the common case, and the user can always swap
+// it via the day's own "regenerate accommodation" picker afterward.
+export function repairMissingAccommodation<
+  T extends {
+    day: number;
+    isTransitDay?: boolean | null;
+    accommodation?: { name?: string } | null;
+  },
+>(days: T[]): T[] {
+  const lastDayNum = days.length;
+  return days.map((day, i) => {
+    if (day.day === lastDayNum || day.isTransitDay || day.accommodation) return day;
+
+    const source = days.slice(0, i).reverse().find((d) => d.accommodation);
+    if (!source?.accommodation) return day;
+
+    console.warn(
+      `[Accommodation Repair] Day ${day.day} missing accommodation, reusing day ${source.day}: ${source.accommodation.name}`,
+    );
+    return { ...day, accommodation: { ...source.accommodation } };
+  });
+}
+
