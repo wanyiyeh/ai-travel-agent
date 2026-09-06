@@ -5,11 +5,13 @@ import { formatDuration } from "@/types/itinerary";
 interface StreamingPreviewProps {
   partialData: string;
   days: number;
+  retryInfo?: { attempt: number; maxAttempts: number } | null;
 }
 
 export default function StreamingPreview({
   partialData,
   days,
+  retryInfo,
 }: StreamingPreviewProps) {
   // Try to parse partial JSON progressively
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -56,7 +58,9 @@ export default function StreamingPreview({
         <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin shrink-0" />
         <div>
           <p className="text-sm font-medium text-blue-900 dark:text-blue-100">
-            AI 正在即時生成行程內容
+            {retryInfo
+              ? `AI 發現行程有問題，正在重新生成（第 ${retryInfo.attempt}/${retryInfo.maxAttempts} 次嘗試）`
+              : "AI 正在即時生成行程內容"}
           </p>
           <p className="text-xs text-blue-700 dark:text-blue-300">
             您可以看到生成過程，請稍候...

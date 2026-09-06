@@ -75,6 +75,7 @@ export async function searchPlaceText(
     body: JSON.stringify({
       textQuery: query,
       maxResultCount: 1,
+      languageCode: "zh-TW",
       ...(locationBias
         ? {
             locationBias: {

@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useStreamingGenerate } from "@/hooks/useStreamingGenerate";
 import StreamingPreview from "@/components/StreamingPreview";
 import type { TripPreferences, FlightInfo } from "@/lib/schemas";
+import { iataToCity } from "@/lib/airports";
 
 const PACE_OPTIONS: { value: TripPreferences["pace"]; label: string; desc: string }[] = [
   { value: "relaxed", label: "悠閒", desc: "每天 ≤3 個景點" },
@@ -26,29 +27,6 @@ const INTEREST_OPTIONS: { value: NonNullable<TripPreferences["interests"]>[numbe
   { value: "shopping", label: "購物" },
   { value: "adventure", label: "冒險戶外" },
 ];
-
-const IATA_CITY: Record<string, string> = {
-  TPE: "台北", KHH: "高雄", RMQ: "台中",
-  VIE: "維也納", PRG: "布拉格", BUD: "布達佩斯",
-  BTS: "布拉提斯拉瓦", LJU: "盧布亞納", ZAG: "薩格勒布",
-  DBV: "杜布羅夫尼克", SJJ: "薩拉熱窩", BEG: "貝爾格勒",
-  FRA: "法蘭克福", MUC: "慕尼黑", BER: "柏林", HAM: "漢堡",
-  ZRH: "蘇黎世", GVA: "日內瓦", BRU: "布魯塞爾",
-  CDG: "巴黎", LYS: "里昂", NCE: "尼斯",
-  LHR: "倫敦", EDI: "愛丁堡", MAN: "曼徹斯特", DUB: "都柏林",
-  AMS: "阿姆斯特丹", CPH: "哥本哈根", OSL: "奧斯陸", ARN: "斯德哥爾摩",
-  HEL: "赫爾辛基", WAW: "華沙", SOF: "索非亞", OTP: "布加勒斯特",
-  ATH: "雅典", IST: "伊斯坦堡",
-  FCO: "羅馬", MXP: "米蘭", VCE: "威尼斯", NAP: "那不勒斯",
-  BCN: "巴塞隆納", MAD: "馬德里", LIS: "里斯本",
-  NRT: "東京", HND: "東京", KIX: "大阪", NGO: "名古屋", ICN: "首爾",
-  BKK: "曼谷", SIN: "新加坡", HKG: "香港", KUL: "吉隆坡",
-  DPS: "峇里島", SGN: "胡志明市", HAN: "河內", REP: "暹粒",
-  SYD: "雪梨", MEL: "墨爾本", AKL: "奧克蘭",
-  JFK: "紐約", LAX: "洛杉磯", SFO: "舊金山", MIA: "邁阿密",
-  YYZ: "多倫多", DXB: "杜拜", DOH: "杜哈",
-  CAI: "開羅", CMN: "卡薩布蘭加", JNB: "約翰尼斯堡", CPT: "開普敦",
-};
 
 type NearbySuggestion = { name: string; country: string; transitTime: string; mode: string };
 
@@ -157,7 +135,7 @@ export default function Home() {
   const [travelers, setTravelers] = useState(2);
   const [selectedWaypoints, setSelectedWaypoints] = useState<string[]>([]);
 
-  const { state, partialData, id, error, generate, reset, isLoading } =
+  const { state, partialData, id, error, retryInfo, generate, reset, isLoading } =
     useStreamingGenerate();
 
   const days = calcDays(departureDate, returnDate);
@@ -428,7 +406,7 @@ export default function Home() {
                     <div>
                       <h3 className="text-sm font-bold text-violet-900 dark:text-violet-100">途中探索</h3>
                       <p className="text-xs text-violet-600 dark:text-violet-400">
-                        {IATA_CITY[departureCity] || departureCity} → {IATA_CITY[arrivalCity] || arrivalCity} 途中，85% 旅者也會造訪：
+                        {iataToCity(departureCity)} → {iataToCity(arrivalCity)} 途中，85% 旅者也會造訪：
                       </p>
                     </div>
                   </div>
@@ -612,7 +590,7 @@ export default function Home() {
         {/* Streaming preview */}
         {isStreaming && (
           <div className="mt-8">
-            <StreamingPreview partialData={partialData} days={days} />
+            <StreamingPreview partialData={partialData} days={days} retryInfo={retryInfo} />
           </div>
         )}
 

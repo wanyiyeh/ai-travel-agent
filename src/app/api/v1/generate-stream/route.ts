@@ -9,9 +9,31 @@ import { validateItinerary } from "@/lib/validateItinerary";
 import { iataToCity } from "@/lib/iataCity";
 import { fetchCityRestaurants, fetchCityBreakfastPlaces, fetchCitySnackPlaces, buildRestaurantHintsPrompt, fetchCityAttractions, buildAttractionHintsPrompt, type BudgetLevel } from "@/lib/fetchCityRestaurants";
 import { prisma, j } from "@/lib/db";
-import { buildSystemPrompt, calcDays, repairTransitDayDepartureCities, tagWaypointCities } from "@/lib/itineraryGen";
+import {
+  buildSystemPrompt,
+  calcDays,
+  repairMissingAccommodation,
+  repairTransitDayDepartureCities,
+  tagWaypointCities,
+} from "@/lib/itineraryGen";
 
 const DEMO_USER_ID = "00000000-0000-0000-0000-000000000001";
+
+// A handful of validation issues stem from the model misreading the prompt
+// (wrong day count, missing transit day, etc.) rather than a structural gap
+// we can repair in place — those are worth one full re-generation rather than
+// failing the request outright. ACCOMMODATION_MISSING is deliberately absent:
+// repairMissingAccommodation already patches it before validation runs.
+const MAX_GENERATION_ATTEMPTS = 3;
+
+function hasNonLastDayThinDay(
+  issues: { code: string; day?: number }[],
+  totalDays: number,
+): boolean {
+  // A short last day is expected (it's the return-flight day) — only a thin
+  // day earlier in the trip is worth spending a retry attempt on.
+  return issues.some((i) => i.code === "DAY_TOO_FEW_STOPS" && i.day !== totalDays);
+}
 
 async function ensureDemoUser() {
   await prisma.user.upsert({
@@ -97,124 +119,157 @@ export async function POST(request: Request) {
             ? `請規劃行程，風格描述：${prompt}`
             : `請規劃 ${destinationDesc} ${days} 天行程`;
 
-          const completion = await openai.chat.completions.create({
-            model: process.env.OPENAI_MODEL ?? "gpt-4o-mini",
-            messages: [
-              { role: "system", content: systemPrompt },
-              { role: "user", content: userContent },
-            ],
-            response_format: { type: "json_object" },
-            temperature: 0.7,
-            max_tokens: 16000,
-            stream: true,
-          });
+          let lastErrorEvent: Record<string, unknown> | null = null;
 
-          let accumulatedContent = "";
-
-          for await (const chunk of completion) {
-            const content = chunk.choices[0]?.delta?.content || "";
-            if (content) {
-              accumulatedContent += content;
-              const data = JSON.stringify({
-                type: "chunk",
-                content: accumulatedContent,
+          for (let attempt = 1; attempt <= MAX_GENERATION_ATTEMPTS; attempt++) {
+            if (attempt > 1) {
+              const retryData = JSON.stringify({
+                type: "retry",
+                attempt,
+                maxAttempts: MAX_GENERATION_ATTEMPTS,
               });
-              controller.enqueue(encoder.encode(`data: ${data}\n\n`));
+              controller.enqueue(encoder.encode(`data: ${retryData}\n\n`));
             }
-          }
 
-          try {
-            const parsedData = JSON.parse(accumulatedContent);
-            const validatedRaw = ItinerarySchema.parse(parsedData);
+            const completion = await openai.chat.completions.create({
+              model: process.env.OPENAI_MODEL ?? "gpt-4o-mini",
+              messages: [
+                { role: "system", content: systemPrompt },
+                { role: "user", content: userContent },
+              ],
+              response_format: { type: "json_object" },
+              temperature: 0.7,
+              max_tokens: 16000,
+              stream: true,
+            });
 
-            // The last day is always the return flight day — strip any AI hallucination of isTransitDay
-            const lastIdx = validatedRaw.days.length - 1;
-            const strippedDays =
-              validatedRaw.days[lastIdx]?.isTransitDay
-                ? validatedRaw.days.map((d, i) =>
-                    i === lastIdx ? { ...d, isTransitDay: false, transitTo: undefined } : d
-                  )
-                : validatedRaw.days;
+            let accumulatedContent = "";
 
-            // Tag every day with its resolved city before repairing/validating, so both
-            // steps reason about the real (possibly multi-segment) city sequence instead
-            // of assuming exactly one arrival→return transition.
-            const taggedDays = tagWaypointCities(strippedDays, arrivalCityName);
+            for await (const chunk of completion) {
+              const content = chunk.choices[0]?.delta?.content || "";
+              if (content) {
+                accumulatedContent += content;
+                const data = JSON.stringify({
+                  type: "chunk",
+                  content: accumulatedContent,
+                });
+                controller.enqueue(encoder.encode(`data: ${data}\n\n`));
+              }
+            }
 
-            const repairedDays = isMultiCity
-              ? repairTransitDayDepartureCities(taggedDays)
-              : taggedDays;
+            try {
+              const parsedData = JSON.parse(accumulatedContent);
+              const validatedRaw = ItinerarySchema.parse(parsedData);
 
-            const validatedData = { ...validatedRaw, days: repairedDays };
+              // The last day is always the return flight day — strip any AI hallucination of isTransitDay
+              const lastIdx = validatedRaw.days.length - 1;
+              const strippedDays =
+                validatedRaw.days[lastIdx]?.isTransitDay
+                  ? validatedRaw.days.map((d, i) =>
+                      i === lastIdx ? { ...d, isTransitDay: false, transitTo: undefined } : d
+                    )
+                  : validatedRaw.days;
 
-            const logicResult = validateItinerary(
-              validatedData,
-              flightInfo,
-              arrivalCityName,
-              returnCityName,
-            );
+              // Tag every day with its resolved city before repairing/validating, so both
+              // steps reason about the real (possibly multi-segment) city sequence instead
+              // of assuming exactly one arrival→return transition.
+              const taggedDays = tagWaypointCities(strippedDays, arrivalCityName);
 
-            if (!logicResult.valid) {
-              const errors = logicResult.issues.filter((i) => i.severity === "error");
-              console.warn("[Itinerary Validation] Logic errors:", errors);
-              const errorData = JSON.stringify({
-                type: "error",
-                error: "行程邏輯驗證失敗",
-                details: errors.map((e) => `[${e.code}] ${e.message}`).join("; "),
-                validationIssues: logicResult.issues,
+              const cityRepairedDays = isMultiCity
+                ? repairTransitDayDepartureCities(taggedDays)
+                : taggedDays;
+              const repairedDays = repairMissingAccommodation(cityRepairedDays);
+
+              const validatedData = { ...validatedRaw, days: repairedDays };
+
+              const logicResult = validateItinerary(
+                validatedData,
+                flightInfo,
+                arrivalCityName,
+                returnCityName,
+              );
+
+              const thinDayPresent = hasNonLastDayThinDay(logicResult.issues, validatedData.days.length);
+
+              if (!logicResult.valid) {
+                const errors = logicResult.issues.filter((i) => i.severity === "error");
+                console.warn(`[Itinerary Validation] Attempt ${attempt} logic errors:`, errors);
+                lastErrorEvent = {
+                  type: "error",
+                  error: "行程邏輯驗證失敗",
+                  details: errors.map((e) => `[${e.code}] ${e.message}`).join("; "),
+                  validationIssues: logicResult.issues,
+                };
+                if (attempt < MAX_GENERATION_ATTEMPTS) continue;
+                break;
+              }
+
+              // Valid, but a non-last day came back thin — worth spending a
+              // remaining attempt on, though never worth failing the request
+              // over once attempts run out (it's only a warning).
+              if (thinDayPresent && attempt < MAX_GENERATION_ATTEMPTS) {
+                console.warn(`[Itinerary Validation] Attempt ${attempt}: thin day present, retrying for quality`);
+                lastErrorEvent = {
+                  type: "error",
+                  error: "行程品質未達標準",
+                  details: logicResult.issues.map((e) => `[${e.code}] ${e.message}`).join("; "),
+                  validationIssues: logicResult.issues,
+                };
+                continue;
+              }
+
+              if (logicResult.issues.length > 0) {
+                console.warn("[Itinerary Validation] Warnings:", logicResult.issues);
+              }
+
+              const dataWithIds = addIdsToItinerary(validatedData);
+
+              let savedId: string | null = null;
+              try {
+                await ensureDemoUser();
+                const saved = await prisma.itinerary.create({
+                  data: {
+                    userId: DEMO_USER_ID,
+                    title: validatedData.title,
+                    days: j(dataWithIds.days),
+                    config: j({
+                      generatedWith: prompt ?? "",
+                      totalDays: days,
+                      createdAt: new Date().toISOString(),
+                      isStreamed: true,
+                      flightInfo,
+                      preferences: preferences ?? null,
+                      currency: validatedData.currency ?? null,
+                    }),
+                  },
+                });
+                savedId = saved.id;
+                console.log(`[Stream] Itinerary saved: ${savedId}`);
+              } catch (dbError) {
+                console.error("[DB Save Error]", dbError);
+              }
+
+              const finalData = JSON.stringify({
+                type: "complete",
+                data: validatedData,
+                id: savedId,
+                warnings: logicResult.issues.filter((i) => i.severity === "warning"),
               });
-              controller.enqueue(encoder.encode(`data: ${errorData}\n\n`));
+              controller.enqueue(encoder.encode(`data: ${finalData}\n\n`));
               controller.close();
               return;
+            } catch (error) {
+              console.warn(`[Itinerary Validation] Attempt ${attempt} parse/schema error:`, error);
+              lastErrorEvent = {
+                type: "error",
+                error: "資料格式驗證失敗",
+                details: error instanceof Error ? error.message : String(error),
+              };
+              if (attempt < MAX_GENERATION_ATTEMPTS) continue;
             }
-
-            if (logicResult.issues.length > 0) {
-              console.warn("[Itinerary Validation] Warnings:", logicResult.issues);
-            }
-
-            const dataWithIds = addIdsToItinerary(validatedData);
-
-            let savedId: string | null = null;
-            try {
-              await ensureDemoUser();
-              const saved = await prisma.itinerary.create({
-                data: {
-                  userId: DEMO_USER_ID,
-                  title: validatedData.title,
-                  days: j(dataWithIds.days),
-                  config: j({
-                    generatedWith: prompt ?? "",
-                    totalDays: days,
-                    createdAt: new Date().toISOString(),
-                    isStreamed: true,
-                    flightInfo,
-                    preferences: preferences ?? null,
-                    currency: validatedData.currency ?? null,
-                  }),
-                },
-              });
-              savedId = saved.id;
-              console.log(`[Stream] Itinerary saved: ${savedId}`);
-            } catch (dbError) {
-              console.error("[DB Save Error]", dbError);
-            }
-
-            const finalData = JSON.stringify({
-              type: "complete",
-              data: validatedData,
-              id: savedId,
-              warnings: logicResult.issues.filter((i) => i.severity === "warning"),
-            });
-            controller.enqueue(encoder.encode(`data: ${finalData}\n\n`));
-          } catch (error) {
-            const errorData = JSON.stringify({
-              type: "error",
-              error: "資料格式驗證失敗",
-              details: error instanceof Error ? error.message : String(error),
-            });
-            controller.enqueue(encoder.encode(`data: ${errorData}\n\n`));
           }
 
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(lastErrorEvent)}\n\n`));
           controller.close();
         } catch (error) {
           const errorData = JSON.stringify({

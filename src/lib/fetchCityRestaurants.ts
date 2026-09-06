@@ -1,4 +1,5 @@
 import { haversineKm } from "@/lib/distanceMatrix";
+import { getIataCoords } from "@/lib/airports";
 
 const NEARBY_SEARCH_URL = "https://places.googleapis.com/v1/places:searchNearby";
 
@@ -81,36 +82,6 @@ export function getPriceLevels(budget?: BudgetLevel): string[] | undefined {
   return budget ? BUDGET_TO_PRICE_LEVELS[budget] : undefined;
 }
 
-// City-centre coordinates for IATA codes used in seed scenarios
-const IATA_COORDS: Record<string, { lat: number; lng: number }> = {
-  // East Asia
-  NRT: { lat: 35.6762, lng: 139.6503 },
-  HND: { lat: 35.6762, lng: 139.6503 },
-  KIX: { lat: 34.6937, lng: 135.5023 },
-  ICN: { lat: 37.5665, lng: 126.9780 },
-  // Europe
-  CDG: { lat: 48.8566, lng: 2.3522 },
-  AMS: { lat: 52.3676, lng: 4.9041 },
-  VIE: { lat: 48.2082, lng: 16.3738 },
-  PRG: { lat: 50.0755, lng: 14.4378 },
-  ARN: { lat: 59.3293, lng: 18.0686 },
-  CPH: { lat: 55.6761, lng: 12.5683 },
-  LHR: { lat: 51.5074, lng: -0.1278 },
-  EDI: { lat: 55.9533, lng: -3.1883 },
-  // Oceania
-  PER: { lat: -31.9505, lng: 115.8605 },
-  MEL: { lat: -37.8136, lng: 144.9631 },
-  SYD: { lat: -33.8688, lng: 151.2093 },
-  // North America
-  JFK: { lat: 40.7128, lng: -74.0060 },
-  MIA: { lat: 25.7617, lng: -80.1918 },
-  LAX: { lat: 34.0522, lng: -118.2437 },
-  SFO: { lat: 37.7749, lng: -122.4194 },
-  // Africa
-  CPT: { lat: -33.9249, lng: 18.4241 },
-  JNB: { lat: -26.2041, lng: 28.0473 },
-};
-
 /**
  * Nearby Search restricted to a set of Table A place types, returning just
  * name/rating hints. Shared by the restaurant/breakfast/attraction fetchers
@@ -136,6 +107,7 @@ async function searchNearbyHints(
       body: JSON.stringify({
         includedTypes,
         maxResultCount: maxCount,
+        languageCode: "zh-TW",
         locationRestriction: {
           circle: {
             center: { latitude: coords.lat, longitude: coords.lng },
@@ -175,7 +147,7 @@ export async function fetchCityRestaurants(
   budget?: BudgetLevel,
   maxCount = 20,
 ): Promise<RestaurantHint[]> {
-  const coords = IATA_COORDS[iataCode];
+  const coords = getIataCoords(iataCode);
   if (!coords) return [];
 
   return searchNearbyHints(coords, apiKey, getMainMealTypes(budget), 8000, maxCount, getPriceLevels(budget));
@@ -191,7 +163,7 @@ export async function fetchCityBreakfastPlaces(
   apiKey: string,
   maxCount = 15,
 ): Promise<RestaurantHint[]> {
-  const coords = IATA_COORDS[iataCode];
+  const coords = getIataCoords(iataCode);
   if (!coords) return [];
 
   return searchNearbyHints(coords, apiKey, BREAKFAST_TYPES, 8000, maxCount);
@@ -208,22 +180,22 @@ export async function fetchCitySnackPlaces(
   apiKey: string,
   maxCount = 15,
 ): Promise<RestaurantHint[]> {
-  const coords = IATA_COORDS[iataCode];
+  const coords = getIataCoords(iataCode);
   if (!coords) return [];
 
   return searchNearbyHints(coords, apiKey, SNACK_TYPES, 8000, maxCount);
 }
 
-export function getIataCoords(iataCode: string): { lat: number; lng: number } | null {
-  return IATA_COORDS[iataCode] ?? null;
-}
+// Re-exported for existing importers (itineraryGen.ts, accommodation/regenerate
+// route) — the table itself now lives in src/lib/airports.ts.
+export { getIataCoords };
 
 export async function fetchCityAttractions(
   iataCode: string,
   apiKey: string,
   maxCount = 15,
 ): Promise<RestaurantHint[]> {
-  const coords = IATA_COORDS[iataCode];
+  const coords = getIataCoords(iataCode);
   if (!coords) return [];
 
   return searchNearbyHints(coords, apiKey, ["tourist_attraction"], 10000, maxCount);
@@ -280,6 +252,7 @@ export async function fetchNearbyPlaceCandidates(
       body: JSON.stringify({
         includedTypes: types,
         maxResultCount: maxCount,
+        languageCode: "zh-TW",
         locationRestriction: {
           circle: {
             center: { latitude: coords.lat, longitude: coords.lng },
@@ -345,6 +318,7 @@ export async function findNearestStation(
       body: JSON.stringify({
         includedTypes: ["subway_station", "train_station", "light_rail_station"],
         maxResultCount: 1,
+        languageCode: "zh-TW",
         rankPreference: "DISTANCE",
         locationRestriction: {
           circle: {

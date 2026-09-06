@@ -9,7 +9,9 @@ import {
 } from "@/lib/fetchCityRestaurants";
 import { resolveDayCoords } from "@/lib/itineraryGen";
 import { estimateMealCost } from "@/lib/priceLevelCost";
+import { translatePlaceNames } from "@/lib/translatePlaceNames";
 import { isMealType } from "@/types/itinerary";
+import { findDayIndex } from "@/lib/itineraryDays";
 import type { MealCandidate } from "@/types/itinerary";
 
 const RequestSchema = z.object({
@@ -56,7 +58,7 @@ export async function POST(
     }
 
     const days = itinerary.days as Record<string, unknown>[];
-    const dayIndex = days.findIndex((d) => d.id === dayId);
+    const dayIndex = findDayIndex(days, dayId);
 
     if (dayIndex === -1) {
       return NextResponse.json({ error: "Day not found" }, { status: 404 });
@@ -102,14 +104,24 @@ export async function POST(
     const currentName = typeof currentMeal?.name === "string" ? currentMeal.name : undefined;
     const normalize = (s: string) => s.toLowerCase().trim();
 
-    const newCandidates: MealCandidate[] = places
-      .filter(
-        (p) =>
-          p.placeId !== currentPlaceId &&
-          (!currentName || normalize(p.name) !== normalize(currentName))
-      )
+    const filteredPlaces = places.filter(
+      (p) =>
+        p.placeId !== currentPlaceId &&
+        (!currentName || normalize(p.name) !== normalize(currentName))
+    );
+
+    // Google's zh-TW languageCode only translates names it already has a
+    // Chinese listing for — most independent restaurants/cafés (especially
+    // in Japan) come back in the local script, so fill the gap for display.
+    const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
+    const nameTranslations = await translatePlaceNames(
+      filteredPlaces.map((p) => p.name),
+      model,
+    );
+
+    const newCandidates: MealCandidate[] = filteredPlaces
       .map((p) => ({
-        name: p.name,
+        name: nameTranslations.get(p.name) ?? p.name,
         placeId: p.placeId,
         lat: p.lat,
         lng: p.lng,

@@ -1,5 +1,5 @@
 import type { FlightInfo, TripPreferences } from "@/lib/schemas";
-import { iataToCity } from "@/lib/iataCity";
+import { iataToCity, cityToIata } from "@/lib/iataCity";
 import { getIataCoords } from "@/lib/fetchCityRestaurants";
 
 export const paceMap: Record<string, string> = {
@@ -96,7 +96,10 @@ export function buildSystemPrompt(
           "estimated_cost": 13000
         }
       ],
-      "accommodation": null,
+      "accommodation": {
+        "area": "住宿區域（必須位於 transitTo 所填的${returnCityName}，不可填在出發城市${arrivalCityName}）",
+        "reason": "推薦此區域的理由（地理位置、交通便利性等，一句話）"
+      },
       "meals": {
         "breakfast": { "name": "早餐店名稱", "description": "簡短描述", "estimated_cost": 600 },
         "lunch": { "name": "午餐店名稱", "description": "簡短描述", "estimated_cost": 1200 },
@@ -156,7 +159,7 @@ export function buildSystemPrompt(
 4. duration_minutes 必須是數字（分鐘）
 5. 每天至少要有 2 個景點，每天 3-5 個景點為佳；即使整天都在同一個大型場地（如國家公園、主題樂園、滑雪場），也必須按時段拆分為至少 2 個獨立 stop（例如國家公園晨間遊獵 morning、午後遊獵 afternoon），不可將整天活動合併為單一 stop
 6. 所有景點與住宿必須實際位於旅遊目的地範圍內：一般停留天數只能在 ${flightInfo.arrivalCity} 的景點；${isMultiCity ? `最後一天景點只能在 ${flightInfo.returnDepartureCity}；若行程屬於沿路漸進移動（見上方【多段移動】說明），中途每一天的景點僅限於當天 waypointCity 所在的城鎮本身，且該城鎮必須是從 ${arrivalCityName} 前往 ${returnCityName} 路線上合理途經的城鎮；` : ""}嚴禁自行加入路線以外的額外目的地城市或國家作為觀光新增停留點（額外中途停留由使用者另行選擇，初始行程不得自行插入非路線上的城鎮）
-7. accommodation 為每天的住宿建議，只需填寫區域（area）與推薦理由（reason），不需指定特定飯店名稱；只有 isTransitDay: true 的移動日，以及第 ${days} 天（回程日，即 ${flightInfo.returnDate}）不需要住宿，accommodation 設為 null；第 1 天到第 ${days - 1} 天中所有非移動日，即使是行程最後在目的地的休閒日或準備回程日，都必須填寫住宿
+7. accommodation 為每天的住宿建議，只需填寫區域（area）與推薦理由（reason），不需指定特定飯店名稱；只有第 ${days} 天（回程日，即 ${flightInfo.returnDate}）不需要住宿，accommodation 設為 null；第 1 天到第 ${days - 1} 天，包含 isTransitDay: true 的移動日，都必須填寫住宿——移動日當晚已經人在新城鎮過夜，因此移動日的 accommodation.area 必須位於該日 transitTo 所填的目的城鎮，不可填在出發城市
 8. time_of_day 必須填寫，值只能是 "morning"（早上）、"afternoon"（下午）、"evening"（晚上）之一；每天景點必須至少橫跨兩個不同時段（不可全部集中在單一時段），並盡量合理分配至早中晚三個時段
 9. transport_from_prev 必須填寫，描述如何從上一個景點（或住宿、機場）前往此景點，例如「步行約 10 分鐘」、「搭乘地鐵約 15 分鐘」、「搭計程車約 20 分鐘」；第 1 天第一個景點填寫從機場前往的交通方式，其他天第一個景點填寫從住宿前往的交通方式；交通時間必須符合現實地理距離，不可填寫明顯不合理的交通時間（例如將距離數小時車程的遠郊景點寫成「搭公共交通 30 分鐘」）
 10. currency 必須填寫，使用目的地當地貨幣的 ISO 4217 代碼
@@ -215,6 +218,17 @@ export function resolveDayCoords(
       lat: sameCityStops.reduce((sum, s) => sum + s.lat, 0) / sameCityStops.length,
       lng: sameCityStops.reduce((sum, s) => sum + s.lng, 0) / sameCityStops.length,
     };
+  }
+
+  // Multi-city trip, no geocoded stops anywhere yet for this day's own city
+  // (e.g. its first meal/accommodation regenerate happens before any stop is
+  // enriched): fall back to that city's own centre, not the flight's arrival
+  // city — otherwise a later-leg day (e.g. day 3 in Nagoya on a Tokyo-arrival
+  // trip) searches around the wrong city entirely.
+  const waypointIata = waypointCity ? cityToIata(waypointCity) : undefined;
+  if (waypointIata) {
+    const waypointCoords = getIataCoords(waypointIata);
+    if (waypointCoords) return waypointCoords;
   }
 
   return arrivalIataCode ? getIataCoords(arrivalIataCode) : null;
@@ -286,6 +300,32 @@ export function repairTransitDayDepartureCities<
         description: s.description.replaceAll(wrongCity, fromCity),
       })),
     };
+  });
+}
+
+// The AI occasionally omits `accommodation` on a day it shouldn't (every day
+// except the last needs somewhere to sleep). Rather than failing the whole
+// generation over one gap, carry forward the nearest earlier day's
+// accommodation — same city in the common case, and the user can always swap
+// it via the day's own "regenerate accommodation" picker afterward.
+export function repairMissingAccommodation<
+  T extends {
+    day: number;
+    isTransitDay?: boolean | null;
+    accommodation?: { name?: string } | null;
+  },
+>(days: T[]): T[] {
+  const lastDayNum = days.length;
+  return days.map((day, i) => {
+    if (day.day === lastDayNum || day.isTransitDay || day.accommodation) return day;
+
+    const source = days.slice(0, i).reverse().find((d) => d.accommodation);
+    if (!source?.accommodation) return day;
+
+    console.warn(
+      `[Accommodation Repair] Day ${day.day} missing accommodation, reusing day ${source.day}: ${source.accommodation.name}`,
+    );
+    return { ...day, accommodation: { ...source.accommodation } };
   });
 }
 

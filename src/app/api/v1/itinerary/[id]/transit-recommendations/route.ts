@@ -22,7 +22,7 @@ const MAX_MERGED_RECOMMENDATIONS = 8;
 const JSON_SCHEMA = `{
   "recommendations": [
     {
-      "name": "<目的地名稱（英文）>",
+      "name": "<目的地名稱（繁體中文，例如常見中文譯名）>",
       "type": "<\\"city\\" 或 \\"country\\"，城市填 city，整個國家填 country>",
       "country": "<所屬國家名稱（中文）>",
       "iataCode": "<代表性機場 IATA 代號，若有>",
