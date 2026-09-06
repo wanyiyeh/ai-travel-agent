@@ -885,7 +885,12 @@ export default function EditableItineraryCard({
 
   useEffect(() => {
     async function enrichAll() {
-      for (const day of itinerary.days) {
+      // Read from data.data (the just-fetched server copy), not the itinerary
+      // state var — after a restructure, ViewContent re-fetches and passes a
+      // new data.data down, but the local itinerary state hasn't been synced
+      // to it yet when this effect runs in the same commit, so it would still
+      // point at the pre-restructure days and skip enriching the new ones.
+      for (const day of data.data.days) {
         if (!day.id || !day.accommodation || day.accommodation.placeId) continue;
         try {
           const res = await fetch(`/api/v1/days/${day.id}/accommodation/enrich`, {
@@ -904,7 +909,7 @@ export default function EditableItineraryCard({
     }
     enrichAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [data.data]);
 
   useEffect(() => {
     async function enrichAllStops() {
@@ -928,8 +933,11 @@ export default function EditableItineraryCard({
       }
     }
     enrichAllStops();
+    // Re-run whenever the parent re-fetches (e.g. after a restructure adds
+    // new cities/stops) — this route is idempotent (it skips already-enriched
+    // stops), so re-running on every refresh only ever does new work.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [data.data]);
 
   const handleRemoveWaypoint = async (transitTo: string) => {
     if (!confirm(`確定要移除「${transitTo}」的移動日與所有停留天嗎？此操作無法復原。`)) return;
