@@ -119,7 +119,7 @@ npm run seed 北美東岸      # 支援中文或英文關鍵字
 | 函式 | 位置 | 功能 |
 |---|---|---|
 | `generateItinerary` | 本檔案 | 呼叫 OpenAI，含 retry 邏輯 |
-| `repairMissingAccommodation` | 本檔案 | 缺住宿時往前找最近一天的住宿沿用 |
+| `repairMissingAccommodation` | `src/lib/itineraryGen.ts`（共用，`generate-stream` 也用） | 缺住宿時往前找最近一天的住宿沿用 |
 | `addIds` | 本檔案 | 為每天、每個景點加上 `randomUUID()` |
 | `enrichDaysWithPlaces` | 本檔案 | 呼叫 Google Places Text Search，跳過交通接駁類景點 |
 | `buildSystemPrompt` | `src/lib/itineraryGen.ts` | 組出 OpenAI system prompt |
