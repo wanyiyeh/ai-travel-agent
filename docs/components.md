@@ -13,9 +13,8 @@
 - [StreamingPreview](#streamingpreview)
 - [ItineraryMap](#itinerarymap)
 - [ItineraryList](#itinerarylist)
-- [TransitRecommendationsPanel](#transitrecommendationspanel)
 - [TransitRecommendationCard](#transitrecommendationcard)
-- [WaypointCart](#waypointcart)
+- [RestructurePanel](#restructurepanel)
 - [ViewContent](#viewcontent)
 
 ---
@@ -260,83 +259,28 @@
 
 ---
 
-## TransitRecommendationsPanel
-
-**路徑**：[src/components/TransitRecommendationsPanel.tsx](../src/components/TransitRecommendationsPanel.tsx)
-
-### 功能
-
-順路城市推薦面板，根據行程的出發地與目的地 IATA 代碼，向後端 API 取得途中值得停留的城市清單，供使用者加入待選清單後批次插入行程。
-
-### Props
-
-| Prop | 型別 | 說明 |
-|------|------|------|
-| `itineraryId` | `string` | 行程 ID |
-| `originIata` | `string` | 出發地 IATA 代碼 |
-| `destinationIata` | `string` | 目的地 IATA 代碼 |
-| `existingStops` | `string[]` (optional) | 已存在的城市名稱，用於過濾重複推薦 |
-| `onInserted` | `() => void` | 城市插入完成後的回呼 |
-| `maxDays` | `number` (optional) | 機票限制總天數 |
-| `currentDays` | `number` (optional) | 行程目前天數 |
-| `days` | `DaySummary[]` (optional) | 天數摘要，用於插入位置選擇器 |
-| `insertAfterDay` | `number` (optional) | 選定的插入位置 |
-| `onSelectInsertAfterDay` | `(day: number) => void` (optional) | 變更插入位置 |
-| `cartItems` | `CartItem[]` | 待選清單項目（由父元件管理） |
-| `onAddToCart` | `(rec, stayDays) => void` | 加入待選清單 |
-| `onRemoveFromCart` | `(name) => void` | 從待選清單移除 |
-| `onUpdateCartStayDays` | `(name, days) => void` | 調整停留天數 |
-| `onReorderCart` | `(items) => void` | 重新排序待選清單 |
-| `onBatchApply` | `() => void` | 批次套用待選清單 |
-| `isApplying` | `boolean` | 批次套用進行中 |
-| `insertionReason` | `string` (optional) | AI 說明插入邏輯的文字提示 |
-| `isSingleCity` | `boolean` (default: `false`) | 單城市模式（起訖相同），改顯示「周邊推薦」 |
-
-### 快取策略
-
-推薦結果以 `sessionStorage` 快取，key 為 `transit-rec-{originIata}-{destinationIata}`。點擊「換一批」時以 `forceRefresh=true` 繞過快取重新 fetch。
-
-### 本地過濾
-
-`existingStops` 變更時（新城市插入後）不重新 fetch，改在本地用 `filter` 移除已存在的城市，避免不必要的 API 呼叫。
-
-### 車程篩選
-
-提供「不限 / ≤ 2 小時 / ≤ 4 小時 / ≤ 8 小時」的車程上限篩選，本地過濾 `transitTimeHours` 欄位。
-
-### 面板狀態
-
-`PanelState`：`"loading" | "ready" | "error" | "empty"`
-
-### 依賴元件
-
-- [TransitRecommendationCard](#transitrecommendationcard)
-- [WaypointCart](#waypointcart)
-
----
-
 ## TransitRecommendationCard
 
 **路徑**：[src/components/TransitRecommendationCard.tsx](../src/components/TransitRecommendationCard.tsx)
 
 ### 功能
 
-單一推薦城市的卡片元件，顯示城市名稱、類型（城市/國家）、熱門度標籤、交通方式與時間、Top 3 景點，以及可調整停留天數的步進器。
+單一推薦城市的卡片元件，顯示城市名稱、類型（城市/國家）、熱門度標籤、交通方式與時間、Top 3 景點，以及可調整停留天數的步進器。由 [RestructurePanel](#restructurepanel) 第 1 步的「周邊推薦／順路推薦」區塊使用。
 
 ### Props
 
 | Prop | 型別 | 說明 |
 |------|------|------|
 | `recommendation` | `TransitRecommendation` | 推薦城市資料 |
-| `isInCart` | `boolean` | 是否已在待選清單中 |
-| `onAddToCart` | `(rec, stayDays) => void` | 加入待選清單 |
+| `isAdded` | `boolean` | 是否已加入城市清單 |
+| `onAdd` | `(rec, stayDays) => void` | 加入城市清單 |
 | `onRefresh` | `() => void` (optional) | 跳過此推薦（觸發個別刷新） |
 | `maxDays` | `number` (optional) | 機票限制天數 |
 | `currentDays` | `number` (optional) | 目前行程天數 |
 
 ### 顯示邏輯
 
-- 已在待選清單中時，改顯示藍色「已加入待選清單」確認卡片
+- 已加入城市清單時，改顯示藍色「已加入城市清單」確認卡片
 - 熱門度（`high/medium/low`）以不同色系標籤區分
 - 交通方式標籤文字（「車程 / 飛行時間 / 航程」）由 regex 自動判斷 `transitMode` 字串
 - 預設停留天數為建議天數的中間值：`ceil((min + max) / 2)`
@@ -344,37 +288,50 @@
 
 ---
 
-## WaypointCart
+## RestructurePanel
 
-**路徑**：[src/components/WaypointCart.tsx](../src/components/WaypointCart.tsx)
+**路徑**：[src/components/RestructurePanel.tsx](../src/components/RestructurePanel.tsx)
 
 ### 功能
 
-待選城市清單，讓使用者在批次插入前確認、排序、調整各城市停留天數。清單本身也支援拖曳排序。
+「重新規劃行程」四步驟精靈，讓使用者用城市層級（而非逐一拖拽景點）重塑整趟行程：新增/移除城市、指定必去景點、調整每個城市的天數，並選擇既有天數要保留或捨棄，最後一次套用給後端整份重建。第 1 步同時整合了原本獨立的「周邊推薦／順路推薦」——AI 推薦的城市可直接加入同一份城市清單，與手動搜尋加入的城市共用後續步驟。
 
 ### Props
 
 | Prop | 型別 | 說明 |
 |------|------|------|
-| `items` | `CartItem[]` | 待選城市清單 |
-| `currentDays` | `number` | 目前行程天數 |
-| `maxDays` | `number` (optional) | 機票限制天數 |
-| `days` | `DaySummary[]` (optional) | 天數摘要，用於插入位置選單 |
-| `insertAfterDay` | `number` (optional) | 選定的插入位置 |
-| `onSelectInsertAfterDay` | `(day: number) => void` (optional) | 變更插入位置 |
-| `onUpdateStayDays` | `(name, days) => void` | 調整停留天數 |
-| `onRemove` | `(name) => void` | 移除城市 |
-| `onReorder` | `(items: CartItem[]) => void` | 拖曳排序結束後更新順序 |
-| `onApply` | `() => void` | 批次套用 |
-| `isApplying` | `boolean` | 套用進行中 |
+| `itineraryId` | `string` | 行程 ID |
+| `days` | `RestructureDayLite[]` | 目前行程各天的精簡資訊（`id`/`day`/`theme`/`isTransitDay`/`isLocked`/`waypointCity`/`stopCount`） |
+| `onClose` | `() => void` | 關閉面板 |
+| `onApplied` | `() => void` | 套用成功後觸發，通常用來重新 fetch 行程 |
+| `originIata` | `string` (optional) | 出發地 IATA 代碼，提供時才會抓取周邊/順路推薦 |
+| `destinationIata` | `string` (optional) | 目的地 IATA 代碼 |
+| `existingStops` | `string[]` (optional) | 已存在的城市名稱，用於過濾重複推薦 |
+| `isSingleCity` | `boolean` (default: `false`) | 單城市模式（起訖相同），推薦區塊標題改顯示「周邊推薦」 |
 
-### 天數計算
+### 四步驟流程
 
-每個城市插入後實際增加天數為 `1（移動日）+ stayDays`，`totalInserted = sum(1 + stayDays)`。若 `currentDays + totalInserted > maxDays` 則顯示橘色警告並說明將壓縮幾天，套用後最終天數顯示為 `maxDays`。
+1. **加城市／必去景點**：用 `/api/v1/places/search` 搜尋要新增的城市，或搜尋必去景點並自動歸類（`nearestCity` 在 80km 門檻內自動指派；超過門檻或找不到候選則跳出選單讓使用者手動選城市）。既有城市依 `waypointCity` 分組成 `CityEntryState`，未分組的天（無 `waypointCity`）歸入 `__primary__` 桶。搜尋框下方另有「周邊推薦／順路推薦」區塊（見下），推薦城市點擊加入後併入同一份城市清單。已加入的城市清單支援拖曳排序（見下），可把新加入的城市拖到既有城市中間，效果等同於原本「順路推薦」的中途插入。
+2. **設定各城市天數**：`targetDays` 為每個城市的總天數（含結構性天），透過 +/- 步進器調整，下限為 `結構性天數 + 鎖定景點數`，上限 14 天。加入/移除必去景點時會自動 +1/-1 天。
+3. **勾選既有天保留/捨棄**：僅列出既有城市的「非結構性」天；移動日與行程最後一天（`computeStructuralDayIds`）永遠保留、不列入清單。`defaultKeepIds` 依 `targetDays` 算出建議勾選，使用者手動勾選過（`touchedKeep`）後可用「還原建議勾選」重置。
+4. **差異預覽並套用**：逐城市顯示保留/移除的天與新增的 AI 天數，以及套用前後總天數，確認後呼叫 `handleApply` → `POST /api/v1/itinerary/:id/restructure`。
 
-### 子元件：SortableCartItem
+### 周邊推薦／順路推薦（Step 1 子區塊）
 
-內部元件，實作每個清單項目的拖曳把手、名稱顯示、停留天數步進器與移除按鈕。透過 `@dnd-kit/sortable` 的 `useSortable` hook 取得拖曳能力。
+元件掛載時（若有 `originIata`/`destinationIata`）即向 `POST /api/v1/itinerary/:id/transit-recommendations` 取得推薦城市，邏輯與已刪除的 `TransitRecommendationsPanel` 相同：
+
+- 推薦結果以 `sessionStorage` 快取，key 為 `transit-rec-{originIata}-{destinationIata}`；「換一批」以 `forceRefresh=true` 繞過快取。
+- 提供「不限 / ≤ 2 小時 / ≤ 4 小時 / ≤ 8 小時」車程上限篩選，本地過濾 `transitTimeHours`。
+- 個別卡片可「跳過」，清單清空後自動換一批（`autoRefreshOnEmptyRef`）。
+- 每張卡片用 [TransitRecommendationCard](#transitrecommendationcard) 呈現，`isAdded` 依卡片名稱是否已存在於 `cities` 判斷；點擊加入呼叫 `addRecommendedCity`，邏輯與手動搜尋加入城市相同，`targetDays` 預設為建議天數中間值 `ceil((min + max) / 2)`。
+
+### 城市清單拖曳排序
+
+已加入的城市清單（Step 1）用 `@dnd-kit/core` + `@dnd-kit/sortable` 包成 `SortableContext`。只有「新增」城市（`isNew: true`）渲染拖曳把手、可被拖動；既有城市維持原順序、不可被拖動起點，但仍是合法的放置目標，讓新城市可以被拖到既有城市中間。`onDragEnd` 用 `arrayMove` 重排 `cities` 陣列，順序直接決定套用後的最終行程順序與各城市的移動日內容（見 `restructure` route 的「過時移動日重新生成」邏輯）。
+
+### 與後端的欄位對應
+
+前端送出的每個城市物件（`name`/`isNew`/`targetDays`/`keepDayIds`/`lockedAttractions`）與後端 `restructure` route 的 `CitySchema` 一一對應；`isStructuralDay`/`computeStructuralDayIds` 的判斷邏輯在前後端各自實作了一份、刻意保持一致（見程式碼註解），前端只用來決定「哪些天可以勾選」，實際建構最終 `days` 陣列仍以後端為準。移動日一律以「出發城市」歸類與標記（`waypointCity`/`theme` 都是從出發地角度描述），所以若城市清單被拖曳重排，後端會針對每個既有城市，比對它自己重用的出發移動日原本記錄的 `transitTo`，跟這次排序算出來的「下一站」是否一致，不一致才重新呼叫 AI 生成該移動日內容，其餘內容維持重用。
 
 ---
 
@@ -384,7 +341,7 @@
 
 ### 功能
 
-行程詳頁（`/view/[id]`）的主要容器元件，整合所有子元件並管理頁面層級的狀態。負責行程資料 fetch、列表/地圖視圖切換、匯率換算、待選清單管理，以及渲染路線麵包屑與花費預估側欄。
+行程詳頁（`/view/[id]`）的主要容器元件，整合所有子元件並管理頁面層級的狀態。負責行程資料 fetch、列表/地圖視圖切換、匯率換算，以及渲染路線麵包屑與花費預估側欄。
 
 ### Props
 
@@ -399,9 +356,7 @@
 | `data` | 後端回傳的完整行程物件（`any`） |
 | `view` | `"list" \| "map"` 視圖切換 |
 | `exchangeRate` | 目前貨幣對台幣匯率，可手動調整 |
-| `cartItems` | 待選城市清單（傳遞給 Panel 和 Cart） |
-| `insertAfterDay` | 選定的插入位置（預設為天數一半） |
-| `insertionReason` | 批次插入後 AI 回傳的說明文字 |
+| `showRestructure` | 是否顯示 [RestructurePanel](#restructurepanel)（「重新規劃行程」精靈，內含周邊/順路推薦） |
 
 ### 版面配置
 
@@ -413,14 +368,14 @@
 ├────────────────────┬─────────────────┤
 │                    │  花費預估側欄    │
 │  主內容            │                 │
-│  (列表 或 地圖)    │  順路推薦面板   │
+│  (列表 或 地圖)    │  重新規劃行程   │
 │                    │                 │
 │  行程設定摘要      │                 │
 └────────────────────┴─────────────────┘
      1fr              360px（sticky）
 ```
 
-大螢幕（lg）採雙欄：左側主內容、右側 360px sticky 側欄（花費預估 + 順路推薦）。
+大螢幕（lg）採雙欄：左側主內容、右側 360px sticky 側欄（花費預估 + 重新規劃行程面板）。
 
 ### 路線麵包屑
 
@@ -430,15 +385,15 @@
 
 `renderCostSummary()`：顯示各天景點費用 + 餐費小計，以及可調整匯率的台幣換算欄。
 
-### 批次插入（handleBatchApply）
+### 重新規劃行程（renderRestructurePanel）
 
-呼叫 `POST /api/v1/itinerary/:id/batch-insert-waypoints`，傳入 `cartItems`、`maxDays`、`insertAfterDay`，成功後清空 cart 並重新 fetch 行程資料。
+`showRestructure` 為 `true` 時渲染 [RestructurePanel](#restructurepanel)，並把 `data.data.days` 轉成精簡的 `RestructureDayLite[]`（只留面板需要的欄位）、以及從 `config.flightInfo` 算出的 `originIata`/`destinationIata`/`existingStops`/`isSingleCity`（`restructureRecommendationProps`）一併傳入；`onApplied` 觸發後重新 fetch 行程資料並關閉面板。`openRestructurePanel()`（開啟面板並捲動到位）同時作為 `EditableItineraryCard` 跨國銜接卡片上「探索更多邊境城市 →」按鈕（`onExploreBorder`）的行為。
 
 ### 依賴元件
 
 - [EditableItineraryCard](#editableitinerarycard)
 - [ItineraryMap](#itinerarymap)
-- [TransitRecommendationsPanel](#transitrecommendationspanel)
+- [RestructurePanel](#restructurepanel)
 
 ---
 
@@ -450,9 +405,8 @@ ViewContent
 │   ├── SortableStop
 │   └── StopDragPreview
 ├── ItineraryMap
-└── TransitRecommendationsPanel
-    ├── TransitRecommendationCard
-    └── WaypointCart
+└── RestructurePanel
+    └── TransitRecommendationCard
 
 ItineraryCard          (獨立，唯讀)
 ItineraryList          (獨立，行程列表頁)
@@ -469,9 +423,8 @@ StreamingPreview       (獨立，生成中預覽)
 |------|------|----------|------|
 | `/api/v1/itinerary/:id` | `GET` | ViewContent | 取得行程資料 |
 | `/api/v1/itinerary/:id` | `DELETE` | ItineraryList | 刪除行程 |
-| `/api/v1/itinerary/:id/batch-insert-waypoints` | `POST` | ViewContent | 批次插入中途城市 |
 | `/api/v1/itinerary/:id/remove-waypoint` | `DELETE` | EditableItineraryCard | 移除中途城市段落 |
-| `/api/v1/itinerary/:id/transit-recommendations` | `POST` | TransitRecommendationsPanel | 取得順路城市推薦 |
+| `/api/v1/itinerary/:id/transit-recommendations` | `POST` | RestructurePanel | 取得周邊/順路城市推薦 |
 | `/api/v1/stops/:stopId` | `DELETE` | EditableItineraryCard | 刪除景點 |
 | `/api/v1/stops/:stopId` | `PATCH` | EditableItineraryCard | 更新景點 |
 | `/api/v1/stops/:stopId/regenerate` | `POST` | EditableItineraryCard | AI 重新生成景點 |
@@ -482,3 +435,5 @@ StreamingPreview       (獨立，生成中預覽)
 | `/api/v1/days/:dayId/accommodation/enrich` | `POST` | EditableItineraryCard, ItineraryMap | 補充住宿地理資訊（限舊資料，無 placeId 時才呼叫） |
 | `/api/v1/days/:dayId/accommodation/regenerate` | `POST` | AccommodationPicker | 取得附近真實住宿候選清單 |
 | `/api/v1/days/:dayId/accommodation/select` | `POST` | AccommodationPicker | 使用者選定候選後存檔 |
+| `/api/v1/itinerary/:id/restructure` | `POST` | RestructurePanel | 依城市清單整份重建行程 |
+| `/api/v1/places/search` | `POST` | RestructurePanel | 搜尋要加入的城市或必去景點 |

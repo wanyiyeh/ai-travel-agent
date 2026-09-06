@@ -1,10 +1,9 @@
 import { openai } from "@/lib/openai";
 
 // Shared AI-generation helpers for building out a city's worth of itinerary
-// content (transit day, sightseeing days, accommodation + meals). Originally
-// lived only in batch-insert-waypoints/route.ts; factored out so the
-// restructure endpoint can generate new-city content the same way instead of
-// duplicating these prompts.
+// content (transit day, sightseeing days, accommodation + meals). Used by the
+// restructure endpoint to generate new-city content without duplicating
+// these prompts.
 
 export async function generateTransitDayStops(
   fromCity: string,

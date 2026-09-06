@@ -9,7 +9,11 @@ import {
   getPriceLevels,
 } from "@/lib/fetchCityRestaurants";
 import { resolveDayCoords } from "@/lib/itineraryGen";
+import { cityToIata } from "@/lib/iataCity";
+import { getIataCoords } from "@/lib/fetchCityRestaurants";
 import { estimateLodgingCostPerNight, estimateLodgingCostRange } from "@/lib/priceLevelCost";
+import { translatePlaceNames } from "@/lib/translatePlaceNames";
+import { findDayIndex } from "@/lib/itineraryDays";
 import type { AccommodationCandidate } from "@/types/itinerary";
 
 const RequestSchema = z.object({
@@ -60,7 +64,7 @@ export async function POST(
     }
 
     const days = itinerary.days as Record<string, unknown>[];
-    const dayIndex = days.findIndex((d) => d.id === dayId);
+    const dayIndex = findDayIndex(days, dayId);
 
     if (dayIndex === -1) {
       return NextResponse.json({ error: "Day not found" }, { status: 404 });
@@ -81,7 +85,12 @@ export async function POST(
       return NextResponse.json({ error: "住宿搜尋功能未設定" }, { status: 503 });
     }
 
-    const coords = resolveDayCoords(days, day, config.flightInfo?.arrivalCity);
+    // Transit days sleep in transitTo that night, not around the day's own
+    // stop (the departure-side transit stop) — search accommodation there.
+    const transitTo = typeof day.transitTo === "string" ? day.transitTo : undefined;
+    const transitToIata = day.isTransitDay && transitTo ? cityToIata(transitTo) : undefined;
+    const coords = (transitToIata ? getIataCoords(transitToIata) : null)
+      ?? resolveDayCoords(days, day, config.flightInfo?.arrivalCity);
 
     if (!coords) {
       return NextResponse.json(
@@ -119,11 +128,20 @@ export async function POST(
       filteredHotels.map((h) => findNearestStation({ lat: h.lat, lng: h.lng }, googleApiKey))
     );
 
+    // Google's zh-TW languageCode only translates names it already has a
+    // Chinese listing for — most independent hotels/guesthouses (especially
+    // in Japan) come back in the local script, so fill the gap for display.
+    const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
+    const nameTranslations = await translatePlaceNames(
+      filteredHotels.map((h) => h.name),
+      model,
+    );
+
     const newCandidates: AccommodationCandidate[] = filteredHotels.map((h, i) => {
       const estimatedCost = estimateLodgingCostPerNight(config.currency, h.priceLevel);
       const costRange = estimateLodgingCostRange(config.currency, h.priceLevel);
       return {
-        name: h.name,
+        name: nameTranslations.get(h.name) ?? h.name,
         area: deriveArea(h.address),
         placeId: h.placeId,
         lat: h.lat,

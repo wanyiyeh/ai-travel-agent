@@ -1,28 +1,24 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/db";
+import { prisma, j } from "@/lib/db";
 import { openai } from "@/lib/openai";
 import { StopDescriptionFillSchema } from "@/lib/schemas";
 import type { StopCandidate } from "@/types/itinerary";
 import { getMockMode, mockDelay, MOCK_FIXTURES } from "@/lib/mockAi";
 import { fetchNearbyPlaceCandidates, type PlaceCandidate } from "@/lib/fetchCityRestaurants";
 import { upsertPlace } from "@/lib/placeCache";
-import { haversineKm } from "@/lib/distanceMatrix";
+import { haversineKm, centroid, SUSPICIOUS_DISTANCE_KM as SUSPICIOUS_KM } from "@/lib/distanceMatrix";
+import { findDayIndex, getCityHintForDay } from "@/lib/itineraryDays";
 
 const RequestSchema = z.object({
   itineraryId: z.string().min(1),
   context: z.string().optional(),
   excludeNames: z.array(z.string()).optional(),
+  // Only set when called from the single-stop "換一個" picker — a specific
+  // stop being replaced, as opposed to the day-level bulk-add flow, which
+  // has no single stop to scope a candidate history log to.
+  stopId: z.string().min(1).optional(),
 });
-
-// If a candidate is >80km from the centroid of the day's remaining stops,
-// it's likely a bad match — same heuristic as enrich-all-stops/route.ts.
-const SUSPICIOUS_KM = 80;
-
-function centroid(pts: { lat: number; lng: number }[]): { lat: number; lng: number } {
-  const sum = pts.reduce((a, p) => ({ lat: a.lat + p.lat, lng: a.lng + p.lng }), { lat: 0, lng: 0 });
-  return { lat: sum.lat / pts.length, lng: sum.lng / pts.length };
-}
 
 async function suggestFallbackText(
   model: string,
@@ -76,7 +72,18 @@ export async function POST(
       );
     }
 
-    const { itineraryId, context, excludeNames } = parsed.data;
+    const { itineraryId, context, excludeNames, stopId } = parsed.data;
+
+    // Keep a full history of every candidate batch shown for this stop, even
+    // after the user picks a different one, so it can be reviewed later —
+    // only meaningful when a specific stop is being replaced (not the
+    // day-level bulk-add flow, which has no stopId to scope it to).
+    const logCandidates = (candidates: StopCandidate[]) =>
+      stopId
+        ? prisma.stopCandidateLog.create({
+            data: { itineraryId, dayId, stopId, candidates: j(candidates) },
+          })
+        : Promise.resolve();
 
     const mockMode = getMockMode();
     if (mockMode === "error") {
@@ -93,7 +100,7 @@ export async function POST(
     }
 
     const days = itinerary.days as Record<string, unknown>[];
-    const dayIndex = days.findIndex((d) => d.id === dayId);
+    const dayIndex = findDayIndex(days, dayId);
     if (dayIndex === -1) {
       return NextResponse.json({ error: "Day not found" }, { status: 404 });
     }
@@ -109,10 +116,7 @@ export async function POST(
     const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
     const tripContext = context ?? itinerary.title;
     const dayTheme = typeof day.theme === "string" ? day.theme : "";
-    const cityHint =
-      (typeof day.waypointCity === "string" ? day.waypointCity : "") ||
-      (typeof day.transitTo === "string" ? day.transitTo : "") ||
-      "";
+    const cityHint = getCityHintForDay(day);
 
     let anchor = stops.find(
       (s) => typeof s.lat === "number" && typeof s.lng === "number"
@@ -199,6 +203,7 @@ export async function POST(
 
     if (realCandidates.length === 0) {
       const candidates = await suggestFallbackText(model, tripContext, dayTheme, currentNames);
+      await logCandidates(candidates);
       return NextResponse.json({ candidates, isFallback: true });
     }
 
@@ -287,6 +292,7 @@ Names in order: ${names.map((n) => `"${n}"`).join(", ")}`,
       }
     }
 
+    await logCandidates(candidates);
     return NextResponse.json({ candidates, isFallback: false });
   } catch (error) {
     console.error("[Stop Suggestions Error]", error);

@@ -7,6 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:integration": "vitest run --config vitest.integration.config.mts",
     "seed": "tsx scripts/seed-test-data.ts",
     "backfill-places": "tsx scripts/backfill-place-cache.ts",
     "enrich-all": "tsx scripts/enrich-all-itineraries.ts",
@@ -35,6 +38,7 @@
     "prisma": "^5.22.0",
     "tailwindcss": "^4",
     "tsx": "^4.22.4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.11"
   }
 }
