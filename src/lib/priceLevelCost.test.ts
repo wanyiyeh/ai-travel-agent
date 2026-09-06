@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  estimateAttractionCost,
   estimateLodgingCostPerNight,
   estimateLodgingCostRange,
   estimateMealCost,
@@ -57,6 +58,32 @@ describe("estimateLodgingCostRange", () => {
 
   it("returns undefined for an unsupported currency", () => {
     expect(estimateLodgingCostRange("XXX", 2)).toBeUndefined();
+  });
+});
+
+describe("estimateAttractionCost", () => {
+  // JPY attraction range is [800, 2000].
+  it.each([
+    [1, 800],
+    [2, 1400],
+    [3, 2000],
+    [4, 3200],
+  ])("maps priceLevel %i to %i for JPY", (priceLevel, expected) => {
+    expect(estimateAttractionCost("JPY", priceLevel)).toBe(expected);
+  });
+
+  it("trusts priceLevel 0 as a genuinely free attraction", () => {
+    expect(estimateAttractionCost("JPY", 0)).toBe(0);
+  });
+
+  it("falls back to the moderate-tier midpoint when there's no priceLevel signal", () => {
+    expect(estimateAttractionCost("JPY", null)).toBe(1400);
+    expect(estimateAttractionCost("JPY", undefined)).toBe(1400);
+  });
+
+  it("returns 0 for an unsupported currency", () => {
+    expect(estimateAttractionCost("XXX", 2)).toBe(0);
+    expect(estimateAttractionCost(undefined, 2)).toBe(0);
   });
 });
 

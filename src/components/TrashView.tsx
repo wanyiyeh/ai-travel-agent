@@ -22,6 +22,8 @@ interface TrashDayEntry {
 
 interface TrashViewProps {
   itineraryId: string;
+  onClose?: () => void;
+  onChange?: () => void;
 }
 
 function formatDeletedAt(iso: string): string {
@@ -36,7 +38,7 @@ function formatDeletedAt(iso: string): string {
   return `${diffDay} 天前`;
 }
 
-export default function TrashView({ itineraryId }: TrashViewProps) {
+export default function TrashView({ itineraryId, onClose, onChange }: TrashViewProps) {
   const [entries, setEntries] = useState<TrashEntry[]>([]);
   const [dayEntries, setDayEntries] = useState<TrashDayEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -82,6 +84,7 @@ export default function TrashView({ itineraryId }: TrashViewProps) {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "復原失敗");
       setDayEntries((prev) => prev.filter((e) => e.id !== entry.id));
+      onChange?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : "復原失敗");
     } finally {
@@ -117,6 +120,7 @@ export default function TrashView({ itineraryId }: TrashViewProps) {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "復原失敗");
       setEntries((prev) => prev.filter((e) => e.id !== entry.id));
+      onChange?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : "復原失敗");
     } finally {
@@ -146,12 +150,22 @@ export default function TrashView({ itineraryId }: TrashViewProps) {
     <div className="max-w-3xl mx-auto p-6 space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-50">垃圾桶</h1>
-        <Link
-          href={`/view/${itineraryId}`}
-          className="text-sm text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 underline underline-offset-4"
-        >
-          返回行程
-        </Link>
+        {onClose ? (
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-sm text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 underline underline-offset-4"
+          >
+            關閉
+          </button>
+        ) : (
+          <Link
+            href={`/view/${itineraryId}`}
+            className="text-sm text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 underline underline-offset-4"
+          >
+            返回行程
+          </Link>
+        )}
       </div>
 
       {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}

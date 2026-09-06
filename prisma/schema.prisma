@@ -32,6 +32,7 @@ model Itinerary {
   stopCandidateLogs           StopCandidateLog[]
   deletedStops                DeletedStop[]
   deletedDays                 DeletedDay[]
+  recommendationCaches        ItineraryRecommendationCache[]
 }
 
 
@@ -143,4 +144,20 @@ model AirportRecommendationCache {
   iata            String   @id
   recommendations String   // JSON-encoded TransitRecommendation[]
   updatedAt       DateTime @updatedAt
+}
+
+// The specific recommendation list a given itinerary was shown for a given
+// origin/destination pair. Once written, it stays fixed for that itinerary —
+// unrelated to how the shared AirportRecommendationCache/TransitRecommendationCache
+// above change over time — so reopening the same itinerary always shows the same
+// options, and one itinerary's refresh never affects another's.
+model ItineraryRecommendationCache {
+  itineraryId     String
+  itinerary       Itinerary @relation(fields: [itineraryId], references: [id], onDelete: Cascade)
+  originIata      String
+  destinationIata String
+  recommendations String    // JSON-encoded TransitRecommendation[]
+  updatedAt       DateTime  @updatedAt
+
+  @@id([itineraryId, originIata, destinationIata])
 }
