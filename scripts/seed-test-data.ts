@@ -32,6 +32,7 @@ import { iataToCity } from "@/lib/iataCity";
 import {
   calcDays,
   buildSystemPrompt,
+  repairMissingAccommodation,
   repairTransitDayDepartureCities,
   tagWaypointCities,
 } from "@/lib/itineraryGen";
@@ -315,18 +316,6 @@ const SCENARIOS: Scenario[] = [
 ];
 
 // ─── generation ───────────────────────────────────────────────────────────────
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function repairMissingAccommodation(days: any[]): any[] {
-  const lastDayNum = days.length;
-  return days.map((day, i) => {
-    if (day.day === lastDayNum || day.isTransitDay || day.accommodation) return day;
-    const source = days.slice(0, i).reverse().find((d) => d.accommodation);
-    if (!source) return day;
-    console.warn(`    [Accommodation Repair] 第${day.day}天缺少住宿，沿用第${source.day}天：${source.accommodation.name}`);
-    return { ...day, accommodation: { ...source.accommodation } };
-  });
-}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function generateItinerary(scenario: Scenario, retries = 3): Promise<any> {
