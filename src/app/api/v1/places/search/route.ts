@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { searchPlaceText, getCityCenter, type TextSearchPlace } from "@/lib/placesTextSearch";
+import { searchPlaceText, getCityCenter, PlacesApiError, type TextSearchPlace } from "@/lib/placesTextSearch";
 import { nearestCity } from "@/lib/nearestCity";
-import { haversineKm } from "@/lib/distanceMatrix";
+import { haversineKm, MAX_PLAUSIBLE_DISTANCE_KM } from "@/lib/distanceMatrix";
+import { PRICE_LEVEL_MAP } from "@/lib/fetchCityRestaurants";
 
 const RequestSchema = z.object({
   query: z.string().min(1),
@@ -16,24 +17,16 @@ const RequestSchema = z.object({
   candidateCities: z.array(z.string()).optional(),
 });
 
-// Backs both "search a city to add" (no candidateCities) and "search a named
-// attraction" (candidateCities = the trip's cities, used to bias the search
-// and then classify the match) in the restructure flow's place-search step.
-export async function POST(request: Request) {
-  const apiKey = process.env.GOOGLE_PLACES_API_KEY;
-  if (!apiKey) {
-    return NextResponse.json({ error: "GOOGLE_PLACES_API_KEY not configured" }, { status: 503 });
-  }
-
-  const body = await request.json();
-  const parsed = RequestSchema.safeParse(body);
-  if (!parsed.success) {
-    return NextResponse.json({ error: "Invalid request", details: parsed.error.flatten() }, { status: 400 });
-  }
-  const { query, cityHint, candidateCities } = parsed.data;
-
-  let place: TextSearchPlace | null;
-
+// Resolves the place a search query refers to — either biased toward every
+// candidate city (attraction search) or toward a single cityHint (plain
+// search). Throws PlacesApiError if the Places API request itself fails, so
+// the caller can tell that apart from a genuine "no such place".
+async function resolvePlace(
+  query: string,
+  cityHint: string | undefined,
+  candidateCities: string[] | undefined,
+  apiKey: string,
+): Promise<TextSearchPlace | null> {
   if (candidateCities && candidateCities.length > 0) {
     // Attraction search: an unbiased text search's single "best match" can
     // land on a same-named/generic place near an entirely different city
@@ -61,10 +54,41 @@ export async function POST(request: Request) {
     // candidate city, so a legitimately-distant/ambiguous attraction still
     // surfaces something rather than a hard "not found" — the frontend's
     // nearestCity threshold check below sends those to manual disambiguation.
-    place = best ? best.place : await searchPlaceText(query, apiKey);
-  } else {
-    const locationBias = cityHint ? await getCityCenter(cityHint, apiKey) : null;
-    place = await searchPlaceText(query, apiKey, locationBias);
+    return best ? best.place : await searchPlaceText(query, apiKey);
+  }
+
+  const locationBias = cityHint ? await getCityCenter(cityHint, apiKey) : null;
+  return searchPlaceText(query, apiKey, locationBias);
+}
+
+// Backs both "search a city to add" (no candidateCities) and "search a named
+// attraction" (candidateCities = the trip's cities, used to bias the search
+// and then classify the match) in the restructure flow's place-search step.
+export async function POST(request: Request) {
+  const apiKey = process.env.GOOGLE_PLACES_API_KEY;
+  if (!apiKey) {
+    return NextResponse.json({ error: "GOOGLE_PLACES_API_KEY not configured" }, { status: 503 });
+  }
+
+  const body = await request.json();
+  const parsed = RequestSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json({ error: "Invalid request", details: parsed.error.flatten() }, { status: 400 });
+  }
+  const { query, cityHint, candidateCities } = parsed.data;
+
+  let place: TextSearchPlace | null;
+
+  try {
+    place = await resolvePlace(query, cityHint, candidateCities, apiKey);
+  } catch (err) {
+    if (err instanceof PlacesApiError) {
+      return NextResponse.json(
+        { place: null, nearestCity: null, error: "Google 地圖服務暫時無法使用（額度已用盡或發生錯誤），請稍後再試" },
+        { status: 503 },
+      );
+    }
+    throw err;
   }
 
   const nearest =
@@ -72,5 +96,27 @@ export async function POST(request: Request) {
       ? await nearestCity({ lat: place.location.latitude, lng: place.location.longitude }, candidateCities, apiKey)
       : null;
 
-  return NextResponse.json({ place, nearestCity: nearest });
+  // The match isn't just ambiguous between candidate cities — it's nowhere
+  // near any of them, so it almost certainly isn't part of this trip (e.g.
+  // searching "Paris" while restructuring a Kathmandu-only itinerary). Reject
+  // it outright rather than letting the frontend offer manual disambiguation,
+  // which would otherwise let a user pin it onto any city they click.
+  if (nearest && nearest.distanceKm > MAX_PLAUSIBLE_DISTANCE_KM) {
+    return NextResponse.json({
+      place: null,
+      nearestCity: null,
+      error: `這個景點距離你行程中的城市都太遠（最近的「${nearest.city}」也有 ${Math.round(nearest.distanceKm)} 公里），可能不屬於這趟旅程`,
+    });
+  }
+
+  // Google reports priceLevel as an enum string ("PRICE_LEVEL_MODERATE" etc.)
+  // — map it to the same 0-4 number used everywhere else (priceLevelCost.ts,
+  // fetchCityRestaurants.ts) so the frontend can carry it straight through to
+  // the restructure API's estimateAttractionCost without its own copy of the
+  // mapping table.
+  const responsePlace = place
+    ? { ...place, priceLevel: place.priceLevel ? (PRICE_LEVEL_MAP[place.priceLevel] ?? null) : null }
+    : null;
+
+  return NextResponse.json({ place: responsePlace, nearestCity: nearest });
 }

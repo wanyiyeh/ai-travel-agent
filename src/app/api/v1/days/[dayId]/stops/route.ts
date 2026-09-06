@@ -4,6 +4,8 @@ import { prisma, j } from "@/lib/db";
 import { StopCandidateSchema, StopDescriptionFillSchema } from "@/lib/schemas";
 import { lookupByQuery, upsertPlace } from "@/lib/placeCache";
 import { searchPlaceText, getCityCenter } from "@/lib/placesTextSearch";
+import { PRICE_LEVEL_MAP } from "@/lib/fetchCityRestaurants";
+import { estimateAttractionCost } from "@/lib/priceLevelCost";
 import { openai } from "@/lib/openai";
 import { findDayIndex, getCityHintForDay } from "@/lib/itineraryDays";
 
@@ -158,11 +160,13 @@ export async function POST(
     const cityHint = getCityHintForDay(day);
     const query = cityHint ? `${stopName} ${cityHint}` : stopName;
 
-    let resolved: { placeId: string; name: string; lat: number; lng: number; address: string | null; rating: number | null };
+    let resolved: { placeId: string; name: string; lat: number; lng: number; address: string | null; rating: number | null; priceLevel: number | null };
 
     const cached = await lookupByQuery(query);
     if (cached && cached.lat != null && cached.lng != null) {
-      resolved = { placeId: cached.placeId, name: cached.name, lat: cached.lat, lng: cached.lng, address: cached.address, rating: cached.rating };
+      // The place cache doesn't store priceLevel, so a cache hit falls back
+      // to estimateAttractionCost's no-signal default rather than a real one.
+      resolved = { placeId: cached.placeId, name: cached.name, lat: cached.lat, lng: cached.lng, address: cached.address, rating: cached.rating, priceLevel: null };
     } else {
       const cityBias = await getCityCenter(cityHint, apiKey);
       const place = await searchPlaceText(query, apiKey, cityBias);
@@ -179,6 +183,7 @@ export async function POST(
         lng: place.location.longitude,
         address: place.formattedAddress,
         rating: place.rating ?? null,
+        priceLevel: place.priceLevel ? (PRICE_LEVEL_MAP[place.priceLevel] ?? null) : null,
       };
       await upsertPlace(query, {
         placeId: place.id,
@@ -195,6 +200,7 @@ export async function POST(
       ? `Google 評分 ${resolved.rating}★`
       : resolved.address ?? "";
     const aiDescription = await describeStopWithAI(resolved.name, itinerary.title, cityHint);
+    const currency = ((itinerary.config as Record<string, unknown> | null)?.currency as string) ?? "EUR";
 
     const newStop = {
       id: crypto.randomUUID(),
@@ -206,6 +212,7 @@ export async function POST(
       lng: resolved.lng,
       address: resolved.address,
       rating: resolved.rating,
+      estimated_cost: estimateAttractionCost(currency, resolved.priceLevel),
       orderIndex: stops.length,
     };
 

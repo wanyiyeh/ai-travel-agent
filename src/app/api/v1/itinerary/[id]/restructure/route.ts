@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma, j } from "@/lib/db";
 import { iataToCity } from "@/lib/iataCity";
+import { estimateAttractionCost } from "@/lib/priceLevelCost";
 import {
   generateTransitDayStops,
   generateMealsAndAccommodation,
@@ -16,6 +17,7 @@ const LockedAttractionSchema = z.object({
   address: z.string().optional(),
   rating: z.number().nullable().optional(),
   photoName: z.string().nullable().optional(),
+  priceLevel: z.number().nullable().optional(),
 });
 
 // One entry per city the user wants in the final trip, in final order.
@@ -37,7 +39,7 @@ const RequestSchema = z.object({
 type CityInput = z.infer<typeof CitySchema>;
 type LockedAttraction = z.infer<typeof LockedAttractionSchema>;
 
-function makeLockedStop(attraction: LockedAttraction): Record<string, unknown> {
+function makeLockedStop(attraction: LockedAttraction, currency: string): Record<string, unknown> {
   return {
     id: crypto.randomUUID(),
     name: attraction.name,
@@ -50,12 +52,23 @@ function makeLockedStop(attraction: LockedAttraction): Record<string, unknown> {
     address: attraction.address,
     rating: attraction.rating ?? null,
     photoName: attraction.photoName ?? null,
+    estimated_cost: estimateAttractionCost(currency, attraction.priceLevel),
   };
 }
 
 function getFromCity(config: Record<string, unknown>): string {
   const fi = config.flightInfo as { arrivalCity?: string } | undefined;
   return iataToCity(fi?.arrivalCity ?? "");
+}
+
+// Days carry no date of their own — "day N" is implicitly departureDate +
+// (N-1) (see validateItinerary.ts's DAY_COUNT_MISMATCH) — so growing or
+// shrinking the trip here must shift returnDate by the same number of days
+// to keep that invariant true, rather than leaving it silently stale.
+function shiftDateString(dateStr: string, deltaDays: number): string {
+  const d = new Date(`${dateStr}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + deltaDays);
+  return d.toISOString().slice(0, 10);
 }
 
 // A "structural" day (inter-city transit day, or the trip's final return day)
@@ -205,7 +218,7 @@ async function buildCityBlock(
       theme: attraction.name,
       isLocked: true,
       waypointCity: city.name,
-      stops: [makeLockedStop(attraction)],
+      stops: [makeLockedStop(attraction, currency)],
       accommodation,
       meals: mealsAndAccommodation.mealsByDay[extraCount + i] ?? {},
     }));
@@ -276,7 +289,7 @@ async function buildCityBlock(
     theme: attraction.name,
     isLocked: true,
     waypointCity: city.name,
-    stops: [makeLockedStop(attraction)],
+    stops: [makeLockedStop(attraction, currency)],
     accommodation,
     meals: mealsAndAccommodation.mealsByDay[aiDayCount + i] ?? {},
   }));
@@ -358,8 +371,24 @@ export async function POST(
       day: j(d),
     }));
 
+    const dayDelta = finalDays.length - days.length;
+    const flightInfo = config.flightInfo as Record<string, unknown> | undefined;
+    const updatedConfig =
+      dayDelta !== 0 && typeof flightInfo?.returnDate === "string"
+        ? {
+            ...config,
+            flightInfo: {
+              ...flightInfo,
+              returnDate: shiftDateString(flightInfo.returnDate, dayDelta),
+            },
+          }
+        : config;
+
     await prisma.$transaction([
-      prisma.itinerary.update({ where: { id: itineraryId }, data: { days: j(finalDays) } }),
+      prisma.itinerary.update({
+        where: { id: itineraryId },
+        data: { days: j(finalDays), config: j(updatedConfig) },
+      }),
       ...(deletedDayRows.length > 0 ? [prisma.deletedDay.createMany({ data: deletedDayRows })] : []),
     ]);
 

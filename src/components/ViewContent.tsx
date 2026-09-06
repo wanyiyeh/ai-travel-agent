@@ -5,6 +5,7 @@ import Link from "next/link";
 import EditableItineraryCard from "@/components/EditableItineraryCard";
 import ItineraryMap from "@/components/ItineraryMap";
 import RestructurePanel from "@/components/RestructurePanel";
+import TrashView from "@/components/TrashView";
 import { calculateDayTotalCost, hasAnyStopCost } from "@/lib/costCalculations";
 import { AIRPORTS } from "@/lib/airports";
 
@@ -27,6 +28,7 @@ export default function ViewContent({ id }: ViewContentProps) {
   const [view, setView] = useState<"list" | "map">("list");
   const [exchangeRate, setExchangeRate] = useState(35);
   const [showRestructure, setShowRestructure] = useState(false);
+  const [showTrash, setShowTrash] = useState(false);
   const restructurePanelRef = useRef<HTMLDivElement>(null);
 
   const openRestructurePanel = () => {
@@ -297,6 +299,7 @@ export default function ViewContent({ id }: ViewContentProps) {
           destinationIata={restructureRecommendationProps?.destinationIata}
           existingStops={restructureRecommendationProps?.existingStops}
           isSingleCity={restructureRecommendationProps?.isSingleCity}
+          returnDate={data.config?.flightInfo?.returnDate}
         />
       </div>
     );
@@ -338,12 +341,13 @@ export default function ViewContent({ id }: ViewContentProps) {
                 </button>
               </div>
             )}
-            <Link
-              href={`/view/${id}/trash`}
+            <button
+              type="button"
+              onClick={() => setShowTrash(true)}
               className="text-sm text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 underline underline-offset-4"
             >
               垃圾桶
-            </Link>
+            </button>
             <Link
               href="/itineraries"
               className="text-sm text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 underline underline-offset-4"
@@ -410,6 +414,20 @@ export default function ViewContent({ id }: ViewContentProps) {
           </>
         )}
       </div>
+
+      {showTrash && data && (
+        <div
+          className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 py-10"
+          onClick={() => setShowTrash(false)}
+        >
+          <div
+            className="w-full max-w-3xl rounded-xl bg-zinc-50 dark:bg-zinc-950 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <TrashView itineraryId={id} onClose={() => setShowTrash(false)} onChange={fetchData} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -21,6 +21,15 @@ export function haversineKm(
 // previously three separate 80 constants that had to be kept in sync by hand.
 export const SUSPICIOUS_DISTANCE_KM = 80;
 
+// Beyond this, an attraction isn't just ambiguous between candidate cities —
+// it isn't near any of them at all, so it almost certainly doesn't belong to
+// this trip (e.g. searching "Paris" while restructuring a Kathmandu-only
+// itinerary). nearestCity() still reports the closest candidate, but callers
+// should reject the match outright here instead of offering manual
+// disambiguation, which would otherwise let a user pin a wildly out-of-trip
+// place onto any city they click.
+export const MAX_PLAUSIBLE_DISTANCE_KM = 500;
+
 export function centroid(pts: { lat: number; lng: number }[]): { lat: number; lng: number } {
   const sum = pts.reduce((a, p) => ({ lat: a.lat + p.lat, lng: a.lng + p.lng }), { lat: 0, lng: 0 });
   return { lat: sum.lat / pts.length, lng: sum.lng / pts.length };
