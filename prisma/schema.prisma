@@ -29,6 +29,7 @@ model Itinerary {
   updatedAt                   DateTime                     @updatedAt
   accommodationCandidateLogs  AccommodationCandidateLog[]
   mealCandidateLogs           MealCandidateLog[]
+  stopCandidateLogs           StopCandidateLog[]
   deletedStops                DeletedStop[]
   deletedDays                 DeletedDay[]
 }
@@ -80,6 +81,21 @@ model MealCandidateLog {
   createdAt   DateTime  @default(now())
 
   @@index([itineraryId, dayId, mealType])
+}
+
+// Same idea as AccommodationCandidateLog, but scoped per stop — one row per
+// POST /stop-suggestions call for that specific stop (a day can have several
+// stops, each replaced independently, so history is keyed by stopId too).
+model StopCandidateLog {
+  id          String    @id @default(uuid())
+  itineraryId String    @map("itinerary_id")
+  itinerary   Itinerary @relation(fields: [itineraryId], references: [id], onDelete: Cascade)
+  dayId       String    @map("day_id")
+  stopId      String    @map("stop_id")
+  candidates  String    // JSON-encoded StopCandidate[]
+  createdAt   DateTime  @default(now())
+
+  @@index([itineraryId, dayId, stopId])
 }
 
 // A stop removed from an itinerary, kept around so it can be browsed and

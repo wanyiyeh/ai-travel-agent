@@ -135,7 +135,7 @@ export default function Home() {
   const [travelers, setTravelers] = useState(2);
   const [selectedWaypoints, setSelectedWaypoints] = useState<string[]>([]);
 
-  const { state, partialData, id, error, generate, reset, isLoading } =
+  const { state, partialData, id, error, retryInfo, generate, reset, isLoading } =
     useStreamingGenerate();
 
   const days = calcDays(departureDate, returnDate);
@@ -590,7 +590,7 @@ export default function Home() {
         {/* Streaming preview */}
         {isStreaming && (
           <div className="mt-8">
-            <StreamingPreview partialData={partialData} days={days} />
+            <StreamingPreview partialData={partialData} days={days} retryInfo={retryInfo} />
           </div>
         )}
 
