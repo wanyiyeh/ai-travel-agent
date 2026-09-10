@@ -10,6 +10,7 @@ interface TransitRecommendationCardProps {
   onRefresh?: () => void;
   maxDays?: number;
   currentDays?: number;
+  disabled?: boolean;
 }
 
 const POPULARITY_LABELS: Record<TransitRecommendation["popularity"], string> = {
@@ -31,6 +32,7 @@ export default function TransitRecommendationCard({
   onRefresh,
   maxDays,
   currentDays,
+  disabled = false,
 }: TransitRecommendationCardProps) {
   const defaultDays = Math.ceil(
     (recommendation.suggestedStayDaysMin + recommendation.suggestedStayDaysMax) / 2
@@ -69,7 +71,7 @@ export default function TransitRecommendationCard({
               </span>
             ) : (
               <span className="text-xs font-medium px-1.5 py-0.5 rounded-full bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
-                城市
+                景點
               </span>
             )}
             {recommendation.type === "city" && (
@@ -155,12 +157,14 @@ export default function TransitRecommendationCard({
 
         <button
           onClick={handleAdd}
-          className="shrink-0 flex items-center gap-1.5 rounded-lg bg-violet-600 hover:bg-violet-700 dark:bg-violet-500 dark:hover:bg-violet-600 px-3.5 py-1.5 text-sm font-medium text-white transition-colors"
+          disabled={disabled}
+          title={disabled ? "已達此行程可插入的推薦城市上限" : undefined}
+          className="shrink-0 flex items-center gap-1.5 rounded-lg bg-violet-600 hover:bg-violet-700 dark:bg-violet-500 dark:hover:bg-violet-600 disabled:bg-zinc-200 disabled:hover:bg-zinc-200 dark:disabled:bg-zinc-700 dark:disabled:hover:bg-zinc-700 disabled:text-zinc-400 dark:disabled:text-zinc-500 disabled:cursor-not-allowed px-3.5 py-1.5 text-sm font-medium text-white transition-colors"
         >
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
           </svg>
-          加入城市清單
+          {disabled ? "已達上限" : "加入城市清單"}
         </button>
       </div>
     </div>

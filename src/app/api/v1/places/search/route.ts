@@ -57,7 +57,17 @@ async function resolvePlace(
     return best ? best.place : await searchPlaceText(query, apiKey);
   }
 
-  const locationBias = cityHint ? await getCityCenter(cityHint, apiKey) : null;
+  // No cityHint and no candidateCities means this is the restructure flow's
+  // "add a city" search (RestructurePanel's city mode never sends either) —
+  // restrict to locality results so an unrelated business/attraction can't
+  // win on pure text similarity to an unmatched query (e.g. a garbled city
+  // name text-matching a same-sounding shop name with no location bias to
+  // rule it out).
+  if (!cityHint) {
+    return searchPlaceText(query, apiKey, null, "locality");
+  }
+
+  const locationBias = await getCityCenter(cityHint, apiKey);
   return searchPlaceText(query, apiKey, locationBias);
 }
 
