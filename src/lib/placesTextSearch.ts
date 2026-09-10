@@ -75,6 +75,7 @@ export async function searchPlaceText(
   query: string,
   apiKey: string,
   locationBias?: { lat: number; lng: number } | null,
+  includedType?: string,
 ): Promise<TextSearchPlace | null> {
   const res = await fetch(PLACES_TEXT_SEARCH_URL, {
     method: "POST",
@@ -97,6 +98,10 @@ export async function searchPlaceText(
             },
           }
         : {}),
+      // includedType alone is just a ranking preference — Google can still
+      // return other types. strictTypeFiltering makes it a hard filter, which
+      // is what a city-only search actually needs (see route.ts's city-add path).
+      ...(includedType ? { includedType, strictTypeFiltering: true } : {}),
     }),
   });
 

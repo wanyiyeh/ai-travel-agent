@@ -89,10 +89,19 @@ export default function ViewContent({ id }: ViewContentProps) {
       .filter((d: any) => d.isTransitDay && d.transitTo)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .map((d: any) => d.transitTo as string);
+    // Day-trip attractions (e.g. Wieliczka from Kraków) never get their own
+    // isTransitDay/transitTo — they're just a stop on an existing city's day —
+    // so without this, the recommendation prompt keeps re-suggesting a place
+    // that's already sitting in the itinerary as a stop.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const stopNames: string[] = (data.data?.days ?? []).flatMap((d: any) =>
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (d.stops ?? []).map((s: any) => s.name as string)
+    );
     return {
       originIata: arrivalCity as string,
       destinationIata: returnDepartureCity as string,
-      existingStops: [arrivalCity, ...transitStopNames, returnDepartureCity] as string[],
+      existingStops: [arrivalCity, ...transitStopNames, returnDepartureCity, ...stopNames] as string[],
       isSingleCity: arrivalCity === returnDepartureCity,
     };
   }, [data]);
