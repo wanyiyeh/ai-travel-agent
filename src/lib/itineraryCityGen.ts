@@ -33,7 +33,7 @@ export async function generateTransitDayStops(
       "description": "描述（繁體中文，1-2 句話）",
       "duration_minutes": 60,
       "time_of_day": "morning",
-      "transport_from_prev": "交通方式",
+      "transport_from_prev": "步行約 10 分鐘",
       "estimated_cost": 0
     }
   ]
@@ -47,6 +47,7 @@ export async function generateTransitDayStops(
 - 除了短程規則要求的多個景點外，總 stop 數不設死上限，依實際可安排內容決定
 - time_of_day 只能是 "morning"、"afternoon"、"evening" 之一
 - duration_minutes 為整數（分鐘），交通 stop 必須填入真實車程分鐘數
+- transport_from_prev 必須包含預估時間，例如「步行約 10 分鐘」、「搭乘計程車約 15 分鐘」，不可只寫交通方式（如「步行」、「火車」）
 - estimated_cost 為 ${currency} 整數，免費填 0
 - 所有地點必須真實存在`,
       },
@@ -147,7 +148,7 @@ export async function generateDayStops(
           "description": "景點描述（繁體中文，1-2 句話）",
           "duration_minutes": 120,
           "time_of_day": "morning",
-          "transport_from_prev": "從上一個景點的交通方式描述",
+          "transport_from_prev": "步行約 10 分鐘",
           "estimated_cost": 0
         }
       ]
@@ -160,7 +161,7 @@ export async function generateDayStops(
 - time_of_day 只能是 "morning"、"afternoon"、"evening" 之一
 - duration_minutes 為整數（分鐘）
 - estimated_cost 為 ${currency} 貨幣的整數，免費景點填 0
-- transport_from_prev 描述如何從上一個景點抵達
+- transport_from_prev 必須包含預估時間，例如「步行約 10 分鐘」、「搭乘地鐵約 15 分鐘」，不可只寫交通方式（如「步行」、「地鐵」）
 - 所有景點必須是 ${cityName} 真實存在的知名地點`,
       },
       {

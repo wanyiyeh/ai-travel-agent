@@ -3,6 +3,17 @@ import { haversineKm } from "@/lib/distanceMatrix";
 
 const PLACES_TEXT_SEARCH_URL = "https://places.googleapis.com/v1/places:searchText";
 
+// Thrown when the Places API request itself fails (quota exhausted, 5xx,
+// auth issues) — distinct from a legitimate "no such place" result, so
+// callers that show the user a message can tell "try a different name"
+// apart from "the search service is down right now".
+export class PlacesApiError extends Error {
+  constructor(public readonly status: number) {
+    super(`Places API request failed with status ${status}`);
+    this.name = "PlacesApiError";
+  }
+}
+
 export interface TextSearchPlace {
   id: string;
   displayName: { text: string };
@@ -64,6 +75,7 @@ export async function searchPlaceText(
   query: string,
   apiKey: string,
   locationBias?: { lat: number; lng: number } | null,
+  includedType?: string,
 ): Promise<TextSearchPlace | null> {
   const res = await fetch(PLACES_TEXT_SEARCH_URL, {
     method: "POST",
@@ -86,10 +98,14 @@ export async function searchPlaceText(
             },
           }
         : {}),
+      // includedType alone is just a ranking preference — Google can still
+      // return other types. strictTypeFiltering makes it a hard filter, which
+      // is what a city-only search actually needs (see route.ts's city-add path).
+      ...(includedType ? { includedType, strictTypeFiltering: true } : {}),
     }),
   });
 
-  if (!res.ok) return null;
+  if (!res.ok) throw new PlacesApiError(res.status);
   const data = await res.json();
   const place: TextSearchPlace | null = data.places?.[0] ?? null;
   if (!place) return null;
@@ -128,7 +144,18 @@ export async function getCityCenter(
     return { lat: cached.lat, lng: cached.lng };
   }
 
-  const place = await searchPlaceText(cityName, apiKey);
+  // A city-center lookup only feeds locationBias (a ranking hint, not a hard
+  // requirement) — if the Places API itself is down, degrade to "no bias"
+  // rather than surfacing the failure here; the caller that actually needs to
+  // report a real error (the direct search a user triggers) sees it via its
+  // own searchPlaceText call instead.
+  let place: TextSearchPlace | null;
+  try {
+    place = await searchPlaceText(cityName, apiKey);
+  } catch (err) {
+    if (err instanceof PlacesApiError) return null;
+    throw err;
+  }
   if (!place) return null;
 
   await upsertPlace(cacheKey, {

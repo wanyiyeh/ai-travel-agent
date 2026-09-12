@@ -21,6 +21,15 @@ export function haversineKm(
 // previously three separate 80 constants that had to be kept in sync by hand.
 export const SUSPICIOUS_DISTANCE_KM = 80;
 
+// Beyond this, an attraction isn't just ambiguous between candidate cities —
+// it isn't near any of them at all, so it almost certainly doesn't belong to
+// this trip (e.g. searching "Paris" while restructuring a Kathmandu-only
+// itinerary). nearestCity() still reports the closest candidate, but callers
+// should reject the match outright here instead of offering manual
+// disambiguation, which would otherwise let a user pin a wildly out-of-trip
+// place onto any city they click.
+export const MAX_PLAUSIBLE_DISTANCE_KM = 500;
+
 export function centroid(pts: { lat: number; lng: number }[]): { lat: number; lng: number } {
   const sum = pts.reduce((a, p) => ({ lat: a.lat + p.lat, lng: a.lng + p.lng }), { lat: 0, lng: 0 });
   return { lat: sum.lat / pts.length, lng: sum.lng / pts.length };
@@ -112,20 +121,66 @@ export async function getDistance(
 
 // Returns distance info for each consecutive pair of stops.
 // Stops without coordinates are skipped (null returned for that pair).
+// `mode` can be fixed, or a function of the haversine distance (km) between
+// the pair, so callers can e.g. prefer walking for short hops and driving
+// for long ones without querying every mode.
 export async function getDistancesForStopPairs(
   stops: { id: string; lat?: number | null; lng?: number | null }[],
-  mode: TravelMode = "driving"
-): Promise<(DistanceResult | null)[]> {
+  mode: TravelMode | ((km: number) => TravelMode) = "driving"
+): Promise<((DistanceResult & { mode: TravelMode }) | null)[]> {
   const results = await Promise.all(
-    stops.slice(1).map((stop, i) => {
+    stops.slice(1).map(async (stop, i) => {
       const prev = stops[i];
-      if (!prev.lat || !prev.lng || !stop.lat || !stop.lng) return Promise.resolve(null);
-      return getDistance(
+      if (!prev.lat || !prev.lng || !stop.lat || !stop.lng) return null;
+      const chosenMode =
+        typeof mode === "function"
+          ? mode(haversineKm(prev.lat, prev.lng, stop.lat, stop.lng))
+          : mode;
+      let result = await getDistance(
         { lat: prev.lat, lng: prev.lng },
         { lat: stop.lat, lng: stop.lng },
-        mode
+        chosenMode
       );
+      // Not every place has transit coverage (e.g. small towns) — fall back
+      // to driving rather than reporting no transport info at all.
+      if (!result && chosenMode === "transit") {
+        result = await getDistance(
+          { lat: prev.lat, lng: prev.lng },
+          { lat: stop.lat, lng: stop.lng },
+          "driving"
+        );
+        return result ? { ...result, mode: "driving" as const } : null;
+      }
+      return result ? { ...result, mode: chosenMode } : null;
     })
   );
   return results;
+}
+
+const TRANSPORT_LABEL_ZH: Record<TravelMode, string> = {
+  walking: "步行",
+  transit: "搭乘大眾運輸",
+  driving: "搭計程車",
+  bicycling: "騎自行車",
+};
+
+function formatDurationZh(seconds: number): string {
+  const mins = Math.round(seconds / 60);
+  if (mins < 60) return `${mins} 分鐘`;
+  const hours = Math.floor(mins / 60);
+  const rest = mins % 60;
+  return rest > 0 ? `${hours} 小時 ${rest} 分鐘` : `${hours} 小時`;
+}
+
+// Picks a plausible mode from straight-line distance so we don't have to
+// query every mode for every leg. Thresholds are rough tourist-itinerary
+// heuristics, not routing logic.
+export function pickModeForDistance(km: number): TravelMode {
+  if (km < 1.2) return "walking";
+  if (km < 30) return "transit";
+  return "driving";
+}
+
+export function describeTransport(mode: TravelMode, durationSeconds: number): string {
+  return `${TRANSPORT_LABEL_ZH[mode]}約 ${formatDurationZh(durationSeconds)}`;
 }

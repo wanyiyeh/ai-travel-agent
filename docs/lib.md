@@ -307,7 +307,7 @@
 ## 14. `nearestCity.ts` — 座標最近城市判斷
 
 ### 用途
-給一個座標和一組候選城市名稱，回傳距離最近的城市與公里數。用於「重新規劃行程」搜尋必去景點時，自動判斷這個景點該歸到使用者已加入的哪個城市，超過 `NEAREST_CITY_KM_THRESHOLD`（80km，與 `stop-suggestions`/`enrich-all-stops` 的可疑地點門檻同一慣例）就不自動指派，交由使用者手動選。
+給一個座標和一組候選城市名稱，回傳距離最近的城市與公里數。用於「重新規劃行程」搜尋必去景點時，自動判斷這個景點該歸到使用者已加入的哪個城市，超過 `NEAREST_CITY_KM_THRESHOLD`（80km，與 `stop-suggestions`/`enrich-all-stops` 的可疑地點門檻同一慣例）就不自動指派，交由使用者手動選。若連最近的候選城市都超過 `distanceMatrix.ts` 的 `MAX_PLAUSIBLE_DISTANCE_KM`（500km），`places/search/route.ts` 會直接回傳錯誤、不進入手動選城市畫面——避免使用者把明顯不屬於這趟旅程的景點（例如規劃加德滿都行程時搜尋「巴黎」）硬塞進任一候選城市。
 
 ### 主要匯出
 - `nearestCity(point, candidateCityNames, apiKey)`：內部用 `getCityCenter` 平行解析每個候選城市的中心座標，再用 `haversineKm` 逐一比較取最近者。
