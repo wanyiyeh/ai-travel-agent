@@ -1,7 +1,40 @@
 import { haversineKm } from "@/lib/distanceMatrix";
 import { getIataCoords } from "@/lib/airports";
+import { prisma, j } from "@/lib/db";
 
 const NEARBY_SEARCH_URL = "https://places.googleapis.com/v1/places:searchNearby";
+
+// Shared TTL for every Nearby Search cache in this file (city hint lists,
+// candidate pools, nearest-station lookups) — Places results change slowly,
+// and this matches the TTL already used for the recommendation caches
+// elsewhere in the app (see transit-recommendations/route.ts).
+const NEARBY_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+async function getCachedOrFetchHints(
+  iataCode: string,
+  kind: string,
+  budget: string,
+  fetcher: () => Promise<RestaurantHint[]>,
+): Promise<RestaurantHint[]> {
+  const where = { iataCode_kind_budget: { iataCode, kind, budget } };
+
+  const cached = await prisma.cityPlaceHintsCache.findUnique({ where });
+  if (cached && Date.now() - cached.updatedAt.getTime() < NEARBY_CACHE_TTL_MS) {
+    return JSON.parse(cached.hints) as RestaurantHint[];
+  }
+
+  const hints = await fetcher();
+  // Don't cache an empty result (e.g. a transient API error) — let the next
+  // call retry instead of pinning "no hints" for 30 days.
+  if (hints.length > 0) {
+    await prisma.cityPlaceHintsCache.upsert({
+      where,
+      create: { iataCode, kind, budget, hints: j(hints) },
+      update: { hints: j(hints) },
+    });
+  }
+  return hints;
+}
 
 export type BudgetLevel = "budget" | "moderate" | "luxury";
 
@@ -150,7 +183,9 @@ export async function fetchCityRestaurants(
   const coords = getIataCoords(iataCode);
   if (!coords) return [];
 
-  return searchNearbyHints(coords, apiKey, getMainMealTypes(budget), 8000, maxCount, getPriceLevels(budget));
+  return getCachedOrFetchHints(iataCode, "mainMeal", budget ?? "", () =>
+    searchNearbyHints(coords, apiKey, getMainMealTypes(budget), 8000, maxCount, getPriceLevels(budget))
+  );
 }
 
 /**
@@ -166,7 +201,9 @@ export async function fetchCityBreakfastPlaces(
   const coords = getIataCoords(iataCode);
   if (!coords) return [];
 
-  return searchNearbyHints(coords, apiKey, BREAKFAST_TYPES, 8000, maxCount);
+  return getCachedOrFetchHints(iataCode, "breakfast", "", () =>
+    searchNearbyHints(coords, apiKey, BREAKFAST_TYPES, 8000, maxCount)
+  );
 }
 
 /**
@@ -183,7 +220,9 @@ export async function fetchCitySnackPlaces(
   const coords = getIataCoords(iataCode);
   if (!coords) return [];
 
-  return searchNearbyHints(coords, apiKey, SNACK_TYPES, 8000, maxCount);
+  return getCachedOrFetchHints(iataCode, "snack", "", () =>
+    searchNearbyHints(coords, apiKey, SNACK_TYPES, 8000, maxCount)
+  );
 }
 
 // Re-exported for existing importers (itineraryGen.ts, accommodation/regenerate
@@ -198,7 +237,9 @@ export async function fetchCityAttractions(
   const coords = getIataCoords(iataCode);
   if (!coords) return [];
 
-  return searchNearbyHints(coords, apiKey, ["tourist_attraction"], 10000, maxCount);
+  return getCachedOrFetchHints(iataCode, "attraction", "", () =>
+    searchNearbyHints(coords, apiKey, ["tourist_attraction"], 10000, maxCount)
+  );
 }
 
 export function buildAttractionHintsPrompt(
@@ -228,6 +269,24 @@ export interface PlaceCandidate {
   photoName?: string | null;
 }
 
+// ~11m precision — coarse enough that a stop's stored lat/lng always rounds
+// the same way across requests, without collapsing genuinely distinct anchors.
+function roundCoord(n: number): string {
+  return n.toFixed(4);
+}
+
+function buildCandidatesCacheKey(
+  coords: { lat: number; lng: number },
+  types: string[],
+  radius: number,
+  maxCount: number,
+  priceLevels?: string[],
+): string {
+  const sortedTypes = [...types].sort().join(",");
+  const sortedPriceLevels = priceLevels ? [...priceLevels].sort().join(",") : "";
+  return `${roundCoord(coords.lat)},${roundCoord(coords.lng)}:${radius}:${maxCount}:${sortedTypes}:${sortedPriceLevels}`;
+}
+
 /**
  * Nearby place search that keeps real geo data (placeId/lat/lng/address).
  * Used to build real, pickable candidate lists (e.g. day stop suggestions,
@@ -239,6 +298,33 @@ export async function fetchNearbyPlaceCandidates(
   types: string[],
   radius: number,
   maxCount = 8,
+  priceLevels?: string[],
+): Promise<PlaceCandidate[]> {
+  const cacheKey = buildCandidatesCacheKey(coords, types, radius, maxCount, priceLevels);
+  const cached = await prisma.nearbyPlaceCandidatesCache.findUnique({ where: { cacheKey } });
+  if (cached && Date.now() - cached.updatedAt.getTime() < NEARBY_CACHE_TTL_MS) {
+    return JSON.parse(cached.candidates) as PlaceCandidate[];
+  }
+
+  const candidates = await fetchNearbyPlaceCandidatesUncached(coords, apiKey, types, radius, maxCount, priceLevels);
+  // Don't cache an empty pool — could be a transient API failure rather than
+  // a genuinely sparse area, so let the next call retry instead of pinning it.
+  if (candidates.length > 0) {
+    await prisma.nearbyPlaceCandidatesCache.upsert({
+      where: { cacheKey },
+      create: { cacheKey, candidates: j(candidates) },
+      update: { candidates: j(candidates) },
+    });
+  }
+  return candidates;
+}
+
+async function fetchNearbyPlaceCandidatesUncached(
+  coords: { lat: number; lng: number },
+  apiKey: string,
+  types: string[],
+  radius: number,
+  maxCount: number,
   priceLevels?: string[],
 ): Promise<PlaceCandidate[]> {
   try {
@@ -307,6 +393,31 @@ export async function findNearestStation(
   coords: { lat: number; lng: number },
   apiKey: string,
 ): Promise<NearestStation | null> {
+  const cacheKey = `${roundCoord(coords.lat)},${roundCoord(coords.lng)}`;
+  const cached = await prisma.nearestStationCache.findUnique({ where: { cacheKey } });
+  if (cached && Date.now() - cached.updatedAt.getTime() < NEARBY_CACHE_TTL_MS) {
+    return cached.station ? (JSON.parse(cached.station) as NearestStation) : null;
+  }
+
+  // ok distinguishes "the API call succeeded (found a station, or confirmed
+  // none nearby)" from a network/HTTP failure — only the former is cached, so
+  // a transient outage retries next time instead of pinning "no station" for
+  // STATION cache TTL.
+  const { ok, station } = await findNearestStationUncached(coords, apiKey);
+  if (ok) {
+    await prisma.nearestStationCache.upsert({
+      where: { cacheKey },
+      create: { cacheKey, station: station ? j(station) : null },
+      update: { station: station ? j(station) : null },
+    });
+  }
+  return station;
+}
+
+async function findNearestStationUncached(
+  coords: { lat: number; lng: number },
+  apiKey: string,
+): Promise<{ ok: boolean; station: NearestStation | null }> {
   try {
     const res = await fetch(NEARBY_SEARCH_URL, {
       method: "POST",
@@ -329,20 +440,23 @@ export async function findNearestStation(
       }),
     });
 
-    if (!res.ok) return null;
+    if (!res.ok) return { ok: false, station: null };
 
     const data = await res.json();
     const station = data.places?.[0];
-    if (!station?.location || !station.displayName?.text) return null;
+    if (!station?.location || !station.displayName?.text) return { ok: true, station: null };
 
     return {
-      name: station.displayName.text,
-      distanceMeters: Math.round(
-        haversineKm(coords.lat, coords.lng, station.location.latitude, station.location.longitude) * 1000
-      ),
+      ok: true,
+      station: {
+        name: station.displayName.text,
+        distanceMeters: Math.round(
+          haversineKm(coords.lat, coords.lng, station.location.latitude, station.location.longitude) * 1000
+        ),
+      },
     };
   } catch {
-    return null;
+    return { ok: false, station: null };
   }
 }
 

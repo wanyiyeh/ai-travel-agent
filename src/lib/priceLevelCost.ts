@@ -33,6 +33,56 @@ export const MEAL_PRICE_RANGES: Record<string, Record<MealType, Range>> = {
   ZAR: { breakfast: [80, 150], lunch: [150, 300], dinner: [300, 700], snack: [50, 100] },
 };
 
+// Typical single-visit admission fee by currency, at Google's "moderate"
+// (priceLevel 2) tier — the anchor point estimateAttractionCost scales the
+// other tiers from, same shape as MEAL_PRICE_RANGES above.
+const ATTRACTION_PRICE_RANGES: Record<string, Range> = {
+  JPY: [800, 2000],
+  EUR: [10, 20],
+  GBP: [10, 20],
+  CHF: [15, 30],
+  AUD: [15, 30],
+  NZD: [15, 30],
+  USD: [12, 25],
+  TWD: [100, 300],
+  KRW: [8000, 20000],
+  THB: [100, 300],
+  SGD: [10, 25],
+  HKD: [80, 200],
+  VND: [50000, 150000],
+  MYR: [10, 30],
+  IDR: [30000, 100000],
+  SEK: [100, 250],
+  DKK: [80, 200],
+  NOK: [120, 280],
+  ZAR: [80, 200],
+};
+
+/**
+ * Attractions legitimately go free (parks, plazas, monuments) far more often
+ * than restaurants/hotels do, so — unlike estimateMealCost/estimateLodging* —
+ * a confirmed priceLevel of 0 is trusted as "free" (returns 0) rather than
+ * treated as "no signal". When Google has no priceLevel at all for the place
+ * (the common case for attractions, which aren't priced as reliably as
+ * restaurants), this falls back to the moderate-tier estimate as a starting
+ * guess — always returning a number so a manually-added attraction never
+ * ends up with no ticket price at all; the caller/UI can still edit it.
+ */
+export function estimateAttractionCost(
+  currency: string | undefined,
+  priceLevel: number | null | undefined,
+): number {
+  const range = currency ? ATTRACTION_PRICE_RANGES[currency] : undefined;
+  if (!range) return 0;
+  if (priceLevel === 0) return 0;
+
+  const [low, high] = range;
+  if (priceLevel === 1) return low;
+  if (priceLevel === 3) return high;
+  if (priceLevel === 4) return Math.round(high * 1.6);
+  return Math.round((low + high) / 2);
+}
+
 // Per-night lodging price by tier (inexpensive/moderate/expensive/very
 // expensive), authored at the same order of magnitude as MEAL_PRICE_RANGES
 // for each currency — there's no equivalent prose reference for this in the

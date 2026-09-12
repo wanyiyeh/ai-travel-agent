@@ -17,7 +17,7 @@ const RequestSchema = z.object({
 // trip touching that airport — single-city round trips and each leg of a multi-city
 // corridor alike — so they get their own cache, separate from corridor-specific recs.
 const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
-const MAX_MERGED_RECOMMENDATIONS = 8;
+const MAX_MERGED_RECOMMENDATIONS = 10;
 
 const JSON_SCHEMA = `{
   "recommendations": [
@@ -58,11 +58,32 @@ async function runRecommendationPrompt(systemContent: string, userContent: strin
   return raw.recommendations
     .map((item) => TransitRecommendationSchema.safeParse(item))
     .filter((r) => r.success)
-    .map((r) => r.data!);
+    .map((r) => r.data!)
+    .map(fixMisclassifiedType);
+}
+
+// A genuine "country" recommendation names the country itself (e.g. name: "韓國",
+// country: "韓國"). When they differ, the model has mislabeled a city or landmark
+// (e.g. 富士山) as a country — reclassify it as a city rather than trust the label.
+function fixMisclassifiedType(rec: TransitRecommendation): TransitRecommendation {
+  if (rec.type === "country" && rec.name !== rec.country) {
+    return { ...rec, type: "city" };
+  }
+  return rec;
+}
+
+// The airport-pool prompt explicitly forbids destinations that require a separate
+// international flight, but the model doesn't always honor that — so enforce it here
+// rather than trusting the prompt alone.
+const FLIGHT_MODE_KEYWORDS = ["飛機", "航空", "廉航", "班機"];
+function dropFlightOnlyDestinations(recommendations: TransitRecommendation[]): TransitRecommendation[] {
+  return recommendations.filter(
+    (rec) => !FLIGHT_MODE_KEYWORDS.some((keyword) => rec.transitMode.includes(keyword))
+  );
 }
 
 function generateAirportPool(iata: string): Promise<TransitRecommendation[]> {
-  const systemContent = `你是資深的自助旅行專家。旅行者的行程以 ${iata} 為根據地，請推薦 3 至 5 個從該城市出發值得順遊的周邊目的地，可以是城市或整個國家。
+  const systemContent = `你是資深的自助旅行專家。旅行者的行程以 ${iata} 為根據地，請推薦 5 至 7 個從該城市出發值得順遊的周邊目的地，可以是城市或整個國家。寧可推薦數量少，也要確保每一個都精準、真實、具代表性——不要為了湊滿數量硬塞普通或不具代表性的地點。
 
 回傳嚴格的 JSON 格式（不要其他文字）：
 ${JSON_SCHEMA}
@@ -73,16 +94,17 @@ ${JSON_SCHEMA}
 - 可以推薦單一城市（type: city），也可以推薦整個值得走訪的國家（type: country）
 - 若推薦整個國家，topAttractions 填入該國 3 個最值得走訪的城市或景點
 - 優先推薦有完善大眾交通連結的目的地
+- 盡量涵蓋不同方向、不同距離的代表性目的地（例如同時有近郊一日遊與較遠的區域性景點），但精準度優先於覆蓋面——找不到夠格的選項時寧可略過某個方向
 - 依照受歡迎程度排序（最熱門的排前面）
 - topAttractions 必須是 3 個且為真實存在的知名地點`;
 
-  const userContent = `行程根據地：${iata}。\n請推薦從這個城市出發，值得順遊的周邊城市或國家（3 到 5 個）。`;
+  const userContent = `行程根據地：${iata}。\n請推薦從這個城市出發，值得順遊的周邊城市或國家（5 到 7 個，寧缺勿濫），盡量涵蓋不同方向與距離，但每個都必須是真實且具代表性的選擇。`;
 
   return runRecommendationPrompt(systemContent, userContent);
 }
 
 function generateCorridorRecommendations(originIata: string, destinationIata: string): Promise<TransitRecommendation[]> {
-  const systemContent = `你是資深的自助旅行專家。當旅行者持有「甲地進、乙地出」的機票時，請推薦 3 至 5 個值得順路停留的目的地，可以是城市或整個國家。
+  const systemContent = `你是資深的自助旅行專家。當旅行者持有「甲地進、乙地出」的機票時，請推薦 5 至 7 個值得順路停留的目的地，可以是城市或整個國家。寧可推薦數量少，也要確保每一個都精準、真實、具代表性——不要為了湊滿數量硬塞普通或不具代表性的地點。
 
 回傳嚴格的 JSON 格式（不要其他文字）：
 ${JSON_SCHEMA}
@@ -92,10 +114,11 @@ ${JSON_SCHEMA}
 - 可以推薦單一城市（type: city），也可以推薦整個值得走訪的國家（type: country）
 - 若推薦整個國家，topAttractions 填入該國 3 個最值得走訪的城市或景點
 - 優先推薦有完善大眾交通連結的目的地
+- 盡量涵蓋不同方向、不同距離的代表性目的地，但精準度優先於覆蓋面——找不到夠格的選項時寧可略過某個方向
 - 依照受歡迎程度排序（最熱門的排前面）
 - topAttractions 必須是 3 個且為真實存在的知名地點`;
 
-  const userContent = `機票資訊：從 ${originIata} 出發，在 ${destinationIata} 結束。\n請推薦這兩個機場之間，值得順路拜訪的城市或國家（3 到 5 個）。`;
+  const userContent = `機票資訊：從 ${originIata} 出發，在 ${destinationIata} 結束。\n請推薦這兩個機場之間，值得順路拜訪的城市或國家（5 到 7 個，寧缺勿濫），盡量涵蓋不同方向與距離，但每個都必須是真實且具代表性的選擇。`;
 
   return runRecommendationPrompt(systemContent, userContent);
 }
@@ -104,11 +127,12 @@ async function getAirportPool(iata: string, forceRefresh: boolean): Promise<Tran
   if (!forceRefresh) {
     const cached = await prisma.airportRecommendationCache.findUnique({ where: { iata } });
     if (cached && Date.now() - cached.updatedAt.getTime() < CACHE_TTL_MS) {
-      return JSON.parse(cached.recommendations) as TransitRecommendation[];
+      const stored = JSON.parse(cached.recommendations) as TransitRecommendation[];
+      return dropFlightOnlyDestinations(stored.map(fixMisclassifiedType));
     }
   }
 
-  const recommendations = await generateAirportPool(iata);
+  const recommendations = dropFlightOnlyDestinations(await generateAirportPool(iata));
   await prisma.airportRecommendationCache.upsert({
     where: { iata },
     create: { iata, recommendations: JSON.stringify(recommendations) },
@@ -127,7 +151,8 @@ async function getCorridorRecommendations(
   if (!forceRefresh) {
     const cached = await prisma.transitRecommendationCache.findUnique({ where });
     if (cached && Date.now() - cached.updatedAt.getTime() < CACHE_TTL_MS) {
-      return JSON.parse(cached.recommendations) as TransitRecommendation[];
+      const stored = JSON.parse(cached.recommendations) as TransitRecommendation[];
+      return stored.map(fixMisclassifiedType);
     }
   }
 
@@ -157,8 +182,33 @@ function mergeUnique(lists: TransitRecommendation[][], max: number): TransitReco
   return merged;
 }
 
-export async function POST(request: Request) {
+async function computeRecommendations(
+  originIata: string,
+  destinationIata: string,
+  forceRefresh: boolean
+): Promise<TransitRecommendation[]> {
+  if (originIata === destinationIata) {
+    return getAirportPool(originIata, forceRefresh);
+  }
+
+  // Multi-city corridor: layer the route-specific stopovers with each endpoint's
+  // own nearby-destination pool, so obvious nearby gems (e.g. Kyoto next to KIX)
+  // always show up even if the corridor prompt itself didn't surface them.
+  const [corridorRecs, originPool, destPool] = await Promise.all([
+    getCorridorRecommendations(originIata, destinationIata, forceRefresh),
+    getAirportPool(originIata, false),
+    getAirportPool(destinationIata, false),
+  ]);
+
+  return mergeUnique([corridorRecs, originPool, destPool], MAX_MERGED_RECOMMENDATIONS);
+}
+
+export async function POST(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
   try {
+    const { id: itineraryId } = await params;
     const body = await request.json();
     const parsed = RequestSchema.safeParse(body);
 
@@ -170,7 +220,6 @@ export async function POST(request: Request) {
     }
 
     const { originIata, destinationIata, existingStops, forceRefresh } = parsed.data;
-    const isSingleCity = originIata === destinationIata;
 
     const mockMode = getMockMode();
     if (mockMode === "error") {
@@ -184,21 +233,27 @@ export async function POST(request: Request) {
       return NextResponse.json({ recommendations: recs });
     }
 
-    if (isSingleCity) {
-      const recommendations = await getAirportPool(originIata, forceRefresh ?? false);
-      return NextResponse.json({ recommendations });
+    // The list this itinerary was shown for this route is pinned once generated —
+    // unlike the shared airport/corridor caches above, it never expires and is never
+    // touched by another itinerary's request, so reopening this itinerary always shows
+    // the same options until the user explicitly asks to refresh.
+    const itineraryCacheKey = { itineraryId_originIata_destinationIata: { itineraryId, originIata, destinationIata } };
+
+    if (!forceRefresh) {
+      const cached = await prisma.itineraryRecommendationCache.findUnique({ where: itineraryCacheKey });
+      if (cached) {
+        const stored = JSON.parse(cached.recommendations) as TransitRecommendation[];
+        return NextResponse.json({ recommendations: stored.map(fixMisclassifiedType) });
+      }
     }
 
-    // Multi-city corridor: layer the route-specific stopovers with each endpoint's
-    // own nearby-destination pool, so obvious nearby gems (e.g. Kyoto next to KIX)
-    // always show up even if the corridor prompt itself didn't surface them.
-    const [corridorRecs, originPool, destPool] = await Promise.all([
-      getCorridorRecommendations(originIata, destinationIata, forceRefresh ?? false),
-      getAirportPool(originIata, false),
-      getAirportPool(destinationIata, false),
-    ]);
+    const recommendations = await computeRecommendations(originIata, destinationIata, forceRefresh ?? false);
 
-    const recommendations = mergeUnique([corridorRecs, originPool, destPool], MAX_MERGED_RECOMMENDATIONS);
+    await prisma.itineraryRecommendationCache.upsert({
+      where: itineraryCacheKey,
+      create: { itineraryId, originIata, destinationIata, recommendations: JSON.stringify(recommendations) },
+      update: { recommendations: JSON.stringify(recommendations) },
+    });
 
     return NextResponse.json({ recommendations });
   } catch (error) {

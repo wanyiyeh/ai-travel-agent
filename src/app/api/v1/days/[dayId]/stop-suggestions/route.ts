@@ -112,15 +112,36 @@ export async function POST(
       ...(excludeNames ?? []).map((n) => n.toLowerCase().trim()),
     ];
     const currentPlaceIds = new Set(stops.map((s) => s.placeId).filter(Boolean));
+    const currentCoords = stops
+      .filter((s): s is Record<string, unknown> & { lat: number; lng: number } =>
+        typeof s.lat === "number" && typeof s.lng === "number"
+      )
+      .map((s) => ({ lat: s.lat, lng: s.lng }));
 
     const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
     const tripContext = context ?? itinerary.title;
     const dayTheme = typeof day.theme === "string" ? day.theme : "";
-    const cityHint = getCityHintForDay(day);
 
-    let anchor = stops.find(
-      (s) => typeof s.lat === "number" && typeof s.lng === "number"
-    );
+    // Anchor on the stop actually being replaced when we have one (the
+    // single-stop "換一個" picker) so nearby search centers on, e.g., Raszyn
+    // rather than wherever the day's first geocoded stop happens to be
+    // (which could be a different city entirely on a multi-city day).
+    const stopIndex = stopId ? stops.findIndex((s) => s.id === stopId) : -1;
+    let anchor =
+      (stopIndex >= 0 && typeof stops[stopIndex].lat === "number" && typeof stops[stopIndex].lng === "number"
+        ? stops[stopIndex]
+        : undefined) || stops.find((s) => typeof s.lat === "number" && typeof s.lng === "number");
+
+    const cityHint = getCityHintForDay(day, stopIndex >= 0 ? stopIndex : undefined);
+
+    // A transit day's later stops (per getCityHintForDay above) are required to
+    // sit in transitTo, a distinct town from the day's own waypointCity/hub —
+    // e.g. a small satellite like Raszyn on a Warsaw->Kraków transit day. A wide
+    // radius there lets a much larger, attraction-dense neighboring city (the
+    // hub) dominate the popularity-ranked results instead of the satellite's own
+    // (few) nearby places. Only the hub-city case wants the wide net (see below).
+    const isSatelliteStop =
+      Boolean(day.isTransitDay) && stopIndex > 0 && typeof day.transitTo === "string" && day.transitTo.trim().length > 0;
 
     // This day has no geocoded stops of its own (e.g. a freshly-added empty day)
     // — borrow a coordinate from a sibling day tagged with the same waypointCity
@@ -155,10 +176,39 @@ export async function POST(
       // Legoland Japan are 15-17km from central Nagoya) never get queried at
       // all. Search the full radius directly instead and let Google's own
       // rankPreference: POPULARITY put the well-known ones first.
-      const SEARCH_RADIUS_M = 20000;
+      // A satellite stop (see isSatelliteStop above) keeps a much tighter radius
+      // instead — its own town has too little pull against a nearby major hub's
+      // popularity ranking at 20km, so the wide radius would just return the
+      // hub city's attractions instead of anything actually near the satellite.
+      const SEARCH_RADIUS_M = isSatelliteStop ? 6000 : 20000;
 
       const isNew = (c: PlaceCandidate) =>
         !currentNames.includes(c.name.toLowerCase().trim()) && !currentPlaceIds.has(c.placeId);
+
+      // isNew only catches an exact name or placeId match — it misses the
+      // same physical spot listed twice under different Google place IDs
+      // (parks in particular: one pin for the garden, another for an
+      // entrance/playground a couple hundred metres away). Reject anything
+      // that sits right on top of a stop already on this day, regardless of
+      // name/placeId.
+      const DUPLICATE_LOCATION_KM = 0.3;
+      const isNotDuplicateLocation = (c: PlaceCandidate) =>
+        currentCoords.every((s) => haversineKm(s.lat, s.lng, c.lat, c.lng) > DUPLICATE_LOCATION_KM);
+
+      // A satellite town's own attraction pool is thin enough that Google's
+      // nearby search — even narrowed to SEARCH_RADIUS_M above — still pulls
+      // in a much denser neighboring hub city when the two sit right next to
+      // each other (e.g. Raszyn borders Warszawa directly). Matching the
+      // candidate's address text against cityHint was tried first but throws
+      // out genuinely local candidates in a neighboring village that shares
+      // the satellite's postal area but not its name (e.g. Falenty, right
+      // next to Raszyn) — observed data put every real Raszyn/Falenty-area
+      // candidate within ~1.3km of the anchor stop and every Warszawa one
+      // 2.5km+ out, so a tight radius around the anchor separates them
+      // cleanly without depending on locality-name text at all.
+      const SATELLITE_MAX_KM = 2;
+      const isNearAnchor = (c: PlaceCandidate) =>
+        !isSatelliteStop || haversineKm(coords.lat, coords.lng, c.lat, c.lng) <= SATELLITE_MAX_KM;
 
       // Query each type separately and keep a guaranteed slice from every type —
       // a shared search + result cap lets dense types (tourist_attraction) crowd
@@ -175,6 +225,8 @@ export async function POST(
         // playgrounds) push it out of the guaranteed slice.
         const matches = (await fetchNearbyPlaceCandidates(coords, googleApiKey, [type], SEARCH_RADIUS_M, 20))
           .filter(isNew)
+          .filter(isNotDuplicateLocation)
+          .filter(isNearAnchor)
           .filter((c) => !seenIds.has(c.placeId));
 
         const kept = matches.slice(0, MIN_PER_TYPE);

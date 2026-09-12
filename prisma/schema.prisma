@@ -32,6 +32,7 @@ model Itinerary {
   stopCandidateLogs           StopCandidateLog[]
   deletedStops                DeletedStop[]
   deletedDays                 DeletedDay[]
+  recommendationCaches        ItineraryRecommendationCache[]
 }
 
 
@@ -143,4 +144,61 @@ model AirportRecommendationCache {
   iata            String   @id
   recommendations String   // JSON-encoded TransitRecommendation[]
   updatedAt       DateTime @updatedAt
+}
+
+// The specific recommendation list a given itinerary was shown for a given
+// origin/destination pair. Once written, it stays fixed for that itinerary —
+// unrelated to how the shared AirportRecommendationCache/TransitRecommendationCache
+// above change over time — so reopening the same itinerary always shows the same
+// options, and one itinerary's refresh never affects another's.
+model ItineraryRecommendationCache {
+  itineraryId     String
+  itinerary       Itinerary @relation(fields: [itineraryId], references: [id], onDelete: Cascade)
+  originIata      String
+  destinationIata String
+  recommendations String    // JSON-encoded TransitRecommendation[]
+  updatedAt       DateTime  @updatedAt
+
+  @@id([itineraryId, originIata, destinationIata])
+}
+
+// Nearby Search results for a city's breakfast/main-meal/snack/attraction hint
+// lists (see fetchCityRestaurants.ts), keyed by IATA code + hint kind (+ budget
+// for the budget-sensitive main-meal kind). These lists barely change day to
+// day, but were previously re-fetched from Google on every itinerary
+// generation for the same city — this cache lets repeat generations for a
+// popular city (e.g. Tokyo) reuse one Places API response instead of paying
+// for it again.
+model CityPlaceHintsCache {
+  iataCode String
+  kind     String   // "breakfast" | "mainMeal" | "snack" | "attraction"
+  budget   String   @default("") // BudgetLevel for "mainMeal", "" otherwise
+  hints    String   // JSON-encoded RestaurantHint[]
+  updatedAt DateTime @updatedAt
+
+  @@id([iataCode, kind, budget])
+}
+
+// Raw Nearby Search "candidate" pool (real placeId/lat/lng, not just name/rating)
+// for a given point + search params — used by day stop-suggestions ("換一批")
+// and accommodation candidate search. cacheKey encodes rounded coords, radius,
+// maxCount, sorted types and sorted priceLevels so distinct call shapes never
+// collide. Never written on an empty result, so a transient API failure or a
+// genuinely sparse area just retries next time instead of caching "nothing" for
+// 30 days.
+model NearbyPlaceCandidatesCache {
+  cacheKey   String   @id
+  candidates String   // JSON-encoded PlaceCandidate[]
+  updatedAt  DateTime @updatedAt
+}
+
+// Nearest subway/train/light-rail station for a rounded coordinate (see
+// findNearestStation). station is null when a successful search genuinely
+// found nothing within range — that "no station nearby" answer is itself
+// stable and worth caching, unlike a network/HTTP failure (which is never
+// written here at all, so it retries next time rather than getting pinned).
+model NearestStationCache {
+  cacheKey  String   @id
+  station   String?  // JSON-encoded NearestStation, or null = confirmed none found
+  updatedAt DateTime @updatedAt
 }
