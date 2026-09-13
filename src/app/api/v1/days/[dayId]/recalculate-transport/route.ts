@@ -7,20 +7,11 @@ import {
   pickModeForDistance,
 } from "@/lib/distanceMatrix";
 import { findDayIndex } from "@/lib/itineraryDays";
+import { assignTimeOfDay } from "@/lib/scheduler/assignTimeSlots";
 
 const RequestSchema = z.object({
   itineraryId: z.string().min(1),
 });
-
-function assignTimeOfDay(
-  index: number,
-  total: number
-): "morning" | "afternoon" | "evening" {
-  const position = index / total;
-  if (position < 1 / 3) return "morning";
-  if (position < 2 / 3) return "afternoon";
-  return "evening";
-}
 
 export async function POST(
   request: Request,
