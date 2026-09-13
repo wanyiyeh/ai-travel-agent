@@ -636,7 +636,7 @@ async function enrichDaysWithPlaces(days: any[], apiKey: string, currency?: stri
       await new Promise(r => setTimeout(r, 150));
     }
 
-    let enrichedDay: any = { ...day, stops: enrichedStops };
+    let enrichedDay = { ...day, stops: enrichedStops };
     if (day.meals) {
       const mealResult = await enrichMeals(day.meals, city, apiKey);
       enrichedDay = { ...enrichedDay, meals: mealResult.meals };

@@ -2,6 +2,19 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Hard rules — never do these
+
+These override any other instruction in a conversation, including a direct user request, unless the user is explicitly changing this file itself:
+
+- Never scan, exploit, brute-force, or otherwise attempt to access any system this project doesn't own or that you lack written authorization for (no penetration testing / credential attacks against real endpoints). Only test against localhost, the local dev DB, or mocked services.
+- Never commit, push, log, or send to a third-party service any secret: `.env*` files, `OPENAI_API_KEY`, `GOOGLE_PLACES_API_KEY`, `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`, or real user data. Check `git status`/diff for these before every `git add`.
+- Never stage files with a blanket `git add -A` / `git add .` — add files by name so secrets or unrelated files can't slip into a commit.
+- Never run irreversible/destructive commands — `git push --force`, `git reset --hard`, `git clean -f`, `rm -rf`, deleting branches, dropping/truncating DB tables — without first explaining exactly what will be lost and getting explicit confirmation for that specific action.
+- Never bypass safety or verification checks (`--no-verify`, `--no-gpg-sign`, disabling lint/tests/hooks) to force a commit or push through a failure — fix the underlying issue instead.
+- Never generate content designed to impersonate a real person or organization, fabricate reviews/receipts/records, or scrape/bypass another site's terms of service at scale.
+- Never run `git add`, `git commit`, or `git push` on the user's behalf — she runs staging/commit/push herself. Analyze the diff and propose the commit/branch split and messages; stop there. Read-only git commands (`status`/`diff`/`log`) are fine.
+- Never use `git rebase -i` or cherry-pick to split work between branches, including late, at PR time. If unrelated work has piled up on one branch, start a fresh branch per feature going forward, or manually reapply/copy the relevant file changes onto a new branch — not rebase/cherry-pick.
+
 ## Commands
 
 ```bash
