@@ -6,6 +6,7 @@ import {
   type FlightInfo,
 } from "@/lib/schemas";
 import { validateItinerary } from "@/lib/validateItinerary";
+import { validateGeography } from "@/lib/validateGeography";
 import { iataToCity } from "@/lib/iataCity";
 import { fetchCityRestaurants, fetchCityBreakfastPlaces, fetchCitySnackPlaces, buildRestaurantHintsPrompt, fetchCityAttractions, buildAttractionHintsPrompt, type BudgetLevel } from "@/lib/fetchCityRestaurants";
 import { prisma, j } from "@/lib/db";
@@ -188,6 +189,7 @@ export async function POST(request: Request) {
                 arrivalCityName,
                 returnCityName,
               );
+              logicResult.issues.push(...validateGeography(validatedData));
 
               const thinDayPresent = hasNonLastDayThinDay(logicResult.issues, validatedData.days.length);
 

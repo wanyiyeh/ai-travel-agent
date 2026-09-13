@@ -39,6 +39,7 @@ import {
 import { fetchCityRestaurants, fetchCityBreakfastPlaces, fetchCitySnackPlaces, buildRestaurantHintsPrompt, PRICE_LEVEL_MAP } from "@/lib/fetchCityRestaurants";
 import { lookupByQuery, upsertPlace } from "@/lib/placeCache";
 import { validateItinerary } from "@/lib/validateItinerary";
+import { validateGeography } from "@/lib/validateGeography";
 import { estimateLodgingCostPerNight, estimateLodgingCostRange } from "@/lib/priceLevelCost";
 // Load .env (Next.js doesn't inject env vars when running plain node)
 try {
@@ -391,6 +392,7 @@ async function generateItinerary(scenario: Scenario, retries = 3): Promise<any> 
       parsed.days = repairMissingAccommodation(parsed.days);
 
       const validationResult = validateItinerary(parsed, flightInfo, arrivalCityName, returnCityName);
+      validationResult.issues.push(...validateGeography(parsed));
       if (validationResult.issues.length > 0) {
         console.warn(`    ⚠ 行程驗證警告（${validationResult.issues.length} 項）：`);
         for (const issue of validationResult.issues) console.warn(`      [${issue.code}] ${issue.message}`);
