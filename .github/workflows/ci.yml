@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: "file:./dev.db"
+      OPENAI_API_KEY: "sk-ci-placeholder"
+      GOOGLE_PLACES_API_KEY: "ci-placeholder"
+      NEXT_PUBLIC_GOOGLE_MAPS_API_KEY: "ci-placeholder"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npx prisma generate
+
+      - run: npm run lint
+
+      - run: npm test
+
+      - run: npm run test:integration
+
+      - run: npm run build

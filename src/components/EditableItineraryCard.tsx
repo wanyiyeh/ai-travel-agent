@@ -551,7 +551,11 @@ export default function EditableItineraryCard({
   const handleToggleBulkKeep = (stopId: string) => {
     setBulkKeepIds((prev) => {
       const next = new Set(prev);
-      next.has(stopId) ? next.delete(stopId) : next.add(stopId);
+      if (next.has(stopId)) {
+        next.delete(stopId);
+      } else {
+        next.add(stopId);
+      }
       return next;
     });
   };
