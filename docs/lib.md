@@ -10,7 +10,7 @@
 |---|---|
 | `itineraryGen.ts` | 組出給 OpenAI 的 system prompt；行程資料修復（移動日、waypointCity） |
 | `validateItinerary.ts` | 驗證 AI 生成的行程結構是否合理，回傳 issue 清單 |
-| `validateGeography.ts` | 驗證同一天景點之間的直線距離是否過遠（⚠️ 目前未被任何地方引用） |
+| `validateGeography.ts` | 驗證同一天景點之間的直線距離是否過遠 |
 | `distanceMatrix.ts` | Haversine 直線距離計算 + Google Distance Matrix API 封裝 |
 | `fetchCityRestaurants.ts` | 用 Google Places Nearby Search 取得城市餐廳/景點清單，注入 prompt |
 | `placeCache.ts` | Place / PlaceQuery 資料表的查詢與寫入封裝（座標快取層） |
@@ -69,10 +69,8 @@
 | `day` 編號是否從 1 連續遞增 | `DAY_NUMBER_SEQUENCE` | error |
 | 多城市行程缺少移動日 | `TRANSIT_DAY_MISSING` | error |
 | 單城市行程卻有移動日 | `TRANSIT_DAY_UNEXPECTED` | error |
-| 移動日數量是否合理（目前允許 1 個以上，見下方註記） | `TRANSIT_DAY_DUPLICATE` | error |
 | 移動日缺少 `transitTo` | `TRANSIT_DAY_NO_TRANSITTO` | error |
-| 移動日 `transitTo` 不是預期城市 | `TRANSIT_DAY_WRONG_CITY` | error |
-| 移動日卻填了住宿 | `TRANSIT_DAY_HAS_ACCOMMODATION` | warning |
+| 最後一天（依 `waypointCity`）不是預期的回程城市 | `FINAL_CITY_MISMATCH` | error |
 | 非移動日/非最後一天缺少住宿 | `ACCOMMODATION_MISSING` | error |
 | 最後一天卻填了住宿 | `LAST_DAY_HAS_ACCOMMODATION` | warning |
 | 單日景點少於 2 個 | `DAY_TOO_FEW_STOPS` | warning |
@@ -81,10 +79,8 @@
 | 去程抵達時間晚，但第一天排了 morning 景點 | `FIRST_DAY_ARRIVAL_CONFLICT` | warning |
 | 回程出發時間早，但最後一天排了 evening 景點 | `LAST_DAY_DEPARTURE_CONFLICT` | warning |
 
-### 注意事項 — `TRANSIT_DAY_DUPLICATE` 的語意已經過時
-這個檢查的原始假設是「多城市行程只能有 1 個移動日」，寫死在 `transitDays.length > 1` 就報錯。但 `itineraryGen.ts` 的 prompt 現在明確支援「漸進路線可以有多個 `isTransitDay: true`」（見上方 `buildSystemPrompt` 說明）。這代表：
-- **對於真正的漸進多段路線（如 LA→大蘇爾→SF、NY→DC→Savannah→Miami），這條檢查目前會誤判為錯誤**，即使那是完全合理、AI 誠實生成的行程。
-- `scripts/seed-test-data.ts` 的 `RETRY_CODES` 集合把 `TRANSIT_DAY_DUPLICATE` 也列入了會觸發 retry 的錯誤碼——這代表目前跑 seed 時，多段漸進路線可能會被不必要地重新生成，因為驗證邏輯還沒跟上 prompt 的新設計。**這是本檔案已知需要更新的地方**：應該讓 `TRANSIT_DAY_DUPLICATE`（或改個新 code）只在移動日數量明顯不合理（例如超過總天數的一半）時才報錯，而不是單純大於 1 就報錯。
+### 注意事項 — 多段移動日的處理方式
+早期版本曾假設「多城市行程只能有 1 個移動日」（`TRANSIT_DAY_DUPLICATE`），會對合理的漸進多段路線（如 NY→DC→Savannah→Miami）誤判為錯誤。這條檢查已移除；現在的邏輯是每個移動日各自檢查 `transitTo` 是否存在，再單獨用 `FINAL_CITY_MISMATCH` 確認「最後一天」（依 `tagWaypointCities` 標記的 `waypointCity`）落在預期的回程城市，中間的移動日各自去哪個中繼城市不再受限制。
 
 ### 被誰使用
 - `scripts/seed-test-data.ts`：生成後立即驗證，決定是否 retry。
@@ -92,15 +88,15 @@
 
 ---
 
-## 3. `validateGeography.ts` — 同天景點距離檢查（⚠️ 目前未被引用）
+## 3. `validateGeography.ts` — 同天景點距離檢查
 
 ### 用途
 檢查同一天內相鄰兩個景點的直線距離（haversine），超過 50km 就回報 `STOPS_TOO_FAR_APART` warning，理由通常是「地點搜尋配對錯誤」或「行程排太緊湊」。
 
 ### 現狀
-用 `grep` 搜尋全專案，除了自己這個檔案，**沒有任何地方 import 它**。對照 git log 訊息「switch geography validation to synchronous haversine distance instead of a live Distance Matrix API call」，這應該是預期要接在某個 API route 或驗證流程裡的功能，但目前處於「寫好了但沒接線」的狀態。
+已接進 `generate-stream/route.ts` 和 `scripts/seed-test-data.ts`：兩處都在呼叫 `validateItinerary` 之後，把 `validateGeography` 回傳的 issues 併入同一份清單（純 warning，不會觸發 retry）。
 
-實際上專案裡真正在跑的同天距離檢查是 `scripts/check-place-data.ts`（獨立腳本，邏輯與這裡幾乎一樣，但是直接寫在腳本裡，沒有共用這個檔案的函式）——這是一個值得之後重構的重複邏輯。
+`scripts/check-place-data.ts` 仍有一份邏輯幾乎相同但獨立手刻的同天距離檢查，沒有共用這個檔案的函式——這是一個值得之後重構的重複邏輯（見下方「已知的技術債」）。
 
 ---
 
@@ -203,7 +199,7 @@
 | `TransitRecommendationSchema` | `TransitRecommendation` | 中途城市推薦（用於「順道去鄰近城市」功能） |
 
 ### 注意事項
-- `AccommodationSchema` 裡的 `name` 是必填，但實際上 `itineraryGen.ts` 的 prompt 規則 7 明確說明只需要 `area` + `reason`，不需要具體飯店名稱——這代表**AI 實際生成的 accommodation 物件通常沒有 `name` 欄位**，跟這裡的 schema 定義有落差（Zod 這裡沒有把 `name` 設成 optional）。這可能只是型別定義暫時沒跟上 prompt 規則調整，也可能是入庫前另有一層轉換補上預設值，需要進一步確認生成流程裡是否有做轉換，否則嚴格用這個 schema 做 `parse()`（而非容錯度較高的 `safeParse`）可能會在正式流程中噴錯。
+- `AccommodationSchema` 裡的 `name` 是選填（`z.string().optional()`），對應 `itineraryGen.ts` prompt 規則 7 只要求 AI 給 `area` + `reason`、不生成具體飯店名稱；`name` 只在使用者從真實 Google Places 候選裡選定後才會補上（見 `accommodation/select/route.ts`，用 `accommodation.name ?? accommodation.area` 當 fallback）。
 - `transitTo` 用了 `.nullish().transform(v => v ?? undefined)`，代表 AI 回傳 `null` 或不填都會被正規化成 `undefined`，呼叫端只需要處理一種「沒有值」的情況。
 
 ---
@@ -320,9 +316,9 @@
 
 ## 已知的技術債 / 之後可以整理的地方
 
-1. **`validateGeography.ts` 沒有被引用**——邏輯跟 `scripts/check-place-data.ts` 裡手刻的版本重複，應該讓後者改成呼叫前者，或是把 `validateGeography` 真正接進生成流程的驗證步驟裡。
-2. **`validateItinerary.ts` 的 `TRANSIT_DAY_DUPLICATE` 語意過時**——`itineraryGen.ts` 的 prompt 已經支援合理的多段移動日，但驗證邏輯還停留在「只能有 1 個移動日」的假設，需要更新判斷條件（見上方第 2 節的詳細說明）。
+1. ~~`validateGeography.ts` 沒有被引用~~ — 已接進 `generate-stream/route.ts` 和 `scripts/seed-test-data.ts`（見上方第 3 節）。`scripts/check-place-data.ts` 裡手刻的重複版本還沒改成呼叫這個共用函式，仍是待整理項目。
+2. ~~`validateItinerary.ts` 的 `TRANSIT_DAY_DUPLICATE` 語意過時~~ — 這個檢查已經移除，改用 `FINAL_CITY_MISMATCH` 只驗證最後一天的落點，中間有幾個移動日不再受限制（見上方第 2 節）。
 3. **`scripts/*.ts` 和 `src/lib/placeCache.ts` 的快取邏輯是兩套平行實作**——腳本自己 `new PrismaClient()` 手動處理 upsert，跟 `placeCache.ts` 提供的 `upsertPlace`/`lookupByQuery` 邏輯幾乎一樣，只是沒有共用同一份程式碼。
 4. ~~`iataCity.ts` 與 `fetchCityRestaurants.ts` 的 `IATA_COORDS` 是兩份分開維護的機場資料表`~~ — 已整併成 `src/lib/airports.ts` 的單一 `AIRPORTS` 表（連同 `page.tsx`/`ViewContent.tsx` 各自的城市名表一起併入），見上方第 7 節。
-5. **`AccommodationSchema.name` 為必填，但 prompt 規則實際只要求 `area`/`reason`**——型別定義與 prompt 實際輸出有落差，需確認是否有轉換層，或該把 schema 改成 optional。
+5. ~~`AccommodationSchema.name` 為必填，但 prompt 規則實際只要求 `area`/`reason`~~ — 已改成 `optional()`，`accommodation/select/route.ts` 也已補上 `name ?? area` fallback。
 6. ~~`NEAREST_CITY_KM_THRESHOLD` 在 `nearestCity.ts` 與 `RestructurePanel.tsx` 各維護一份`~~ — 已改成兩邊都從 `distanceMatrix.ts` 的 `SUSPICIOUS_DISTANCE_KM` 匯入，並統一了 `enrich-all-stops`/`stop-suggestions` route 裡重複定義的 `centroid()`/`SUSPICIOUS_KM`。
