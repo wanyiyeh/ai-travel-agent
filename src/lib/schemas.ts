@@ -28,6 +28,29 @@ export const TripPreferencesSchema = z.object({
 
 export type TripPreferences = z.infer<typeof TripPreferencesSchema>;
 
+// Structured intent parsed from the user's free-text preference blurb by
+// parsePreferenceIntent() — see plan/hybrid-rule-engine-scheduling.md Phase 1.
+export const PreferenceIntentSchema = z.object({
+  pace: z.enum(["relaxed", "moderate", "intensive"]).nullable(),
+  startTimePreference: z.enum(["early", "normal", "late"]).nullable(),
+  interestBoost: z.array(z.string()),
+  dietaryRestrictions: z.array(z.string()),
+  avoid: z.array(z.string()),
+});
+
+export type PreferenceIntent = z.infer<typeof PreferenceIntentSchema>;
+
+// Returned whenever parsing fails or there's no free text to parse, so a
+// parsing failure degrades to "no extra preference signal" rather than
+// blocking itinerary generation.
+export const NEUTRAL_PREFERENCE_INTENT: PreferenceIntent = {
+  pace: null,
+  startTimePreference: null,
+  interestBoost: [],
+  dietaryRestrictions: [],
+  avoid: [],
+};
+
 export const AccommodationSchema = z.object({
   // Generation prompt (itineraryGen.ts rule 7) deliberately only asks the AI
   // for an area + reason, not a specific hotel name (to avoid hallucinated
