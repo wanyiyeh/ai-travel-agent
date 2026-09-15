@@ -12,8 +12,8 @@
 |---|---|---|
 | Phase 0 | ✅ 完成 | `assignTimeOfDay` 抽到 `src/lib/scheduler/assignTimeSlots.ts`，`recalculate-transport` 已接上，單元測試通過 |
 | 3.1-3.3 規則引擎積木 | ✅ 完成（未接上任何路由） | `assignCityBlocks.ts`（實作為 `planCityBlocks`）、`selectAndOrderStops.ts`、`assignTimeSlots.ts`（duration/pace/meal window 版）、`buildDaySkeleton.ts`（組裝前三者）皆為純函式，各自有單元測試 |
-| Phase 1 | 🟡 函式完成，尚未接 UI/log 比對 | `parsePreferenceIntent()`（`src/lib/preferenceIntent.ts`）已可用，有 Zod 驗證 + fallback，但驗收標準（10-20 組自由文字人工抽查）還沒做 |
-| Phase 2 | 🟡 進行中 | `scripts/shadow-compare-scheduler.ts`（`npm run shadow-compare`，`--verbose` 看逐天明細）讀種子行程資料庫，用同一批 stops 分別跑 `buildDaySkeleton` 和取用已存在的 LLM 排序比對。42 個可比較天數：順序完全相同 36%、平均每站位置差 0.64、`time_of_day` 一致率 43%。時長估計：已用 `scripts/backfill-place-types.ts`（一次性、57 筆 Place Details，只補已入選 stop 的 type，符合第7節建議的成本策略）+ `mapPlaceTypeToCategory.ts` 補齊真實 Place type 對照（108 站中 83 站有對照），但平均時長差**不減反增**（63→67 分鐘）——**結論：問題不在缺 type 資料，是 `DEFAULT_DURATION_BY_TYPE` 對照表本身的數值（museum:90/temple:45/...）沒有校準過，跟 LLM 實際給的時長對不上**。Phase 3 前若要用規則引擎的時長估計，這張表需要拿真實資料重新校準，而不是再花錢多查 API 欄位 |
+| Phase 1 | ✅ 驗收標準已完成 | `scripts/validate-preference-intent.ts`（`npm run validate-preference-intent`）對 18 組常見自由文字（單一/多重訊號、中性、矛盾、英文、邊界案例）跑真實 `parsePreferenceIntent()` 並人工抽查。**過程中抓到一個真的 bug**：「不吃辣」有約 60% 機率被誤解析成 `no_seafood`（因為 prompt 的 dietaryRestrictions 範例清單沒有辣度相關標籤，模型會套用最接近的範例），已在 `SYSTEM_PROMPT` 加入 `no_spicy`/`no_beef` 範例並明確要求「標籤要對應使用者實際說的限制，不要套用最接近的範例」，修復後重跑 6 次皆正確。其餘 17 組結果人工檢查合理 |
+| Phase 2 | 🟡 骨架比對已有數據，時長估計已擱置 | `scripts/shadow-compare-scheduler.ts`（`npm run shadow-compare`，`--verbose` 看逐天明細）讀種子行程資料庫比對順序/時段：42 個可比較天數，順序完全相同 36%、平均每站位置差 0.64、`time_of_day` 一致率 43%。時長估計追查了兩層：(1) 用 `scripts/backfill-place-types.ts` + `mapPlaceTypeToCategory.ts` 補真實 Place type（108 站中 83 站對照到），但平均時長差不減反增（63→67 分鐘）；(2) 用 `scripts/calibrate-duration-table.ts` 想拿真實 `duration_minutes` 校準對照表，結果發現 LLM 本身 53% 的時候不分類型一律給 120 分鐘——**LLM 的 duration_minutes 不是可信的「依類型估時長」ground truth，往它校準沒有意義**。決定：維持現有 placeholder 對照表，時長估計標記為近似值、非這次重構的賣點，先往下推進其他階段（詳見第7節） |
 | Phase 3-6 | ⬜ 未開始 | |
 
 ---
@@ -215,6 +215,17 @@
   temple:45/... 是計畫階段隨手訂的預設值，從沒拿真實資料校準過）。之後若要
   真的用規則引擎估時長，要做的是拿這批已有真實時長的種子資料（`duration_minutes`
   vs 真實 `type`）重新統計校準對照表，而不是再花 API 成本查更多欄位。
+
+  **接著實際跑了校準（`scripts/calibrate-duration-table.ts`），結果推翻了這個
+  方向**：museum/temple/park/landmark 四個類別的中位數幾乎都收斂在同一個數字
+  （120 分鐘），追查後發現整個資料庫（154 個非 transit day 的 stop）裡
+  **LLM 有 53% 的機率不管景點類型一律給 120 分鐘**（其餘集中在 90/180/60 分鐘
+  幾個整數值上）。也就是說 LLM 給的 `duration_minutes` 本來就不是真的依景點
+  類型決定的，不是能拿來校準「依類型估時長」表的可信 ground truth——往 LLM
+  輸出對齊，學到的只是「LLM 也沒在分類型」，不會讓表更準。真的要有意義的估時，
+  需要真實世界的類別停留時長資料（例如公開的平均參觀時長統計），不是這個種子
+  資料庫能提供的。**這改變了 Phase 3 的範圍界定：規則引擎的時長估計在有更好的
+  外部資料源之前應視為「近似值」，不該被當成比 LLM 更準的賣點來推銷這次重構**。
 - **測試策略**：規則引擎模組因為是純函式，應該用一般單元測試
   （沿用專案既有的 `tests/` 慣例）覆蓋邊界案例（單站點、超多站點、
   跨午夜、無候選可選等），這是現有 LLM-only 架構完全做不到的測試覆蓋率提升，
