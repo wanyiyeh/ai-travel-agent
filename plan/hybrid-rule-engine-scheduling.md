@@ -6,6 +6,16 @@
 > prompt 決定），穩定性完全綁在 LLM 的輸出品質上。本計畫規劃如何拆分成
 > 「規則引擎排時段骨架」+「LLM 只負責風格化文案與自由文字偏好解析」的混合架構。
 
+## 0. 進度追蹤
+
+| 階段 | 狀態 | 備註 |
+|---|---|---|
+| Phase 0 | ✅ 完成 | `assignTimeOfDay` 抽到 `src/lib/scheduler/assignTimeSlots.ts`，`recalculate-transport` 已接上，單元測試通過 |
+| 3.1-3.3 規則引擎積木 | ✅ 完成（未接上任何路由） | `assignCityBlocks.ts`（實作為 `planCityBlocks`）、`selectAndOrderStops.ts`、`assignTimeSlots.ts`（duration/pace/meal window 版）、`buildDaySkeleton.ts`（組裝前三者）皆為純函式，各自有單元測試 |
+| Phase 1 | 🟡 函式完成，尚未接 UI/log 比對 | `parsePreferenceIntent()`（`src/lib/preferenceIntent.ts`）已可用，有 Zod 驗證 + fallback，但驗收標準（10-20 組自由文字人工抽查）還沒做 |
+| Phase 2 | 🟡 進行中 | `scripts/shadow-compare-scheduler.ts`（`npm run shadow-compare`，`--verbose` 看逐天明細）讀種子行程資料庫，用同一批 stops 分別跑 `buildDaySkeleton` 和取用已存在的 LLM 排序比對。初次跑 42 個可比較天數：順序完全相同 36%、平均每站位置差 0.64、`time_of_day` 一致率 43%、平均時長估計差 63 分鐘（低可信度）。**關鍵發現**：候選池缺少 Place `type` 分類，導致時長估計多半落在 60 分鐘預設值，不是真正依景點類型估計——這件事會直接影響 Phase 3 能不能上線（見第7節） |
+| Phase 3-6 | ⬜ 未開始 | |
+
 ---
 
 ## 1. 現況分析
@@ -195,6 +205,13 @@
   （其他天、其他景點）一起生成的，拆成 keyed-by-id 小段落生成後，
   文案的前後呼應（例如避免用詞重複、整趟行程語氣一致）可能變差，
   需要在文案 prompt 裡塞入「整趟行程摘要」當上下文彌補。
+- **候選池缺少 `type` 分類**（Phase 2 影子模式證實）：`assignTimeSlots.ts` 的
+  `DEFAULT_DURATION_BY_TYPE` 對照表需要 candidate 的 `type` 欄位才能生效，但現有
+  candidate 來源（`fetchCityRestaurants.ts` hints、已生成的 Stop）都沒有存 Google
+  Places 的 `types`／自訂類別。實測下來時長估計幾乎全數落在 60 分鐘 fallback，
+  跟 LLM 實際給的時長差距平均達 63 分鐘。Phase 3 要接上真實流程前，必須先決定：
+  (a) 在候選池查詢時額外拿 `types` 欄位（有 API 成本，見上一條開放時間風險的
+  同類權衡），或 (b) 接受 60 分鐘 fallback 當作 v1 精度，之後再迭代。
 - **測試策略**：規則引擎模組因為是純函式，應該用一般單元測試
   （沿用專案既有的 `tests/` 慣例）覆蓋邊界案例（單站點、超多站點、
   跨午夜、無候選可選等），這是現有 LLM-only 架構完全做不到的測試覆蓋率提升，
