@@ -5,6 +5,14 @@ import {
   type PreferenceIntent,
 } from "@/lib/schemas";
 
+// The unit tests below mock the OpenAI call, so they only verify the schema/
+// fallback plumbing, not real prompt quality — rerun
+// `npx tsx scripts/validate-preference-intent.ts` (real API calls) after
+// editing SYSTEM_PROMPT to catch prompt-quality regressions like the one that
+// motivated the current dietaryRestrictions wording: "不吃辣" used to
+// hallucinate "no_seafood" ~60% of the time because the example list didn't
+// include a spicy-food tag, so the model snapped to the nearest example.
+
 const SYSTEM_PROMPT = `你是旅遊行程規劃助手的偏好解析器。使用者會輸入一段關於行程偏好的自由文字（中文或英文皆可），
 你的任務是把它轉換成結構化 JSON，不要生成任何行程內容，只做解析。
 
@@ -23,7 +31,9 @@ Output strictly valid JSON with exactly these keys:
 - "interestBoost"：使用者特別想加強的興趣類別，用簡短英文 snake_case 標籤，例如
   "local_food"、"history"、"nature"、"shopping"、"nightlife"、"art"、"architecture"。沒有就回傳空陣列。
 - "dietaryRestrictions"：飲食限制，用簡短英文 snake_case 標籤，例如
-  "vegetarian"、"vegan"、"halal"、"no_seafood"、"gluten_free"。沒有就回傳空陣列。
+  "vegetarian"、"vegan"、"halal"、"no_seafood"、"gluten_free"、"no_spicy"、"no_beef"。
+  標籤要對應使用者實際說的限制本身，不要套用最接近的範例——例如「不吃辣」要標
+  "no_spicy"，不是 "no_seafood"。沒有限制就回傳空陣列。
 - "avoid"：明確想避開的事物，用簡短英文 snake_case 標籤，例如
   "long_walks"、"crowds"、"long_queues"、"early_mornings"。沒有就回傳空陣列。
 - 只輸出 JSON，不要加任何說明文字或註解。`;
