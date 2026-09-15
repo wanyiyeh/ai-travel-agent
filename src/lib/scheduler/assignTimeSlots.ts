@@ -34,9 +34,13 @@ export type AssignTimeSlotsOptions = {
   dayStartMinute?: number;
 };
 
-// Default stay length by Places type, minutes — placeholder table per
-// plan section 3.3; extend as real candidate data surfaces more types.
-const DEFAULT_DURATION_BY_TYPE: Record<string, number> = {
+export type DurationCategory = "museum" | "viewpoint" | "temple" | "park" | "shopping" | "landmark";
+
+// Default stay length by category, minutes — placeholder table per plan
+// section 3.3. Categories match mapPlaceTypeToCategory.ts's output, which
+// derives them from real Google Place `types` (see that file for why these
+// six and not raw Google types).
+const DEFAULT_DURATION_BY_TYPE: Record<DurationCategory, number> = {
   museum: 90,
   viewpoint: 30,
   temple: 45,
@@ -69,9 +73,11 @@ function classifyTimeOfDay(startMinute: number): TimeOfDay {
 function estimateDuration(stop: SchedulableStop): number {
   if (typeof stop.durationMinutes === "number") return stop.durationMinutes;
   if (stop.isMeal) return DEFAULT_MEAL_DURATION_MINUTES;
-  if (stop.type && stop.type in DEFAULT_DURATION_BY_TYPE) {
-    return DEFAULT_DURATION_BY_TYPE[stop.type];
-  }
+  // stop.type is a plain string (candidates aren't guaranteed to have run
+  // through mapPlaceTypeToCategory), so a lookup miss is expected and just
+  // falls through to the flat default below rather than being a type error.
+  const byType = stop.type ? DEFAULT_DURATION_BY_TYPE[stop.type as DurationCategory] : undefined;
+  if (byType != null) return byType;
   return DEFAULT_DURATION_FALLBACK_MINUTES;
 }
 
