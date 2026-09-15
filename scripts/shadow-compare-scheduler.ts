@@ -21,7 +21,8 @@ import { readFileSync } from "fs";
 import { resolve } from "path";
 import { buildDaySkeleton, type SkeletonStop } from "../src/lib/scheduler/buildDaySkeleton";
 import type { StopCandidate } from "../src/lib/scheduler/selectAndOrderStops";
-import type { Pace } from "../src/lib/scheduler/assignTimeSlots";
+import type { DurationCategory, Pace } from "../src/lib/scheduler/assignTimeSlots";
+import { mapPlaceTypeToCategory } from "../src/lib/scheduler/mapPlaceTypeToCategory";
 
 try {
   const envContent = readFileSync(resolve(process.cwd(), ".env"), "utf-8");
@@ -48,6 +49,7 @@ type LlmStop = {
   rating?: number | null;
   duration_minutes: number;
   time_of_day?: "morning" | "afternoon" | "evening";
+  placeId?: string;
 };
 
 type LlmDay = {
@@ -66,9 +68,14 @@ type DayComparison = {
   avgPositionDelta: number;
   timeOfDayAgreementPct: number | null; // null when LLM stored no time_of_day at all
   avgDurationDeltaMinutes: number;
+  typedCandidateCount: number;
 };
 
-function compareDay(itineraryTitle: string, day: LlmDay): DayComparison | null {
+function compareDay(
+  itineraryTitle: string,
+  day: LlmDay,
+  categoryByPlaceId: Map<string, DurationCategory>
+): DayComparison | null {
   const stops = day.stops ?? [];
   if (day.isTransitDay || stops.length < 2) return null;
   if (!stops.every((s) => typeof s.lat === "number" && typeof s.lng === "number")) return null;
@@ -78,12 +85,18 @@ function compareDay(itineraryTitle: string, day: LlmDay): DayComparison | null {
   const idOf = (i: number) => `${day.id ?? day.day}-${i}`;
   const llmById = new Map(stops.map((s, i) => [idOf(i), s]));
 
-  const candidates: StopCandidate[] = stops.map((s, i) => ({
-    id: idOf(i),
-    lat: s.lat as number,
-    lng: s.lng as number,
-    rating: s.rating ?? null,
-  }));
+  let typedCandidateCount = 0;
+  const candidates: StopCandidate[] = stops.map((s, i) => {
+    const type = s.placeId ? categoryByPlaceId.get(s.placeId) : undefined;
+    if (type) typedCandidateCount++;
+    return {
+      id: idOf(i),
+      lat: s.lat as number,
+      lng: s.lng as number,
+      rating: s.rating ?? null,
+      type,
+    };
+  });
 
   const origin =
     typeof day.accommodation?.lat === "number" && typeof day.accommodation?.lng === "number"
@@ -120,10 +133,10 @@ function compareDay(itineraryTitle: string, day: LlmDay): DayComparison | null {
     timeOfDayAgreementPct = (agree / withLlmTimeOfDay.length) * 100;
   }
 
-  // Duration comparison — low confidence: the candidate pool has no `type`
-  // (Place category) data, so the engine's estimate mostly falls back to its
-  // flat 60min default rather than a real type-based lookup. Kept anyway so
-  // the gap is visible and motivates plan section 7's opening-hours/type risk note.
+  // Duration comparison — real Place-type-based lookup when the backfilled
+  // Place.types resolved to one of assignTimeSlots' categories (see
+  // mapPlaceTypeToCategory.ts and plan section 7), flat 60min fallback
+  // otherwise. typedCandidateCount tracks how much of each day is real vs fallback.
   let totalDurationDelta = 0;
   for (const [id, s] of llmById) {
     const skeletonStop = skeletonById.get(id);
@@ -147,11 +160,21 @@ function compareDay(itineraryTitle: string, day: LlmDay): DayComparison | null {
     avgPositionDelta,
     timeOfDayAgreementPct,
     avgDurationDeltaMinutes,
+    typedCandidateCount,
   };
 }
 
 async function main() {
   const itineraries = await prisma.itinerary.findMany({ select: { id: true, title: true, days: true } });
+
+  // Backfilled by scripts/backfill-place-types.ts — only covers placeIds
+  // already referenced by comparable days, not the full Place cache.
+  const places = await prisma.place.findMany({ where: { types: { not: null } }, select: { id: true, types: true } });
+  const categoryByPlaceId = new Map<string, DurationCategory>();
+  for (const p of places) {
+    const category = mapPlaceTypeToCategory(JSON.parse(p.types as string));
+    if (category) categoryByPlaceId.set(p.id, category);
+  }
 
   const results: DayComparison[] = [];
   let skippedTransit = 0;
@@ -168,7 +191,7 @@ async function main() {
         skippedMissingCoords++;
         continue;
       }
-      const comparison = compareDay(it.title, day);
+      const comparison = compareDay(it.title, day, categoryByPlaceId);
       if (comparison) results.push(comparison);
     }
   }
@@ -193,6 +216,8 @@ async function main() {
       ? withTimeOfDay.reduce((sum, r) => sum + (r.timeOfDayAgreementPct ?? 0), 0) / withTimeOfDay.length
       : null;
   const avgDurationDelta = results.reduce((sum, r) => sum + r.avgDurationDeltaMinutes, 0) / results.length;
+  const totalStops = results.reduce((sum, r) => sum + r.stopCount, 0);
+  const totalTyped = results.reduce((sum, r) => sum + r.typedCandidateCount, 0);
 
   console.log(`\n順序完全相同的天數: ${exactMatchCount}/${results.length} (${((exactMatchCount / results.length) * 100).toFixed(0)}%)`);
   console.log(`平均每站位置差（0=完全一致）: ${avgPositionDelta.toFixed(2)}`);
@@ -202,7 +227,7 @@ async function main() {
   );
   console.log(
     `平均時長估計差: ${avgDurationDelta.toFixed(0)} 分鐘 ` +
-    `（低可信度——候選池缺少 Place type，規則引擎多半落在 60 分鐘預設值，非真正的型別對照結果）`
+    `（${totalTyped}/${totalStops} 站有真實 Place type 對照，其餘落在 60 分鐘預設值）`
   );
 
   console.log(`\n用 --verbose 看逐天明細（LLM 順序 vs 規則引擎順序）。`);

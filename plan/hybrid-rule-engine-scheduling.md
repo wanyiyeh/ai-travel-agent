@@ -13,7 +13,7 @@
 | Phase 0 | ✅ 完成 | `assignTimeOfDay` 抽到 `src/lib/scheduler/assignTimeSlots.ts`，`recalculate-transport` 已接上，單元測試通過 |
 | 3.1-3.3 規則引擎積木 | ✅ 完成（未接上任何路由） | `assignCityBlocks.ts`（實作為 `planCityBlocks`）、`selectAndOrderStops.ts`、`assignTimeSlots.ts`（duration/pace/meal window 版）、`buildDaySkeleton.ts`（組裝前三者）皆為純函式，各自有單元測試 |
 | Phase 1 | 🟡 函式完成，尚未接 UI/log 比對 | `parsePreferenceIntent()`（`src/lib/preferenceIntent.ts`）已可用，有 Zod 驗證 + fallback，但驗收標準（10-20 組自由文字人工抽查）還沒做 |
-| Phase 2 | 🟡 進行中 | `scripts/shadow-compare-scheduler.ts`（`npm run shadow-compare`，`--verbose` 看逐天明細）讀種子行程資料庫，用同一批 stops 分別跑 `buildDaySkeleton` 和取用已存在的 LLM 排序比對。初次跑 42 個可比較天數：順序完全相同 36%、平均每站位置差 0.64、`time_of_day` 一致率 43%、平均時長估計差 63 分鐘（低可信度）。**關鍵發現**：候選池缺少 Place `type` 分類，導致時長估計多半落在 60 分鐘預設值，不是真正依景點類型估計——這件事會直接影響 Phase 3 能不能上線（見第7節） |
+| Phase 2 | 🟡 進行中 | `scripts/shadow-compare-scheduler.ts`（`npm run shadow-compare`，`--verbose` 看逐天明細）讀種子行程資料庫，用同一批 stops 分別跑 `buildDaySkeleton` 和取用已存在的 LLM 排序比對。42 個可比較天數：順序完全相同 36%、平均每站位置差 0.64、`time_of_day` 一致率 43%。時長估計：已用 `scripts/backfill-place-types.ts`（一次性、57 筆 Place Details，只補已入選 stop 的 type，符合第7節建議的成本策略）+ `mapPlaceTypeToCategory.ts` 補齊真實 Place type 對照（108 站中 83 站有對照），但平均時長差**不減反增**（63→67 分鐘）——**結論：問題不在缺 type 資料，是 `DEFAULT_DURATION_BY_TYPE` 對照表本身的數值（museum:90/temple:45/...）沒有校準過，跟 LLM 實際給的時長對不上**。Phase 3 前若要用規則引擎的時長估計，這張表需要拿真實資料重新校準，而不是再花錢多查 API 欄位 |
 | Phase 3-6 | ⬜ 未開始 | |
 
 ---
@@ -205,13 +205,16 @@
   （其他天、其他景點）一起生成的，拆成 keyed-by-id 小段落生成後，
   文案的前後呼應（例如避免用詞重複、整趟行程語氣一致）可能變差，
   需要在文案 prompt 裡塞入「整趟行程摘要」當上下文彌補。
-- **候選池缺少 `type` 分類**（Phase 2 影子模式證實）：`assignTimeSlots.ts` 的
-  `DEFAULT_DURATION_BY_TYPE` 對照表需要 candidate 的 `type` 欄位才能生效，但現有
-  candidate 來源（`fetchCityRestaurants.ts` hints、已生成的 Stop）都沒有存 Google
-  Places 的 `types`／自訂類別。實測下來時長估計幾乎全數落在 60 分鐘 fallback，
-  跟 LLM 實際給的時長差距平均達 63 分鐘。Phase 3 要接上真實流程前，必須先決定：
-  (a) 在候選池查詢時額外拿 `types` 欄位（有 API 成本，見上一條開放時間風險的
-  同類權衡），或 (b) 接受 60 分鐘 fallback 當作 v1 精度，之後再迭代。
+- **`DEFAULT_DURATION_BY_TYPE` 對照表未校準**（Phase 2 影子模式已釐清，原本
+  誤判為「缺 type 資料」的問題）：一開始懷疑時長估計不準是因為候選池沒有
+  Google Places 的 `types`，於是用 `scripts/backfill-place-types.ts` 對已入選
+  stop 補查（57 筆、一次性、只補已選中的地點，成本可控，做法呼應上一條開放
+  時間風險的建議），並新增 `mapPlaceTypeToCategory.ts` 把真實 `types` 對回
+  六個估時分類。結果：108 站裡 83 站補到真實 type，但平均時長差不減反增
+  （63→67 分鐘）。**真正原因是對照表本身的數字沒有依據**（museum:90/
+  temple:45/... 是計畫階段隨手訂的預設值，從沒拿真實資料校準過）。之後若要
+  真的用規則引擎估時長，要做的是拿這批已有真實時長的種子資料（`duration_minutes`
+  vs 真實 `type`）重新統計校準對照表，而不是再花 API 成本查更多欄位。
 - **測試策略**：規則引擎模組因為是純函式，應該用一般單元測試
   （沿用專案既有的 `tests/` 慣例）覆蓋邊界案例（單站點、超多站點、
   跨午夜、無候選可選等），這是現有 LLM-only 架構完全做不到的測試覆蓋率提升，
