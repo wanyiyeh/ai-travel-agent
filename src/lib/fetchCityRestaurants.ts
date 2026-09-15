@@ -51,6 +51,15 @@ export const PRICE_LEVEL_MAP: Record<string, number> = {
 export interface RestaurantHint {
   name: string;
   rating?: number;
+  // Added for the scheduler rule engine (plan/hybrid-rule-engine-scheduling.md
+  // Phase 3) to consume these hints as StopCandidates — lat/lng is required by
+  // buildDaySkeleton, types feeds mapPlaceTypeToCategory for duration estimates.
+  // Optional since existing CityPlaceHintsCache rows written before this change
+  // won't have them until their 30-day TTL naturally refreshes; prompt-building
+  // code here only ever reads name/rating and ignores these.
+  lat?: number;
+  lng?: number;
+  types?: string[];
 }
 
 const BUDGET_TO_PRICE_LEVELS: Record<BudgetLevel, string[]> = {
@@ -135,7 +144,7 @@ async function searchNearbyHints(
       headers: {
         "Content-Type": "application/json",
         "X-Goog-Api-Key": apiKey,
-        "X-Goog-FieldMask": "places.displayName,places.rating",
+        "X-Goog-FieldMask": "places.displayName,places.rating,places.location,places.types",
       },
       body: JSON.stringify({
         includedTypes,
@@ -159,9 +168,12 @@ async function searchNearbyHints(
 
     const data = await res.json();
     return (data.places ?? [])
-      .map((p: { displayName?: { text?: string }; rating?: number }) => ({
+      .map((p: { displayName?: { text?: string }; rating?: number; location?: { latitude?: number; longitude?: number }; types?: string[] }) => ({
         name: p.displayName?.text ?? "",
         rating: p.rating,
+        lat: p.location?.latitude,
+        lng: p.location?.longitude,
+        types: p.types,
       }))
       .filter((r: RestaurantHint) => r.name.length > 0);
   } catch (err) {
