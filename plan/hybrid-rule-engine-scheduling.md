@@ -56,10 +56,21 @@
    types），完全沒經過任何 IATA 查詢。（第1、2點擴充的 `RestaurantHint`
    沒有白做——主流程 `generate-stream` 用 IATA 機場代號，還是會用到。）
 
-**還沒做的**：`PlaceCandidate[]` → `StopCandidate[]` 的 adapter（比照
-`hintsToStopCandidates.ts`，但這次候選一定有座標、可以直接用真實 `placeId`
-當 id）、budget/`PreferenceIntent` 怎麼接進 `restructure/route.ts`、實際接進
-`itineraryCityGen.ts` 的路由、真實 UI 測試。
+6. **PlaceCandidate → StopCandidate adapter**：新增
+   `src/lib/scheduler/placeCandidatesToStopCandidates.ts`——比照
+   `hintsToStopCandidates.ts`，但這次候選一定有座標（`fetchNearbyPlaceCandidatesUncached`
+   本身就過濾掉沒 placeId 的結果），不需要濾掉缺座標的候選，直接用真實
+   `placeId` 當 id（比 hint 版合成的 index-based id 更有意義，之後蓋真正的
+   Stop 可以直接沿用）。用真實京都資料把**整條鏈**從頭到尾串起來測過一次：
+   `getCityCenter("京都")` → `fetchNearbyPlaceCandidates` → adapter →
+   `partitionCandidatesByDay`（分 2 天）→ 各自 `buildDaySkeleton` →
+   `generateSkeletonCopy`——兩天的景點都正確落在各自地理區域（例如
+   Day 1 清水寺/產寧坂/二寧坂全在東山區域，走路可達），文案自然、無幻覺。
+   規則引擎積木 + 候選池 + 文案層至此全部就緒，且是第一次完整跑過一遍
+   （不是分段測），沒有任何一段是空想的。
+
+**還沒做的**：budget/`PreferenceIntent` 怎麼接進 `restructure/route.ts`、
+實際接進 `itineraryCityGen.ts` 的路由、真實 UI 測試。
 
 ---
 
