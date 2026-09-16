@@ -1,4 +1,13 @@
 import { openai } from "@/lib/openai";
+import { getCityCenter } from "@/lib/placesTextSearch";
+import { fetchNearbyPlaceCandidates, type RestaurantHint } from "@/lib/fetchCityRestaurants";
+import { placeCandidatesToStopCandidates } from "@/lib/scheduler/placeCandidatesToStopCandidates";
+import { partitionCandidatesByDay } from "@/lib/scheduler/partitionCandidatesByDay";
+import { buildDaySkeleton, type SkeletonStop } from "@/lib/scheduler/buildDaySkeleton";
+import { generateSkeletonCopy } from "@/lib/skeletonCopy";
+import { NEUTRAL_PREFERENCE_INTENT } from "@/lib/schemas";
+import { getDistancesForStopPairs, pickModeForDistance, describeTransport } from "@/lib/distanceMatrix";
+import { estimateAttractionCost } from "@/lib/priceLevelCost";
 
 // Shared AI-generation helpers for building out a city's worth of itinerary
 // content (transit day, sightseeing days, accommodation + meals). Used by the
@@ -124,7 +133,10 @@ export async function generateMealsAndAccommodation(
   };
 }
 
-export async function generateDayStops(
+// Falls back to this pure-LLM implementation whenever the rule-engine path
+// (generateDayStopsViaScheduler, below) can't produce a real candidate pool
+// for the city (see plan/hybrid-rule-engine-scheduling.md Phase 3).
+async function generateDayStopsWithLLM(
   cityName: string,
   stayDays: number,
   currency: string
@@ -187,4 +199,110 @@ export async function generateDayStops(
       id: crypto.randomUUID(),
     }));
   });
+}
+
+// Matches the old LLM prompt's "每天 3-4 個景點" instruction.
+const STOPS_PER_DAY = 4;
+
+/**
+ * Rule-engine path for generateDayStops (plan/hybrid-rule-engine-scheduling.md
+ * Phase 3, section 0.1 point 6's京都 end-to-end chain, now wired into a real
+ * caller): builds a real candidate pool via Google Places, lets the pure
+ * scheduler modules pick/order/time-slot each day, and only asks the LLM to
+ * fill in text copy. Returns null whenever the pool can't be built (no city
+ * center, no candidates, or any unexpected error) so the caller falls back to
+ * the pure-LLM implementation instead of surfacing a half-built day.
+ */
+async function generateDayStopsViaScheduler(
+  cityName: string,
+  dayCount: number,
+  currency: string,
+  lockedPlaceIds: string[]
+): Promise<Array<Array<Record<string, unknown>>> | null> {
+  try {
+    const apiKey = process.env.GOOGLE_PLACES_API_KEY!;
+
+    const coords = await getCityCenter(cityName, apiKey);
+    if (!coords) return null;
+
+    const maxCount = Math.min(20, dayCount * STOPS_PER_DAY + 4);
+    const places = await fetchNearbyPlaceCandidates(coords, apiKey, ["tourist_attraction"], 10000, maxCount);
+    if (places.length === 0) return null;
+
+    const lockedIds = new Set(lockedPlaceIds);
+    const { candidates, candidateById } = placeCandidatesToStopCandidates(
+      places.filter((p) => !lockedIds.has(p.placeId))
+    );
+    if (candidates.length === 0) return null;
+
+    const hintById = new Map<string, RestaurantHint>();
+    for (const [id, place] of candidateById) {
+      hintById.set(id, { name: place.name, rating: place.rating, lat: place.lat, lng: place.lng, types: place.types });
+    }
+
+    const dayGroups = partitionCandidatesByDay(candidates, Array(dayCount).fill(STOPS_PER_DAY));
+    const skeletonsByDay: SkeletonStop[][] = dayGroups.map((group) =>
+      group.length > 0 ? buildDaySkeleton(group, { count: group.length }) : []
+    );
+
+    const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
+    const [copies, distancesByDay] = await Promise.all([
+      Promise.all(
+        skeletonsByDay.map((skeleton) =>
+          generateSkeletonCopy(skeleton, hintById, NEUTRAL_PREFERENCE_INTENT, model, cityName)
+        )
+      ),
+      Promise.all(
+        skeletonsByDay.map((skeleton) =>
+          getDistancesForStopPairs(
+            skeleton.map((s) => ({ id: s.id, lat: s.lat, lng: s.lng })),
+            pickModeForDistance
+          )
+        )
+      ),
+    ]);
+
+    return skeletonsByDay.map((skeleton, dayIdx) => {
+      const copy = copies[dayIdx];
+      const distances = distancesByDay[dayIdx];
+      return skeleton.map((s, i) => {
+        const place = candidateById.get(s.id)!;
+        const dist = i > 0 ? distances[i - 1] : null;
+        const stopCopy = copy.stops[s.id];
+        const description = stopCopy
+          ? stopCopy.description + (stopCopy.highlight ? ` ${stopCopy.highlight}` : "")
+          : `前往 ${place.name}。`;
+
+        return {
+          id: s.id,
+          placeId: s.id,
+          name: place.name,
+          description,
+          duration_minutes: s.estimatedDurationMinutes,
+          time_of_day: s.time_of_day,
+          ...(dist ? { transport_from_prev: describeTransport(dist.mode, dist.durationSeconds) } : {}),
+          estimated_cost: estimateAttractionCost(currency, place.priceLevel),
+          lat: s.lat,
+          lng: s.lng,
+          address: place.address,
+          rating: place.rating ?? null,
+          photoName: place.photoName ?? null,
+        };
+      });
+    });
+  } catch (err) {
+    console.warn("[generateDayStopsViaScheduler] falling back to LLM:", err);
+    return null;
+  }
+}
+
+export async function generateDayStops(
+  cityName: string,
+  stayDays: number,
+  currency: string,
+  lockedPlaceIds: string[] = []
+): Promise<Array<Array<Record<string, unknown>>>> {
+  const scheduled = await generateDayStopsViaScheduler(cityName, stayDays, currency, lockedPlaceIds);
+  if (scheduled) return scheduled;
+  return generateDayStopsWithLLM(cityName, stayDays, currency);
 }

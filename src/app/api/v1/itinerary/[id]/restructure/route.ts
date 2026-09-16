@@ -91,6 +91,11 @@ async function buildCityBlock(
   lastOriginalDayId: string | undefined
 ): Promise<Record<string, unknown>[]> {
   const lockedCount = city.lockedAttractions.length;
+  // Keeps the rule-engine candidate pool (generateDayStopsViaScheduler) from
+  // re-suggesting a place the user already locked in as its own full day.
+  const lockedPlaceIds = city.lockedAttractions
+    .map((a) => a.placeId)
+    .filter((id): id is string => !!id);
 
   if (!city.isNew) {
     const kept = city.keepDayIds
@@ -188,7 +193,7 @@ async function buildCityBlock(
     const newDaysNeeded = extraCount + lockedCount;
     const [extraStops, mealsAndAccommodation] = await Promise.all([
       extraCount > 0
-        ? generateDayStops(city.name, extraCount, currency).catch(() =>
+        ? generateDayStops(city.name, extraCount, currency, lockedPlaceIds).catch(() =>
             Array.from({ length: extraCount }, () => [])
           )
         : Promise.resolve([]),
@@ -247,7 +252,7 @@ async function buildCityBlock(
   const [transitStops, sightseeingStops, mealsAndAccommodation] = await Promise.all([
     generateTransitDayStops(fromCityName, city.name, currency).catch(() => []),
     aiDayCount > 0
-      ? generateDayStops(city.name, aiDayCount, currency).catch(() =>
+      ? generateDayStops(city.name, aiDayCount, currency, lockedPlaceIds).catch(() =>
           Array.from({ length: aiDayCount }, () => [])
         )
       : Promise.resolve([]),
