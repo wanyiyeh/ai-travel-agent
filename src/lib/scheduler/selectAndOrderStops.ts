@@ -21,7 +21,8 @@ export type SelectAndOrderStopsOptions = {
 // penalized to zero against rated ones.
 const DEFAULT_RATING = 3.5;
 
-function scoreCandidate(
+/** Exported for partitionCandidatesByDay.ts, which needs the same scoring to pick each day's seed candidate before this file's own top-N selection runs per day. */
+export function scoreCandidate(
   candidate: StopCandidate,
   interestWeights: Record<string, number>
 ): number {
