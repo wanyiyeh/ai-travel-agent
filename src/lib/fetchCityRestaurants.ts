@@ -279,6 +279,13 @@ export interface PlaceCandidate {
   lng: number;
   address: string;
   photoName?: string | null;
+  // Added for the scheduler rule engine (plan/hybrid-rule-engine-scheduling.md
+  // Phase 3) — mapPlaceTypeToCategory feeds this into duration estimates, same
+  // reasoning as RestaurantHint.types. Optional since existing
+  // NearbyPlaceCandidatesCache rows (30-day TTL) won't have it until they
+  // naturally refresh; every other existing caller here only ever reads the
+  // fields above and ignores this one.
+  types?: string[];
 }
 
 // ~11m precision — coarse enough that a stop's stored lat/lng always rounds
@@ -345,7 +352,7 @@ async function fetchNearbyPlaceCandidatesUncached(
       headers: {
         "Content-Type": "application/json",
         "X-Goog-Api-Key": apiKey,
-        "X-Goog-FieldMask": "places.id,places.displayName,places.rating,places.location,places.formattedAddress,places.priceLevel,places.photos",
+        "X-Goog-FieldMask": "places.id,places.displayName,places.rating,places.location,places.formattedAddress,places.priceLevel,places.photos,places.types",
       },
       body: JSON.stringify({
         includedTypes: types,
@@ -369,7 +376,7 @@ async function fetchNearbyPlaceCandidatesUncached(
 
     const data = await res.json();
     return (data.places ?? [])
-      .map((p: { id?: string; displayName?: { text?: string }; rating?: number; priceLevel?: string; location?: { latitude?: number; longitude?: number }; formattedAddress?: string; photos?: { name: string }[] }) => ({
+      .map((p: { id?: string; displayName?: { text?: string }; rating?: number; priceLevel?: string; location?: { latitude?: number; longitude?: number }; formattedAddress?: string; photos?: { name: string }[]; types?: string[] }) => ({
         name: p.displayName?.text ?? "",
         rating: p.rating,
         priceLevel: p.priceLevel ? (PRICE_LEVEL_MAP[p.priceLevel] ?? null) : null,
@@ -378,6 +385,7 @@ async function fetchNearbyPlaceCandidatesUncached(
         lng: p.location?.longitude ?? 0,
         address: p.formattedAddress ?? "",
         photoName: p.photos?.[0]?.name ?? null,
+        types: p.types,
       }))
       .filter((c: PlaceCandidate) => c.name.length > 0 && c.placeId.length > 0);
   } catch (err) {
