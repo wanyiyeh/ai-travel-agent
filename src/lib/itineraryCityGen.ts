@@ -96,7 +96,7 @@ const DEFAULT_ARRIVAL_MINUTE = 14 * 60;
 // Shared by planTransitDay's arrivalTime and generateDepartureDayStops'
 // returnDepartureTime — both parse the same "HH:MM" shape the LLM/FlightInfo
 // give, just with different fallback defaults.
-function parseTimeString(raw: unknown, fallbackMinute: number): number {
+export function parseTimeString(raw: unknown, fallbackMinute: number): number {
   if (typeof raw !== "string") return fallbackMinute;
   const match = raw.match(/^(\d{1,2}):(\d{2})$/);
   if (!match) return fallbackMinute;
@@ -301,7 +301,13 @@ export async function generateDepartureDayStops(
   currency: string,
   returnDepartureTime: string | undefined,
   budget: BudgetLevel | undefined,
-  preferenceIntent: PreferenceIntent = NEUTRAL_PREFERENCE_INTENT
+  preferenceIntent: PreferenceIntent = NEUTRAL_PREFERENCE_INTENT,
+  // Places already used elsewhere in this city's block this request (its own
+  // transit-arrival stops and/or sightseeing days) — assembleItineraryDays.ts
+  // is the first caller that can generate more than one batch of stops for
+  // the same city in one request, so without this the same top-rated
+  // landmark can get suggested twice in the same trip.
+  lockedPlaceIds: string[] = []
 ): Promise<Array<Record<string, unknown>>> {
   try {
     const dayStartMinute = 8 * 60;
@@ -323,7 +329,10 @@ export async function generateDepartureDayStops(
     }
     if (places.length === 0) return [];
 
-    const { candidates, candidateById } = placeCandidatesToStopCandidates(places);
+    const lockedIds = new Set(lockedPlaceIds);
+    const { candidates, candidateById } = placeCandidatesToStopCandidates(
+      places.filter((p) => !lockedIds.has(p.placeId))
+    );
     if (candidates.length === 0) return [];
 
     const interestWeights = buildInterestWeights(preferenceIntent.interestBoost);
@@ -565,7 +574,8 @@ async function generateDayStopsViaScheduler(
   currency: string,
   lockedPlaceIds: string[],
   budget: BudgetLevel | undefined,
-  preferenceIntent: PreferenceIntent
+  preferenceIntent: PreferenceIntent,
+  firstDayStartMinute: number | undefined
 ): Promise<Array<Array<Record<string, unknown>>> | null> {
   try {
     const apiKey = process.env.GOOGLE_PLACES_API_KEY!;
@@ -601,12 +611,12 @@ async function generateDayStopsViaScheduler(
       : undefined;
 
     const dayGroups = partitionCandidatesByDay(candidates, Array(dayCount).fill(STOPS_PER_DAY), interestWeights);
-    const skeletonsByDay: SkeletonStop[][] = dayGroups.map((group) =>
+    const skeletonsByDay: SkeletonStop[][] = dayGroups.map((group, dayIdx) =>
       group.length > 0
         ? buildDaySkeleton(group, {
             count: group.length,
             pace: preferenceIntent.pace ?? undefined,
-            dayStartMinute,
+            dayStartMinute: dayIdx === 0 ? (firstDayStartMinute ?? dayStartMinute) : dayStartMinute,
             interestWeights,
           })
         : []
@@ -644,7 +654,13 @@ export async function generateDayStops(
   currency: string,
   lockedPlaceIds: string[] = [],
   budget?: BudgetLevel,
-  preferenceIntent: PreferenceIntent = NEUTRAL_PREFERENCE_INTENT
+  preferenceIntent: PreferenceIntent = NEUTRAL_PREFERENCE_INTENT,
+  // Overrides only the first requested day's start time — used for the
+  // trip's actual first day (flight arrival), see
+  // scheduler/arrivalDayStart.ts and assembleItineraryDays.ts. undefined
+  // preserves the existing per-preference/default behavior for every
+  // existing caller (restructure/route.ts never passes this).
+  firstDayStartMinute?: number
 ): Promise<Array<Array<Record<string, unknown>>>> {
   const scheduled = await generateDayStopsViaScheduler(
     cityName,
@@ -652,7 +668,8 @@ export async function generateDayStops(
     currency,
     lockedPlaceIds,
     budget,
-    preferenceIntent
+    preferenceIntent,
+    firstDayStartMinute
   );
   if (scheduled) return scheduled;
   return generateDayStopsWithLLM(cityName, stayDays, currency);

@@ -12,6 +12,13 @@ import { calcDays, buildFlightTimePrompt, buildPreferencePrompt } from "@/lib/it
 // parsePreferenceIntent() (preferenceIntent.ts) already separated out
 // free-text preference parsing.
 export const TripPlanSchema = z.object({
+  title: z.string().min(1),
+  // ISO 4217 code for the destination's local currency — itineraryCityGen.ts's
+  // generation functions all assume the caller already knows this (the old
+  // mega-prompt decides it itself as just one more output field), and
+  // planTrip is already reasoning about the destination cities, so it's the
+  // natural place to decide it too rather than adding a whole new call.
+  currency: z.string().min(1),
   cities: z
     .array(
       z.object({
@@ -60,12 +67,17 @@ ${prompt?.trim() ? `\n使用者風格描述：${prompt}` : ""}${!isMultiCity ? s
 
 回傳嚴格的 JSON 格式（不要其他文字）：
 {
+  "title": "行程標題（繁體中文）",
+  "currency": "JPY",
   "cities": [
     { "name": "城市名稱（繁體中文）", "days": 3 }
   ]
 }
 
 規則：
+- title 為這趟行程的標題（繁體中文），簡短反映目的地與風格
+- currency 必須填寫，使用目的地當地貨幣的 ISO 4217 代碼（如 JPY、AUD、USD）；
+  多城市行程若跨國，以整趟行程主要花費所在地（通常是停留天數最多的國家）為準
 - 第一個城市必須是「${arrivalCityName}」。${
     isMultiCity
       ? `最後一個城市必須是「${returnCityName}」；中途可以有其他城市，依使用者風格描述與地理路線合理性決定`
