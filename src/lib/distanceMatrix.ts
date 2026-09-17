@@ -1,3 +1,5 @@
+import { prisma, j } from "@/lib/db";
+
 type TravelMode = "driving" | "walking" | "transit" | "bicycling";
 
 export function haversineKm(
@@ -69,14 +71,56 @@ function formatDurationText(seconds: number): string {
   return rest > 0 ? `${hours} hour${hours > 1 ? "s" : ""} ${rest} mins` : `${hours} hour${hours > 1 ? "s" : ""}`;
 }
 
-// Uses the Routes API (Compute Route Matrix) rather than the legacy Distance
-// Matrix API, per Google's migration guidance — same per-element billing but
-// with a 10k/month free tier and better volume discounts. Requires the
-// "Routes API" to be enabled for the project behind GOOGLE_PLACES_API_KEY.
+// ~11m precision — coarse enough that the same real-world pair always rounds
+// the same way across requests, without collapsing genuinely distinct points
+// (matches roundCoord's precision in fetchCityRestaurants.ts).
+function roundCoord(n: number): string {
+  return n.toFixed(4);
+}
+
+function locationCacheKey(loc: Location): string {
+  return typeof loc === "string" ? loc : `${roundCoord(loc.lat)},${roundCoord(loc.lng)}`;
+}
+
+// Cached wrapper: this was previously the only real Google API call in the
+// codebase with zero caching, unlike every Places lookup — repeatedly
+// recalculating a day's transport (drag reorder, bulk-edit, delete/undo) or
+// regenerating the same city re-billed Google for the exact same leg every
+// time. Origin/destination order is preserved (not canonicalized) since
+// duration can differ by direction.
+const DISTANCE_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
 export async function getDistance(
   origin: Location,
   destination: Location,
   mode: TravelMode = "driving"
+): Promise<DistanceResult | null> {
+  const cacheKey = `${locationCacheKey(origin)}->${locationCacheKey(destination)}:${mode}`;
+
+  const cached = await prisma.distanceCache.findUnique({ where: { cacheKey } });
+  if (cached && Date.now() - cached.updatedAt.getTime() < DISTANCE_CACHE_TTL_MS) {
+    return JSON.parse(cached.distance) as DistanceResult;
+  }
+
+  const result = await fetchDistanceFromRoutesApi(origin, destination, mode);
+  if (result) {
+    await prisma.distanceCache.upsert({
+      where: { cacheKey },
+      create: { cacheKey, distance: j(result) },
+      update: { distance: j(result) },
+    });
+  }
+  return result;
+}
+
+// Uses the Routes API (Compute Route Matrix) rather than the legacy Distance
+// Matrix API, per Google's migration guidance — same per-element billing but
+// with a 10k/month free tier and better volume discounts. Requires the
+// "Routes API" to be enabled for the project behind GOOGLE_PLACES_API_KEY.
+async function fetchDistanceFromRoutesApi(
+  origin: Location,
+  destination: Location,
+  mode: TravelMode
 ): Promise<DistanceResult | null> {
   try {
     const res = await fetch(
