@@ -150,8 +150,7 @@
   `transport_from_prev`、候選分群偶爾地理上偏散）都跟計畫文件第7節記錄的風險
   一致，不是新 bug。
 
-### 2. budget / `PreferenceIntent` 接進 `restructure/route.ts`（分支
-   `feat/preference-intent-restructure`，尚未 merge）
+### 2. budget / `PreferenceIntent` 接進 `restructure/route.ts`（`5424271`，PR #12）
 
 - 排進計畫待辦的下一項。探索後發現這個 app 其實有兩套分離的偏好資料：
   `config.preferences`（表單選的結構化 `TripPreferences`，嚴格 enum）和
@@ -174,14 +173,51 @@
   池子小、多數廟宇/市場沒有 Google `priceLevel` 標籤，價位篩選十之八九觸發空
   結果 fallback，是資料特性使然，不是接線的 bug。
 
+### 3. Phase 4 範圍改道，transit day 到達景點換成規則引擎（`91761e0`，PR #13）
+
+- 開始規劃 Phase 4 時，原計畫寫的是「把 `assignCityBlocks.ts` 接上
+  `restructure/route.ts` 的城市分塊邏輯」。比對 `planCityBlocks`/
+  `computeSightseeingBudget`（Phase 3.1 就寫好、從沒接過線的純函式）跟
+  `buildCityBlock` 現有邏輯後發現：這條路線不是無風險的機械式替換——
+  `planCityBlocks` 的預算算式沒把自己輸出的 `dropsStoredOutboundDay` 考慮
+  進去（會少算一天觀光日），而且完全沒涵蓋「既有城市的舊移動日在下一站城市
+  換了以後要重新生成 stops」那段邏輯（route.ts:143-154，決定的是「哪個 day
+  物件要保留 vs 重新生成」，不是算天數）。跟使用者確認後，Phase 4 改道，
+  `assignCityBlocks.ts` 接線維持未接狀態。
+- 改接 `generateTransitDayStops`——這個函式還是 100% 純 LLM，而且明顯有跟
+  Phase 3 的 `generateDayStops` 同一種問題（到達城市後的景點是 LLM 憑空發明
+  的）。但這次職責要拆更細：函式原本一次 LLM 呼叫做三件事（出發前微行程、
+  交通本身、到達後景點），只有「到達後景點」適合換規則引擎——「兩城市間
+  距離多遠、該搭飛機/高鐵/巴士」是真實世界常識判斷，現有
+  `distanceMatrix.ts`（`getDistance`/`pickModeForDistance`）只認
+  walking/transit/driving，是給一天內站點短距離用的，沒有洲際/跨國距離或
+  航班的資料來源可以取代 LLM，這部分維持給 LLM 判斷。
+- 新增 `planTransitDay()`：收窄後的 LLM 呼叫只輸出
+  `{prepStops, transitStop, arrivalActivityCount, arrivalTime}`——距離/交通
+  判斷指引文字整段保留，但不再讓模型自己發明到達城市的景點名稱，只輸出數量
+  跟大概抵達時間。到達景點交給新的 `generateTransitDayStopsViaScheduler()`，
+  重用 `generateDayStopsViaScheduler` 完全同一套管線，`count`/
+  `dayStartMinute` 改吃 LLM 判斷出的值。順手把兩邊重複的「組裝成 Stop 形狀」
+  邏輯抽成共用的 `assembleScheduledStops()`，減少重複。任一步失敗就整段
+  fallback 回原本改名為 `generateTransitDayStopsWithLLM` 的純 LLM 實作，
+  跟 Phase 3 建立的 fallback 模式一致。
+- 用真實資料驗證兩種情境：短程（大阪→京都）交通判斷正確（新幹線15分鐘），
+  到達後排出 4 個真實京都景點（清水寺、伏見稻荷、金閣寺、嵐山），地理上
+  分散但都是真實地標；長程（布達佩斯→捷克克魯姆洛夫）正確只回傳交通本身
+  （巴士5小時），`arrivalActivityCount` 判斷為 0，完全跳過候選池查詢，不
+  硬塞不合理的到達景點。兩組結果都符合原本 prompt 的短/中/長程規則。
+
 ### 今天的結論
 
-- Phase 3 規則引擎積木第一次真正接進生產路徑（PR #11），且 plan 待辦裡
-  「budget/PreferenceIntent 怎麼接」這項也做完了（分支上等待 commit/PR）。
-  兩次改動都刻意把簽章/呼叫端改動壓到最小，出錯就整個 fallback 回舊的純 LLM
-  行為，風險可控。
-- Phase 3「單城市試點」現在只剩一項驗收標準沒做：真人在 `npm run dev` 上走一次
-  「重新規劃行程」UI 流程確認端到端沒問題——目前只有腳本層級的真實 API 驗證，
-  沒有瀏覽器測試。這步驟留給使用者自己做。
-- 下一步：UI 驗證完成後才能真正宣告 Phase 3 完成，再往 Phase 4（多城市/
-  transit day）推進。
+- Phase 3 規則引擎積木第一次真正接進生產路徑（PR #11），plan 待辦裡
+  「budget/PreferenceIntent 怎麼接」也做完了（PR #12）。Phase 4 規劃階段
+  發現原定路線（`assignCityBlocks.ts` 接線）風險高價值低，改道把
+  `generateTransitDayStops` 的到達景點換成規則引擎（PR #13）——這是今天
+  第三個、也是規模最大的一次接線。三次改動都刻意把簽章/呼叫端改動壓到
+  最小，出錯就整個 fallback 回舊的純 LLM 行為，風險可控。
+- Phase 3「單城市試點」還剩一項驗收標準沒做：真人在 `npm run dev` 上走一次
+  「重新規劃行程」UI 流程確認端到端沒問題——目前只有腳本層級的真實 API
+  驗證，沒有瀏覽器測試，留給使用者自己做。
+- 下一步：`assignCityBlocks.ts` 接線（如果之後要做，需要先補上今天發現的
+  兩個落差）、Phase 5（收斂 `generate-stream` 主流程）、以及一直懸而未決的
+  UI 驗證。
