@@ -8,6 +8,9 @@ import {
   generateMealsAndAccommodation,
   generateDayStops,
 } from "@/lib/itineraryCityGen";
+import { parsePreferenceIntent } from "@/lib/preferenceIntent";
+import type { PreferenceIntent } from "@/lib/schemas";
+import type { BudgetLevel } from "@/lib/fetchCityRestaurants";
 
 const LockedAttractionSchema = z.object({
   name: z.string().min(1),
@@ -88,7 +91,9 @@ async function buildCityBlock(
   daysById: Map<string, Record<string, unknown>>,
   config: Record<string, unknown>,
   currency: string,
-  lastOriginalDayId: string | undefined
+  lastOriginalDayId: string | undefined,
+  budget: BudgetLevel | undefined,
+  preferenceIntent: PreferenceIntent
 ): Promise<Record<string, unknown>[]> {
   const lockedCount = city.lockedAttractions.length;
   // Keeps the rule-engine candidate pool (generateDayStopsViaScheduler) from
@@ -193,7 +198,7 @@ async function buildCityBlock(
     const newDaysNeeded = extraCount + lockedCount;
     const [extraStops, mealsAndAccommodation] = await Promise.all([
       extraCount > 0
-        ? generateDayStops(city.name, extraCount, currency, lockedPlaceIds).catch(() =>
+        ? generateDayStops(city.name, extraCount, currency, lockedPlaceIds, budget, preferenceIntent).catch(() =>
             Array.from({ length: extraCount }, () => [])
           )
         : Promise.resolve([]),
@@ -252,7 +257,7 @@ async function buildCityBlock(
   const [transitStops, sightseeingStops, mealsAndAccommodation] = await Promise.all([
     generateTransitDayStops(fromCityName, city.name, currency).catch(() => []),
     aiDayCount > 0
-      ? generateDayStops(city.name, aiDayCount, currency, lockedPlaceIds).catch(() =>
+      ? generateDayStops(city.name, aiDayCount, currency, lockedPlaceIds, budget, preferenceIntent).catch(() =>
           Array.from({ length: aiDayCount }, () => [])
         )
       : Promise.resolve([]),
@@ -332,6 +337,10 @@ export async function POST(
     const days = itinerary.days as Record<string, unknown>[];
     const config = (itinerary.config ?? {}) as Record<string, unknown>;
     const currency = (config.currency as string) ?? "EUR";
+    const budget = (config.preferences as { budget?: BudgetLevel } | undefined)?.budget;
+    const freeText = (config.generatedWith as string) ?? "";
+    const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
+    const preferenceIntent = await parsePreferenceIntent(freeText, model);
 
     const daysById = new Map(days.map((d) => [d.id as string, d]));
     const keptIds = new Set(cities.flatMap((c) => c.keepDayIds));
@@ -340,7 +349,7 @@ export async function POST(
 
     const blocks = await Promise.all(
       cities.map((city, idx) =>
-        buildCityBlock(city, idx, cities, daysById, config, currency, lastOriginalDayId)
+        buildCityBlock(city, idx, cities, daysById, config, currency, lastOriginalDayId, budget, preferenceIntent)
       )
     );
     const rawFinalDays = blocks.flat();

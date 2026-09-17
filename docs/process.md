@@ -123,3 +123,65 @@
   Phase 3 真正完成。這是目前為止唯一會真的動到 production 生成路徑的一步，風險
   比前面幾步都高，需要更謹慎地規劃（例如先限定在單城市、非 transit day 這個
   最簡單的情境）。
+
+---
+
+## 2026-09-17
+
+延續 [plan/hybrid-rule-engine-scheduling.md](../plan/hybrid-rule-engine-scheduling.md) Phase 3：把前一天做好的規則引擎積木
+第一次接進真實生成路徑。
+
+### 1. `generateDayStops()` 換引擎，簽章不變（`a916706`，PR #11）
+
+- `restructure/route.ts` 的 `generateDayStops()` 一直是純 LLM 憑空生成景點，是
+  Phase 3「單城市試點」計畫指名的最簡單情境。把原本的 LLM 實作改名
+  `generateDayStopsWithLLM`（private, fallback 用），匯出的 `generateDayStops()`
+  先試新的 `generateDayStopsViaScheduler()`：串起 `getCityCenter` →
+  `fetchNearbyPlaceCandidates` → `placeCandidatesToStopCandidates` →
+  `partitionCandidatesByDay` → `buildDaySkeleton` → `generateSkeletonCopy`，再用
+  `distanceMatrix.ts` 算 `transport_from_prev`、`priceLevelCost.ts` 算
+  `estimated_cost`。
+- **設計決策**：簽章完全不變，`restructure/route.ts` 兩處呼叫點幾乎不用改
+  （只多傳一個 `lockedPlaceIds` 避免規則引擎把使用者鎖定的景點重複排進去）。
+  任何一步失敗（拿不到城市座標、候選池空）就整個城市 fallback 回原本的純 LLM
+  實作——不會比現在更差，風險降到最低。
+- 用真實京都資料端到端驗證過一次（`generateDayStops("京都", 2, "TWD")`），兩天
+  都成功走新引擎，地點真實、文案無幻覺，已知限制（時長估計近似值、第一站沒有
+  `transport_from_prev`、候選分群偶爾地理上偏散）都跟計畫文件第7節記錄的風險
+  一致，不是新 bug。
+
+### 2. budget / `PreferenceIntent` 接進 `restructure/route.ts`（分支
+   `feat/preference-intent-restructure`，尚未 merge）
+
+- 排進計畫待辦的下一項。探索後發現這個 app 其實有兩套分離的偏好資料：
+  `config.preferences`（表單選的結構化 `TripPreferences`，嚴格 enum）和
+  `config.generatedWith`（自由文字，要重新呼叫 `parsePreferenceIntent()` 才能
+  解析）。這次接的是後者——待辦原文指名的「PreferenceIntent」。
+- `POST` 一開始從 `config.preferences.budget` 讀預算、對 `config.generatedWith`
+  跑一次 `parsePreferenceIntent()`（整趟行程只算一次，不分城市），往下傳給
+  `generateDayStops()` 新增的 `budget`/`preferenceIntent` 參數：`budget` →
+  `getPriceLevels()` 篩候選池（沿用 accommodation/meals regenerate 既有的
+  「空結果就重試不篩價位」模式）；`pace`/`startTimePreference` 直接餵給
+  `buildDaySkeleton`；`interestBoost`（自由標籤，非 enum）加一個小範圍對照表
+  映射到 `DurationCategory` 權重，對照不到的標籤就是不加權；`avoid`/
+  `dietaryRestrictions` 沒接候選篩選，但透過 `generateSkeletonCopy` 改吃真正的
+  `preferenceIntent` 自動反映在文案語氣裡。
+- **刻意排除**：`TripPreferences.pace`/`interests`（表單那一套）不接，避免跟
+  `PreferenceIntent.pace` 打架，維持待辦原文指名的範圍。
+- 用真實京都資料對照「中性參數」vs「luxury + relaxed + late + art/history」
+  兩組呼叫：`pace`/`startTimePreference` 效果明顯（時段從全部 morning 變成部分
+  afternoon）；但 `budget`/`interestBoost` 這次沒看出候選被換掉——京都熱門景點
+  池子小、多數廟宇/市場沒有 Google `priceLevel` 標籤，價位篩選十之八九觸發空
+  結果 fallback，是資料特性使然，不是接線的 bug。
+
+### 今天的結論
+
+- Phase 3 規則引擎積木第一次真正接進生產路徑（PR #11），且 plan 待辦裡
+  「budget/PreferenceIntent 怎麼接」這項也做完了（分支上等待 commit/PR）。
+  兩次改動都刻意把簽章/呼叫端改動壓到最小，出錯就整個 fallback 回舊的純 LLM
+  行為，風險可控。
+- Phase 3「單城市試點」現在只剩一項驗收標準沒做：真人在 `npm run dev` 上走一次
+  「重新規劃行程」UI 流程確認端到端沒問題——目前只有腳本層級的真實 API 驗證，
+  沒有瀏覽器測試。這步驟留給使用者自己做。
+- 下一步：UI 驗證完成後才能真正宣告 Phase 3 完成，再往 Phase 4（多城市/
+  transit day）推進。

@@ -14,7 +14,8 @@
 | 3.1-3.3 規則引擎積木 | ✅ 完成（未接上任何路由） | `assignCityBlocks.ts`（實作為 `planCityBlocks`）、`selectAndOrderStops.ts`、`assignTimeSlots.ts`（duration/pace/meal window 版）、`buildDaySkeleton.ts`（組裝前三者）皆為純函式，各自有單元測試 |
 | Phase 1 | ✅ 驗收標準已完成 | `scripts/validate-preference-intent.ts`（`npm run validate-preference-intent`）對 18 組常見自由文字（單一/多重訊號、中性、矛盾、英文、邊界案例）跑真實 `parsePreferenceIntent()` 並人工抽查。**過程中抓到一個真的 bug**：「不吃辣」有約 60% 機率被誤解析成 `no_seafood`（因為 prompt 的 dietaryRestrictions 範例清單沒有辣度相關標籤，模型會套用最接近的範例），已在 `SYSTEM_PROMPT` 加入 `no_spicy`/`no_beef` 範例並明確要求「標籤要對應使用者實際說的限制，不要套用最接近的範例」，修復後重跑 6 次皆正確。其餘 17 組結果人工檢查合理 |
 | Phase 2 | 🟡 骨架比對已有數據，時長估計已擱置 | `scripts/shadow-compare-scheduler.ts`（`npm run shadow-compare`，`--verbose` 看逐天明細）讀種子行程資料庫比對順序/時段：42 個可比較天數，順序完全相同 36%、平均每站位置差 0.64、`time_of_day` 一致率 43%。時長估計追查了兩層：(1) 用 `scripts/backfill-place-types.ts` + `mapPlaceTypeToCategory.ts` 補真實 Place type（108 站中 83 站對照到），但平均時長差不減反增（63→67 分鐘）；(2) 用 `scripts/calibrate-duration-table.ts` 想拿真實 `duration_minutes` 校準對照表，結果發現 LLM 本身 53% 的時候不分類型一律給 120 分鐘——**LLM 的 duration_minutes 不是可信的「依類型估時長」ground truth，往它校準沒有意義**。決定：維持現有 placeholder 對照表，時長估計標記為近似值、非這次重構的賣點，先往下推進其他階段（詳見第7節） |
-| Phase 3-6 | ⬜ 未開始，所有積木已就緒，見 0.1 節 | Phase 3（單城市試點）需要的規則引擎積木、候選池資料、LLM 文案層都已完成並端到端測過；還沒實際接進任何真實路由。細節見下方「0.1 Phase 3 進度細節」 |
+| Phase 3 | 🟡 已接進真實路由，還缺真人 UI 測試 | `generateDayStops()` 已改走規則引擎骨架（PR #11），budget/`PreferenceIntent` 也接上了（見 0.2 節）。剩下「單城市試點」驗收標準裡唯一沒做的是真人在 UI 上走一次「重新規劃行程」精靈——目前只有腳本層級的真實 API 驗證，沒有瀏覽器端到端測試 |
+| Phase 4-6 | ⬜ 未開始 | 多城市/transit day 擴大、收斂 `generate-stream` 主流程、清理舊路徑，見第5節 |
 
 ### 0.1 Phase 3 進度細節
 
@@ -69,8 +70,45 @@
    規則引擎積木 + 候選池 + 文案層至此全部就緒，且是第一次完整跑過一遍
    （不是分段測），沒有任何一段是空想的。
 
-**還沒做的**：budget/`PreferenceIntent` 怎麼接進 `restructure/route.ts`、
-實際接進 `itineraryCityGen.ts` 的路由、真實 UI 測試。
+**還沒做的（更新後只剩一項）**：真實 UI 測試——其餘兩項見下方 0.2 節。
+
+### 0.2 generateDayStops 接線 + budget/PreferenceIntent（已完成）
+
+7. **`generateDayStops()` 換引擎，簽章不變**（PR #11，分支
+   `feat/scheduler-daystops-generation`）：原本純 LLM 的實作改名
+   `generateDayStopsWithLLM`（private, fallback 用），匯出的
+   `generateDayStops()` 先試新的 `generateDayStopsViaScheduler()`——串起
+   `getCityCenter` → `fetchNearbyPlaceCandidates` → `placeCandidatesToStopCandidates`
+   → `partitionCandidatesByDay` → `buildDaySkeleton` → `generateSkeletonCopy`，
+   再用 `distanceMatrix.ts` 的 `getDistancesForStopPairs`/`describeTransport`
+   算 `transport_from_prev`、`priceLevelCost.ts` 的 `estimateAttractionCost` 算
+   `estimated_cost`。任何一步失敗（拿不到城市座標、候選池空）就整個城市
+   fallback 回 `generateDayStopsWithLLM`，`restructure/route.ts` 呼叫端完全沒改
+   （只多傳一個 `lockedPlaceIds` 去重鎖定景點）。用真實京都資料跑過一次
+   （`generateDayStops("京都", 2, "TWD")`），兩天都成功走新引擎，地點真實、
+   文案無幻覺。
+8. **budget/`PreferenceIntent` 接進 `restructure/route.ts`**（分支
+   `feat/preference-intent-restructure`）：探索後發現這個 app 其實有兩套分離的
+   偏好資料——`config.preferences`（表單選的結構化 `TripPreferences`，嚴格
+   enum）和 `config.generatedWith`（自由文字，要重新呼叫
+   `parsePreferenceIntent()` 才能解析）。這次接的是後者（plan 待辦原文指名
+   「PreferenceIntent」）：`POST` 一開始從 `config.preferences.budget` 讀預算、
+   對 `config.generatedWith` 跑一次 `parsePreferenceIntent()`（整趟行程只算
+   一次，不分城市），往下傳給 `generateDayStops()` 新增的 `budget`/
+   `preferenceIntent` 參數。`budget` → `getPriceLevels()` 篩候選池（沿用
+   accommodation/meals regenerate 既有的「空結果就重試不篩價位」模式）；
+   `pace`/`startTimePreference` 直接餵給 `buildDaySkeleton`；`interestBoost`
+   （自由標籤，非 enum）加一個小範圍對照表映射到 `DurationCategory` 權重，
+   對照不到的標籤（含 LLM 自己發明的）就是不加權，不會出錯；`avoid`/
+   `dietaryRestrictions` 沒接候選篩選邏輯，但透過 `generateSkeletonCopy` 改吃
+   真正的 `preferenceIntent`（不再寫死 `NEUTRAL_PREFERENCE_INTENT`）自動反映在
+   文案語氣裡。**已知限制**：`TripPreferences.pace`/`interests`（表單那一套）
+   刻意不接，避免跟 `PreferenceIntent.pace` 打架。用真實京都資料對照「中性
+   參數」vs「luxury + relaxed + late + art/history」兩組呼叫：`pace`/
+   `startTimePreference` 效果明顯（時段從全部 morning 變成部分 afternoon）；
+   但 `budget`/`interestBoost` 這次沒看出候選被換掉——京都熱門景點池子小、
+   多數廟宇/市場沒有 Google `priceLevel` 標籤，價位篩選十之八九觸發空結果
+   fallback，資料特性使然，不是接線的 bug。
 
 ---
 

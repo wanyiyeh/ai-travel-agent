@@ -1,11 +1,12 @@
 import { openai } from "@/lib/openai";
 import { getCityCenter } from "@/lib/placesTextSearch";
-import { fetchNearbyPlaceCandidates, type RestaurantHint } from "@/lib/fetchCityRestaurants";
+import { fetchNearbyPlaceCandidates, getPriceLevels, type RestaurantHint, type BudgetLevel } from "@/lib/fetchCityRestaurants";
 import { placeCandidatesToStopCandidates } from "@/lib/scheduler/placeCandidatesToStopCandidates";
 import { partitionCandidatesByDay } from "@/lib/scheduler/partitionCandidatesByDay";
 import { buildDaySkeleton, type SkeletonStop } from "@/lib/scheduler/buildDaySkeleton";
+import { type DurationCategory } from "@/lib/scheduler/assignTimeSlots";
 import { generateSkeletonCopy } from "@/lib/skeletonCopy";
-import { NEUTRAL_PREFERENCE_INTENT } from "@/lib/schemas";
+import { NEUTRAL_PREFERENCE_INTENT, type PreferenceIntent } from "@/lib/schemas";
 import { getDistancesForStopPairs, pickModeForDistance, describeTransport } from "@/lib/distanceMatrix";
 import { estimateAttractionCost } from "@/lib/priceLevelCost";
 
@@ -204,6 +205,34 @@ async function generateDayStopsWithLLM(
 // Matches the old LLM prompt's "每天 3-4 個景點" instruction.
 const STOPS_PER_DAY = 4;
 
+// Only covers the tags parsePreferenceIntent's own prompt gives as examples
+// (src/lib/preferenceIntent.ts) — interestBoost is free-form, so any tag not
+// listed here (including ones the model invents) simply gets no boost rather
+// than erroring. "local_food"/"nightlife"-style tags have no entry because
+// this candidate pool only ever queries tourist_attraction places — there's
+// no matching candidate type to boost.
+const INTEREST_CATEGORY_BOOST: Record<string, DurationCategory[]> = {
+  history: ["landmark", "temple"],
+  architecture: ["landmark", "temple"],
+  art: ["museum"],
+  culture: ["museum", "temple", "landmark"],
+  nature: ["park", "viewpoint"],
+  shopping: ["shopping"],
+};
+const INTEREST_BOOST_WEIGHT = 1.5;
+
+function buildInterestWeights(interestBoost: string[]): Record<string, number> {
+  const weights: Record<string, number> = {};
+  for (const tag of interestBoost) {
+    const categories = INTEREST_CATEGORY_BOOST[tag];
+    if (!categories) continue;
+    for (const category of categories) weights[category] = INTEREST_BOOST_WEIGHT;
+  }
+  return weights;
+}
+
+const START_TIME_MINUTE: Record<string, number> = { early: 7 * 60, late: 10 * 60 };
+
 /**
  * Rule-engine path for generateDayStops (plan/hybrid-rule-engine-scheduling.md
  * Phase 3, section 0.1 point 6's京都 end-to-end chain, now wired into a real
@@ -217,7 +246,9 @@ async function generateDayStopsViaScheduler(
   cityName: string,
   dayCount: number,
   currency: string,
-  lockedPlaceIds: string[]
+  lockedPlaceIds: string[],
+  budget: BudgetLevel | undefined,
+  preferenceIntent: PreferenceIntent
 ): Promise<Array<Array<Record<string, unknown>>> | null> {
   try {
     const apiKey = process.env.GOOGLE_PLACES_API_KEY!;
@@ -226,7 +257,14 @@ async function generateDayStopsViaScheduler(
     if (!coords) return null;
 
     const maxCount = Math.min(20, dayCount * STOPS_PER_DAY + 4);
-    const places = await fetchNearbyPlaceCandidates(coords, apiKey, ["tourist_attraction"], 10000, maxCount);
+    const priceLevels = getPriceLevels(budget);
+    let places = await fetchNearbyPlaceCandidates(coords, apiKey, ["tourist_attraction"], 10000, maxCount, priceLevels);
+    if (places.length === 0 && priceLevels) {
+      // Small destinations often don't tag price level on attraction listings
+      // — retry without the price filter rather than coming back empty (same
+      // pattern as accommodation/regenerate and meals/[mealType]/regenerate).
+      places = await fetchNearbyPlaceCandidates(coords, apiKey, ["tourist_attraction"], 10000, maxCount);
+    }
     if (places.length === 0) return null;
 
     const lockedIds = new Set(lockedPlaceIds);
@@ -240,16 +278,28 @@ async function generateDayStopsViaScheduler(
       hintById.set(id, { name: place.name, rating: place.rating, lat: place.lat, lng: place.lng, types: place.types });
     }
 
-    const dayGroups = partitionCandidatesByDay(candidates, Array(dayCount).fill(STOPS_PER_DAY));
+    const interestWeights = buildInterestWeights(preferenceIntent.interestBoost);
+    const dayStartMinute = preferenceIntent.startTimePreference
+      ? START_TIME_MINUTE[preferenceIntent.startTimePreference]
+      : undefined;
+
+    const dayGroups = partitionCandidatesByDay(candidates, Array(dayCount).fill(STOPS_PER_DAY), interestWeights);
     const skeletonsByDay: SkeletonStop[][] = dayGroups.map((group) =>
-      group.length > 0 ? buildDaySkeleton(group, { count: group.length }) : []
+      group.length > 0
+        ? buildDaySkeleton(group, {
+            count: group.length,
+            pace: preferenceIntent.pace ?? undefined,
+            dayStartMinute,
+            interestWeights,
+          })
+        : []
     );
 
     const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
     const [copies, distancesByDay] = await Promise.all([
       Promise.all(
         skeletonsByDay.map((skeleton) =>
-          generateSkeletonCopy(skeleton, hintById, NEUTRAL_PREFERENCE_INTENT, model, cityName)
+          generateSkeletonCopy(skeleton, hintById, preferenceIntent, model, cityName)
         )
       ),
       Promise.all(
@@ -300,9 +350,18 @@ export async function generateDayStops(
   cityName: string,
   stayDays: number,
   currency: string,
-  lockedPlaceIds: string[] = []
+  lockedPlaceIds: string[] = [],
+  budget?: BudgetLevel,
+  preferenceIntent: PreferenceIntent = NEUTRAL_PREFERENCE_INTENT
 ): Promise<Array<Array<Record<string, unknown>>>> {
-  const scheduled = await generateDayStopsViaScheduler(cityName, stayDays, currency, lockedPlaceIds);
+  const scheduled = await generateDayStopsViaScheduler(
+    cityName,
+    stayDays,
+    currency,
+    lockedPlaceIds,
+    budget,
+    preferenceIntent
+  );
   if (scheduled) return scheduled;
   return generateDayStopsWithLLM(cityName, stayDays, currency);
 }
