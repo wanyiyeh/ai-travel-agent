@@ -323,7 +323,7 @@ export default function Home() {
   const [moreOpen, setMoreOpen] = useState(false);
   const [returnCityDiffers, setReturnCityDiffers] = useState(false);
 
-  const { state, partialData, id, error, retryInfo, generate, reset, isLoading } =
+  const { state, partialData, plan, days: liveDays, id, error, retryInfo, generate, reset, isLoading } =
     useStreamingGenerate();
 
   const days = calcDays(departureDate, returnDate);
@@ -754,7 +754,7 @@ export default function Home() {
         {/* Streaming preview */}
         {isStreaming && (
           <div className="mt-8">
-            <StreamingPreview partialData={partialData} days={days} retryInfo={retryInfo} />
+            <StreamingPreview partialData={partialData} days={days} plan={plan} liveDays={liveDays} retryInfo={retryInfo} />
           </div>
         )}
 

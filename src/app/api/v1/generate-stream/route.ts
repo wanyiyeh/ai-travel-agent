@@ -17,6 +17,8 @@ import {
   repairTransitDayDepartureCities,
   tagWaypointCities,
 } from "@/lib/itineraryGen";
+import { assembleItineraryDays, type AssembledItinerary } from "@/lib/assembleItineraryDays";
+import type { Day, Itinerary } from "@/types/itinerary";
 
 const DEMO_USER_ID = "00000000-0000-0000-0000-000000000001";
 
@@ -63,6 +65,28 @@ function addIdsToItinerary(data: ReturnType<typeof ItinerarySchema.parse>) {
   };
 }
 
+// Same shape as addIdsToItinerary, but for the rule-engine path: its stops
+// already carry a real id (a Google placeId, from Phase 3/4's
+// assembleScheduledStops) that addIdsToItinerary would otherwise clobber with
+// a fresh random one, throwing away real place data this path paid real API
+// calls to resolve. Only backfills an id where one is genuinely missing (the
+// LLM-fallback-generated prepStops/transitStop, or a whole day that fell back
+// to pure-LLM generation).
+function addIdsPreservingExisting(data: AssembledItinerary) {
+  return {
+    ...data,
+    days: data.days.map((day) => ({
+      ...day,
+      id: typeof day.id === "string" ? day.id : crypto.randomUUID(),
+      stops: (day.stops as Array<Record<string, unknown>>).map((stop, stopIdx) => ({
+        ...stop,
+        id: typeof stop.id === "string" ? stop.id : crypto.randomUUID(),
+        orderIndex: stopIdx,
+      })),
+    })),
+  };
+}
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -93,6 +117,96 @@ export async function POST(request: Request) {
           const returnCityName = iataToCity(flightInfo.returnDepartureCity);
 
           const budget = preferences?.budget as BudgetLevel | undefined;
+
+          // Try the rule-engine path first (plan/hybrid-rule-engine-scheduling.md
+          // Phase 5(c)): planTrip() + per-city generation instead of one giant
+          // free-form completion. Emits "plan"/"day" events as pieces become
+          // available so the client can render progressively rather than
+          // waiting for one accumulating JSON blob. Any failure here — null
+          // from planTrip, a thrown error, or a hard validation error — falls
+          // straight through to the untouched old flow below; nothing about
+          // that flow is changed by this block.
+          let newPathEmittedEvents = false;
+          try {
+            const assembled = await assembleItineraryDays(
+              flightInfo,
+              prompt,
+              preferences,
+              process.env.OPENAI_MODEL ?? "gpt-4o-mini",
+              (event) => {
+                newPathEmittedEvents = true;
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+              }
+            );
+
+            if (assembled) {
+              const cityRepairedDays = isMultiCity
+                ? repairTransitDayDepartureCities(assembled.days as unknown as Day[])
+                : (assembled.days as unknown as Day[]);
+              const repairedDays = repairMissingAccommodation(cityRepairedDays);
+              const finalItinerary: AssembledItinerary = { ...assembled, days: repairedDays };
+
+              const logicResult = validateItinerary(
+                finalItinerary as unknown as Itinerary,
+                flightInfo,
+                iataToCity(flightInfo.arrivalCity),
+                iataToCity(flightInfo.returnDepartureCity)
+              );
+              logicResult.issues.push(...validateGeography(finalItinerary as unknown as Itinerary));
+
+              if (logicResult.valid) {
+                const dataWithIds = addIdsPreservingExisting(finalItinerary);
+
+                let savedId: string | null = null;
+                try {
+                  await ensureDemoUser();
+                  const saved = await prisma.itinerary.create({
+                    data: {
+                      userId: DEMO_USER_ID,
+                      title: dataWithIds.title,
+                      days: j(dataWithIds.days),
+                      config: j({
+                        generatedWith: prompt ?? "",
+                        totalDays: days,
+                        createdAt: new Date().toISOString(),
+                        isStreamed: true,
+                        flightInfo,
+                        preferences: preferences ?? null,
+                        currency: dataWithIds.currency ?? null,
+                      }),
+                    },
+                  });
+                  savedId = saved.id;
+                  console.log(`[Stream] Itinerary saved (rule-engine path): ${savedId}`);
+                } catch (dbError) {
+                  console.error("[DB Save Error]", dbError);
+                }
+
+                const finalData = JSON.stringify({
+                  type: "complete",
+                  data: dataWithIds,
+                  id: savedId,
+                  warnings: logicResult.issues.filter((i) => i.severity === "warning"),
+                });
+                controller.enqueue(encoder.encode(`data: ${finalData}\n\n`));
+                controller.close();
+                return;
+              }
+              console.warn("[Stream] Rule-engine path failed validation, falling back to LLM flow:", logicResult.issues);
+            }
+          } catch (err) {
+            console.warn("[Stream] Rule-engine path threw, falling back to LLM flow:", err);
+          }
+
+          if (newPathEmittedEvents) {
+            // The rule-engine path got far enough to show the client a partial
+            // preview (plan/day events) before failing — reuse the existing
+            // "retry" event so it clears that state instead of mixing it with
+            // the old flow's own chunk-based streaming below.
+            const retryData = JSON.stringify({ type: "retry", attempt: 1, maxAttempts: MAX_GENERATION_ATTEMPTS });
+            controller.enqueue(encoder.encode(`data: ${retryData}\n\n`));
+          }
+
           const googleApiKey = process.env.GOOGLE_PLACES_API_KEY;
           let hintsPrompt = "";
           if (googleApiKey) {
