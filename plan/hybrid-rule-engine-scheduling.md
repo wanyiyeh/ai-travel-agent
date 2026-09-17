@@ -16,7 +16,7 @@
 | Phase 2 | 🟡 骨架比對已有數據，時長估計已擱置 | `scripts/shadow-compare-scheduler.ts`（`npm run shadow-compare`，`--verbose` 看逐天明細）讀種子行程資料庫比對順序/時段：42 個可比較天數，順序完全相同 36%、平均每站位置差 0.64、`time_of_day` 一致率 43%。時長估計追查了兩層：(1) 用 `scripts/backfill-place-types.ts` + `mapPlaceTypeToCategory.ts` 補真實 Place type（108 站中 83 站對照到），但平均時長差不減反增（63→67 分鐘）；(2) 用 `scripts/calibrate-duration-table.ts` 想拿真實 `duration_minutes` 校準對照表，結果發現 LLM 本身 53% 的時候不分類型一律給 120 分鐘——**LLM 的 duration_minutes 不是可信的「依類型估時長」ground truth，往它校準沒有意義**。決定：維持現有 placeholder 對照表，時長估計標記為近似值、非這次重構的賣點，先往下推進其他階段（詳見第7節） |
 | Phase 3 | 🟡 已接進真實路由，還缺真人 UI 測試 | `generateDayStops()` 已改走規則引擎骨架（PR #11），budget/`PreferenceIntent` 也接上了（見 0.2 節）。剩下「單城市試點」驗收標準裡唯一沒做的是真人在 UI 上走一次「重新規劃行程」精靈——目前只有腳本層級的真實 API 驗證，沒有瀏覽器端到端測試 |
 | Phase 4 | 🟡 transit day 已接進真實路由，範圍跟原計畫不同 | 原計畫寫的是「把 `assignCityBlocks.ts` 接上 restructure 城市分塊邏輯」，探索後發現風險高、價值低（見 0.3 節），改成「把 `generateTransitDayStops` 的到達景點換成規則引擎，交通方式/距離判斷仍交給 LLM」（PR #13）。`assignCityBlocks.ts` 接線本身還沒做 |
-| Phase 5 | 🟡 子階段(a)已完成，(b)/(c)未開始 | 規模比原計畫描述大得多，拆成三個獨立子階段（見第5.1節設計提案）：(a) 行程規劃 LLM 呼叫 + 回程日拼圖——**已完成**（見 0.4 節，過程中抓到一個真的 bug）；(b) 逐城市套用 Phase 3/4 既有管線、(c) SSE 協定 v2 + 前端重寫——都還沒開始，兩個新函式目前完全沒接進 `generate-stream/route.ts` |
+| Phase 5 | 🟡 子階段(a)(b)已完成，(c)未開始 | 規模比原計畫描述大得多，拆成三個獨立子階段（見第5.1節設計提案）：(a) 行程規劃 LLM 呼叫 + 回程日拼圖——**已完成**（見 0.4 節，抓到一個 prompt 強度不足的 bug）；(b) 逐城市套用 Phase 3/4 既有管線，組出完整行程——**已完成**（見 0.5 節，抓到兩個真的資料落差：移動日缺住宿、同城市區塊景點重複）；(c) SSE 協定 v2 + 前端重寫——還沒開始。`assembleItineraryDays()` 目前完全沒接進 `generate-stream/route.ts` |
 | Phase 6 | ⬜ 未開始 | 清理舊路徑，見第5節 |
 
 ### 0.1 Phase 3 進度細節
@@ -202,6 +202,59 @@
       正確回傳空陣列。
     - **這兩個函式這輪只獨立存在、獨立測試，沒有接進 `generate-stream/route.ts`**
       ——接線是 Phase 5(b)/(c) 的事。
+
+### 0.5 Phase 5 子階段(b)：逐城市套用既有管線，組出完整行程（已完成，尚未接線）
+
+14. **新增 `assembleItineraryDays()`**（`src/lib/assembleItineraryDays.ts`，
+    新檔案）：把 `planTrip()` 的輸出跟 Phase 3/4 已經內建 fallback、保證回傳
+    可用結果的 `generateDayStops()`/`generateTransitDayStops()`/
+    `generateDepartureDayStops()` 串起來，逐城市生出完整 `days` 陣列。因為
+    這三個生成函式各自從不拋錯、從不需要特殊處理的空狀態，`assembleItineraryDays`
+    唯一需要處理失敗的地方只有 `planTrip()` 本身回傳 `null`——不用另外包
+    retry 或 try/catch，函式本身很單純。
+15. **設計時發現三個 (a) 沒處理到的落差**，兩個有明確答案直接做、一個先跟
+    使用者確認取捨：
+    - `currency` 沒有資料源（原本完全靠 LLM 猜）→ 讓 `planTrip()` 順便多吐
+      `currency`/`title`（`TripPlanSchema` 新增兩個必填欄位），反正它已經在
+      推理目的地城市，不用多開一次呼叫。
+    - 回程日的三餐沒人生成（`generateMealsAndAccommodation` 是照「城市住幾晚」
+      算份數，回程日不算住宿夜數）→ 對最後一個城市多要一天份的餐，多出來的
+      那份分給回程日。
+    - 行程第1天沒考慮航班抵達時間（現有大 prompt 特別要求「第1天要在抵達後
+      合理時間才開始」，但 `generateDayStopsViaScheduler` 原本對整批天數套用
+      同一個起始時間）→ **跟使用者確認後這輪一併修**：新增對稱於
+      `departureDayBudget.ts` 的 `computeArrivalDayStartMinute()`
+      （`src/lib/scheduler/arrivalDayStart.ts`，抵達時間+90分鐘緩衝，沒有
+      航班時間就用預設10:00），`generateDayStops()` 加一個新的可選參數
+      `firstDayStartMinute`（只影響批次裡第0天，其餘天數行為不變，
+      `restructure/route.ts` 既有呼叫完全不用改）。
+16. **真實驗證抓到兩個真的問題**（東京大阪7天多城市、雪梨5天單城市兩組情境，
+    並額外把組出來的結果丟給既有的 `validateItinerary`/`validateGeography`
+    跑一次交叉驗證）：
+    - **移動日完全沒有 `accommodation` 欄位**（沿用了 restructure `buildCityBlock`
+      本身就有的既有落差），但 `generate-stream` 的 `validateItinerary` 把這個
+      當硬性 `error`（`ACCOMMODATION_MISSING`）——這個落差在 restructure 不會
+      被驗證到，但 (b) 的最終目標是餵給 `generate-stream`，會真的擋住整條
+      流程。修法：移動日當晚就是住進目的城市的那一晚，跟同一城市區塊的觀光日
+      共用同一個已經算出來的 `accommodation` 值，改一下賦值順序即可，不用
+      多打 API。
+    - **同一城市區塊裡景點重複**：京都的移動日到達景點（清水寺、伏見稻荷
+      大社）跟隔天的京都觀光日排了完全一樣的兩個地點；大阪更嚴重，移動日
+      到達景點三個（日本環球影城、海遊館、難波八阪神社）跟回程日三個景點
+      原封不動重複。根因是同一城市在一次請求裡可能被
+      `generateTransitDayStops`（到達景點）、`generateDayStops`（觀光日）、
+      `generateDepartureDayStops`（回程景點）各自獨立查同一個小候選池，彼此
+      不知道對方已經用過哪些地點——這是 (b) 第一次讓同一城市被多個生成呼叫
+      命中，Phase 3/4 各自獨立使用時不會踩到這個坑。修法：`assembleItineraryDays`
+      內對每個城市維護一份 `usedPlaceIds` 集合，跨移動日/觀光日/回程日累積，
+      透過 `generateDayStops` 既有的 `lockedPlaceIds` 參數、以及幫
+      `generateDepartureDayStops` 新增的同名參數傳下去過濾候選池。
+    - 修完後重跑兩組真實情境確認：`ACCOMMODATION_MISSING` 錯誤消失、京都/
+      大阪的景點不再重複、`validateItinerary`/`validateGeography` 只剩已知的
+      既有限制性警告（移動日沒有餐、部分天全落在同一時段——跟前面幾階段
+      記錄的近似值容忍度一致，不是新問題）。
+17. **這個函式這輪只獨立存在、獨立測試，沒有接進 `generate-stream/route.ts`**
+    ——接線是 Phase 5(c) 的事，需要新的 SSE 協定才能真的取代現有路由。
 
 ---
 

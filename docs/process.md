@@ -256,19 +256,51 @@
 - **這兩個函式這輪只獨立存在、獨立測試，沒有接進 `generate-stream/route.ts`**
   ——接線是 Phase 5(b)/(c) 的事。
 
+### 6. Phase 5 子階段(b)：逐城市套用既有管線，組出完整行程（分支 `feat/generate-stream-city-loop`，尚未 merge）
+
+- 新增 `assembleItineraryDays()`（`src/lib/assembleItineraryDays.ts`）：把
+  `planTrip()` 的輸出跟已經內建 fallback、保證回傳可用結果的
+  `generateDayStops()`/`generateTransitDayStops()`/`generateDepartureDayStops()`
+  串起來，逐城市組出完整 `days` 陣列。因為這三個生成函式從不拋錯，
+  `assembleItineraryDays` 唯一要處理失敗的地方只有 `planTrip()` 本身回傳
+  `null`，函式本身很單純。
+- 設計時發現三個 (a) 沒處理到的落差：`currency` 沒有資料源（讓 `planTrip()`
+  順便多吐 `currency`/`title`，不用多開一次呼叫）、回程日的三餐沒人生成
+  （對最後一個城市多要一天份的餐分給回程日）、行程第1天沒考慮航班抵達時間
+  ——這項先跟使用者確認要不要做，確認要做後新增對稱於回程日拼圖的
+  `computeArrivalDayStartMinute()`（`src/lib/scheduler/arrivalDayStart.ts`）
+  和 `generateDayStops()` 的新可選參數 `firstDayStartMinute`（只影響第0天，
+  `restructure/route.ts` 既有呼叫不用改）。
+- **真實驗證抓到兩個真的問題**（東京大阪7天、雪梨5天，並把結果丟給既有的
+  `validateItinerary`/`validateGeography` 交叉驗證）：(1) 移動日完全沒有
+  `accommodation`（沿用了 restructure 本身就有的落差，但這次會被
+  `generate-stream` 的驗證器當硬性錯誤擋下來）——修成跟同城市區塊的觀光日
+  共用同一個已算出的住宿值；(2) **同一城市區塊裡景點重複**——京都的移動日
+  到達景點跟隔天觀光日排了一模一樣的兩個地點，大阪的移動日到達景點跟回程日
+  三個景點原封不動重複，因為同一城市在一次請求裡可能被三個不同生成呼叫各自
+  獨立查同一個小候選池，彼此不知道對方用過哪些地點——這是 (b) 第一次讓同一
+  城市被多個生成呼叫命中，Phase 3/4 單獨用時不會踩到。修法是在
+  `assembleItineraryDays` 內維護一份跨移動日/觀光日/回程日的 `usedPlaceIds`
+  集合，透過 `generateDayStops` 既有的 `lockedPlaceIds` 參數、以及幫
+  `generateDepartureDayStops` 新增的同名參數過濾候選池。修完重跑兩組情境
+  確認錯誤消失、景點不再重複。
+- 這個函式這輪一樣只獨立存在、獨立測試，沒有接進 `generate-stream/route.ts`。
+
 ### 今天的結論
 
-- Phase 3 規則引擎積木第一次真正接進生產路徑（PR #11），plan 待辦裡
-  「budget/PreferenceIntent 怎麼接」也做完了（PR #12）。Phase 4 規劃階段
-  發現原定路線（`assignCityBlocks.ts` 接線）風險高價值低，改道把
-  `generateTransitDayStops` 的到達景點換成規則引擎（PR #13）。Phase 5 規劃
-  時發現規模比原計畫大得多，先產出完整設計提案（PR #14）、再落地第一個
-  子階段（a）——行程規劃呼叫 + 回程日拼圖，過程中又抓到一個 prompt 強度
-  不足的真 bug。四次改動都刻意把簽章/呼叫端改動壓到最小，出錯就 fallback
-  回舊行為或回傳空結果，風險可控。
+- 今天是這個混合架構計畫進度最多的一天：Phase 3 規則引擎積木第一次真正
+  接進生產路徑（PR #11），budget/`PreferenceIntent` 接線做完（PR #12），
+  Phase 4 發現原定路線風險高價值低、改道換成 transit day 到達景點的規則
+  引擎化（PR #13），Phase 5 規劃時發現規模比原計畫大得多、產出完整設計
+  提案（PR #14），接著落地了 (a) 行程規劃呼叫+回程日拼圖跟 (b) 逐城市組裝
+  完整行程兩個子階段（分支 `feat/generate-stream-city-loop`，尚未
+  merge）。全部六次改動都刻意把簽章/呼叫端改動壓到最小，出錯就 fallback
+  回舊行為，風險可控；(a)(b) 兩輪都在真實驗證時抓到了真的 bug（prompt 強度
+  不足導致單城市限制被無視、移動日缺住宿、同城市景點重複)，都是靠實際跑
+  真實 API 資料才發現的，不是單元測試能測出來的。
 - Phase 3「單城市試點」還剩一項驗收標準沒做：真人在 `npm run dev` 上走一次
-  「重新規劃行程」UI 流程確認端到端沒問題——目前只有腳本層級的真實 API
-  驗證，沒有瀏覽器測試，留給使用者自己做。
-- 下一步：Phase 5(b)（逐城市套用既有管線）、Phase 5(c)（SSE 協定 v2 + 前端
-  重寫）、`assignCityBlocks.ts` 接線（如果之後要做，需要先補上 Phase 4 那輪
-  發現的兩個落差）、以及一直懸而未決的 UI 驗證。
+  「重新規劃行程」UI 流程確認端到端沒問題——留給使用者自己做。
+- 下一步：Phase 5(c)（SSE 協定 v2 + 前端重寫，把 `assembleItineraryDays()`
+  真正接進 `generate-stream/route.ts`）、`assignCityBlocks.ts` 接線（如果
+  之後要做，需要先補上 Phase 4 那輪發現的兩個落差）、以及一直懸而未決的
+  UI 驗證。

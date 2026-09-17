@@ -42,21 +42,31 @@ describe("planTrip", () => {
   });
 
   it("returns a valid multi-city plan whose days sum matches totalDays - 1", async () => {
-    mockJson({ cities: [{ name: "東京", days: 3 }, { name: "大阪", days: 3 }] });
+    mockJson({
+      title: "東京大阪之旅",
+      currency: "JPY",
+      cities: [{ name: "東京", days: 3 }, { name: "大阪", days: 3 }],
+    });
     const result = await planTrip(multiCityFlight, "想去東京跟大阪", undefined, "gpt-4o-mini");
-    expect(result).toEqual({ cities: [{ name: "東京", days: 3 }, { name: "大阪", days: 3 }] });
+    expect(result).toEqual({
+      title: "東京大阪之旅",
+      currency: "JPY",
+      cities: [{ name: "東京", days: 3 }, { name: "大阪", days: 3 }],
+    });
     expect(createMock).toHaveBeenCalledTimes(1);
   });
 
   it("returns a valid single-city plan", async () => {
-    mockJson({ cities: [{ name: "東京", days: 4 }] });
+    mockJson({ title: "東京行", currency: "JPY", cities: [{ name: "東京", days: 4 }] });
     const result = await planTrip(singleCityFlight, undefined, undefined, "gpt-4o-mini");
-    expect(result).toEqual({ cities: [{ name: "東京", days: 4 }] });
+    expect(result).toEqual({ title: "東京行", currency: "JPY", cities: [{ name: "東京", days: 4 }] });
   });
 
   it("retries once and returns null when the days don't sum to totalDays - 1", async () => {
-    mockJson({ cities: [{ name: "東京", days: 2 }, { name: "大阪", days: 2 } ] }); // sums to 4, needs 6
-    mockJson({ cities: [{ name: "東京", days: 1 }, { name: "大阪", days: 2 } ] }); // sums to 3, still wrong
+    // sums to 4, needs 6
+    mockJson({ title: "東京大阪之旅", currency: "JPY", cities: [{ name: "東京", days: 2 }, { name: "大阪", days: 2 }] });
+    // sums to 3, still wrong
+    mockJson({ title: "東京大阪之旅", currency: "JPY", cities: [{ name: "東京", days: 1 }, { name: "大阪", days: 2 }] });
     const result = await planTrip(multiCityFlight, undefined, undefined, "gpt-4o-mini");
     expect(result).toBeNull();
     expect(createMock).toHaveBeenCalledTimes(2);
@@ -64,15 +74,22 @@ describe("planTrip", () => {
 
   it("retries once and succeeds on the second attempt", async () => {
     mockContent("not valid json");
-    mockJson({ cities: [{ name: "東京", days: 6 }] });
+    mockJson({ title: "東京行", currency: "JPY", cities: [{ name: "東京", days: 6 }] });
     const result = await planTrip(multiCityFlight, undefined, undefined, "gpt-4o-mini");
-    expect(result).toEqual({ cities: [{ name: "東京", days: 6 }] });
+    expect(result).toEqual({ title: "東京行", currency: "JPY", cities: [{ name: "東京", days: 6 }] });
     expect(createMock).toHaveBeenCalledTimes(2);
   });
 
   it("returns null when the response fails schema validation twice", async () => {
-    mockJson({ cities: [{ name: "" , days: 3 }] });
-    mockJson({ cities: [] });
+    mockJson({ title: "東京行", currency: "JPY", cities: [{ name: "", days: 3 }] });
+    mockJson({ title: "東京行", currency: "JPY", cities: [] });
+    const result = await planTrip(multiCityFlight, undefined, undefined, "gpt-4o-mini");
+    expect(result).toBeNull();
+  });
+
+  it("returns null when the response is missing title or currency", async () => {
+    mockJson({ cities: [{ name: "東京", days: 6 }] });
+    mockJson({ cities: [{ name: "東京", days: 6 }] });
     const result = await planTrip(multiCityFlight, undefined, undefined, "gpt-4o-mini");
     expect(result).toBeNull();
   });
