@@ -16,7 +16,8 @@
 | Phase 2 | 🟡 骨架比對已有數據，時長估計已擱置 | `scripts/shadow-compare-scheduler.ts`（`npm run shadow-compare`，`--verbose` 看逐天明細）讀種子行程資料庫比對順序/時段：42 個可比較天數，順序完全相同 36%、平均每站位置差 0.64、`time_of_day` 一致率 43%。時長估計追查了兩層：(1) 用 `scripts/backfill-place-types.ts` + `mapPlaceTypeToCategory.ts` 補真實 Place type（108 站中 83 站對照到），但平均時長差不減反增（63→67 分鐘）；(2) 用 `scripts/calibrate-duration-table.ts` 想拿真實 `duration_minutes` 校準對照表，結果發現 LLM 本身 53% 的時候不分類型一律給 120 分鐘——**LLM 的 duration_minutes 不是可信的「依類型估時長」ground truth，往它校準沒有意義**。決定：維持現有 placeholder 對照表，時長估計標記為近似值、非這次重構的賣點，先往下推進其他階段（詳見第7節） |
 | Phase 3 | 🟡 已接進真實路由，還缺真人 UI 測試 | `generateDayStops()` 已改走規則引擎骨架（PR #11），budget/`PreferenceIntent` 也接上了（見 0.2 節）。剩下「單城市試點」驗收標準裡唯一沒做的是真人在 UI 上走一次「重新規劃行程」精靈——目前只有腳本層級的真實 API 驗證，沒有瀏覽器端到端測試 |
 | Phase 4 | 🟡 transit day 已接進真實路由，範圍跟原計畫不同 | 原計畫寫的是「把 `assignCityBlocks.ts` 接上 restructure 城市分塊邏輯」，探索後發現風險高、價值低（見 0.3 節），改成「把 `generateTransitDayStops` 的到達景點換成規則引擎，交通方式/距離判斷仍交給 LLM」（PR #13）。`assignCityBlocks.ts` 接線本身還沒做 |
-| Phase 5-6 | ⬜ 未開始 | 收斂 `generate-stream` 主流程、清理舊路徑，見第5節 |
+| Phase 5 | 🟡 子階段(a)已完成，(b)/(c)未開始 | 規模比原計畫描述大得多，拆成三個獨立子階段（見第5.1節設計提案）：(a) 行程規劃 LLM 呼叫 + 回程日拼圖——**已完成**（見 0.4 節，過程中抓到一個真的 bug）；(b) 逐城市套用 Phase 3/4 既有管線、(c) SSE 協定 v2 + 前端重寫——都還沒開始，兩個新函式目前完全沒接進 `generate-stream/route.ts` |
+| Phase 6 | ⬜ 未開始 | 清理舊路徑，見第5節 |
 
 ### 0.1 Phase 3 進度細節
 
@@ -150,6 +151,57 @@
     到達景點）兩種情境，符合預期。**已知限制**：`prepStops`（出發前微行程）
     維持 LLM 生成，還是可能幻覺——這次沒解決，量小、非重災區，故意排除在
     範圍外。
+
+### 0.4 Phase 5 子階段(a)：行程規劃 LLM 呼叫 + 回程日拼圖（已完成，尚未接線）
+
+11. **`planTrip()`——新的「行程規劃」LLM 呼叫**（`src/lib/tripPlan.ts`，新檔案）：
+    `generate-stream` 首次生成目前完全沒有結構化城市清單，去幾個城市、各待
+    幾天是 LLM 在一次生成完整行程的 completion 裡自己決定的。這個新函式把
+    這個決策單獨拆出來，架構比照已有的 `parsePreferenceIntent()`：小 prompt、
+    `response_format: json_object`、Zod 驗證（`TripPlanSchema`）、失敗
+    （JSON/schema 錯誤、天數加總對不上）重試1次、最終失敗回傳 `null`。
+    `days` 語意比照 restructure 的 `targetDays`：第一個城市不含移動日，其餘
+    城市含抵達它的移動日，全部加總須等於「總天數 - 1」（最後一天固定是回程
+    日，交給下面第12點處理，不算進任何城市配額）。Prompt 重用既有的
+    `buildFlightTimePrompt()`/`buildPreferencePrompt()`（`itineraryGen.ts`），
+    不重新發明航班時間/偏好文字。**同日期單日來回行程**（`calcDays` 算出
+    總天數 ≤ 1）直接跳過呼叫回傳 `null`——這種情況天數加總的目標值是0，
+    schema 又要求每個城市至少1天，無論如何都不可能有合法回應，硬打兩次
+    API 只會浪費呼叫次數。
+12. **`generateDepartureDayStops()`——回程日拼圖**（`itineraryCityGen.ts`，
+    新函式）：設計提案裡唯一沒有 Phase 3/4 前例可抄的部分——最後一天（回程
+    航班出發前）在最後一個城市裡還有半天空檔，但這次**不需要 LLM 判斷排幾個**
+    （跟 Phase 4 的到達景點不同，純粹是時鐘算術，不涉及「兩城市多遠」這種
+    真實世界常識判斷）。先抽一個純函式 `computeDepartureDayBudget()`
+    （`src/lib/scheduler/departureDayBudget.ts`，比照 `assignTimeSlots.ts`
+    的純函式+單元測試慣例）：用 `returnDepartureTime` 往前推3小時當硬性
+    收尾時間（沒有這個航班欄位就用保守預設14:00），估算塞得下幾個景點
+    （上限3個）。主函式管線跟 `generateDayStopsViaScheduler`/
+    `generateTransitDayStopsViaScheduler` 共用的部分完全重用，`buildDaySkeleton`
+    排完後用 `s.endMinute <= cutoffMinute` 過濾超時尾段（`assignTimeSlots`
+    排程嚴格遞增，過濾只會砍尾巴不會留缺口）——不修改 `assignTimeSlots`/
+    `buildDaySkeleton` 本身。任何一步失敗（含估算出0個景點、拿不到城市座標、
+    候選池空）都回傳空陣列 `[]`（不是 `null`——這個拼圖沒有「純 LLM 版本」
+    可以 fallback，空陣列本身就是合理結果，例如班機太早）。順手把 Phase 4
+    的 `parseArrivalTime` 泛化成 `parseTimeString(raw, fallbackMinute)`，
+    兩處解析 HH:MM 共用同一個函式。
+13. **驗證抓到一個真的 bug**：真實測試單城市來回（雪梨5天）時，`planTrip()`
+    兩次嘗試都無視自己的規則，硬加了墨爾本、布里斯本湊成多城市行程——prompt
+    裡「只能有這一個城市」那句太弱，模型沒理它。加強成明確的【重要】區塊
+    （強調「這不是開口式行程」、`cities` 陣列長度必須恰好是1）+ 一段天數
+    加總的具體範例後，重跑兩次都穩定只回傳一個城市、天數也對。這跟 Phase 1
+    「不吃辣→no_seafood」、原本大 prompt 需要一堆「絕對不可」式強調句是
+    同一種教訓：小 prompt 一樣需要夠強的措辭，不能因為輸出結構小就假設
+    模型會乖乖照做。
+    - 單元測試：`src/lib/tripPlan.test.ts`（mock OpenAI，比照
+      `preferenceIntent.test.ts`）、`src/lib/scheduler/departureDayBudget.test.ts`
+      （純函式，7個案例涵蓋正常/太早/邊界/無 returnDepartureTime 等情境）。
+    - 真實資料驗證：多城市（東京大阪7天）正確分配 東京3+京都2+大阪1=6（模型
+      自己合理加了京都當中途站）；單城市（雪梨5天）修好後穩定回傳 雪梨4；
+      回程日（大阪15:30航班）真實排出3個大阪景點；回程日（大阪08:00航班）
+      正確回傳空陣列。
+    - **這兩個函式這輪只獨立存在、獨立測試，沒有接進 `generate-stream/route.ts`**
+      ——接線是 Phase 5(b)/(c) 的事。
 
 ---
 
@@ -305,6 +357,93 @@
   串流體驗需要重新設計：規則引擎是同步且快的，可以先秒級回傳骨架，
   文案生成才需要串流「逐步補文字」的體驗（比現在「逐字打出結構化 JSON」
   更適合串流，因為文字內容本來就適合漸進顯示）。
+
+#### 5.1 Phase 5 設計提案（2026-09-17，探索完成，尚未實作/未核准）
+
+開始規劃這步才發現規模比原本這段描述大得多，記錄下來避免之後重複踩坑。
+
+**跟 Phase 3/4 的關鍵差異**：restructure 的 `CitySchema`（幾個城市、各住幾天）
+是使用者在 UI 上先選好才送進來的結構化資料；但首次生成（`generate-stream`）
+只有機場代號+日期+一段自由文字，去幾個城市、各待幾天，完全是 LLM 在一次
+completion 內部自己決定的，沒有現成的結構化「城市清單」可以直接餵給規則
+引擎。而且前端（`StreamingPreview.tsx`）是用 regex 硬解析「還沒完整的 JSON
+字串」做逐步顯示（括號計數去補完未閉合的 JSON），跟現有 SSE 逐字元串流格式
+深度綁定——後端要真的做到「規則引擎秒回骨架、文案漸進補上」，SSE 協定
+（`chunk`/`retry`/`complete` 三種事件）和前端解析邏輯必須一起重新設計，
+不是單純換後端實作。
+
+**提案架構**（尚未核准，供討論）：
+
+1. **新增「行程規劃」LLM 呼叫**（新能力，`src/lib/tripPlan.ts` 之類）：輸入
+   flightInfo（含算好的 `calcDays()` 總天數）、自由文字 `prompt`、
+   `TripPreferences`；輸出結構化
+   `{ cities: [{ name: string, days: number }] }`（第一個城市對應
+   `arrivalCity`、最後一個對應 `returnDepartureCity`，單城市行程
+   `cities.length === 1`）。`days` 語意比照 restructure 的 `targetDays`
+   ——新城市的 `days` 包含它自己的抵達移動日（陣列裡第一個城市除外，因為
+   抵達當天就是航班本身，不算移動日）。這一步呼叫小、輸出小，比現在整段
+   20+ 條規則的巨型 prompt 快很多，是真正能做到「秒級回骨架」的第一步。
+   `sum(city.days)` 必須等於總天數減 1（見第4點的回程日）；解析/加總對不上
+   就整段 retry（這是唯一還需要「重試整個行程」的失敗模式，且呼叫本身小很多，
+   retry 成本遠低於現在）。
+2. **逐城市套用 Phase 3/4 已有的規則引擎管線**：對 `cities` 陣列裡每個城市，
+   套用 restructure `buildCityBlock` 的「新城市」分支邏輯（因為首次生成裡
+   每個城市都相當於「新城市」，沒有「保留舊 day」的概念）——呼叫
+   `generateTransitDayStops()`（第一個城市除外，它的「移動日」就是去程航班
+   本身，不需要生成；其餘城市沿用 Phase 4 已做好的
+   `generateTransitDayStopsViaScheduler`）+ `generateDayStops()`（沿用
+   Phase 3 的 `generateDayStopsViaScheduler`）+ `generateMealsAndAccommodation`
+   （這塊目前完全沒有規則引擎化，維持純 LLM，見下方第6點）。這一大塊幾乎是
+   純重用，不需要新寫排程邏輯。
+3. **新的「回程日」小拼圖（目前沒有對應實作，需要新設計）**：現有大 prompt
+   的規則7/17 是「最後一天不需要住宿，但抵達城市的移動日結束後仍要排 1 個
+   以上的輕鬆景點」——回程日是對稱的鏡像情境：最後一個城市裡「回程航班出發
+   前」還有半天空檔，需要用 `flightInfo.returnDepartureTime` 往前推 3 小時
+   當作硬性收尾時間，從最後城市的候選池排 0-3 個景點。`buildDaySkeleton`
+   目前只有 `dayStartMinute`（起始時間），沒有「必須在 X 分鐘前結束」的硬
+   約束，需要小擴充（或簡化成依可用時數直接砍 count，不強求精確卡點）。
+   這塊沒有 Phase 3/4 的直接前例可抄，是這次探索中唯一需要全新設計的排程
+   邏輯，工作量/風險都比其餘部分高，建議拆成獨立一步。
+4. **新的 SSE 事件詞彙**（取代現有的 `chunk`/`retry`/`complete` 三種）：
+   - `type: "plan"`：第1點的行程規劃結果一算完就送出（`cities` 陣列），
+     前端可以立刻畫出「N 個城市、每城市幾天」的骨架卡片（有幾天空殼、標題
+     未定），比現在等一整段 JSON 打完快非常多。
+   - `type: "day"`：每一天的骨架+文案組裝完成就送一個（`dayIndex`,
+     完整的 Day 物件），城市之間、甚至同城市不同天的生成可以平行跑，用
+     `Promise.allSettled` 收集，完成一個送一個，不必等全部。
+   - `type: "retry"`：語意窄化成「第1點的行程規劃呼叫失敗重試」，不再是
+     「整段大 JSON 重來」。
+   - `type: "complete"`：所有 `day` 事件送完、存檔後送出（可以只帶
+     `id`，因為前端已經靠 `day` 事件把完整資料組出來了，不需要再整包送
+     一次）。
+   - `type: "error"`：維持，但語意也窄化——單一城市/單一天失敗時走 Phase 3/4
+     已有的 fallback（退回該城市/該天的純 LLM 生成），不會讓整趟行程失敗；
+     只有第1點的行程規劃呼叫重試用盡才真的整趟失敗。
+5. **前端重寫**（`useStreamingGenerate.ts` + `StreamingPreview.tsx`）：拿掉
+   regex 硬解析未完成 JSON 那段（現有 fragile 的括號計數補完邏輯），改成
+   直接依 SSE 事件型別更新一個結構化的 `Itinerary` state——收到 `plan` 先
+   建立 N 個城市、每天一個「還沒資料」的骨架卡（沿用現有 skeleton loader
+   UI），收到每個 `day` 事件就把對應那天的骨架卡換成真實內容。比現在的
+   regex 解析更穩定、也更貼近「規則引擎骨架先出現、文案逐步補上」這個
+   Phase 5 想要的體驗。
+6. **範圍外，留給之後**：`generateMealsAndAccommodation` 完全沒有規則引擎化
+   （沒有用到已存在的 `fetchCityRestaurants`/`getLodgingTypes`/
+   `getPriceLevels` 這些候選池函式，即使 `meals/[mealType]/regenerate`、
+   `accommodation/regenerate` 這兩個既有 route 已經在用），現有大 prompt
+   規則12-15（餐廳來源分類、禁用場所類型、反重複）全部繼續留給 LLM。這是
+   明顯可見的下一塊延伸（跟 Phase 3 把 `generateDayStops` 換掉是同一種
+   問題），但這次不在範圍內，避免一次改太多。
+7. **retry/validation 語意跟著整個變小**：`validateItinerary`/
+   `validateGeography` 還是在組裝完成後跑一次當最後防線，但重試單位從
+   「整段 20+ 條規則的大 JSON」縮小到「單一城市/單一天」（Phase 3/4 已建立
+   的 fallback 模式），加上第1點行程規劃呼叫本身的小型 retry。`MAX_GENERATION_ATTEMPTS`
+   這個常數的意義會整個改變，需要重新設計（可能拆成「行程規劃重試次數」
+   跟「個別城市/天的 fallback」兩種不同機制，不再是同一個計數器）。
+
+**這輪的產出是設計，不是實作**——工作量明顯比 Phase 3/4 任何一步都大，
+建議拆成至少三個獨立可上線的子階段：(a) 行程規劃 LLM 呼叫 + 回程日拼圖，
+(b) 逐城市套用既有規則引擎管線（重用為主），(c) SSE 協定 v2 + 前端重寫。
+三者可以照這個順序分別開分支/PR，每步都能獨立驗證，不需要一次全部做完。
 
 ### Phase 6：清理
 - 確認新流程穩定後，移除 `itineraryCityGen.ts` 裡舊的整段生成呼叫、

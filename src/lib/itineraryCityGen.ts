@@ -4,6 +4,7 @@ import { fetchNearbyPlaceCandidates, getPriceLevels, type RestaurantHint, type B
 import { placeCandidatesToStopCandidates } from "@/lib/scheduler/placeCandidatesToStopCandidates";
 import { partitionCandidatesByDay } from "@/lib/scheduler/partitionCandidatesByDay";
 import { buildDaySkeleton, type SkeletonStop } from "@/lib/scheduler/buildDaySkeleton";
+import { computeDepartureDayBudget } from "@/lib/scheduler/departureDayBudget";
 import { type DurationCategory } from "@/lib/scheduler/assignTimeSlots";
 import { generateSkeletonCopy } from "@/lib/skeletonCopy";
 import { NEUTRAL_PREFERENCE_INTENT, type PreferenceIntent } from "@/lib/schemas";
@@ -92,13 +93,16 @@ type TransitPlan = {
 
 const DEFAULT_ARRIVAL_MINUTE = 14 * 60;
 
-function parseArrivalTime(raw: unknown): number {
-  if (typeof raw !== "string") return DEFAULT_ARRIVAL_MINUTE;
+// Shared by planTransitDay's arrivalTime and generateDepartureDayStops'
+// returnDepartureTime — both parse the same "HH:MM" shape the LLM/FlightInfo
+// give, just with different fallback defaults.
+function parseTimeString(raw: unknown, fallbackMinute: number): number {
+  if (typeof raw !== "string") return fallbackMinute;
   const match = raw.match(/^(\d{1,2}):(\d{2})$/);
-  if (!match) return DEFAULT_ARRIVAL_MINUTE;
+  if (!match) return fallbackMinute;
   const hour = Number(match[1]);
   const minute = Number(match[2]);
-  if (hour > 23 || minute > 59) return DEFAULT_ARRIVAL_MINUTE;
+  if (hour > 23 || minute > 59) return fallbackMinute;
   return hour * 60 + minute;
 }
 
@@ -189,7 +193,7 @@ async function planTransitDay(
         : [],
       transitStop: { ...parsed.transitStop, id: crypto.randomUUID() },
       arrivalActivityCount: Math.min(4, Math.max(0, Math.round(rawCount))),
-      arrivalMinute: parseArrivalTime(parsed.arrivalTime),
+      arrivalMinute: parseTimeString(parsed.arrivalTime, DEFAULT_ARRIVAL_MINUTE),
     };
   } catch (err) {
     console.warn("[planTransitDay] falling back to LLM:", err);
@@ -276,6 +280,84 @@ export async function generateTransitDayStops(
   const scheduled = await generateTransitDayStopsViaScheduler(fromCity, toCity, currency, budget, preferenceIntent);
   if (scheduled) return scheduled;
   return generateTransitDayStopsWithLLM(fromCity, toCity, currency);
+}
+
+/**
+ * The trip's final day (the return flight itself) still has a free morning/
+ * early afternoon in its last city — plan/hybrid-rule-engine-scheduling.md
+ * Phase 5(a)'s one genuinely new piece (no Phase 3/4 precedent, and no prior
+ * "pure LLM" implementation to fall back to). Unlike a transit day's arrival
+ * activities, how many stops fit here is pure clock arithmetic against
+ * `returnDepartureTime` (computeDepartureDayBudget), not a real-world
+ * distance judgment call — no LLM involvement in the scheduling decision
+ * itself, only in the text copy. Meals for this day are still
+ * generateMealsAndAccommodation's job, unconverted — out of scope here.
+ * Not wired into any route yet; returns [] (not null) on any failure since
+ * there's no LLM fallback to defer to — an empty return day is itself a
+ * valid outcome (e.g. a very early flight leaves no time for anything).
+ */
+export async function generateDepartureDayStops(
+  cityName: string,
+  currency: string,
+  returnDepartureTime: string | undefined,
+  budget: BudgetLevel | undefined,
+  preferenceIntent: PreferenceIntent = NEUTRAL_PREFERENCE_INTENT
+): Promise<Array<Record<string, unknown>>> {
+  try {
+    const dayStartMinute = 8 * 60;
+    const returnDepartureMinute = returnDepartureTime
+      ? parseTimeString(returnDepartureTime, DEFAULT_ARRIVAL_MINUTE)
+      : undefined;
+    const { cutoffMinute, estimatedCount } = computeDepartureDayBudget(returnDepartureMinute, dayStartMinute);
+    if (estimatedCount === 0) return [];
+
+    const apiKey = process.env.GOOGLE_PLACES_API_KEY!;
+    const coords = await getCityCenter(cityName, apiKey);
+    if (!coords) return [];
+
+    const maxCount = Math.min(20, estimatedCount + 4);
+    const priceLevels = getPriceLevels(budget);
+    let places = await fetchNearbyPlaceCandidates(coords, apiKey, ["tourist_attraction"], 10000, maxCount, priceLevels);
+    if (places.length === 0 && priceLevels) {
+      places = await fetchNearbyPlaceCandidates(coords, apiKey, ["tourist_attraction"], 10000, maxCount);
+    }
+    if (places.length === 0) return [];
+
+    const { candidates, candidateById } = placeCandidatesToStopCandidates(places);
+    if (candidates.length === 0) return [];
+
+    const interestWeights = buildInterestWeights(preferenceIntent.interestBoost);
+    const skeleton = buildDaySkeleton(candidates, {
+      count: estimatedCount,
+      pace: preferenceIntent.pace ?? undefined,
+      dayStartMinute,
+      interestWeights,
+    });
+
+    // assignTimeSlots schedules strictly in order, so filtering by cutoff
+    // only ever trims a trailing overrun — never leaves a gap mid-day.
+    const withinCutoff = skeleton.filter((s) => s.endMinute <= cutoffMinute);
+    if (withinCutoff.length === 0) return [];
+
+    const hintById = new Map<string, RestaurantHint>();
+    for (const [id, place] of candidateById) {
+      hintById.set(id, { name: place.name, rating: place.rating, lat: place.lat, lng: place.lng, types: place.types });
+    }
+
+    const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
+    const [copy, distances] = await Promise.all([
+      generateSkeletonCopy(withinCutoff, hintById, preferenceIntent, model, cityName),
+      getDistancesForStopPairs(
+        withinCutoff.map((s) => ({ id: s.id, lat: s.lat, lng: s.lng })),
+        pickModeForDistance
+      ),
+    ]);
+
+    return assembleScheduledStops(withinCutoff, candidateById, copy, distances, currency);
+  } catch (err) {
+    console.warn("[generateDepartureDayStops] returning no extra stops:", err);
+    return [];
+  }
 }
 
 export async function generateMealsAndAccommodation(
