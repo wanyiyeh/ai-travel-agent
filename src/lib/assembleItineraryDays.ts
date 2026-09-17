@@ -1,6 +1,6 @@
 import type { FlightInfo, TripPreferences } from "@/lib/schemas";
 import type { BudgetLevel } from "@/lib/fetchCityRestaurants";
-import { planTrip } from "@/lib/tripPlan";
+import { planTrip, type TripPlan } from "@/lib/tripPlan";
 import {
   generateDayStops,
   generateTransitDayStops,
@@ -19,33 +19,48 @@ export type AssembledItinerary = {
   days: Array<Record<string, unknown>>;
 };
 
+// Emitted as each piece of the itinerary becomes available, so a caller (the
+// SSE route, Phase 5(c)) can stream progress instead of waiting for the
+// whole trip. Purely additive — assembleItineraryDays' return value is
+// unchanged, onProgress is optional.
+export type AssembleProgressEvent =
+  | { type: "plan"; title: string; currency: string; cities: TripPlan["cities"] }
+  | { type: "day"; day: Record<string, unknown> };
+
 function extractPlaceIds(stops: Array<Record<string, unknown>>): string[] {
   return stops
     .map((s) => (typeof s.placeId === "string" ? s.placeId : undefined))
     .filter((id): id is string => !!id);
 }
 
+const emptyMealsAndAccommodation = (nights: number) => ({
+  accommodation: {} as Record<string, unknown>,
+  mealsByDay: Array.from({ length: nights }, () => ({}) as Record<string, unknown>),
+});
+
 /**
- * Plan/hybrid-rule-engine-scheduling.md Phase 5(b): wires planTrip() (Phase
- * 5(a)) together with the already-shipped, self-fallback-guaranteed
+ * Plan/hybrid-rule-engine-scheduling.md Phase 5(b)/(c): wires planTrip()
+ * (Phase 5(a)) together with the already-shipped, self-fallback-guaranteed
  * generateDayStops/generateTransitDayStops (Phase 3/4) plus
  * generateDepartureDayStops (Phase 5(a)) into one from-scratch full
- * itinerary. Not wired into generate-stream/route.ts yet — that's Phase
- * 5(c), which needs a new SSE protocol to actually stream this progressively
- * instead of returning it all at once. Returns null only when planTrip()
- * itself fails (no fallback exists for that specific piece yet — the future
- * route caller decides whether to fall back to the old full-LLM flow); every
- * other generation call here already guarantees a usable result on its own,
- * so there's nothing else this function needs to retry or catch.
+ * itinerary. Returns null only when planTrip() itself fails (no fallback
+ * exists for that specific piece yet — the route caller decides whether to
+ * fall back to the old full-LLM flow); every other generation call here
+ * already guarantees a usable result on its own (including
+ * generateMealsAndAccommodation, wrapped in .catch() below — it's the one
+ * call in this pipeline that doesn't already guarantee that itself), so
+ * there's nothing else this function needs to retry or catch.
  */
 export async function assembleItineraryDays(
   flightInfo: FlightInfo,
   prompt: string | undefined,
   preferences: TripPreferences | undefined,
-  model: string
+  model: string,
+  onProgress?: (event: AssembleProgressEvent) => void
 ): Promise<AssembledItinerary | null> {
   const plan = await planTrip(flightInfo, prompt, preferences, model);
   if (!plan) return null;
+  onProgress?.({ type: "plan", title: plan.title, currency: plan.currency, cities: plan.cities });
 
   const budget = preferences?.budget as BudgetLevel | undefined;
   const preferenceIntent = NEUTRAL_PREFERENCE_INTENT;
@@ -56,6 +71,12 @@ export async function assembleItineraryDays(
   const arrivalDayStartMinute = computeArrivalDayStartMinute(arrivalMinute);
 
   const days: Array<Record<string, unknown>> = [];
+  let nextDayNumber = 1;
+  function pushDay(day: Record<string, unknown>) {
+    const numbered = { ...day, day: nextDayNumber++ };
+    days.push(numbered);
+    onProgress?.({ type: "day", day: numbered });
+  }
 
   for (let cityIdx = 0; cityIdx < plan.cities.length; cityIdx++) {
     const city = plan.cities[cityIdx];
@@ -77,8 +98,15 @@ export async function assembleItineraryDays(
 
     // Meals/accommodation don't depend on which attractions get picked, so
     // this can run alongside the transit day's generation below rather than
-    // waiting on it.
-    const mealsAndAccommodationPromise = generateMealsAndAccommodation(city.name, nights, plan.currency);
+    // waiting on it. Unlike generateDayStops/generateTransitDayStops/
+    // generateDepartureDayStops, this call has no try/catch of its own — an
+    // API error or malformed response would otherwise throw straight through
+    // assembleItineraryDays, breaking its "never throws except when planTrip
+    // fails" contract. restructure/route.ts already wraps every one of its
+    // own call sites with this same degrade-to-empty pattern.
+    const mealsAndAccommodationPromise = generateMealsAndAccommodation(city.name, nights, plan.currency).catch(
+      () => emptyMealsAndAccommodation(nights)
+    );
 
     if (!isFirst) {
       const prevCity = plan.cities[cityIdx - 1];
@@ -89,9 +117,8 @@ export async function assembleItineraryDays(
       for (const placeId of extractPlaceIds(transitStops)) usedPlaceIds.add(placeId);
 
       const hasAccommodation = Object.keys(mealsAndAccommodation.accommodation).length > 0;
-      days.push({
+      pushDay({
         id: crypto.randomUUID(),
-        day: 0,
         theme: `移動日：前往${city.name}`,
         isTransitDay: true,
         transitTo: city.name,
@@ -124,9 +151,8 @@ export async function assembleItineraryDays(
     const accommodation = hasAccommodation ? mealsAndAccommodation.accommodation : undefined;
 
     for (let i = 0; i < sightseeingStops.length; i++) {
-      days.push({
+      pushDay({
         id: crypto.randomUUID(),
-        day: 0,
         theme: `${city.name} 探索`,
         waypointCity: city.name,
         stops: sightseeingStops[i],
@@ -144,9 +170,8 @@ export async function assembleItineraryDays(
         preferenceIntent,
         Array.from(usedPlaceIds)
       );
-      days.push({
+      pushDay({
         id: crypto.randomUUID(),
-        day: 0,
         theme: "返程日",
         waypointCity: city.name,
         stops: departureStops,
@@ -161,6 +186,6 @@ export async function assembleItineraryDays(
   return {
     title: plan.title,
     currency: plan.currency,
-    days: days.map((d, i) => ({ ...d, day: i + 1 })),
+    days,
   };
 }

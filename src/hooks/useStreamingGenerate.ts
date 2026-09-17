@@ -1,12 +1,25 @@
 import { useState, useCallback } from "react";
-import type { Itinerary } from "@/types/itinerary";
+import type { Itinerary, Day } from "@/types/itinerary";
 import type { FlightInfo, TripPreferences } from "@/lib/schemas";
 
 type StreamingState = "idle" | "connecting" | "streaming" | "complete" | "error";
 
+// Rule-engine path preview (plan/hybrid-rule-engine-scheduling.md Phase 5(c))
+// — sent as a "plan" SSE event once planTrip() resolves, well before the
+// itinerary itself is ready. Defined locally rather than imported from
+// @/lib/assembleItineraryDays to keep this client hook decoupled from that
+// server-only module.
+export type TripPlanPreview = {
+  title: string;
+  currency: string;
+  cities: Array<{ name: string; days: number }>;
+};
+
 export function useStreamingGenerate() {
   const [state, setState] = useState<StreamingState>("idle");
   const [partialData, setPartialData] = useState<string>("");
+  const [plan, setPlan] = useState<TripPlanPreview | null>(null);
+  const [days, setDays] = useState<Day[]>([]);
   const [result, setResult] = useState<Itinerary | null>(null);
   const [id, setId] = useState<string | null>(null);
   const [error, setError] = useState<string>("");
@@ -15,6 +28,8 @@ export function useStreamingGenerate() {
   const generate = useCallback(async (prompt: string, flightInfo: FlightInfo, preferences?: TripPreferences) => {
     setState("connecting");
     setPartialData("");
+    setPlan(null);
+    setDays([]);
     setResult(null);
     setId(null);
     setError("");
@@ -58,11 +73,19 @@ export function useStreamingGenerate() {
 
             if (data.type === "chunk") {
               setPartialData(data.content);
+            } else if (data.type === "plan") {
+              setPlan({ title: data.title, currency: data.currency, cities: data.cities });
+            } else if (data.type === "day") {
+              setDays((prev) => [...prev, data.day]);
             } else if (data.type === "retry") {
               // Server found an issue with the previous attempt and is
-              // regenerating from scratch — clear stale partial content so
-              // the preview doesn't show a mix of two attempts.
+              // regenerating from scratch — clear stale partial content
+              // (both the old chunk-based preview and the rule-engine
+              // path's plan/day preview, whichever was in use) so nothing
+              // shows a mix of two attempts.
               setPartialData("");
+              setPlan(null);
+              setDays([]);
               setRetryInfo({ attempt: data.attempt, maxAttempts: data.maxAttempts });
             } else if (data.type === "complete") {
               setResult(data.data);
@@ -86,6 +109,8 @@ export function useStreamingGenerate() {
   const reset = useCallback(() => {
     setState("idle");
     setPartialData("");
+    setPlan(null);
+    setDays([]);
     setResult(null);
     setId(null);
     setError("");
@@ -95,6 +120,8 @@ export function useStreamingGenerate() {
   return {
     state,
     partialData,
+    plan,
+    days,
     result,
     id,
     error,
