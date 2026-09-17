@@ -15,7 +15,8 @@
 | Phase 1 | ✅ 驗收標準已完成 | `scripts/validate-preference-intent.ts`（`npm run validate-preference-intent`）對 18 組常見自由文字（單一/多重訊號、中性、矛盾、英文、邊界案例）跑真實 `parsePreferenceIntent()` 並人工抽查。**過程中抓到一個真的 bug**：「不吃辣」有約 60% 機率被誤解析成 `no_seafood`（因為 prompt 的 dietaryRestrictions 範例清單沒有辣度相關標籤，模型會套用最接近的範例），已在 `SYSTEM_PROMPT` 加入 `no_spicy`/`no_beef` 範例並明確要求「標籤要對應使用者實際說的限制，不要套用最接近的範例」，修復後重跑 6 次皆正確。其餘 17 組結果人工檢查合理 |
 | Phase 2 | 🟡 骨架比對已有數據，時長估計已擱置 | `scripts/shadow-compare-scheduler.ts`（`npm run shadow-compare`，`--verbose` 看逐天明細）讀種子行程資料庫比對順序/時段：42 個可比較天數，順序完全相同 36%、平均每站位置差 0.64、`time_of_day` 一致率 43%。時長估計追查了兩層：(1) 用 `scripts/backfill-place-types.ts` + `mapPlaceTypeToCategory.ts` 補真實 Place type（108 站中 83 站對照到），但平均時長差不減反增（63→67 分鐘）；(2) 用 `scripts/calibrate-duration-table.ts` 想拿真實 `duration_minutes` 校準對照表，結果發現 LLM 本身 53% 的時候不分類型一律給 120 分鐘——**LLM 的 duration_minutes 不是可信的「依類型估時長」ground truth，往它校準沒有意義**。決定：維持現有 placeholder 對照表，時長估計標記為近似值、非這次重構的賣點，先往下推進其他階段（詳見第7節） |
 | Phase 3 | 🟡 已接進真實路由，還缺真人 UI 測試 | `generateDayStops()` 已改走規則引擎骨架（PR #11），budget/`PreferenceIntent` 也接上了（見 0.2 節）。剩下「單城市試點」驗收標準裡唯一沒做的是真人在 UI 上走一次「重新規劃行程」精靈——目前只有腳本層級的真實 API 驗證，沒有瀏覽器端到端測試 |
-| Phase 4-6 | ⬜ 未開始 | 多城市/transit day 擴大、收斂 `generate-stream` 主流程、清理舊路徑，見第5節 |
+| Phase 4 | 🟡 transit day 已接進真實路由，範圍跟原計畫不同 | 原計畫寫的是「把 `assignCityBlocks.ts` 接上 restructure 城市分塊邏輯」，探索後發現風險高、價值低（見 0.3 節），改成「把 `generateTransitDayStops` 的到達景點換成規則引擎，交通方式/距離判斷仍交給 LLM」（PR #13）。`assignCityBlocks.ts` 接線本身還沒做 |
+| Phase 5-6 | ⬜ 未開始 | 收斂 `generate-stream` 主流程、清理舊路徑，見第5節 |
 
 ### 0.1 Phase 3 進度細節
 
@@ -109,6 +110,46 @@
    但 `budget`/`interestBoost` 這次沒看出候選被換掉——京都熱門景點池子小、
    多數廟宇/市場沒有 Google `priceLevel` 標籤，價位篩選十之八九觸發空結果
    fallback，資料特性使然，不是接線的 bug。
+
+### 0.3 Phase 4：範圍改道，transit day 到達景點接上規則引擎（已完成）
+
+9. **`assignCityBlocks.ts` 接線評估：風險高、價值低，改道**：Phase 4 原計畫
+   （第5節）寫的是「把 `assignCityBlocks.ts` 接上 restructure 的城市分塊邏輯」。
+   實際比對 `planCityBlocks`/`computeSightseeingBudget` 跟 `restructure/route.ts`
+   現有的 `buildCityBlock` 邏輯後發現：(a) `planCityBlocks` 的預算算式
+   （`structuralDaysUsed`）沒把自己輸出的 `dropsStoredOutboundDay` 考慮進去，
+   直接接線會少算一天要生成的觀光日；(b) route.ts 裡「既有城市的舊移動日在
+   下一站城市換了以後要重新生成 stops」那段邏輯（route.ts:143-154）
+   `assignCityBlocks.ts` 完全沒涵蓋，它只處理天數算術，不處理「哪個 day 物件
+   要保留 vs 重新生成」。也就是說直接接線不是無風險的機械式替換，要嘛先修
+   `assignCityBlocks.ts` 補上這兩個落差，要嘛只換掉本來就沒問題、兩邊算法
+   等價的那一小段算術（等於白工）。跟你確認後決定不做，`assignCityBlocks.ts`
+   接線維持未接狀態。
+10. **`generateTransitDayStops` 到達景點換成規則引擎**（PR #13，分支
+    `feat/multi-city-transit-scheduler`）：改道後選的方向——這個函式原本一個
+    LLM 呼叫要做三件事：出發前微行程、交通本身（方式/時長）、到達後景點。
+    只有「到達後景點」適合換成規則引擎；「兩城市間距離多遠、該搭飛機/高鐵/
+    巴士」是真實世界常識判斷，現有 `distanceMatrix.ts` 的 `getDistance`/
+    `pickModeForDistance` 只認 walking/transit/driving，是給一天內站點短距離
+    用的，沒有洲際/跨國距離或航班的資料來源可以取代 LLM，這部分維持給 LLM
+    判斷。新增 `planTransitDay()`：收窄後的 LLM 呼叫只輸出
+    `{prepStops, transitStop, arrivalActivityCount, arrivalTime}`——距離/交通
+    判斷邏輯（含原本的短/中/長程指引文字）保留，但不再讓模型自己發明到達
+    城市的景點名稱，只輸出「要排幾個、大概幾點到」。真正的到達景點交給新的
+    `generateTransitDayStopsViaScheduler()`，重用跟 `generateDayStopsViaScheduler`
+    完全同一套管線（`getCityCenter` → `fetchNearbyPlaceCandidates` →
+    `placeCandidatesToStopCandidates` → `buildDaySkeleton` →
+    `generateSkeletonCopy`），`count`/`dayStartMinute` 改吃 LLM 判斷出的
+    `arrivalActivityCount`/`arrivalTime`。順手把兩邊重複的「組裝成 Stop 形狀」
+    邏輯抽成共用的 `assembleScheduledStops()`。任一步失敗（LLM 解析失敗、拿
+    不到城市座標、候選池空）就整段 fallback 回原本改名為
+    `generateTransitDayStopsWithLLM` 的純 LLM 實作。用真實資料驗證過短程
+    （大阪→京都：交通判斷正確、到達後排出 4 個真實京都景點，地理分散但都是
+    真實地標）跟長程（布達佩斯→捷克克魯姆洛夫：正確只回傳交通本身，
+    `arrivalActivityCount` 判斷為 0，完全跳過候選池查詢，不硬塞不合理的
+    到達景點）兩種情境，符合預期。**已知限制**：`prepStops`（出發前微行程）
+    維持 LLM 生成，還是可能幻覺——這次沒解決，量小、非重災區，故意排除在
+    範圍外。
 
 ---
 
