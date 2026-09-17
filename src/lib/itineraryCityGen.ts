@@ -1,6 +1,6 @@
 import { openai } from "@/lib/openai";
 import { getCityCenter } from "@/lib/placesTextSearch";
-import { fetchNearbyPlaceCandidates, getPriceLevels, type RestaurantHint, type BudgetLevel } from "@/lib/fetchCityRestaurants";
+import { fetchNearbyPlaceCandidates, getPriceLevels, type RestaurantHint, type BudgetLevel, type PlaceCandidate } from "@/lib/fetchCityRestaurants";
 import { placeCandidatesToStopCandidates } from "@/lib/scheduler/placeCandidatesToStopCandidates";
 import { partitionCandidatesByDay } from "@/lib/scheduler/partitionCandidatesByDay";
 import { buildDaySkeleton, type SkeletonStop } from "@/lib/scheduler/buildDaySkeleton";
@@ -15,7 +15,10 @@ import { estimateAttractionCost } from "@/lib/priceLevelCost";
 // restructure endpoint to generate new-city content without duplicating
 // these prompts.
 
-export async function generateTransitDayStops(
+// Falls back to this pure-LLM implementation whenever the rule-engine path
+// (generateTransitDayStopsViaScheduler, below) can't produce a real arrival-
+// city candidate pool (see plan/hybrid-rule-engine-scheduling.md Phase 4).
+async function generateTransitDayStopsWithLLM(
   fromCity: string,
   toCity: string,
   currency: string
@@ -78,6 +81,201 @@ export async function generateTransitDayStops(
     ...(s as Record<string, unknown>),
     id: crypto.randomUUID(),
   }));
+}
+
+type TransitPlan = {
+  prepStops: Array<Record<string, unknown>>;
+  transitStop: Record<string, unknown>;
+  arrivalActivityCount: number;
+  arrivalMinute: number;
+};
+
+const DEFAULT_ARRIVAL_MINUTE = 14 * 60;
+
+function parseArrivalTime(raw: unknown): number {
+  if (typeof raw !== "string") return DEFAULT_ARRIVAL_MINUTE;
+  const match = raw.match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return DEFAULT_ARRIVAL_MINUTE;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (hour > 23 || minute > 59) return DEFAULT_ARRIVAL_MINUTE;
+  return hour * 60 + minute;
+}
+
+/**
+ * Narrower LLM call for a transit day: keeps the real-world-knowledge parts
+ * an LLM is actually needed for (inter-city distance/mode judgment — no
+ * rule-engine data source covers flights/trains across countries, unlike the
+ * short intra-day hops distanceMatrix.ts handles) but stops asking it to
+ * invent named arrival-city attractions. Returns null on any parse failure
+ * so the caller falls back to the full pure-LLM implementation.
+ */
+async function planTransitDay(
+  fromCity: string,
+  toCity: string,
+  currency: string,
+  model: string
+): Promise<TransitPlan | null> {
+  try {
+    const completion = await openai.chat.completions.create({
+      model,
+      messages: [
+        {
+          role: "system",
+          content: `你是專業的旅遊規劃專家。請為旅行者規劃一個從 ${fromCity || "出發地"} 前往 ${toCity} 的移動日行程裡「出發準備」與「交通本身」的部分，並判斷抵達後應該安排幾個景點。
+
+【重要】請先評估兩城市之間的實際地理距離與交通時間（涵蓋各大洲的城市對，依實際距離判斷，不要只套用單一地區的直覺）：
+- 短程（車程＜90 分鐘，如大阪→京都 30min、東京→橫濱 30min、布拉格→布拉迪斯拉發 1hr）：抵達後幾乎是一整個白天都空著，arrivalActivityCount 應為 2-4
+- 中程（車程 90 分鐘－4 小時，如維也納→布達佩斯 2.5hr、大阪→廣島 1.5hr）：抵達後仍有半天，arrivalActivityCount 應為 1-2；若抵達已近傍晚則為 0（僅安排晚餐，不算在這裡）
+- 長程（車程＞4 小時或需過夜，如布達佩斯→捷克克魯姆洛夫 8-11hr）：交通佔全天，arrivalActivityCount 應為 0
+
+抵達時間（arrivalTime）必須用「出發時間＋交通時長」實際推算，不可憑感覺。
+
+回傳嚴格的 JSON 格式（不要其他文字）：
+{
+  "prepStops": [
+    {
+      "name": "活動名稱（繁體中文）",
+      "description": "描述（繁體中文，1-2 句話）",
+      "duration_minutes": 30,
+      "time_of_day": "morning",
+      "transport_from_prev": "步行約 10 分鐘",
+      "estimated_cost": 0
+    }
+  ],
+  "transitStop": {
+    "name": "交通方式名稱（例如「搭乘新幹線前往京都」）",
+    "description": "描述（繁體中文，1-2 句話）",
+    "duration_minutes": 90,
+    "time_of_day": "morning",
+    "transport_from_prev": "搭乘新幹線約 1 小時30分",
+    "estimated_cost": 0
+  },
+  "arrivalActivityCount": 2,
+  "arrivalTime": "14:30"
+}
+
+規則：
+- prepStops：${fromCity ? `${fromCity} 出發前早晨微行程（車站附近早餐或快速景點，09:30 前完成），可以是空陣列` : `出發準備，可以是空陣列`}
+- transitStop：交通本身，須填入真實交通工具、正確車程時數，duration_minutes 必須反映真實車程，transport_from_prev 必須包含預估時間（例如「搭乘新幹線約 1 小時30分」），不可只寫交通方式
+- arrivalActivityCount：依上方短/中/長程規則判斷的整數，不要自己發明景點名稱——只回傳數量
+- arrivalTime："HH:MM" 格式的 24 小時制時間，代表抵達 ${toCity} 後可以開始活動的時間
+- time_of_day 只能是 "morning"、"afternoon"、"evening" 之一
+- estimated_cost 為 ${currency} 整數，免費填 0`,
+        },
+        {
+          role: "user",
+          content: `請規劃從 ${fromCity || "出發地"} 前往 ${toCity} 的移動日「出發準備」與「交通」部分，並判斷抵達後該排幾個景點。`,
+        },
+      ],
+      response_format: { type: "json_object" },
+      temperature: 0.7,
+    });
+
+    const content = completion.choices[0].message.content;
+    if (!content) return null;
+    const parsed = JSON.parse(content) as {
+      prepStops?: unknown[];
+      transitStop?: Record<string, unknown>;
+      arrivalActivityCount?: unknown;
+      arrivalTime?: unknown;
+    };
+    if (!parsed.transitStop || typeof parsed.transitStop !== "object") return null;
+
+    const rawCount = typeof parsed.arrivalActivityCount === "number" ? parsed.arrivalActivityCount : 0;
+    return {
+      prepStops: Array.isArray(parsed.prepStops)
+        ? parsed.prepStops.map((s) => ({ ...(s as Record<string, unknown>), id: crypto.randomUUID() }))
+        : [],
+      transitStop: { ...parsed.transitStop, id: crypto.randomUUID() },
+      arrivalActivityCount: Math.min(4, Math.max(0, Math.round(rawCount))),
+      arrivalMinute: parseArrivalTime(parsed.arrivalTime),
+    };
+  } catch (err) {
+    console.warn("[planTransitDay] falling back to LLM:", err);
+    return null;
+  }
+}
+
+/**
+ * Rule-engine path for generateTransitDayStops (plan/hybrid-rule-engine-scheduling.md
+ * Phase 4): keeps the LLM's distance/transport-mode judgment (planTransitDay,
+ * above) but replaces its invented arrival-city attractions with a real
+ * candidate pool run through the same buildDaySkeleton/generateSkeletonCopy
+ * pipeline as generateDayStopsViaScheduler. Returns null on any failure (LLM
+ * parse failure, no city center, no candidates) so the caller falls back to
+ * the full pure-LLM implementation for this transit day.
+ */
+async function generateTransitDayStopsViaScheduler(
+  fromCity: string,
+  toCity: string,
+  currency: string,
+  budget: BudgetLevel | undefined,
+  preferenceIntent: PreferenceIntent
+): Promise<Array<Record<string, unknown>> | null> {
+  try {
+    const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
+    const plan = await planTransitDay(fromCity, toCity, currency, model);
+    if (!plan) return null;
+
+    if (plan.arrivalActivityCount === 0) {
+      return [...plan.prepStops, plan.transitStop];
+    }
+
+    const apiKey = process.env.GOOGLE_PLACES_API_KEY!;
+    const coords = await getCityCenter(toCity, apiKey);
+    if (!coords) return null;
+
+    const maxCount = Math.min(20, plan.arrivalActivityCount + 4);
+    const priceLevels = getPriceLevels(budget);
+    let places = await fetchNearbyPlaceCandidates(coords, apiKey, ["tourist_attraction"], 10000, maxCount, priceLevels);
+    if (places.length === 0 && priceLevels) {
+      places = await fetchNearbyPlaceCandidates(coords, apiKey, ["tourist_attraction"], 10000, maxCount);
+    }
+    if (places.length === 0) return null;
+
+    const { candidates, candidateById } = placeCandidatesToStopCandidates(places);
+    if (candidates.length === 0) return null;
+
+    const hintById = new Map<string, RestaurantHint>();
+    for (const [id, place] of candidateById) {
+      hintById.set(id, { name: place.name, rating: place.rating, lat: place.lat, lng: place.lng, types: place.types });
+    }
+
+    const interestWeights = buildInterestWeights(preferenceIntent.interestBoost);
+    const skeleton = buildDaySkeleton(candidates, {
+      count: plan.arrivalActivityCount,
+      pace: preferenceIntent.pace ?? undefined,
+      dayStartMinute: plan.arrivalMinute,
+      interestWeights,
+    });
+
+    const [copy, distances] = await Promise.all([
+      generateSkeletonCopy(skeleton, hintById, preferenceIntent, model, toCity),
+      getDistancesForStopPairs(
+        skeleton.map((s) => ({ id: s.id, lat: s.lat, lng: s.lng })),
+        pickModeForDistance
+      ),
+    ]);
+
+    const arrivalStops = assembleScheduledStops(skeleton, candidateById, copy, distances, currency);
+    return [...plan.prepStops, plan.transitStop, ...arrivalStops];
+  } catch (err) {
+    console.warn("[generateTransitDayStopsViaScheduler] falling back to LLM:", err);
+    return null;
+  }
+}
+
+export async function generateTransitDayStops(
+  fromCity: string,
+  toCity: string,
+  currency: string,
+  budget?: BudgetLevel,
+  preferenceIntent: PreferenceIntent = NEUTRAL_PREFERENCE_INTENT
+): Promise<Array<Record<string, unknown>>> {
+  const scheduled = await generateTransitDayStopsViaScheduler(fromCity, toCity, currency, budget, preferenceIntent);
+  if (scheduled) return scheduled;
+  return generateTransitDayStopsWithLLM(fromCity, toCity, currency);
 }
 
 export async function generateMealsAndAccommodation(
@@ -233,6 +431,43 @@ function buildInterestWeights(interestBoost: string[]): Record<string, number> {
 
 const START_TIME_MINUTE: Record<string, number> = { early: 7 * 60, late: 10 * 60 };
 
+// Shared by generateDayStopsViaScheduler and generateTransitDayStopsViaScheduler
+// — both pick/order/time-slot a candidate pool via buildDaySkeleton and then
+// need the exact same Stop-shape assembly (real placeId/name/address from the
+// candidate, LLM copy with a fallback, computed transport/cost).
+function assembleScheduledStops(
+  skeleton: SkeletonStop[],
+  candidateById: Map<string, PlaceCandidate>,
+  copy: Awaited<ReturnType<typeof generateSkeletonCopy>>,
+  distances: Awaited<ReturnType<typeof getDistancesForStopPairs>>,
+  currency: string
+): Array<Record<string, unknown>> {
+  return skeleton.map((s, i) => {
+    const place = candidateById.get(s.id)!;
+    const dist = i > 0 ? distances[i - 1] : null;
+    const stopCopy = copy.stops[s.id];
+    const description = stopCopy
+      ? stopCopy.description + (stopCopy.highlight ? ` ${stopCopy.highlight}` : "")
+      : `前往 ${place.name}。`;
+
+    return {
+      id: s.id,
+      placeId: s.id,
+      name: place.name,
+      description,
+      duration_minutes: s.estimatedDurationMinutes,
+      time_of_day: s.time_of_day,
+      ...(dist ? { transport_from_prev: describeTransport(dist.mode, dist.durationSeconds) } : {}),
+      estimated_cost: estimateAttractionCost(currency, place.priceLevel),
+      lat: s.lat,
+      lng: s.lng,
+      address: place.address,
+      rating: place.rating ?? null,
+      photoName: place.photoName ?? null,
+    };
+  });
+}
+
 /**
  * Rule-engine path for generateDayStops (plan/hybrid-rule-engine-scheduling.md
  * Phase 3, section 0.1 point 6's京都 end-to-end chain, now wired into a real
@@ -312,34 +547,9 @@ async function generateDayStopsViaScheduler(
       ),
     ]);
 
-    return skeletonsByDay.map((skeleton, dayIdx) => {
-      const copy = copies[dayIdx];
-      const distances = distancesByDay[dayIdx];
-      return skeleton.map((s, i) => {
-        const place = candidateById.get(s.id)!;
-        const dist = i > 0 ? distances[i - 1] : null;
-        const stopCopy = copy.stops[s.id];
-        const description = stopCopy
-          ? stopCopy.description + (stopCopy.highlight ? ` ${stopCopy.highlight}` : "")
-          : `前往 ${place.name}。`;
-
-        return {
-          id: s.id,
-          placeId: s.id,
-          name: place.name,
-          description,
-          duration_minutes: s.estimatedDurationMinutes,
-          time_of_day: s.time_of_day,
-          ...(dist ? { transport_from_prev: describeTransport(dist.mode, dist.durationSeconds) } : {}),
-          estimated_cost: estimateAttractionCost(currency, place.priceLevel),
-          lat: s.lat,
-          lng: s.lng,
-          address: place.address,
-          rating: place.rating ?? null,
-          photoName: place.photoName ?? null,
-        };
-      });
-    });
+    return skeletonsByDay.map((skeleton, dayIdx) =>
+      assembleScheduledStops(skeleton, candidateById, copies[dayIdx], distancesByDay[dayIdx], currency)
+    );
   } catch (err) {
     console.warn("[generateDayStopsViaScheduler] falling back to LLM:", err);
     return null;

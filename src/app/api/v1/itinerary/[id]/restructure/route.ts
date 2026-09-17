@@ -145,7 +145,7 @@ async function buildCityBlock(
       // is mostly a safety net — but if a new city that used to sit here got
       // removed again in this same session, this day still points at the
       // old next city and needs its stops/transitTo refreshed.
-      const stops = await generateTransitDayStops(city.name, nextCity.name, currency).catch(() => []);
+      const stops = await generateTransitDayStops(city.name, nextCity.name, currency, budget, preferenceIntent).catch(() => []);
       structuralKept = structuralKept.map((d, i) =>
         i === outboundIdx
           ? { ...d, stops, transitTo: nextCity.name, theme: `移動日：前往${nextCity.name}` }
@@ -163,7 +163,7 @@ async function buildCityBlock(
     const prevCity = idx > 0 ? cities[idx - 1] : undefined;
     let leadingInDay: Record<string, unknown> | null = null;
     if (prevCity?.isNew) {
-      const stops = await generateTransitDayStops(prevCity.name, city.name, currency).catch(() => []);
+      const stops = await generateTransitDayStops(prevCity.name, city.name, currency, budget, preferenceIntent).catch(() => []);
       leadingInDay = {
         id: crypto.randomUUID(),
         day: 0,
@@ -255,7 +255,7 @@ async function buildCityBlock(
   const nights = Math.max(1, city.targetDays - 1);
 
   const [transitStops, sightseeingStops, mealsAndAccommodation] = await Promise.all([
-    generateTransitDayStops(fromCityName, city.name, currency).catch(() => []),
+    generateTransitDayStops(fromCityName, city.name, currency, budget, preferenceIntent).catch(() => []),
     aiDayCount > 0
       ? generateDayStops(city.name, aiDayCount, currency, lockedPlaceIds, budget, preferenceIntent).catch(() =>
           Array.from({ length: aiDayCount }, () => [])
