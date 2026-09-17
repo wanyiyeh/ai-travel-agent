@@ -1,9 +1,55 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { searchPlaceText, getCityCenter, PlacesApiError, type TextSearchPlace } from "@/lib/placesTextSearch";
+import { lookupByQuery, upsertPlace } from "@/lib/placeCache";
 import { nearestCity } from "@/lib/nearestCity";
 import { haversineKm, MAX_PLAUSIBLE_DISTANCE_KM } from "@/lib/distanceMatrix";
 import { PRICE_LEVEL_MAP } from "@/lib/fetchCityRestaurants";
+
+// This route's Text Search calls (Enterprise+Atmosphere tier: rating +
+// priceLevel + photos in the field mask) previously bypassed placeCache
+// entirely, unlike every other Text Search path in the app — a retried or
+// repeated "add city"/"add attraction" search re-billed Google every time
+// for the exact same query. Cache namespaces are kept distinct per search
+// mode since the same query text can resolve differently depending on which
+// city (or none) it's biased toward.
+// Note: like every other placeCache-backed enrich path, priceLevel isn't
+// persisted through the cache (CachedPlace has no priceLevel field), so a
+// cache hit here returns priceLevel: undefined rather than a stale/wrong
+// value.
+async function cachedSearchPlaceText(
+  cacheKey: string,
+  query: string,
+  apiKey: string,
+  locationBias?: { lat: number; lng: number } | null,
+  includedType?: string,
+): Promise<TextSearchPlace | null> {
+  const cached = await lookupByQuery(cacheKey);
+  if (cached && cached.lat != null && cached.lng != null) {
+    return {
+      id: cached.placeId,
+      displayName: { text: cached.name },
+      formattedAddress: cached.address ?? "",
+      location: { latitude: cached.lat, longitude: cached.lng },
+      rating: cached.rating ?? undefined,
+      photos: cached.photoName ? [{ name: cached.photoName }] : undefined,
+    };
+  }
+
+  const place = await searchPlaceText(query, apiKey, locationBias, includedType);
+  if (place) {
+    await upsertPlace(cacheKey, {
+      placeId: place.id,
+      name: place.displayName.text,
+      address: place.formattedAddress,
+      lat: place.location.latitude,
+      lng: place.location.longitude,
+      rating: place.rating ?? null,
+      photoName: place.photos?.[0]?.name ?? null,
+    });
+  }
+  return place;
+}
 
 const RequestSchema = z.object({
   query: z.string().min(1),
@@ -40,8 +86,8 @@ async function resolvePlace(
     const biased = await Promise.all(
       centers
         .filter((c): c is { city: string; center: { lat: number; lng: number } } => c.center !== null)
-        .map(async ({ center }) => {
-          const found = await searchPlaceText(query, apiKey, center);
+        .map(async ({ city, center }) => {
+          const found = await cachedSearchPlaceText(`attraction-search:${city}:${query}`, query, apiKey, center);
           if (!found) return null;
           const distanceKm = haversineKm(found.location.latitude, found.location.longitude, center.lat, center.lng);
           return { place: found, distanceKm };
@@ -54,7 +100,7 @@ async function resolvePlace(
     // candidate city, so a legitimately-distant/ambiguous attraction still
     // surfaces something rather than a hard "not found" — the frontend's
     // nearestCity threshold check below sends those to manual disambiguation.
-    return best ? best.place : await searchPlaceText(query, apiKey);
+    return best ? best.place : await cachedSearchPlaceText(`attraction-search:unbiased:${query}`, query, apiKey);
   }
 
   // No cityHint and no candidateCities means this is the restructure flow's
@@ -64,11 +110,11 @@ async function resolvePlace(
   // name text-matching a same-sounding shop name with no location bias to
   // rule it out).
   if (!cityHint) {
-    return searchPlaceText(query, apiKey, null, "locality");
+    return cachedSearchPlaceText(`city-add-search:${query}`, query, apiKey, null, "locality");
   }
 
   const locationBias = await getCityCenter(cityHint, apiKey);
-  return searchPlaceText(query, apiKey, locationBias);
+  return cachedSearchPlaceText(`place-search:${cityHint}:${query}`, query, apiKey, locationBias);
 }
 
 // Backs both "search a city to add" (no candidateCities) and "search a named

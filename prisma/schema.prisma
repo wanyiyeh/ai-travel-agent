@@ -202,3 +202,17 @@ model NearestStationCache {
   station   String?  // JSON-encoded NearestStation, or null = confirmed none found
   updatedAt DateTime @updatedAt
 }
+
+// Routes API (Compute Route Matrix) result for a single origin/destination
+// pair + travel mode (see getDistance/getDistancesForStopPairs in
+// distanceMatrix.ts). cacheKey encodes rounded origin/destination coords (or
+// raw address string) + mode so distinct call shapes never collide; origin
+// and destination are kept in order (not canonicalized) since duration can
+// differ by direction. Never written when the API call fails or reports no
+// route, so a transient error or a genuinely routeless pair retries next
+// time instead of getting pinned.
+model DistanceCache {
+  cacheKey  String   @id
+  distance  String   // JSON-encoded DistanceResult
+  updatedAt DateTime @updatedAt
+}

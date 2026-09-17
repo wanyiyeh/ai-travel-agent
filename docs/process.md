@@ -304,3 +304,74 @@
   真正接進 `generate-stream/route.ts`）、`assignCityBlocks.ts` 接線（如果
   之後要做，需要先補上 Phase 4 那輪發現的兩個落差）、以及一直懸而未決的
   UI 驗證。
+
+---
+
+## 2026-09-18
+
+延續 [plan/hybrid-rule-engine-scheduling.md](../plan/hybrid-rule-engine-scheduling.md) Phase 5(c)：把前一天做好的
+`assembleItineraryDays()` 真正接進 `generate-stream/route.ts`——整個混合架構計畫第一次
+真的動到使用者看得到的生成流程。
+
+### 1. `assembleItineraryDays()` 加 progress callback（分支 `feat/generate-stream-sse-v2`）
+
+- 設計時發現這個函式目前是黑盒——呼叫者要等它整個跑完才拿得到結果，沒有中間
+  進度可以往外送。要做到「秒回骨架」必須讓它在城市規劃完成、每一天組好時就
+  通知呼叫端。新增選填的 `onProgress` callback，`planTrip()` 成功後立刻送
+  `{type:"plan", title, currency, cities}`，每組完一天立刻送
+  `{type:"day", day}`（順手把函式尾端「跑完全部才用 `.map()` 補 `day` 編號」
+  的作法改成即時遞增計數器）。
+- **順手修一個 (b) 遺留的真 bug**：`generateMealsAndAccommodation()` 本身沒有
+  try/catch，API 錯誤或格式錯誤的回應會直接拋出——`restructure/route.ts`
+  每個呼叫點都有包 `.catch()` 降級，但 `assembleItineraryDays()` 少了這層，
+  等於「這個函式從不拋錯」的既有承諾其實有漏洞。補上跟 restructure 同款的
+  降級模式。
+
+### 2. `generate-stream/route.ts` 接線
+
+- 在現有的大 prompt 重試迴圈**之前**插一段「先試規則引擎路徑」：成功就存檔、
+  送 `complete` 事件；`planTrip()` 回傳 `null`、拋錯、或最後
+  `validateItinerary` 卡到硬性錯誤，都乾淨落到下面完全不變的舊流程——舊流程
+  程式碼一行沒動，把風險壓到最低。
+- **發現一個資料保留的細節**：既有的 `addIdsToItinerary` 對每個 stop 一律指派
+  新的 `crypto.randomUUID()`，這是為了給「LLM 從來不會給 id」的舊流程補 id。
+  但新路徑的 stop 早就帶有真實 placeId（Phase 3/4 的 `assembleScheduledStops`
+  查來的）當 id——直接套用會把這個真實資料原地覆蓋掉，白白浪費掉已經解析好
+  的地點連結。新增 `addIdsPreservingExisting`，只在 stop 真的缺 id 時
+  （LLM fallback 產出的部分）才補新的。
+- 新路徑失敗時如果已經送出過 `plan`/`day` 事件，補送一個既有的 `retry` 事件
+  讓前端清掉這些漸進式 state，再進入舊流程——沿用 `retry` 事件本來就有的
+  「清掉舊 partial 內容」語意，不用新增事件類型。
+
+### 3. 前端：`useStreamingGenerate.ts` / `StreamingPreview.tsx`
+
+- Hook 新增 `plan`/`days` state，處理新的 `plan`/`day` 事件；`complete` 事件
+  維持原樣（一律信任 `data.data` 當最終結果，新舊路徑共用同一份邏輯，兩條
+  路徑在前端完全獨立、互不影響）。
+- `StreamingPreview` 新增一個渲染分支：`plan` 存在時先畫出城市/天數骨架
+  （例如「東京 3天 → 京都 2天 → 大阪 1天」），已抵達的 `day` 事件換成真實
+  內容，還沒到的維持 skeleton loader；`plan` 不存在時完全維持舊的 regex
+  解析渲染邏輯（現有 fallback 行為不動）。
+
+### 4. 驗證
+
+- `tsc`/`lint`/`test`（168個）全過。
+- 腳本層級驗證（東京大阪7天真實請求）：事件依序正確送出（`plan` →
+  `day 1`...`day 7`，天數嚴格遞增）、`plan` 事件到第一個 `day` 事件間隔約6秒
+  ——確認「秒回骨架」這個設計目標真的有達成。
+- 使用者在 `npm run dev` 上實際測試瀏覽器端到端流程，確認通過。
+
+### 今天的結論
+
+- Phase 5(c) 完成，也是整個混合架構重構第一次真正影響使用者會看到的畫面
+  （前面 Phase 0-4、Phase 5(a)(b) 都只是把積木做好、獨立驗證，從沒接進真實
+  使用者路徑）。設計上刻意把新路徑做成「先試、失敗就乾淨退回舊流程」，舊
+  流程程式碼完全不動，把這次真正上生產路徑的風險壓到最低。
+- 過程中又抓到一個 (b) 遺留的真 bug（`generateMealsAndAccommodation` 缺
+  `.catch()`）和一個容易忽略的資料保留細節（真實 placeId 不能被
+  `addIdsToItinerary` 洗掉）——這是這個計畫第四次「靠真實資料驗證才抓到的
+  問題，不是單元測試測得出來的」。
+- 下一步：`generate-stream` 的規則引擎路徑正式上線後，觀察一段時間的真實
+  使用狀況（fallback 觸發頻率、生成品質）；Phase 6（清理 `itineraryCityGen.ts`
+  裡的舊整段生成呼叫、簡化 `buildSystemPrompt()`）等規則引擎路徑穩定後再做；
+  `assignCityBlocks.ts` 接線、Phase 3 的 UI 驗收標準仍然懸而未決。

@@ -16,7 +16,7 @@
 | Phase 2 | 🟡 骨架比對已有數據，時長估計已擱置 | `scripts/shadow-compare-scheduler.ts`（`npm run shadow-compare`，`--verbose` 看逐天明細）讀種子行程資料庫比對順序/時段：42 個可比較天數，順序完全相同 36%、平均每站位置差 0.64、`time_of_day` 一致率 43%。時長估計追查了兩層：(1) 用 `scripts/backfill-place-types.ts` + `mapPlaceTypeToCategory.ts` 補真實 Place type（108 站中 83 站對照到），但平均時長差不減反增（63→67 分鐘）；(2) 用 `scripts/calibrate-duration-table.ts` 想拿真實 `duration_minutes` 校準對照表，結果發現 LLM 本身 53% 的時候不分類型一律給 120 分鐘——**LLM 的 duration_minutes 不是可信的「依類型估時長」ground truth，往它校準沒有意義**。決定：維持現有 placeholder 對照表，時長估計標記為近似值、非這次重構的賣點，先往下推進其他階段（詳見第7節） |
 | Phase 3 | 🟡 已接進真實路由，還缺真人 UI 測試 | `generateDayStops()` 已改走規則引擎骨架（PR #11），budget/`PreferenceIntent` 也接上了（見 0.2 節）。剩下「單城市試點」驗收標準裡唯一沒做的是真人在 UI 上走一次「重新規劃行程」精靈——目前只有腳本層級的真實 API 驗證，沒有瀏覽器端到端測試 |
 | Phase 4 | 🟡 transit day 已接進真實路由，範圍跟原計畫不同 | 原計畫寫的是「把 `assignCityBlocks.ts` 接上 restructure 城市分塊邏輯」，探索後發現風險高、價值低（見 0.3 節），改成「把 `generateTransitDayStops` 的到達景點換成規則引擎，交通方式/距離判斷仍交給 LLM」（PR #13）。`assignCityBlocks.ts` 接線本身還沒做 |
-| Phase 5 | 🟡 子階段(a)(b)已完成，(c)未開始 | 規模比原計畫描述大得多，拆成三個獨立子階段（見第5.1節設計提案）：(a) 行程規劃 LLM 呼叫 + 回程日拼圖——**已完成**（見 0.4 節，抓到一個 prompt 強度不足的 bug）；(b) 逐城市套用 Phase 3/4 既有管線，組出完整行程——**已完成**（見 0.5 節，抓到兩個真的資料落差：移動日缺住宿、同城市區塊景點重複）；(c) SSE 協定 v2 + 前端重寫——還沒開始。`assembleItineraryDays()` 目前完全沒接進 `generate-stream/route.ts` |
+| Phase 5 | ✅ 三個子階段全部完成 | 規模比原計畫描述大得多，拆成三個獨立子階段（見第5.1節設計提案）：(a) 行程規劃 LLM 呼叫 + 回程日拼圖（見 0.4 節，抓到一個 prompt 強度不足的 bug）；(b) 逐城市套用 Phase 3/4 既有管線，組出完整行程（見 0.5 節，抓到兩個真的資料落差：移動日缺住宿、同城市區塊景點重複）；(c) SSE 協定 v2 + 前端重寫，真正接進 `generate-stream/route.ts`（見 0.6 節，又抓到兩個問題：缺 `.catch()`、真實 placeId 會被舊的 id 賦值邏輯洗掉）。這是整個計畫第一次真正影響使用者會看到的畫面，已通過使用者瀏覽器端到端測試 |
 | Phase 6 | ⬜ 未開始 | 清理舊路徑，見第5節 |
 
 ### 0.1 Phase 3 進度細節
@@ -255,6 +255,46 @@
       記錄的近似值容忍度一致，不是新問題）。
 17. **這個函式這輪只獨立存在、獨立測試，沒有接進 `generate-stream/route.ts`**
     ——接線是 Phase 5(c) 的事，需要新的 SSE 協定才能真的取代現有路由。
+
+### 0.6 Phase 5 子階段(c)：SSE 協定 v2 + 前端重寫，真正接進 generate-stream（已完成）
+
+這是整個混合架構重構第一次真正影響使用者會看到的畫面——前面 Phase 0-4、
+Phase 5(a)(b) 都只是把積木做好、獨立驗證，從沒接進真實使用者路徑。跟使用者
+確認過後選了完整進度式串流（不是先接線再說的簡化版）。
+
+18. **`assembleItineraryDays()` 加 `onProgress` callback**：`planTrip()`
+    成功立刻送 `{type:"plan", title, currency, cities}`，每組完一天立刻送
+    `{type:"day", day}`（改用即時遞增計數器取代原本函式尾端才補 `day` 編號的
+    `.map()`）。純新增選填參數，既有回傳值/呼叫端行為不變。
+19. **順手修一個 (b) 遺留的真 bug**：`generateMealsAndAccommodation()` 本身
+    沒有 try/catch，API 錯誤或格式錯誤回應會直接拋出——`restructure/route.ts`
+    每個呼叫點都有包 `.catch()` 降級，但 `assembleItineraryDays()` 少了這層，
+    「這個函式從不拋錯」的既有承諾其實有漏洞。補上同款降級模式。
+20. **`generate-stream/route.ts` 接線**：在現有大 prompt 重試迴圈**之前**插
+    一段「先試規則引擎路徑」，成功就存檔送 `complete`；`planTrip()` 回傳
+    `null`、拋錯、或 `validateItinerary` 卡到硬性錯誤，都乾淨落到下面完全
+    不變的舊流程——舊流程程式碼一行沒動，風險壓到最低。
+21. **發現一個資料保留的細節**：既有的 `addIdsToItinerary` 對每個 stop 一律
+    指派新的 `crypto.randomUUID()`（為了給「LLM 從不給 id」的舊流程補 id），
+    但新路徑的 stop 早就帶有真實 placeId（Phase 3/4 的
+    `assembleScheduledStops` 查來的）當 id——直接套用會把這份真實資料原地
+    覆蓋掉。新增 `addIdsPreservingExisting`，只在 stop 真的缺 id 時
+    （LLM fallback 產出的部分）才補新的。
+22. **新路徑失敗時的收尾**：如果已經送出過 `plan`/`day` 事件、前端已經渲染
+    了部分新版預覽，這時補送一個既有的 `retry` 事件讓前端清掉這些漸進式
+    state（沿用 `retry` 事件本來就有的「清掉 partial 內容」語意），再進入
+    舊流程。
+23. **前端**：`useStreamingGenerate.ts` 新增 `plan`/`days` state；
+    `complete` 事件維持原樣（一律信任 `data.data`，新舊路徑共用同一份邏輯）。
+    `StreamingPreview.tsx` 新增一個渲染分支——`plan` 存在時先畫出城市/天數
+    骨架（例如「東京 3天 → 京都 2天 → 大阪 1天」），`day` 事件逐一補上真實
+    內容；`plan` 不存在時完全維持舊的 regex 解析渲染邏輯（既有 fallback
+    行為不動）。
+24. **驗證**：`tsc`/`lint`/`test`（168個）全過。腳本層級驗證（東京大阪7天
+    真實請求）確認事件依序正確送出（`plan` → `day 1`...`day 7`，天數嚴格
+    遞增）、`plan` 事件到第一個 `day` 事件間隔約6秒——「秒回骨架」這個設計
+    目標真的有達成，不是空話。**使用者在 `npm run dev` 上實際測試瀏覽器
+    端到端流程，通過**——這是目前為止唯一真的做過瀏覽器測試的階段。
 
 ---
 
