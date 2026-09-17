@@ -207,17 +207,68 @@
   （巴士5小時），`arrivalActivityCount` 判斷為 0，完全跳過候選池查詢，不
   硬塞不合理的到達景點。兩組結果都符合原本 prompt 的短/中/長程規則。
 
+### 4. Phase 5 設計探索：規模比原計畫大得多（`docs/process.md`/`plan/hybrid-rule-engine-scheduling.md`，PR #14）
+
+- 開始規劃 Phase 5（收斂 `generate-stream` 主流程）才發現規模比計畫文件原本
+  一小段描述大得多，有兩個結構性差異跟 Phase 3/4 都不一樣：(1)
+  `StreamingPreview.tsx` 用 regex 硬解析「還沒完整的 JSON 字串」做逐步顯示
+  （括號計數補完未閉合 JSON），跟現有 SSE 逐字元串流格式深度綁定，規則引擎
+  要做到「秒回骨架、文案漸進補上」必須連 SSE 協定和前端一起重新設計；(2)
+  `generate-stream` 完全沒有像 restructure `CitySchema` 那樣結構化的城市
+  清單——去幾個城市、各待幾天是 LLM 在一次 completion 裡自己決定的，沒有
+  現成資料可以直接餵給規則引擎。
+- 寫出完整設計提案（`plan/hybrid-rule-engine-scheduling.md` 第5.1節）：新增
+  「行程規劃」LLM 小呼叫（新能力）+ 逐城市重用 Phase 3/4 管線（幾乎純重用）
+  + 新的「回程日」拼圖（唯一沒有前例、需要全新設計的部分）+ 新 SSE 事件
+  詞彙（`plan`/`day`/`retry`/`complete`/`error`）+ 前端重寫（拿掉 fragile 的
+  regex 解析，改成依結構化事件更新 state）。retry/validation 語意也整個
+  變小：從「整段大 JSON 失敗重來」變成「單一城市/單一天 fallback」。建議
+  拆成三個獨立子階段：(a) 行程規劃呼叫+回程日拼圖、(b) 逐城市套用既有管線、
+  (c) SSE 協定 v2 + 前端重寫。
+- 這一步只產出設計文件，沒有動任何程式碼。
+
+### 5. Phase 5 子階段(a)：行程規劃呼叫 + 回程日拼圖（分支 `explore/generate-stream-phase5`，尚未 merge）
+
+- 新增 `planTrip()`（`src/lib/tripPlan.ts`）：小 LLM 呼叫決定城市清單/天數
+  分配，架構比照 `parsePreferenceIntent()`（Zod 驗證、失敗重試1次、最終
+  失敗回傳 `null`）。同日期單日來回行程直接跳過呼叫（天數加總目標是0，
+  schema 又要求每城市至少1天，怎麼樣都不可能有合法回應，不浪費 API 呼叫）。
+- 新增 `generateDepartureDayStops()`（`itineraryCityGen.ts`）：回程日拼圖，
+  跟 Phase 4 的到達景點不同——**排幾個景點不需要 LLM 判斷**，純粹是拿
+  `returnDepartureTime` 往前推3小時的時鐘算術。先抽一個純函式
+  `computeDepartureDayBudget()`（`src/lib/scheduler/departureDayBudget.ts`，
+  比照 `assignTimeSlots.ts` 慣例）估算塞得下幾個景點，主管線重用跟
+  Phase 3/4 完全同一套（候選池 → `buildDaySkeleton` → 事後用
+  `endMinute <= cutoffMinute` 過濾超時尾段 → `generateSkeletonCopy`），不
+  修改 `assignTimeSlots`/`buildDaySkeleton` 本身。任何一步失敗都回傳空陣列
+  （這個拼圖沒有「純 LLM 版本」可以 fallback，空陣列本身就是合理結果）。
+- **驗證抓到一個真的 bug**：真實測試單城市來回（雪梨5天）時，`planTrip()`
+  兩次嘗試都無視自己的規則，硬加了墨爾本、布里斯本湊成多城市行程——prompt
+  裡「只能有這一個城市」那句太弱。加強成明確的【重要】區塊（強調「這不是
+  開口式行程」、陣列長度必須恰好是1）+ 天數加總的具體範例後，重跑兩次都
+  穩定只回傳一個城市。這跟 Phase 1「不吃辣→no_seafood」是同一種教訓：小
+  prompt 一樣需要夠強的措辭，不能因為輸出結構小就假設模型會乖乖照做。
+- 新增單元測試 `tripPlan.test.ts`（mock OpenAI）、`departureDayBudget.test.ts`
+  （純函式，7個案例）。真實資料驗證：多城市（東京大阪7天）正確分配
+  東京3+京都2+大阪1=6；單城市（雪梨5天）修好後穩定回傳雪梨4；回程日
+  （大阪15:30航班）真實排出3個真實景點；回程日（大阪08:00航班）正確回傳
+  空陣列。
+- **這兩個函式這輪只獨立存在、獨立測試，沒有接進 `generate-stream/route.ts`**
+  ——接線是 Phase 5(b)/(c) 的事。
+
 ### 今天的結論
 
 - Phase 3 規則引擎積木第一次真正接進生產路徑（PR #11），plan 待辦裡
   「budget/PreferenceIntent 怎麼接」也做完了（PR #12）。Phase 4 規劃階段
   發現原定路線（`assignCityBlocks.ts` 接線）風險高價值低，改道把
-  `generateTransitDayStops` 的到達景點換成規則引擎（PR #13）——這是今天
-  第三個、也是規模最大的一次接線。三次改動都刻意把簽章/呼叫端改動壓到
-  最小，出錯就整個 fallback 回舊的純 LLM 行為，風險可控。
+  `generateTransitDayStops` 的到達景點換成規則引擎（PR #13）。Phase 5 規劃
+  時發現規模比原計畫大得多，先產出完整設計提案（PR #14）、再落地第一個
+  子階段（a）——行程規劃呼叫 + 回程日拼圖，過程中又抓到一個 prompt 強度
+  不足的真 bug。四次改動都刻意把簽章/呼叫端改動壓到最小，出錯就 fallback
+  回舊行為或回傳空結果，風險可控。
 - Phase 3「單城市試點」還剩一項驗收標準沒做：真人在 `npm run dev` 上走一次
   「重新規劃行程」UI 流程確認端到端沒問題——目前只有腳本層級的真實 API
   驗證，沒有瀏覽器測試，留給使用者自己做。
-- 下一步：`assignCityBlocks.ts` 接線（如果之後要做，需要先補上今天發現的
-  兩個落差）、Phase 5（收斂 `generate-stream` 主流程）、以及一直懸而未決的
-  UI 驗證。
+- 下一步：Phase 5(b)（逐城市套用既有管線）、Phase 5(c)（SSE 協定 v2 + 前端
+  重寫）、`assignCityBlocks.ts` 接線（如果之後要做，需要先補上 Phase 4 那輪
+  發現的兩個落差）、以及一直懸而未決的 UI 驗證。
