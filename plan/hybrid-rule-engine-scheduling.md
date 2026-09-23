@@ -17,7 +17,7 @@
 | Phase 3 | ✅ 驗收標準已完成 | `generateDayStops()` 已改走規則引擎骨架（PR #11），budget/`PreferenceIntent` 也接上了（見 0.2 節）。瀏覽器端到端測試已補（見 0.7 節）：走完「重新規劃行程」精靈四步驟、真實套用，新增的一天確認吃規則引擎（無 LLM fallback），景點真實無幻覺 |
 | Phase 4 | 🟡 transit day 已接進真實路由，範圍跟原計畫不同 | 原計畫寫的是「把 `assignCityBlocks.ts` 接上 restructure 城市分塊邏輯」，探索後發現風險高、價值低（見 0.3 節），改成「把 `generateTransitDayStops` 的到達景點換成規則引擎，交通方式/距離判斷仍交給 LLM」（PR #13）。`assignCityBlocks.ts` 接線本身還沒做 |
 | Phase 5 | ✅ 三個子階段全部完成 | 規模比原計畫描述大得多，拆成三個獨立子階段（見第5.1節設計提案）：(a) 行程規劃 LLM 呼叫 + 回程日拼圖（見 0.4 節，抓到一個 prompt 強度不足的 bug）；(b) 逐城市套用 Phase 3/4 既有管線，組出完整行程（見 0.5 節，抓到兩個真的資料落差：移動日缺住宿、同城市區塊景點重複）；(c) SSE 協定 v2 + 前端重寫，真正接進 `generate-stream/route.ts`（見 0.6 節，又抓到兩個問題：缺 `.catch()`、真實 placeId 會被舊的 id 賦值邏輯洗掉）。這是整個計畫第一次真正影響使用者會看到的畫面，已通過使用者瀏覽器端到端測試 |
-| Phase 6 | ⬜ 未開始 | 清理舊路徑，見第5節 |
+| Phase 6 | 🟡 只做了無風險清理，範圍縮小 | 探索後發現原計畫「移除 `itineraryCityGen.ts` 舊整段生成呼叫、精簡 `buildSystemPrompt()`」目前做不得——那套舊流程是 `generate-stream/route.ts` 規則引擎路徑失敗時的真實 fallback，不是死路徑；跟使用者確認後縮小範圍成「只刪確定沒人在用的舊程式碼」，見 0.8 節 |
 
 ### 0.1 Phase 3 進度細節
 
@@ -334,6 +334,49 @@ Phase 5(a)(b) 都只是把積木做好、獨立驗證，從沒接進真實使用
     的規則，但異動內容還在工作目錄未提交，你可以自行決定要保留（這個測試本
     身把一個空的第6天配上了新的規則引擎生成第7天，內容是合理的）還是用
     `git checkout -- prisma/dev.db` 還原到測試前狀態。
+
+### 0.8 Phase 6：範圍縮小為無風險清理（進行中）
+
+30. **重新檢視原計畫範圍，發現不能直接照做**：第5節原寫的 Phase 6 是「移除
+    `itineraryCityGen.ts` 裡舊的整段生成呼叫、簡化 `buildSystemPrompt()`」，
+    但實際讀 `generate-stream/route.ts`（第119-228行）發現，舊的整段 LLM
+    生成流程**不是死路徑**——它是規則引擎路徑（`assembleItineraryDays`/
+    `planTrip`）失敗時的真實 fallback：`planTrip()` 回傳 `null`、拋錯、或
+    `validateItinerary` 判定硬性錯誤，都會乾淨落到舊流程繼續嘗試。而規則引擎
+    路徑目前只有 Phase 2 影子模式的統計數據（順序完全相同僅36%、
+    `time_of_day` 一致率43%）+ 少數腳本層級驗證 + 這次 0.7 節唯一一次的單
+    城市瀏覽器端到端測試，從沒真的測過多城市／transit day／budget 篩選情境
+    下規則引擎路徑會不會失敗。這正好對應第5節 Phase 6 自己寫的前提「確認新
+    流程穩定後」——這個前提現在還不成立，直接刪掉 fallback 會讓規則引擎路徑
+    一失敗使用者就整趟拿不到行程，跟使用者確認後決定縮小範圍。
+31. **範圍縮小為「只刪確定沒人在用的舊程式碼」**：`buildSystemPrompt()` 和
+    `generate-stream` 的 LLM fallback 整段保留不動；`itineraryCityGen.ts`
+    裡的 `generateDayStopsWithLLM`/`generateTransitDayStopsWithLLM` 因為仍是
+    `generateDayStops()`/`generateTransitDayStops()` 自己的 fallback 分支，
+    同樣不算死碼，保留。真正要做的是「更早幾輪探索留下、後來被取代或決定
+    不用、但從沒清掉」的程式碼。
+32. **盤點 `src/lib/scheduler/` 九個模組的實際被引用數**（排除自己的
+    `.test.ts`），找到兩個零外部引用者：
+    - `assignCityBlocks.ts`——**不算真的死碼，故意不刪**。這是 Phase 4（見
+      0.3 節第9點）探索後明確決定「維持未接線狀態」的積木，不是被取代，是
+      考慮過風險/價值後暫時擱置、留著給之後真要修 `structuralDaysUsed`
+      算式或补上「day 保留 vs 重新生成」邏輯時用。刪掉它不會降低任何現有
+      風險，只是丟掉已經做完的探索成果，所以留著，只在這裡記錄一筆。
+    - `hintsToStopCandidates.ts`——**確認是真死碼，已刪除**（連同
+      `hintsToStopCandidates.test.ts`）。這是 Phase 3 探索初期（0.1 節第2
+      點）寫的候選池 adapter，同一節第5、6點很快就發現不需要 IATA、改走
+      `fetchNearbyPlaceCandidates` 之後，被功能等價但更簡單的
+      `placeCandidatesToStopCandidates.ts` 取代（見該檔案原始碼裡自己的
+      註解就寫著「Simpler than hintsToStopCandidates.ts」）。搜尋整個
+      `src/` 確認只有它自己的測試檔案引用它，沒有任何生產路徑呼叫
+      `hintsToStopCandidates()`。刪除後 `tsc --noEmit`、`npm test`
+      （163個測試全過，比刪除前少5個——剛好是被刪的測試檔案的案例數）、
+      `eslint` 三項都乾淨。
+33. **還沒做的（維持 Phase 6 灰燈的原因）**：`buildSystemPrompt()` 精簡、
+    舊整段生成呼叫移除——這兩項照原計畫的前提，要等規則引擎路徑在多城市／
+    transit day／budget 篩選情境也有足夠真實驗證（不只是單城市），才有資格
+    重新評估。下一步建議是 0.2 節提到的「先擴大 Phase 5(b) 的多城市/transit
+    day 真實測試」，而不是繼續往這個方向清理。
 
 ---
 
