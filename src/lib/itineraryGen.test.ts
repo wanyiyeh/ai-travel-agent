@@ -159,11 +159,24 @@ describe("repairMissingAccommodation", () => {
     expect(repaired[1].accommodation).toBeNull();
   });
 
-  it("does not touch a transit day even when it has no accommodation", () => {
+  it("fills a missing transit day from the next day's accommodation, not a prior day's", () => {
+    // A transit day sleeps in the arrival city that night — its accommodation
+    // is set on the day(s) generated for that city, which come after it, not
+    // the departure city's hotel from before it.
     const days = [
       { day: 1, accommodation: { name: "東京飯店" } },
       { day: 2, isTransitDay: true, accommodation: null },
       { day: 3, accommodation: { name: "大阪飯店" } },
+    ];
+    const repaired = repairMissingAccommodation(days);
+    expect(repaired[1].accommodation).toEqual({ name: "大阪飯店" });
+  });
+
+  it("leaves a missing transit day as-is when no later day has accommodation to reuse", () => {
+    const days = [
+      { day: 1, accommodation: { name: "東京飯店" } },
+      { day: 2, isTransitDay: true, accommodation: null },
+      { day: 3, accommodation: null },
     ];
     const repaired = repairMissingAccommodation(days);
     expect(repaired[1].accommodation).toBeNull();

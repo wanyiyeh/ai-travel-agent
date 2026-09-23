@@ -100,9 +100,28 @@ export async function POST(
 
           const query = buildMealQuery(originalName, cityHint);
 
+          // Unlike stops (checked against sibling-stop centroid below), a meal
+          // has no siblings to compare against — so check it against the
+          // day's city-center bias instead. Without this, Text Search can
+          // silently resolve an AI-invented restaurant name to a same/similar
+          // -named place in the wrong country (e.g. Beirut for a Cairo day)
+          // since REJECT_KM_THRESHOLD in placesTextSearch.ts is 1500km, far
+          // looser than what "same city" actually requires.
+          const tooFarFromCity = (lat: number, lng: number): boolean =>
+            !!cityBias && haversineKm(lat, lng, cityBias.lat, cityBias.lng) > SUSPICIOUS_KM;
+
           try {
             const cached = await lookupByQuery(query);
             if (cached && cached.lat != null && cached.lng != null) {
+              if (tooFarFromCity(cached.lat, cached.lng)) {
+                failedCount++;
+                suspiciousStops.push({
+                  name: displayName,
+                  day: typeof day.day === "number" ? day.day : 0,
+                  reason: `快取地點距 ${cityHint || "行程城市"} 過遠，未套用`,
+                });
+                continue;
+              }
               meals[mealKey] = {
                 ...meal,
                 name: displayName,
@@ -117,6 +136,17 @@ export async function POST(
               const place = await searchPlaceText(query, apiKey, cityBias);
               if (!place) {
                 failedCount++;
+                continue;
+              }
+              if (tooFarFromCity(place.location.latitude, place.location.longitude)) {
+                failedCount++;
+                suspiciousStops.push({
+                  name: displayName,
+                  day: typeof day.day === "number" ? day.day : 0,
+                  reason: `距 ${cityHint || "行程城市"} 約 ${Math.round(
+                    haversineKm(place.location.latitude, place.location.longitude, cityBias!.lat, cityBias!.lng),
+                  )} km，地點可能搜尋有誤，未套用`,
+                });
                 continue;
               }
               const priceLevel = place.priceLevel ? (PRICE_LEVEL_MAP[place.priceLevel] ?? null) : null;

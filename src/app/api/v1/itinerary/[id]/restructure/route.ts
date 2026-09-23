@@ -198,9 +198,10 @@ async function buildCityBlock(
     const newDaysNeeded = extraCount + lockedCount;
     const [extraStops, mealsAndAccommodation] = await Promise.all([
       extraCount > 0
-        ? generateDayStops(city.name, extraCount, currency, lockedPlaceIds, budget, preferenceIntent).catch(() =>
-            Array.from({ length: extraCount }, () => [])
-          )
+        ? generateDayStops(city.name, extraCount, currency, lockedPlaceIds, budget, preferenceIntent).catch((err) => {
+            console.error(`[Restructure] generateDayStops failed for ${city.name} (${extraCount} days):`, err);
+            return Array.from({ length: extraCount }, () => []);
+          })
         : Promise.resolve([]),
       newDaysNeeded > 0
         ? generateMealsAndAccommodation(city.name, newDaysNeeded, currency).catch(() => ({
@@ -211,6 +212,14 @@ async function buildCityBlock(
     ]);
     const hasGeneratedAccommodation = Object.keys(mealsAndAccommodation.accommodation).length > 0;
     const accommodation = reusableAccommodation ?? (hasGeneratedAccommodation ? mealsAndAccommodation.accommodation : undefined);
+
+    // leadingInDay was built above, before this city's accommodation was
+    // known — the traveler sleeps in `city.name` (this block) that night,
+    // not prevCity, so back-fill it now rather than leaving it null (see the
+    // matching comment on the new-city branch's own `transitDay` below).
+    if (leadingInDay) {
+      leadingInDay = { ...leadingInDay, accommodation };
+    }
 
     const extraDays = extraStops.map((stops, i) => ({
       id: crypto.randomUUID(),
@@ -255,11 +264,15 @@ async function buildCityBlock(
   const nights = Math.max(1, city.targetDays - 1);
 
   const [transitStops, sightseeingStops, mealsAndAccommodation] = await Promise.all([
-    generateTransitDayStops(fromCityName, city.name, currency, budget, preferenceIntent).catch(() => []),
+    generateTransitDayStops(fromCityName, city.name, currency, budget, preferenceIntent).catch((err) => {
+      console.error(`[Restructure] generateTransitDayStops failed for ${fromCityName} -> ${city.name}:`, err);
+      return [];
+    }),
     aiDayCount > 0
-      ? generateDayStops(city.name, aiDayCount, currency, lockedPlaceIds, budget, preferenceIntent).catch(() =>
-          Array.from({ length: aiDayCount }, () => [])
-        )
+      ? generateDayStops(city.name, aiDayCount, currency, lockedPlaceIds, budget, preferenceIntent).catch((err) => {
+          console.error(`[Restructure] generateDayStops failed for ${city.name} (${aiDayCount} days):`, err);
+          return Array.from({ length: aiDayCount }, () => []);
+        })
       : Promise.resolve([]),
     generateMealsAndAccommodation(city.name, nights, currency).catch(() => ({
       accommodation: {},
@@ -281,6 +294,10 @@ async function buildCityBlock(
     // groups it into an unnamed bucket next time the panel is opened.
     waypointCity: fromCityName,
     stops: transitStops,
+    // The traveler sleeps in transitTo (city.name) that night, not the
+    // departure city — validateItinerary.ts's ACCOMMODATION_MISSING rule
+    // treats a transit day without this as an error.
+    accommodation,
   };
 
   const sightseeingDays = sightseeingStops.map((stops, i) => ({
@@ -387,16 +404,32 @@ export async function POST(
 
     const dayDelta = finalDays.length - days.length;
     const flightInfo = config.flightInfo as Record<string, unknown> | undefined;
-    const updatedConfig =
-      dayDelta !== 0 && typeof flightInfo?.returnDate === "string"
-        ? {
-            ...config,
-            flightInfo: {
-              ...flightInfo,
-              returnDate: shiftDateString(flightInfo.returnDate, dayDelta),
-            },
-          }
-        : config;
+    // totalDays is re-synced every restructure regardless of dayDelta, since
+    // it can already be stale from a past restructure that grew/shrank the
+    // trip before this fix existed (dayDelta===0 here wouldn't otherwise
+    // touch it).
+    const updatedConfig = {
+      ...config,
+      totalDays: finalDays.length,
+      ...(dayDelta !== 0 && typeof flightInfo?.returnDate === "string"
+        ? { flightInfo: { ...flightInfo, returnDate: shiftDateString(flightInfo.returnDate, dayDelta) } }
+        : {}),
+    };
+
+    const warnings: string[] = [];
+    for (const d of finalDays as Record<string, unknown>[]) {
+      const dayNum = d.day as number;
+      const isLast = dayNum === finalDays.length;
+      if (!isLast && !d.accommodation) {
+        warnings.push(`第 ${dayNum} 天缺少住宿`);
+      }
+      if (d.isTransitDay !== true && !d.isLocked && Array.isArray(d.stops) && d.stops.length === 0) {
+        warnings.push(`第 ${dayNum} 天（${d.theme}）沒有任何景點`);
+      }
+    }
+    if (warnings.length > 0) {
+      console.warn(`[Restructure] itinerary ${itineraryId} saved with issues:`, warnings);
+    }
 
     await prisma.$transaction([
       prisma.itinerary.update({
@@ -410,6 +443,7 @@ export async function POST(
       success: true,
       removedDayCount: discardedDays.length,
       addedDayCount: finalDays.length - keptIds.size,
+      warnings,
     });
   } catch (error) {
     console.error("[Restructure Itinerary Error]", error);
