@@ -317,9 +317,14 @@ export function repairMissingAccommodation<
 >(days: T[]): T[] {
   const lastDayNum = days.length;
   return days.map((day, i) => {
-    if (day.day === lastDayNum || day.isTransitDay || day.accommodation) return day;
+    if (day.day === lastDayNum || day.accommodation) return day;
 
-    const source = days.slice(0, i).reverse().find((d) => d.accommodation);
+    // A transit day sleeps in the arrival city, whose accommodation is set
+    // on the following day(s) it generated together with — not a prior
+    // day's (departure-city) hotel — so search forward instead of back.
+    const source = day.isTransitDay
+      ? days.slice(i + 1).find((d) => d.accommodation)
+      : days.slice(0, i).reverse().find((d) => d.accommodation);
     if (!source?.accommodation) return day;
 
     console.warn(

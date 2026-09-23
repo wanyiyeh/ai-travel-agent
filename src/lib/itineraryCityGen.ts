@@ -483,7 +483,10 @@ async function generateDayStopsWithLLM(
 
   return Array.from({ length: stayDays }, (_, i) => {
     const stops = aiDays[i]?.stops;
-    if (!Array.isArray(stops)) return [];
+    if (!Array.isArray(stops) || stops.length === 0) {
+      console.warn(`[generateDayStopsWithLLM] ${cityName} day ${i + 1}/${stayDays} came back with no stops`);
+      return [];
+    }
     return stops.map((stop) => ({
       ...(stop as Record<string, unknown>),
       id: crypto.randomUUID(),

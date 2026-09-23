@@ -14,7 +14,7 @@ import {
 import { PlacePhotoThumb } from "@/components/PlacePhotoThumb";
 import TransitRecommendationCard from "@/components/TransitRecommendationCard";
 import type { TransitRecommendation } from "@/types/itinerary";
-import { SUSPICIOUS_DISTANCE_KM as NEAREST_CITY_KM_THRESHOLD, haversineKm } from "@/lib/distanceMatrix";
+import { SUSPICIOUS_DISTANCE_KM as NEAREST_CITY_KM_THRESHOLD, haversineKm } from "@/lib/geo";
 import { iataToCity } from "@/lib/airports";
 import { useItinerarySensors } from "@/hooks/useItinerarySensors";
 import { useSortableItem } from "@/hooks/useSortableItem";

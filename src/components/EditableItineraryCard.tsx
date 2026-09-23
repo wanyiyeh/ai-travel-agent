@@ -24,7 +24,7 @@ import { AccommodationPicker } from "@/components/AccommodationPicker";
 import { MealPicker } from "@/components/MealPicker";
 import { StopPicker } from "@/components/StopPicker";
 import { PlacePhotoThumb } from "@/components/PlacePhotoThumb";
-import { haversineKm } from "@/lib/distanceMatrix";
+import { haversineKm } from "@/lib/geo";
 import { calculateStopsCost, calculateDayTotalCost } from "@/lib/costCalculations";
 import { buildPlaceMapsUrl, buildDirectionsUrl, buildSearchMapsUrl } from "@/lib/googleMapsUrl";
 import { formatDuration } from "@/types/itinerary";
