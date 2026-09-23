@@ -14,7 +14,7 @@
 | 3.1-3.3 規則引擎積木 | ✅ 完成（未接上任何路由） | `assignCityBlocks.ts`（實作為 `planCityBlocks`）、`selectAndOrderStops.ts`、`assignTimeSlots.ts`（duration/pace/meal window 版）、`buildDaySkeleton.ts`（組裝前三者）皆為純函式，各自有單元測試 |
 | Phase 1 | ✅ 驗收標準已完成 | `scripts/validate-preference-intent.ts`（`npm run validate-preference-intent`）對 18 組常見自由文字（單一/多重訊號、中性、矛盾、英文、邊界案例）跑真實 `parsePreferenceIntent()` 並人工抽查。**過程中抓到一個真的 bug**：「不吃辣」有約 60% 機率被誤解析成 `no_seafood`（因為 prompt 的 dietaryRestrictions 範例清單沒有辣度相關標籤，模型會套用最接近的範例），已在 `SYSTEM_PROMPT` 加入 `no_spicy`/`no_beef` 範例並明確要求「標籤要對應使用者實際說的限制，不要套用最接近的範例」，修復後重跑 6 次皆正確。其餘 17 組結果人工檢查合理 |
 | Phase 2 | 🟡 骨架比對已有數據，時長估計已擱置 | `scripts/shadow-compare-scheduler.ts`（`npm run shadow-compare`，`--verbose` 看逐天明細）讀種子行程資料庫比對順序/時段：42 個可比較天數，順序完全相同 36%、平均每站位置差 0.64、`time_of_day` 一致率 43%。時長估計追查了兩層：(1) 用 `scripts/backfill-place-types.ts` + `mapPlaceTypeToCategory.ts` 補真實 Place type（108 站中 83 站對照到），但平均時長差不減反增（63→67 分鐘）；(2) 用 `scripts/calibrate-duration-table.ts` 想拿真實 `duration_minutes` 校準對照表，結果發現 LLM 本身 53% 的時候不分類型一律給 120 分鐘——**LLM 的 duration_minutes 不是可信的「依類型估時長」ground truth，往它校準沒有意義**。決定：維持現有 placeholder 對照表，時長估計標記為近似值、非這次重構的賣點，先往下推進其他階段（詳見第7節） |
-| Phase 3 | 🟡 已接進真實路由，還缺真人 UI 測試 | `generateDayStops()` 已改走規則引擎骨架（PR #11），budget/`PreferenceIntent` 也接上了（見 0.2 節）。剩下「單城市試點」驗收標準裡唯一沒做的是真人在 UI 上走一次「重新規劃行程」精靈——目前只有腳本層級的真實 API 驗證，沒有瀏覽器端到端測試 |
+| Phase 3 | ✅ 驗收標準已完成 | `generateDayStops()` 已改走規則引擎骨架（PR #11），budget/`PreferenceIntent` 也接上了（見 0.2 節）。瀏覽器端到端測試已補（見 0.7 節）：走完「重新規劃行程」精靈四步驟、真實套用，新增的一天確認吃規則引擎（無 LLM fallback），景點真實無幻覺 |
 | Phase 4 | 🟡 transit day 已接進真實路由，範圍跟原計畫不同 | 原計畫寫的是「把 `assignCityBlocks.ts` 接上 restructure 城市分塊邏輯」，探索後發現風險高、價值低（見 0.3 節），改成「把 `generateTransitDayStops` 的到達景點換成規則引擎，交通方式/距離判斷仍交給 LLM」（PR #13）。`assignCityBlocks.ts` 接線本身還沒做 |
 | Phase 5 | ✅ 三個子階段全部完成 | 規模比原計畫描述大得多，拆成三個獨立子階段（見第5.1節設計提案）：(a) 行程規劃 LLM 呼叫 + 回程日拼圖（見 0.4 節，抓到一個 prompt 強度不足的 bug）；(b) 逐城市套用 Phase 3/4 既有管線，組出完整行程（見 0.5 節，抓到兩個真的資料落差：移動日缺住宿、同城市區塊景點重複）；(c) SSE 協定 v2 + 前端重寫，真正接進 `generate-stream/route.ts`（見 0.6 節，又抓到兩個問題：缺 `.catch()`、真實 placeId 會被舊的 id 賦值邏輯洗掉）。這是整個計畫第一次真正影響使用者會看到的畫面，已通過使用者瀏覽器端到端測試 |
 | Phase 6 | ⬜ 未開始 | 清理舊路徑，見第5節 |
@@ -72,7 +72,7 @@
    規則引擎積木 + 候選池 + 文案層至此全部就緒，且是第一次完整跑過一遍
    （不是分段測），沒有任何一段是空想的。
 
-**還沒做的（更新後只剩一項）**：真實 UI 測試——其餘兩項見下方 0.2 節。
+**還沒做的**：（無——見下方 0.7 節的瀏覽器端到端測試）；其餘兩項見下方 0.2 節。
 
 ### 0.2 generateDayStops 接線 + budget/PreferenceIntent（已完成）
 
@@ -295,6 +295,45 @@ Phase 5(a)(b) 都只是把積木做好、獨立驗證，從沒接進真實使用
     遞增）、`plan` 事件到第一個 `day` 事件間隔約6秒——「秒回骨架」這個設計
     目標真的有達成，不是空話。**使用者在 `npm run dev` 上實際測試瀏覽器
     端到端流程，通過**——這是目前為止唯一真的做過瀏覽器測試的階段。
+
+### 0.7 Phase 3 補測：restructure 精靈瀏覽器端到端測試（已完成）
+
+25. **用 Playwright 直接驅動真實 `npm run dev`**（`chromium-cli` 這個環境沒裝，改寫
+    一次性腳本，測完即刪，不留在 repo）：挑選最簡單情境——單城市、非 transit day
+    的既有種子行程「布拉格歷史之旅」（7天，僅布拉格一個城市）。流程：開啟「重新
+    規劃行程」精靈 → 第1步（不加城市/景點，維持原樣）→ 第2步把布拉格天數
+    +1（7→8，逼出 `extraCount>0`，才會真的呼叫 `generateDayStops()`）→ 第3步
+    （無需保留/捨棄既有天數，跳過）→ 第4步確認 diff → 套用。
+26. **第一次跑踩到測試腳本自己的 bug，不是產品的 bug**：unscoped 的
+    `button:has-text("+")` 選到了行程頁面本身「每日花費」小工具裡的「+ 設定
+    價格」按鈕（同一頁多個「+」文字的按鈕），完全沒點到精靈面板裡真正的天數
+    +/- 按鈕，導致天數其實從沒變過（7→7），套用後只是原樣重存既有天數，根本
+    沒有真的走到規則引擎路徑。改成 scoped 到面板容器（`div.rounded-xl.
+    border-indigo-200`）+ `exact: true` 選按鈕文字後，用讀出來的天數徽章
+    （`7 / 7 天` → `8 / 7 天`）確認真的點對了，才重新完整跑一次。
+27. **驗證結果（真的走了規則引擎）**：套用後 DB 天數 7→8，新增的第7天
+    （原第6天前）內容為4個真實布拉格景點（查理大橋、列儂牆、天文鐘、老城
+    廣場），地理位置集中（舊城區步行可達）、`transport_from_prev` 文字自然
+    （「步行約 6 分鐘」等）、`placeId`/照片/評分皆為真實 Google 資料、無幻覺
+    地名。伺服器 log 全程沒有出現 `[generateDayStopsViaScheduler] falling back
+    to LLM` 這行警告，代表這次生成完全沒有 fallback 回純 LLM 版本，是真的規則
+    引擎路徑跑通。前端瀏覽器主控台（`console --errors` 等效檢查）全程零錯誤，
+    四步驟精靈 UI、套用後重新渲染皆正常。
+28. **順手抓到一個與 Phase 3 無關的既有資料問題**：套用後伺服器 log 印出
+    `[Restructure] itinerary ... saved with issues: [ '第 6 天（布拉格 探索）
+    沒有任何景點', '第 8 天（返程日）沒有任何景點' ]`。查證後這不是這次規則
+    引擎新增的天數造成的——第6天是這個種子行程原本就帶著的既有天（
+    `keepDayIds` 預設全部保留，這次沒去動它），本來就是空的，restructure
+    只是照原樣搬過去；第8天（回程日）本來就沒有排景點內容也是既有種子資料
+    的樣子。跟 Phase 3 規則引擎的正確性無關，是這筆種子測試資料本身的既有
+    缺陷（可能是更早的種子生成或某次手動測試留下的），供之後想清種子資料
+    或查 `check-places` 腳本時參考，這次不處理。
+29. **測試造成的資料異動**：`prisma/dev.db` 因為套用了這次 restructure 而被
+    修改（git 有追蹤這個檔案，`git status` 顯示 `M prisma/dev.db`）——這是
+    對本地開發資料庫的正常寫入，符合「只能對 localhost / 本地 dev DB 測試」
+    的規則，但異動內容還在工作目錄未提交，你可以自行決定要保留（這個測試本
+    身把一個空的第6天配上了新的規則引擎生成第7天，內容是合理的）還是用
+    `git checkout -- prisma/dev.db` 還原到測試前狀態。
 
 ---
 
