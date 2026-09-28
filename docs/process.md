@@ -458,6 +458,11 @@
   `dev.db` 時被擋下。會實際付費的手動驗證（里斯本開兩次、開羅搜獅身
   人面像、相近 stop 共用快取、Raszyn 衛星情境、mock 模式完整流程）由
   使用者在瀏覽器上逐項驗證通過。
+- 移除 `dev.db` 追蹤後 CI 的 `npm run build` 失敗（`main.Itinerary` 不存在）：
+  `/itineraries` 頁面在 build 時被靜態預先產生，過去一直讀 git 裡那份
+  `dev.db`。這其實也是個既有 bug——正式版的行程清單會停在 build 當下的
+  內容。加上 `export const dynamic = "force-dynamic"` 改成每次請求才查，
+  用空資料庫重現 CI 情境確認 build 通過。
 - 教訓：快取表只記錄「查詢成功」的呼叫，所以**失敗的查詢是看不見的
   成本**——從資料庫反推費用時會漏掉，程式碼註解說的「冪等」也只對成功
   的項目成立。
