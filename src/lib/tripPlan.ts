@@ -33,6 +33,35 @@ export const TripPlanSchema = z.object({
 });
 export type TripPlan = z.infer<typeof TripPlanSchema>;
 
+// Same shape as TripPlanSchema but lets a city through with 0 days, so
+// rebalanceZeroDayCities() gets a chance to repair it before the strict
+// schema rejects the whole response.
+const RawTripPlanSchema = TripPlanSchema.extend({
+  cities: z
+    .array(z.object({ name: z.string().min(1), days: z.number().int().min(0) }))
+    .min(1),
+});
+
+/**
+ * Known planTrip failure mode (plan/hybrid-rule-engine-scheduling.md 0.10):
+ * the model inserts an extra mid-route city (e.g. Paris -> Geneva -> Rome)
+ * and gets the total right, but squeezes the last city down to 0 days. The
+ * route itself is fine, so rather than spending the retry on it, move one
+ * day to each 0-day city from whichever city currently has the most days.
+ * Returns null when there aren't enough days to give every city at least 1.
+ */
+export function rebalanceZeroDayCities(cities: TripPlan["cities"]): TripPlan["cities"] | null {
+  const result = cities.map((city) => ({ ...city }));
+  for (const city of result) {
+    if (city.days >= 1) continue;
+    const donor = result.reduce((max, c) => (c.days > max.days ? c : max));
+    if (donor.days <= 1) return null;
+    donor.days -= 1;
+    city.days += 1;
+  }
+  return result;
+}
+
 function buildSystemPrompt(
   flightInfo: FlightInfo,
   preferences: TripPreferences | undefined,
@@ -86,6 +115,17 @@ ${prompt?.trim() ? `\n使用者風格描述：${prompt}` : ""}${!isMultiCity ? s
 - 每個城市的 days 是整數，代表這個城市總共會用掉的天數：第一個城市的 days
   不含移動日（第1天就是航班抵達當天）；其餘城市的 days 包含抵達它的移動日
 - 所有城市的 days 加總必須剛好等於 ${citiesBudget}，見上方【天數加總範例】
+- 每一個城市的 days 都至少是 1，${
+    isMultiCity ? `包括最後一個城市「${returnCityName}」` : "不可以是 0"
+  }。城市數量最多 ${citiesBudget} 個${
+    isMultiCity
+      ? `。如果在中途加入其他城市，那個城市的天數要從其他城市（通常是停留最久的城市）扣出來，
+  絕對不可以把「${returnCityName}」擠成 0 天——例如總共要分配 8 天、原本打算
+  「${arrivalCityName} 4 + ${returnCityName} 4」，中途想加一個城市就改成
+  「${arrivalCityName} 3 + 中途城市 2 + ${returnCityName} 3」，而不是
+  「${arrivalCityName} 5 + 中途城市 3 + ${returnCityName} 0」`
+      : ""
+  }
 - 城市數量、天數分配要符合使用者風格描述（若有）與旅遊常理——不要塞進不合理
   數量的城市，也不要讓單一城市停留時間過短（例如只待 1 天卻要深度體驗）或
   過長而顯得單調
@@ -135,18 +175,33 @@ export async function planTrip(
         continue;
       }
 
-      const parsed = TripPlanSchema.safeParse(JSON.parse(content));
-      if (!parsed.success) {
-        console.warn(`[planTrip] attempt ${attempt}: schema validation failed`, content, parsed.error.flatten());
+      const raw = RawTripPlanSchema.safeParse(JSON.parse(content));
+      if (!raw.success) {
+        console.warn(`[planTrip] attempt ${attempt}: schema validation failed`, content, raw.error.flatten());
         continue;
       }
 
-      const daysSum = parsed.data.cities.reduce((sum, city) => sum + city.days, 0);
+      const daysSum = raw.data.cities.reduce((sum, city) => sum + city.days, 0);
       if (daysSum !== totalDays - 1) {
         console.warn(
           `[planTrip] attempt ${attempt}: days sum ${daysSum} !== expected ${totalDays - 1}`,
-          parsed.data
+          raw.data
         );
+        continue;
+      }
+
+      const cities = rebalanceZeroDayCities(raw.data.cities);
+      if (!cities) {
+        console.warn(`[planTrip] attempt ${attempt}: too many cities to give each at least 1 day`, raw.data);
+        continue;
+      }
+      if (cities.some((city, i) => city.days !== raw.data.cities[i].days)) {
+        console.warn(`[planTrip] attempt ${attempt}: rebalanced 0-day cities`, raw.data.cities, "->", cities);
+      }
+
+      const parsed = TripPlanSchema.safeParse({ ...raw.data, cities });
+      if (!parsed.success) {
+        console.warn(`[planTrip] attempt ${attempt}: schema validation failed after rebalance`, parsed.error.flatten());
         continue;
       }
 

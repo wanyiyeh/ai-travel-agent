@@ -10,7 +10,7 @@ vi.mock("@/lib/openai", () => ({
   openai: { chat: { completions: { create: (...args: unknown[]) => createMock(...args) } } },
 }));
 
-import { planTrip } from "@/lib/tripPlan";
+import { planTrip, rebalanceZeroDayCities } from "@/lib/tripPlan";
 
 function mockContent(content: string) {
   createMock.mockResolvedValueOnce({ choices: [{ message: { content } }] });
@@ -101,6 +101,42 @@ describe("planTrip", () => {
     expect(result).toBeNull();
   });
 
+  it("repairs a squeezed-out last city instead of retrying (Paris -> Geneva -> Rome case)", async () => {
+    mockJson({
+      title: "東京大阪之旅",
+      currency: "JPY",
+      cities: [{ name: "東京", days: 4 }, { name: "京都", days: 2 }, { name: "大阪", days: 0 }],
+    });
+    const result = await planTrip(multiCityFlight, undefined, undefined, "gpt-4o-mini");
+    expect(result?.cities).toEqual([
+      { name: "東京", days: 3 },
+      { name: "京都", days: 2 },
+      { name: "大阪", days: 1 },
+    ]);
+    expect(createMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries when there are more cities than days to give each one", async () => {
+    // 7 cities, 6 days to allocate — can't give every city at least 1 day
+    mockJson({
+      title: "日本之旅",
+      currency: "JPY",
+      cities: [
+        { name: "東京", days: 2 },
+        { name: "橫濱", days: 1 },
+        { name: "名古屋", days: 1 },
+        { name: "京都", days: 1 },
+        { name: "奈良", days: 1 },
+        { name: "神戶", days: 0 },
+        { name: "大阪", days: 0 },
+      ],
+    });
+    mockJson({ title: "東京大阪之旅", currency: "JPY", cities: [{ name: "東京", days: 3 }, { name: "大阪", days: 3 }] });
+    const result = await planTrip(multiCityFlight, undefined, undefined, "gpt-4o-mini");
+    expect(result?.cities).toEqual([{ name: "東京", days: 3 }, { name: "大阪", days: 3 }]);
+    expect(createMock).toHaveBeenCalledTimes(2);
+  });
+
   it("skips the call entirely for a same-day trip with no days left to allocate", async () => {
     const sameDayFlight: FlightInfo = {
       ...singleCityFlight,
@@ -109,5 +145,38 @@ describe("planTrip", () => {
     const result = await planTrip(sameDayFlight, undefined, undefined, "gpt-4o-mini");
     expect(result).toBeNull();
     expect(createMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("rebalanceZeroDayCities", () => {
+  it("leaves a plan with no 0-day cities unchanged", () => {
+    const cities = [{ name: "A", days: 3 }, { name: "B", days: 3 }];
+    expect(rebalanceZeroDayCities(cities)).toEqual(cities);
+  });
+
+  it("takes each missing day from whichever city has the most at that point", () => {
+    expect(
+      rebalanceZeroDayCities([
+        { name: "A", days: 5 },
+        { name: "B", days: 0 },
+        { name: "C", days: 3 },
+        { name: "D", days: 0 },
+      ])
+    ).toEqual([
+      { name: "A", days: 3 },
+      { name: "B", days: 1 },
+      { name: "C", days: 3 },
+      { name: "D", days: 1 },
+    ]);
+  });
+
+  it("returns null when no city can spare a day", () => {
+    expect(rebalanceZeroDayCities([{ name: "A", days: 1 }, { name: "B", days: 1 }, { name: "C", days: 0 }])).toBeNull();
+  });
+
+  it("does not mutate its input", () => {
+    const cities = [{ name: "A", days: 2 }, { name: "B", days: 0 }];
+    rebalanceZeroDayCities(cities);
+    expect(cities).toEqual([{ name: "A", days: 2 }, { name: "B", days: 0 }]);
   });
 });
