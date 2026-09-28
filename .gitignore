@@ -14,6 +14,11 @@
 /coverage
 /prisma/test.db*
 
+# local dev DB — holds paid Places/OpenAI cache data; tracking it let branch
+# switches/discards roll the cache back and re-bill the same lookups
+/prisma/dev.db*
+/prisma/mock.db*
+
 # next.js
 /.next/
 /out/

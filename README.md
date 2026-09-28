@@ -24,7 +24,8 @@
    ```bash
    npx prisma db push
    ```
-4. （選用）灌入測試資料
+   `prisma/dev.db` 不進版控（裡面是付費 API 的快取，跟著 git 切換會被倒回舊版本、重複計費），每個環境各自建立。
+4. （選用）灌入測試資料——會實際呼叫 OpenAI 與 Google Places，會產生費用
    ```bash
    npm run seed
    ```

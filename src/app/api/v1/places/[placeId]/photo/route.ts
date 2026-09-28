@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { isMockPlaces, mockPhotoSvg } from "@/lib/mockPlaces";
 
 const PLACES_API_BASE = "https://places.googleapis.com/v1";
 const DEFAULT_MAX_WIDTH_PX = 800;
@@ -42,6 +43,14 @@ export async function GET(
   { params }: { params: Promise<{ placeId: string }> }
 ) {
   const { placeId } = await params;
+
+  // MOCK_PLACES: serve a placeholder instead of calling the billable Photo
+  // Media endpoint (a redirect to a data: URL would be blocked by browsers).
+  if (isMockPlaces()) {
+    return new NextResponse(mockPhotoSvg(placeId), {
+      headers: { "Content-Type": "image/svg+xml", "Cache-Control": "public, max-age=3000" },
+    });
+  }
 
   const apiKey = process.env.GOOGLE_PLACES_API_KEY;
   if (!apiKey) {

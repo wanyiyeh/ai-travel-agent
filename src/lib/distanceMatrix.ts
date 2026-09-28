@@ -1,4 +1,5 @@
 import { prisma, j } from "@/lib/db";
+import { googleFetch } from "@/lib/googleFetch";
 import { haversineKm, centroid, SUSPICIOUS_DISTANCE_KM, MAX_PLAUSIBLE_DISTANCE_KM } from "@/lib/geo";
 
 // Re-exported so existing server-side importers of this module don't need to
@@ -94,7 +95,7 @@ async function fetchDistanceFromRoutesApi(
   mode: TravelMode
 ): Promise<DistanceResult | null> {
   try {
-    const res = await fetch(
+    const res = await googleFetch(
       "https://routes.googleapis.com/distanceMatrix/v2:computeRouteMatrix",
       {
         method: "POST",

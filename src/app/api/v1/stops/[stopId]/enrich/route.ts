@@ -3,6 +3,21 @@ import { prisma, j } from "@/lib/db";
 import { lookupByQuery, lookupByPlaceId, upsertPlace } from "@/lib/placeCache";
 import { searchPlaceText, getCityCenter, buildStopQuery } from "@/lib/placesTextSearch";
 import { findStopAcrossDays, getCityHintForDay } from "@/lib/itineraryDays";
+import { isRecentEnrichFailure, enrichFailureMarker } from "@/lib/enrichFailure";
+
+// Re-reads the itinerary right before writing (the caller's Text Search call
+// can take a while, and enrich-all-stops may have saved in the meantime) so this
+// only touches the one stop's marker instead of clobbering newer days data.
+async function markStopNotFound(itineraryId: string, stopId: string, query: string) {
+  const fresh = await prisma.itinerary.findUnique({ where: { id: itineraryId } });
+  if (!fresh) return;
+  const days = fresh.days as Record<string, unknown>[];
+  const location = findStopAcrossDays(days, stopId);
+  if (!location) return;
+  const stops = location.day.stops as Record<string, unknown>[];
+  stops[location.stopIndex] = { ...stops[location.stopIndex], enrichFailure: enrichFailureMarker(query, "not_found") };
+  await prisma.itinerary.update({ where: { id: itineraryId }, data: { days: j(days) } });
+}
 
 export async function POST(
   request: Request,
@@ -65,6 +80,13 @@ export async function POST(
     const district = typeof targetStop.district === "string" ? targetStop.district : "";
     const query = buildStopQuery(String(targetStop.name), district, cityHint || context || "");
 
+    // Same query already failed recently — answer from the marker instead of
+    // re-billing Google (ItineraryMap calls this for every unresolved stop on
+    // every page open).
+    if (isRecentEnrichFailure(targetStop, query)) {
+      return NextResponse.json({ error: "Place not found on Google Maps" }, { status: 404 });
+    }
+
     // Bias results toward the day's city so vague/generic stop names (e.g.
     // "咖啡文化體驗") don't resolve to a same-keyword place elsewhere in the
     // world — the city name in `query` alone is only a ranking hint, not a
@@ -84,6 +106,7 @@ export async function POST(
       } else {
         const place = await searchPlaceText(query, apiKey, cityBias);
         if (!place) {
+          await markStopNotFound(itineraryId, stopId, query);
           return NextResponse.json({ error: "Place not found on Google Maps" }, { status: 404 });
         }
         enriched = { placeId: place.id, lat: place.location.latitude, lng: place.location.longitude, address: place.formattedAddress, rating: place.rating ?? null };
@@ -92,6 +115,7 @@ export async function POST(
     } else {
       const place = await searchPlaceText(query, apiKey, cityBias);
       if (!place) {
+        await markStopNotFound(itineraryId, stopId, query);
         return NextResponse.json({ error: "Place not found on Google Maps" }, { status: 404 });
       }
       enriched = { placeId: place.id, lat: place.location.latitude, lng: place.location.longitude, address: place.formattedAddress, rating: place.rating ?? null };
@@ -99,7 +123,7 @@ export async function POST(
     }
 
     const stops = location.day.stops as Record<string, unknown>[];
-    stops[location.stopIndex] = { ...stops[location.stopIndex], ...enriched };
+    stops[location.stopIndex] = { ...stops[location.stopIndex], ...enriched, enrichFailure: undefined };
 
     await prisma.itinerary.update({
       where: { id: itineraryId },

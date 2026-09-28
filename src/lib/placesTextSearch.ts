@@ -1,5 +1,6 @@
 import { lookupByQuery, upsertPlace } from "@/lib/placeCache";
 import { haversineKm } from "@/lib/distanceMatrix";
+import { googleFetch } from "@/lib/googleFetch";
 
 const PLACES_TEXT_SEARCH_URL = "https://places.googleapis.com/v1/places:searchText";
 
@@ -71,13 +72,43 @@ export function buildMealQuery(name: string, cityHint: string): string {
   return cityHint ? `${name} ${cityHint}` : name;
 }
 
-export async function searchPlaceText(
+// Identical Text Search requests that are in flight at the same time share one
+// Google call. Opening an itinerary fires several auto-enrich effects at once
+// (EditableItineraryCard's enrich-all-stops + accommodation/enrich, and
+// ItineraryMap's per-stop + accommodation/enrich), and dev-mode StrictMode
+// runs each effect twice — all of them miss the cache together and used to
+// bill the same query up to 4x. Only concurrent calls are merged; sequential
+// repeats are the caches' job. Stored on globalThis (like the Prisma client in
+// db.ts) so it survives dev HMR module reloads.
+const globalForTextSearch = globalThis as unknown as {
+  textSearchInFlight?: Map<string, Promise<TextSearchPlace | null>>;
+};
+const inFlight = (globalForTextSearch.textSearchInFlight ??= new Map());
+
+export function searchPlaceText(
   query: string,
   apiKey: string,
   locationBias?: { lat: number; lng: number } | null,
   includedType?: string,
 ): Promise<TextSearchPlace | null> {
-  const res = await fetch(PLACES_TEXT_SEARCH_URL, {
+  const key = JSON.stringify([query, locationBias?.lat ?? null, locationBias?.lng ?? null, includedType ?? null]);
+  const existing = inFlight.get(key);
+  if (existing) return existing;
+
+  const promise = searchPlaceTextUncached(query, apiKey, locationBias, includedType).finally(() => {
+    inFlight.delete(key);
+  });
+  inFlight.set(key, promise);
+  return promise;
+}
+
+async function searchPlaceTextUncached(
+  query: string,
+  apiKey: string,
+  locationBias?: { lat: number; lng: number } | null,
+  includedType?: string,
+): Promise<TextSearchPlace | null> {
+  const res = await googleFetch(PLACES_TEXT_SEARCH_URL, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

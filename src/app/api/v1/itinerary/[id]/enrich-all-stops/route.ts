@@ -7,6 +7,7 @@ import { PRICE_LEVEL_MAP } from "@/lib/fetchCityRestaurants";
 import { estimateMealCost } from "@/lib/priceLevelCost";
 import { translatePlaceNames } from "@/lib/translatePlaceNames";
 import { getCityHintForDay } from "@/lib/itineraryDays";
+import { isRecentEnrichFailure, enrichFailureMarker } from "@/lib/enrichFailure";
 
 export async function POST(
   _request: Request,
@@ -66,15 +67,27 @@ export async function POST(
       // once per day, up front, for display only: the enrichment queries
       // below still search on the original name so place-matching isn't
       // affected by translation quality.
+      // Items skipped below for a recent failed lookup are left out too — they
+      // won't be enriched this run, so translating them would just re-pay for
+      // an OpenAI call on every page open.
       const namesNeedingTranslation = [
         ...(meals
           ? (["breakfast", "lunch", "dinner", "snack"] as const)
               .map((k) => meals[k])
               .filter((m) => m && (!m.placeId || hasKana(String(m.name))))
+              .filter((m) => !isRecentEnrichFailure(m, buildMealQuery(String(m!.name), cityHint)))
               .map((m) => String(m!.name))
           : []),
         ...(stopsForNames ?? [])
-          .filter((s) => !(s.placeId && s.lat && s.lng) || hasKana(String(s.name)))
+          // One filter, not two: i must be the stop's real index for getCityHintForDay.
+          .filter(
+            (s, i) =>
+              (!(s.placeId && s.lat && s.lng) || hasKana(String(s.name))) &&
+              !isRecentEnrichFailure(
+                s,
+                buildStopQuery(String(s.name), typeof s.district === "string" ? s.district : "", getCityHintForDay(day, i)),
+              ),
+          )
           .map((s) => String(s.name)),
       ];
       const nameTranslations = await translatePlaceNames(
@@ -110,11 +123,27 @@ export async function POST(
           const tooFarFromCity = (lat: number, lng: number): boolean =>
             !!cityBias && haversineKm(lat, lng, cityBias.lat, cityBias.lng) > SUSPICIOUS_KM;
 
+          // Already tried this exact query recently and it failed — don't
+          // re-bill Google on every page open. Keep surfacing a distance
+          // rejection as a warning (free), same as when it first happened.
+          if (isRecentEnrichFailure(meal, query)) {
+            skippedCount++;
+            if (meal.enrichFailure && (meal.enrichFailure as { reason?: string }).reason === "too_far") {
+              suspiciousStops.push({
+                name: displayName,
+                day: typeof day.day === "number" ? day.day : 0,
+                reason: `距 ${cityHint || "行程城市"} 過遠，未套用`,
+              });
+            }
+            continue;
+          }
+
           try {
             const cached = await lookupByQuery(query);
             if (cached && cached.lat != null && cached.lng != null) {
               if (tooFarFromCity(cached.lat, cached.lng)) {
                 failedCount++;
+                meals[mealKey] = { ...meal, enrichFailure: enrichFailureMarker(query, "too_far") };
                 suspiciousStops.push({
                   name: displayName,
                   day: typeof day.day === "number" ? day.day : 0,
@@ -130,16 +159,19 @@ export async function POST(
                 lng: cached.lng,
                 address: cached.address,
                 rating: cached.rating,
+                enrichFailure: undefined,
               };
               cachedCount++;
             } else {
               const place = await searchPlaceText(query, apiKey, cityBias);
               if (!place) {
                 failedCount++;
+                meals[mealKey] = { ...meal, enrichFailure: enrichFailureMarker(query, "not_found") };
                 continue;
               }
               if (tooFarFromCity(place.location.latitude, place.location.longitude)) {
                 failedCount++;
+                meals[mealKey] = { ...meal, enrichFailure: enrichFailureMarker(query, "too_far") };
                 suspiciousStops.push({
                   name: displayName,
                   day: typeof day.day === "number" ? day.day : 0,
@@ -159,6 +191,7 @@ export async function POST(
                 lng: place.location.longitude,
                 address: place.formattedAddress,
                 rating: place.rating ?? null,
+                enrichFailure: undefined,
                 ...(estimatedCost !== undefined ? { estimated_cost: estimatedCost } : {}),
               };
               await upsertPlace(query, {
@@ -210,6 +243,11 @@ export async function POST(
         const originalName = String(stop.name);
         const displayName = nameTranslations.get(originalName) ?? originalName;
         const query = buildStopQuery(originalName, district, stopCityHint);
+        if (isRecentEnrichFailure(stop, query)) {
+          skippedCount++;
+          continue;
+        }
+
         const stopBias = stopCityHint === cityHint ? cityBias : await biasFor(stopCityHint, apiKey);
 
         try {
@@ -234,6 +272,7 @@ export async function POST(
             const place = await searchPlaceText(query, apiKey, stopBias);
             if (!place) {
               failedCount++;
+              stops[i] = { ...stop, enrichFailure: enrichFailureMarker(query, "not_found") };
               continue;
             }
             enrichedLat = place.location.latitude;
@@ -283,6 +322,7 @@ export async function POST(
           stops[i] = {
             ...stop,
             ...baseFields,
+            enrichFailure: undefined,
             ...(suspicious ? { suspicious: true, suspiciousReason } : { suspicious: undefined, suspiciousReason: undefined }),
           };
         } catch {

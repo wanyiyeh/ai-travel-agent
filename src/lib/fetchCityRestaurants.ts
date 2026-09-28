@@ -1,6 +1,7 @@
 import { haversineKm } from "@/lib/distanceMatrix";
 import { getIataCoords } from "@/lib/airports";
 import { prisma, j } from "@/lib/db";
+import { googleFetch } from "@/lib/googleFetch";
 
 const NEARBY_SEARCH_URL = "https://places.googleapis.com/v1/places:searchNearby";
 
@@ -139,7 +140,7 @@ async function searchNearbyHints(
   priceLevels?: string[],
 ): Promise<RestaurantHint[]> {
   try {
-    const res = await fetch(NEARBY_SEARCH_URL, {
+    const res = await googleFetch(NEARBY_SEARCH_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -347,7 +348,7 @@ async function fetchNearbyPlaceCandidatesUncached(
   priceLevels?: string[],
 ): Promise<PlaceCandidate[]> {
   try {
-    const res = await fetch(NEARBY_SEARCH_URL, {
+    const res = await googleFetch(NEARBY_SEARCH_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -439,7 +440,7 @@ async function findNearestStationUncached(
   apiKey: string,
 ): Promise<{ ok: boolean; station: NearestStation | null }> {
   try {
-    const res = await fetch(NEARBY_SEARCH_URL, {
+    const res = await googleFetch(NEARBY_SEARCH_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

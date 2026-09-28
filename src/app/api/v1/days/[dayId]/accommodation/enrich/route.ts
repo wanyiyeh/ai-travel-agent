@@ -6,6 +6,21 @@ import { searchPlaceText, getCityCenter } from "@/lib/placesTextSearch";
 import { PRICE_LEVEL_MAP } from "@/lib/fetchCityRestaurants";
 import { estimateLodgingCostPerNight, estimateLodgingCostRange } from "@/lib/priceLevelCost";
 import { findDayIndex } from "@/lib/itineraryDays";
+import { isRecentEnrichFailure, enrichFailureMarker } from "@/lib/enrichFailure";
+
+// Re-reads the itinerary right before writing (the caller's Text Search call
+// can take a while, and other enrich routes may have saved in the meantime) so
+// this only touches the one day's marker instead of clobbering newer data.
+async function markAccommodationNotFound(itineraryId: string, dayId: string, query: string) {
+  const fresh = await prisma.itinerary.findUnique({ where: { id: itineraryId } });
+  if (!fresh) return;
+  const days = fresh.days as Record<string, unknown>[];
+  const idx = findDayIndex(days, dayId);
+  const acc = idx === -1 ? undefined : (days[idx].accommodation as Record<string, unknown> | undefined);
+  if (!acc) return;
+  days[idx] = { ...days[idx], accommodation: { ...acc, enrichFailure: enrichFailureMarker(query, "not_found") } };
+  await prisma.itinerary.update({ where: { id: itineraryId }, data: { days: j(days) } });
+}
 
 export async function POST(
   request: Request,
@@ -74,6 +89,13 @@ export async function POST(
       ? `${accName} ${accArea ?? ""} ${cityHint}`.trim()
       : `hotel ${accArea ?? ""} ${cityHint}`.trim();
 
+    // Same query already failed recently — answer from the marker instead of
+    // re-billing Google (both EditableItineraryCard and ItineraryMap call this
+    // for every unresolved accommodation on every page open).
+    if (isRecentEnrichFailure(accommodation, query)) {
+      return NextResponse.json({ error: "Accommodation not found on Google Maps" }, { status: 404 });
+    }
+
     const cityBias = await getCityCenter(cityHint, apiKey);
 
     // Check cache before hitting Google API
@@ -96,6 +118,7 @@ export async function POST(
     } else {
       const place = await searchPlaceText(query, apiKey, cityBias);
       if (!place) {
+        await markAccommodationNotFound(itineraryId, dayId, query);
         return NextResponse.json(
           { error: "Accommodation not found on Google Maps" },
           { status: 404 }
@@ -116,6 +139,7 @@ export async function POST(
 
     const enriched = {
       ...accommodation,
+      enrichFailure: undefined,
       name: accName ?? placeName,
       placeId,
       lat: placeLat,

@@ -8,6 +8,7 @@ import { getMockMode, mockDelay, MOCK_FIXTURES } from "@/lib/mockAi";
 import { fetchNearbyPlaceCandidates, type PlaceCandidate } from "@/lib/fetchCityRestaurants";
 import { upsertPlace } from "@/lib/placeCache";
 import { haversineKm, centroid, SUSPICIOUS_DISTANCE_KM as SUSPICIOUS_KM } from "@/lib/distanceMatrix";
+import { snapToGrid } from "@/lib/geo";
 import { findDayIndex, getCityHintForDay } from "@/lib/itineraryDays";
 
 const RequestSchema = z.object({
@@ -182,6 +183,18 @@ export async function POST(
       // hub city's attractions instead of anything actually near the satellite.
       const SEARCH_RADIUS_M = isSatelliteStop ? 6000 : 20000;
 
+      // The Nearby Search cache is keyed on the exact search center (~11m
+      // precision), so anchoring on each replaced stop's own coordinates made
+      // every "換一個" on a different stop a fresh 4-call miss, even when the
+      // 20km circles almost entirely overlap. Snap the hub-city search center
+      // to a ~5km grid so stops in the same area share one cached pool (at
+      // most ~3.9km off-center, small against a 20km radius). All filtering
+      // below still uses the real anchor. A satellite stop keeps its exact
+      // anchor — at 6km, a few km of drift would change what "near the
+      // satellite" means.
+      const NEARBY_SEARCH_GRID_DEG = 0.05;
+      const searchCenter = isSatelliteStop ? coords : snapToGrid(coords, NEARBY_SEARCH_GRID_DEG);
+
       const isNew = (c: PlaceCandidate) =>
         !currentNames.includes(c.name.toLowerCase().trim()) && !currentPlaceIds.has(c.placeId);
 
@@ -223,7 +236,7 @@ export async function POST(
         // is what users actually expect here, and a pure rating sort lets
         // obscure-but-higher-rated micro venues (batting cages, kids' indoor
         // playgrounds) push it out of the guaranteed slice.
-        const matches = (await fetchNearbyPlaceCandidates(coords, googleApiKey, [type], SEARCH_RADIUS_M, 20))
+        const matches = (await fetchNearbyPlaceCandidates(searchCenter, googleApiKey, [type], SEARCH_RADIUS_M, 20))
           .filter(isNew)
           .filter(isNotDuplicateLocation)
           .filter(isNearAnchor)
