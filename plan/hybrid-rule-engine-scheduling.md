@@ -17,7 +17,7 @@
 | Phase 3 | ✅ 驗收標準已完成 | `generateDayStops()` 已改走規則引擎骨架（PR #11），budget/`PreferenceIntent` 也接上了（見 0.2 節）。瀏覽器端到端測試已補（見 0.7 節）：走完「重新規劃行程」精靈四步驟、真實套用，新增的一天確認吃規則引擎（無 LLM fallback），景點真實無幻覺 |
 | Phase 4 | 🟡 transit day 已接進真實路由，範圍跟原計畫不同；已補多城市真實驗證 | 原計畫寫的是「把 `assignCityBlocks.ts` 接上 restructure 城市分塊邏輯」，探索後發現風險高、價值低（見 0.3 節），改成「把 `generateTransitDayStops` 的到達景點換成規則引擎，交通方式/距離判斷仍交給 LLM」（PR #13）。`assignCityBlocks.ts` 接線本身還沒做。0.9 節補了一次真實多城市/transit day 瀏覽器端到端測試，兩段 transit day 都正確 |
 | Phase 5 | ✅ 三個子階段全部完成；已補多城市真實驗證 | 規模比原計畫描述大得多，拆成三個獨立子階段（見第5.1節設計提案）：(a) 行程規劃 LLM 呼叫 + 回程日拼圖（見 0.4 節，抓到一個 prompt 強度不足的 bug）；(b) 逐城市套用 Phase 3/4 既有管線，組出完整行程（見 0.5 節，抓到兩個真的資料落差：移動日缺住宿、同城市區塊景點重複）；(c) SSE 協定 v2 + 前端重寫，真正接進 `generate-stream/route.ts`（見 0.6 節，又抓到兩個問題：缺 `.catch()`、真實 placeId 會被舊的 id 賦值邏輯洗掉）。這是整個計畫第一次真正影響使用者會看到的畫面，已通過使用者瀏覽器端到端測試（當時只測過單城市）。0.9 節補了多城市情境（見右方備註） |
-| Phase 6 | 🟡 只做了無風險清理，範圍縮小；信心缺口已補一部分 | 探索後發現原計畫「移除 `itineraryCityGen.ts` 舊整段生成呼叫、精簡 `buildSystemPrompt()`」目前做不得——那套舊流程是 `generate-stream/route.ts` 規則引擎路徑失敗時的真實 fallback，不是死路徑；跟使用者確認後縮小範圍成「只刪確定沒人在用的舊程式碼」，見 0.8 節。0.8 節點出的「多城市/transit day 從沒真的走過完整 generate-stream 驗證」這個信心缺口，0.9 節已用一次真實 3 城市 7 天行程補上（Tokyo→Kyoto→Osaka，兩段 transit day 皆正確、無 fallback、無重複景點）——但只跑過一次，還不到「大量情境都測過」的程度，要不要因此重新評估 Phase 6 完整範圍，留給使用者決定 |
+| Phase 6 | 🟡 只做了無風險清理；批量真實測試顯示還不到能移除 fallback 的程度 | 探索後發現原計畫「移除 `itineraryCityGen.ts` 舊整段生成呼叫、精簡 `buildSystemPrompt()`」目前做不得——那套舊流程是 `generate-stream/route.ts` 規則引擎路徑失敗時的真實 fallback，不是死路徑；跟使用者確認後縮小範圍成「只刪確定沒人在用的舊程式碼」，見 0.8 節。0.9 節用真實瀏覽器測試補了一次多城市/transit day 驗證，0.10 節進一步用 `npm run batch-test-rule-engine` 跑了8組真實情境，結果 7/8 成功、1個真的 `planTrip()` failure（多城市長程日本以外的路線，跟 Phase 5(a) 那個雪梨過度插入的 bug 同一類），而且**多數「成功」案例本身也帶著 `STOPS_ALL_SAME_TIME`/`DAY_TOO_FEW_STOPS` 警告**——結論是移除 fallback 現在還太早，見 0.10 節 |
 
 ### 0.1 Phase 3 進度細節
 
@@ -423,6 +423,53 @@ Phase 5(a)(b) 都只是把積木做好、獨立驗證，從沒接進真實使用
 37. **測試造成的資料異動**：這次是新增一筆行程（INSERT，不是像 0.7 節那次
     的 UPDATE），`prisma/dev.db` 因此再次出現在 `git status`。處理方式跟
     0.7 節一致——這筆測試資料要保留當範例還是還原，留給使用者決定。
+
+### 0.10 Phase 6 範圍再評估：批量真實測試（已完成，結論是還太早）
+
+38. **新增永久保留的診斷腳本 `scripts/batch-test-rule-engine.ts`**
+    （`npm run batch-test-rule-engine`）：比照 `shadow-compare-scheduler.ts`/
+    `validate-preference-intent.ts` 的既有慣例——不打 HTTP route、不需要
+    `npm run dev` 開著，直接呼叫 `generate-stream/route.ts` 規則引擎路徑
+    實際呼叫的同一批函式（`assembleItineraryDays` →
+    `repairTransitDayDepartureCities`/`repairMissingAccommodation` →
+    `validateItinerary` + `validateGeography`），複製 route.ts 判斷「這次
+    算成功、還是該 fallback」的**完全相同邏輯**，跑真實 OpenAI + Google
+    Places API，不寫入 DB。目的是回答 0.8/0.9 節留下的問題：只手動測過 2
+    次（單城市1次、多城市+transit day 1次）夠不夠讓 Phase 6 移除 fallback？
+39. **8 組情境涵蓋 0.9 節點名的所有軸線**：短程(3天)/長程(10天)、單城市/
+    多城市、budget 兩極端(luxury/budget)、冷門城市（薩拉熱窩、盧布亞納）、
+    極短程(2天)+高強度自由文字偏好。
+40. **結果：7/8 成功，但發現一個真的、可重現的 `planTrip()` bug**：「台北→
+    巴黎進／羅馬出，9天」這組兩次嘗試都讓 AI 自己在巴黎、羅馬之間多插了
+    一個城市（第一次日內瓦、第二次尼斯——同一個 prompt 兩次擲骰兩個不同
+    答案，顯示不是巧合而是系統性傾向），但天數分配沒跟著調整，導致最後
+    的羅馬被算成 0 天，違反 schema 的「每個城市至少1天」限制，兩次重試都
+    失敗，正確 fallback 回舊流程。這**跟 Phase 5(a) 0.4 節第13點記錄的雪梨
+    過度插入 bug 是同一個家族**——當時修法是在 prompt 裡加更明確的
+    【重要】區塊+具體範例強調「城市數量/天數加總要對得上」，這次的失敗
+    模式（多插城市但沒扣夠天數給最後城市）現有 prompt 的加總檢查沒有涵蓋
+    到「插入城市後，原本規劃的最後城市會不會被擠到 0 天」這個特定情境。
+    **這次會議決定先不修**——原因見下一點。
+41. **更重要的發現：多數「成功」案例本身品質也不穩，不是只看 pass/fail
+    二元結果就夠**：7個成功案例裡，幾乎每一個都帶著 `STOPS_ALL_SAME_TIME`
+    警告（確認 Phase 2 影子模式當初從歷史資料算出的「`time_of_day` 一致率
+    僅43%」不是舊資料的偶然，在這次全新的真實即時生成裡一樣重現）；10天
+    的倫敦單城市行程更帶了5個 `DAY_TOO_FEW_STOPS`（9個觀光日裡有5天景點
+    太少）。這些警告目前**不會擋下 generate-stream 判定為成功**（只有
+    `severity: "error"` 才會擋），代表被 0.9 節「7/8成功」這個數字掩蓋
+    的，還有一批「技術上沒 fallback，但實際生成品質有明顯瑕疵」的案例。
+42. **結論：Phase 6 移除 fallback 現在還太早，且原因比原本設想的更根本**：
+    不只是「樣本數不夠」的信心問題（0.8/0.9 節的原始顧慮），這批新資料
+    顯示規則引擎路徑本身還有（a）一個真實、可重現、目前沒有 fallback 之外
+    處理方式的 `planTrip()` 失敗模式，以及（b）即使技術上「成功」，
+    `time_of_day`/站點數量分佈這兩項規則引擎自己排的骨架品質，仍常態性地
+    比不上舊 LLM 整段生成（至少從警告數量看是如此，沒有反向資料證明規則
+    引擎品質更好）。這兩點都不是「多測幾次累積信心」能解決的，是需要真的
+    動規則引擎本身（(a) 修 `planTrip` prompt 的插入城市天數扣除邏輯；
+    (b) 重新檢視 `assignTimeSlots.ts` 的 time_of_day 分配演算法）才能解決
+    的具體工作項目——這也是為什麼這次決定不順手修掉 (a)，先把兩個問題都
+    完整記錄下來，之後當成獨立、明確定義範圍的任務來處理，而不是在
+    「Phase 6 清理」這個本來是收尾性質的階段裡臨時展開。
 
 ---
 
