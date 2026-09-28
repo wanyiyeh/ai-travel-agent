@@ -15,9 +15,9 @@
 | Phase 1 | ✅ 驗收標準已完成 | `scripts/validate-preference-intent.ts`（`npm run validate-preference-intent`）對 18 組常見自由文字（單一/多重訊號、中性、矛盾、英文、邊界案例）跑真實 `parsePreferenceIntent()` 並人工抽查。**過程中抓到一個真的 bug**：「不吃辣」有約 60% 機率被誤解析成 `no_seafood`（因為 prompt 的 dietaryRestrictions 範例清單沒有辣度相關標籤，模型會套用最接近的範例），已在 `SYSTEM_PROMPT` 加入 `no_spicy`/`no_beef` 範例並明確要求「標籤要對應使用者實際說的限制，不要套用最接近的範例」，修復後重跑 6 次皆正確。其餘 17 組結果人工檢查合理 |
 | Phase 2 | 🟡 骨架比對已有數據，時長估計已擱置 | `scripts/shadow-compare-scheduler.ts`（`npm run shadow-compare`，`--verbose` 看逐天明細）讀種子行程資料庫比對順序/時段：42 個可比較天數，順序完全相同 36%、平均每站位置差 0.64、`time_of_day` 一致率 43%。時長估計追查了兩層：(1) 用 `scripts/backfill-place-types.ts` + `mapPlaceTypeToCategory.ts` 補真實 Place type（108 站中 83 站對照到），但平均時長差不減反增（63→67 分鐘）；(2) 用 `scripts/calibrate-duration-table.ts` 想拿真實 `duration_minutes` 校準對照表，結果發現 LLM 本身 53% 的時候不分類型一律給 120 分鐘——**LLM 的 duration_minutes 不是可信的「依類型估時長」ground truth，往它校準沒有意義**。決定：維持現有 placeholder 對照表，時長估計標記為近似值、非這次重構的賣點，先往下推進其他階段（詳見第7節） |
 | Phase 3 | ✅ 驗收標準已完成 | `generateDayStops()` 已改走規則引擎骨架（PR #11），budget/`PreferenceIntent` 也接上了（見 0.2 節）。瀏覽器端到端測試已補（見 0.7 節）：走完「重新規劃行程」精靈四步驟、真實套用，新增的一天確認吃規則引擎（無 LLM fallback），景點真實無幻覺 |
-| Phase 4 | 🟡 transit day 已接進真實路由，範圍跟原計畫不同 | 原計畫寫的是「把 `assignCityBlocks.ts` 接上 restructure 城市分塊邏輯」，探索後發現風險高、價值低（見 0.3 節），改成「把 `generateTransitDayStops` 的到達景點換成規則引擎，交通方式/距離判斷仍交給 LLM」（PR #13）。`assignCityBlocks.ts` 接線本身還沒做 |
-| Phase 5 | ✅ 三個子階段全部完成 | 規模比原計畫描述大得多，拆成三個獨立子階段（見第5.1節設計提案）：(a) 行程規劃 LLM 呼叫 + 回程日拼圖（見 0.4 節，抓到一個 prompt 強度不足的 bug）；(b) 逐城市套用 Phase 3/4 既有管線，組出完整行程（見 0.5 節，抓到兩個真的資料落差：移動日缺住宿、同城市區塊景點重複）；(c) SSE 協定 v2 + 前端重寫，真正接進 `generate-stream/route.ts`（見 0.6 節，又抓到兩個問題：缺 `.catch()`、真實 placeId 會被舊的 id 賦值邏輯洗掉）。這是整個計畫第一次真正影響使用者會看到的畫面，已通過使用者瀏覽器端到端測試 |
-| Phase 6 | 🟡 只做了無風險清理，範圍縮小 | 探索後發現原計畫「移除 `itineraryCityGen.ts` 舊整段生成呼叫、精簡 `buildSystemPrompt()`」目前做不得——那套舊流程是 `generate-stream/route.ts` 規則引擎路徑失敗時的真實 fallback，不是死路徑；跟使用者確認後縮小範圍成「只刪確定沒人在用的舊程式碼」，見 0.8 節 |
+| Phase 4 | 🟡 transit day 已接進真實路由，範圍跟原計畫不同；已補多城市真實驗證 | 原計畫寫的是「把 `assignCityBlocks.ts` 接上 restructure 城市分塊邏輯」，探索後發現風險高、價值低（見 0.3 節），改成「把 `generateTransitDayStops` 的到達景點換成規則引擎，交通方式/距離判斷仍交給 LLM」（PR #13）。`assignCityBlocks.ts` 接線本身還沒做。0.9 節補了一次真實多城市/transit day 瀏覽器端到端測試，兩段 transit day 都正確 |
+| Phase 5 | ✅ 三個子階段全部完成；已補多城市真實驗證 | 規模比原計畫描述大得多，拆成三個獨立子階段（見第5.1節設計提案）：(a) 行程規劃 LLM 呼叫 + 回程日拼圖（見 0.4 節，抓到一個 prompt 強度不足的 bug）；(b) 逐城市套用 Phase 3/4 既有管線，組出完整行程（見 0.5 節，抓到兩個真的資料落差：移動日缺住宿、同城市區塊景點重複）；(c) SSE 協定 v2 + 前端重寫，真正接進 `generate-stream/route.ts`（見 0.6 節，又抓到兩個問題：缺 `.catch()`、真實 placeId 會被舊的 id 賦值邏輯洗掉）。這是整個計畫第一次真正影響使用者會看到的畫面，已通過使用者瀏覽器端到端測試（當時只測過單城市）。0.9 節補了多城市情境（見右方備註） |
+| Phase 6 | 🟡 只做了無風險清理，範圍縮小；信心缺口已補一部分 | 探索後發現原計畫「移除 `itineraryCityGen.ts` 舊整段生成呼叫、精簡 `buildSystemPrompt()`」目前做不得——那套舊流程是 `generate-stream/route.ts` 規則引擎路徑失敗時的真實 fallback，不是死路徑；跟使用者確認後縮小範圍成「只刪確定沒人在用的舊程式碼」，見 0.8 節。0.8 節點出的「多城市/transit day 從沒真的走過完整 generate-stream 驗證」這個信心缺口，0.9 節已用一次真實 3 城市 7 天行程補上（Tokyo→Kyoto→Osaka，兩段 transit day 皆正確、無 fallback、無重複景點）——但只跑過一次，還不到「大量情境都測過」的程度，要不要因此重新評估 Phase 6 完整範圍，留給使用者決定 |
 
 ### 0.1 Phase 3 進度細節
 
@@ -377,6 +377,52 @@ Phase 5(a)(b) 都只是把積木做好、獨立驗證，從沒接進真實使用
     transit day／budget 篩選情境也有足夠真實驗證（不只是單城市），才有資格
     重新評估。下一步建議是 0.2 節提到的「先擴大 Phase 5(b) 的多城市/transit
     day 真實測試」，而不是繼續往這個方向清理。
+
+### 0.9 Phase 4/5 補測：多城市／transit day 真實瀏覽器端到端測試（已完成）
+
+34. **對象改成真正的「生成新行程」首頁表單，不是 restructure 精靈**：0.7 節
+    測的是既有行程的 restructure 路徑（單城市），這次要補的是 0.8 節點出的
+    缺口——`generate-stream` 首次生成流程在多城市／transit day 情境下，
+    規則引擎路徑（`planTrip()` + `assembleItineraryDays()`）從沒真的被瀏覽器
+    端到端驗證過。用 Playwright 直接驅動首頁表單：出發城市台北（TPE）、
+    抵達城市東京（NRT）、勾選「回程城市不同」設回程出發城市大阪（KIX）、
+    7天、自由文字「想放輕鬆一點，多安排在地美食」，觸發
+    `isMultiCity = true` 的真實生成路徑。
+35. **第一次跑又踩到腳本自己的選擇器 bug**：跟 0.7 節同一種錯誤——
+    `pickCity()` 一開始用「找出含有該 label 文字的 div，取第一個」來定位
+    每個城市選擇欄，但這種寫法在巢狀 DOM 裡不夠精確：所有祖先 div 都會被
+    判定「含有該文字」，`.first()` 選到的其實是整個表單最外層的容器，導致
+    每次呼叫都重新點開同一個（第一個）城市欄位而非目標欄位，三次呼叫互相
+    洗掉彼此的值（最後「出發城市」被錯改成「大阪」，「抵達城市」始終沒填
+    到）。改成從 label 的 exact text 直接取其唯一的直接父層容器
+    （`label:has-text(^出發城市$)` → `xpath=..`）精準定位後，加了送出前的
+    欄位回讀檢查（讀 `出發城市`/`抵達城市`/`回程出發城市` 三個欄位的按鈕
+    文字，斷言各自包含 TPE/NRT/KIX 才繼續），重跑一次三個欄位都正確填入。
+36. **驗證結果（規則引擎完整跑通，且比預期涵蓋更多）**：送出後全程無瀏覽器
+    console 錯誤，SSE 串流正常完成並導向 `/view/[id]`。伺服器 log 只有一行
+    `[Stream] Itinerary saved (rule-engine path): ...`，完全沒有任何
+    `falling back to LLM` 警告——代表規則引擎路徑（`planTrip` → 逐城市
+    `generateTransitDayStopsViaScheduler`/`generateDayStopsViaScheduler` →
+    `generateDepartureDayStops`）從頭到尾一次成功，沒有退回舊的整段 LLM
+    流程。`planTrip()` 自己判斷在東京、大阪之間安插京都當中途站，實際產出
+    東京3天＋京都1天＋大阪1天＋兩段 transit day＋回程日，共7天、3個城市——
+    比原本只測「兩城市直飛」的設計更完整地覆蓋了 Phase 4 的多城市/transit
+    day 情境。抽查 DB 內容：
+    - 兩段 transit day（東京→京都、京都→大阪）到達後的景點皆為真實地標
+      （清水寺、伏見稻荷大社、日本環球影城、海遊館、難波八阪神社、大阪城），
+      真實 `placeId`/座標，出發前的微行程（早餐、交通本身）維持 LLM 生成、
+      正確地沒有 `placeId`（符合 0.3 節記錄的已知限制，非本次新發現）。
+    - 全趟 7 天、跨 3 個城市的所有 stop `placeId` **零重複**——確認 Phase
+      5(b) 當初修的 `usedPlaceIds` 跨天去重（0.5 節第16點）在真實多城市
+      生成下依然有效，不是只在腳本測試裡成立。
+    - 移動日（transit day）正確帶有 `accommodation`（目的地城市的住宿），
+      回程日正確不帶 `accommodation`——0.5 節第16點修的兩個資料落差在真實
+      生成下同樣沒有回歸。
+    - `planTrip()` 自己判斷的 `currency`（JPY）、`title`（「東京與大阪的
+      美食之旅」）皆正確反映在最終存檔結果。
+37. **測試造成的資料異動**：這次是新增一筆行程（INSERT，不是像 0.7 節那次
+    的 UPDATE），`prisma/dev.db` 因此再次出現在 `git status`。處理方式跟
+    0.7 節一致——這筆測試資料要保留當範例還是還原，留給使用者決定。
 
 ---
 
