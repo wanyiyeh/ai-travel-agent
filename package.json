@@ -15,7 +15,8 @@
     "enrich-all": "tsx scripts/enrich-all-itineraries.ts",
     "check-places": "tsx scripts/check-place-data.ts",
     "shadow-compare": "tsx scripts/shadow-compare-scheduler.ts",
-    "validate-preference-intent": "tsx scripts/validate-preference-intent.ts"
+    "validate-preference-intent": "tsx scripts/validate-preference-intent.ts",
+    "batch-test-rule-engine": "tsx scripts/batch-test-rule-engine.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
