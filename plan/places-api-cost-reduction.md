@@ -231,5 +231,6 @@ C 可以之後當實驗：拿幾個已有 4-type 快取的城市（京都、開�
 - [x] 1. attraction-search 先無偏向再展開
 - [x] 2. stop-suggestions 搜尋中心對齊網格
 - [x] 3. `MOCK_PLACES` + 獨立 mock 資料庫（`npm run dev:mock`）
+- [x] （追加）`getCityCenter` 記住確認查不到的城市（新表 `CityCenterMissCache`，30 天 TTL，API 錯誤不快取），補上 0-1 沒涵蓋到的城市中心查詢
 - [ ] （之後再評估）stop-suggestions 合併 Nearby 查詢的實驗
 - [ ] （之後再評估）`MOCK_AI` 擴充到 `generate-stream` 規則引擎路徑

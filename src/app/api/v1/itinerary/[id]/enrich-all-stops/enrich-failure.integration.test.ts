@@ -60,6 +60,7 @@ describe("enrich-all-stops remembers failed lookups", () => {
     vi.unstubAllGlobals();
     await prisma.itinerary.delete({ where: { id: itineraryId } });
     await prisma.user.deleteMany({ where: { itineraries: { none: {} } } });
+    await prisma.cityCenterMissCache.deleteMany({ where: { cityName: cityHint } });
   });
 
   const run = () =>

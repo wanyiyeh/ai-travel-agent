@@ -1,4 +1,5 @@
 import { lookupByQuery, upsertPlace } from "@/lib/placeCache";
+import { prisma } from "@/lib/db";
 import { haversineKm } from "@/lib/distanceMatrix";
 import { googleFetch } from "@/lib/googleFetch";
 
@@ -158,6 +159,10 @@ async function searchPlaceTextUncached(
 // the shared PlaceQuery cache so they can't collide with stop/meal queries.
 const CITY_CACHE_PREFIX = "city-center:";
 
+// Same 30-day TTL as the other Places caches — a city Google adds or starts
+// matching later eventually gets picked up.
+const CITY_MISS_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
 /**
  * Resolve a city name to a coordinate usable as a locationBias center,
  * cached through the existing place-query cache so repeated enrich calls
@@ -175,6 +180,9 @@ export async function getCityCenter(
     return { lat: cached.lat, lng: cached.lng };
   }
 
+  const miss = await prisma.cityCenterMissCache.findUnique({ where: { cityName } });
+  if (miss && Date.now() - miss.updatedAt.getTime() < CITY_MISS_TTL_MS) return null;
+
   // A city-center lookup only feeds locationBias (a ranking hint, not a hard
   // requirement) — if the Places API itself is down, degrade to "no bias"
   // rather than surfacing the failure here; the caller that actually needs to
@@ -187,7 +195,14 @@ export async function getCityCenter(
     if (err instanceof PlacesApiError) return null;
     throw err;
   }
-  if (!place) return null;
+  if (!place) {
+    await prisma.cityCenterMissCache.upsert({
+      where: { cityName },
+      create: { cityName },
+      update: { updatedAt: new Date() },
+    });
+    return null;
+  }
 
   await upsertPlace(cacheKey, {
     placeId: place.id,

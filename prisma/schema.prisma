@@ -203,6 +203,17 @@ model NearestStationCache {
   updatedAt DateTime @updatedAt
 }
 
+// City names getCityCenter() searched for and Google confirmed it couldn't
+// find (e.g. a landmark like "富士山" used as a day's waypointCity). Found
+// centers live in PlaceQuery ("city-center:" keys), but that table needs a
+// real placeId, so a "not found" answer had nowhere to go and every page
+// open's auto-enrich re-billed the same doomed lookup. Only confirmed misses
+// are written — a Places API error isn't, so it retries next time.
+model CityCenterMissCache {
+  cityName  String   @id
+  updatedAt DateTime @updatedAt
+}
+
 // Routes API (Compute Route Matrix) result for a single origin/destination
 // pair + travel mode (see getDistance/getDistancesForStopPairs in
 // distanceMatrix.ts). cacheKey encodes rounded origin/destination coords (or

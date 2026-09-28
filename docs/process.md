@@ -463,6 +463,14 @@
   `dev.db`。這其實也是個既有 bug——正式版的行程清單會停在 build 當下的
   內容。加上 `export const dynamic = "force-dynamic"` 改成每次請求才查，
   用空資料庫重現 CI 情境確認 build 通過。
+- 後續掃過其他可能多花錢的地方，追加兩件事：(1) 切回 `main` 再 pull 時，
+  git 先把被 ignore 的本機 `dev.db` 換成舊版本、再隨刪除 commit 刪掉——
+  這是移除追蹤時的一次性副作用，用 15:44 的備份復原（遺失手動驗證那段
+  的寫入）；本機已只剩 `main`，之後只有直接 checkout 舊 commit 才會再觸發。
+  (2) `getCityCenter` 查不到的城市同樣不快取、每次開頁面重查（例如把
+  「富士山」當 `waypointCity`）——`PlaceQuery` 需要真的 placeId 放不進
+  「查無結果」，所以比照 `NearestStationCache` 新增 `CityCenterMissCache`
+  只記確認查不到的城市，API 錯誤不記。
 - 教訓：快取表只記錄「查詢成功」的呼叫，所以**失敗的查詢是看不見的
   成本**——從資料庫反推費用時會漏掉，程式碼註解說的「冪等」也只對成功
   的項目成立。
