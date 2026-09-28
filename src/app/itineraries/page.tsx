@@ -2,6 +2,12 @@ import Link from "next/link";
 import { prisma } from "@/lib/db";
 import ItineraryList from "@/components/ItineraryList";
 
+// This page reads the DB but uses no dynamic API, so Next.js was prerendering
+// it at build time — freezing the saved-itinerary list at whatever the build
+// machine's DB held (and failing CI outright once dev.db stopped being
+// committed). Render per request instead.
+export const dynamic = "force-dynamic";
+
 export default async function ItinerariesPage() {
   const itineraries = await prisma.itinerary.findMany({
     orderBy: { createdAt: "desc" },

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { searchPlaceText, getCityCenter, PlacesApiError, type TextSearchPlace } from "@/lib/placesTextSearch";
 import { lookupByQuery, upsertPlace } from "@/lib/placeCache";
-import { nearestCity } from "@/lib/nearestCity";
+import { nearestCity, NEAREST_CITY_KM_THRESHOLD } from "@/lib/nearestCity";
 import { haversineKm, MAX_PLAUSIBLE_DISTANCE_KM } from "@/lib/distanceMatrix";
 import { PRICE_LEVEL_MAP } from "@/lib/fetchCityRestaurants";
 
@@ -77,30 +77,47 @@ async function resolvePlace(
     // Attraction search: an unbiased text search's single "best match" can
     // land on a same-named/generic place near an entirely different city
     // than any of the ones the user has actually added (e.g. a Tokyo trip's
-    // attraction search surfacing a same-named spot in Taipei). Bias against
-    // every candidate city instead and keep whichever result lands closest
-    // to the city it was biased toward.
-    const centers = await Promise.all(
-      candidateCities.map(async (city) => ({ city, center: await getCityCenter(city, apiKey) })),
+    // attraction search surfacing a same-named spot in Taipei). Biasing
+    // against every candidate city fixes that, but costs one Text Search per
+    // city on every new query — so try one unbiased search first and only
+    // fan out when its match isn't near any of the trip's cities. Famous
+    // landmarks (the common case) resolve in that single call. City centers
+    // are cached, so checking against them is free.
+    const [allCenters, unbiased] = await Promise.all([
+      Promise.all(candidateCities.map(async (city) => ({ city, center: await getCityCenter(city, apiKey) }))),
+      cachedSearchPlaceText(`attraction-search:unbiased:${query}`, query, apiKey),
+    ]);
+    const centers = allCenters.filter(
+      (c): c is { city: string; center: { lat: number; lng: number } } => c.center !== null,
     );
+
+    if (
+      unbiased &&
+      centers.some(
+        ({ center }) =>
+          haversineKm(unbiased.location.latitude, unbiased.location.longitude, center.lat, center.lng) <=
+          NEAREST_CITY_KM_THRESHOLD,
+      )
+    ) {
+      return unbiased;
+    }
+
     const biased = await Promise.all(
-      centers
-        .filter((c): c is { city: string; center: { lat: number; lng: number } } => c.center !== null)
-        .map(async ({ city, center }) => {
-          const found = await cachedSearchPlaceText(`attraction-search:${city}:${query}`, query, apiKey, center);
-          if (!found) return null;
-          const distanceKm = haversineKm(found.location.latitude, found.location.longitude, center.lat, center.lng);
-          return { place: found, distanceKm };
-        }),
+      centers.map(async ({ city, center }) => {
+        const found = await cachedSearchPlaceText(`attraction-search:${city}:${query}`, query, apiKey, center);
+        if (!found) return null;
+        const distanceKm = haversineKm(found.location.latitude, found.location.longitude, center.lat, center.lng);
+        return { place: found, distanceKm };
+      }),
     );
     const best = biased
       .filter((r): r is { place: TextSearchPlace; distanceKm: number } => r !== null)
       .sort((a, b) => a.distanceKm - b.distanceKm)[0];
-    // Fall back to an unbiased search if nothing turned up near any
+    // Fall back to the unbiased match if nothing turned up near any
     // candidate city, so a legitimately-distant/ambiguous attraction still
     // surfaces something rather than a hard "not found" — the frontend's
     // nearestCity threshold check below sends those to manual disambiguation.
-    return best ? best.place : await cachedSearchPlaceText(`attraction-search:unbiased:${query}`, query, apiKey);
+    return best ? best.place : unbiased;
   }
 
   // No cityHint and no candidateCities means this is the restructure flow's

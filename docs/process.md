@@ -375,3 +375,105 @@
   使用狀況（fallback 觸發頻率、生成品質）；Phase 6（清理 `itineraryCityGen.ts`
   裡的舊整段生成呼叫、簡化 `buildSystemPrompt()`）等規則引擎路徑穩定後再做；
   `assignCityBlocks.ts` 接線、Phase 3 的 UI 驗收標準仍然懸而未決。
+
+---
+
+## 2026-09-28
+
+延續 [plan/hybrid-rule-engine-scheduling.md](../plan/hybrid-rule-engine-scheduling.md) 第 0.10 節，
+重新評估 Phase 6 能不能移除舊 LLM fallback。
+
+### 1. 批量真實測試規則引擎路徑，結論是移除 fallback 還太早（`91e7cb7`）
+
+- 新增永久保留的診斷腳本 `scripts/batch-test-rule-engine.ts`
+  （`npm run batch-test-rule-engine`）：比照 `shadow-compare-scheduler.ts`/
+  `validate-preference-intent.ts` 的既有慣例，直接呼叫
+  `generate-stream/route.ts` 規則引擎路徑實際用的同一批函式
+  （`assembleItineraryDays` → `repairTransitDayDepartureCities`/
+  `repairMissingAccommodation` → `validateItinerary` + `validateGeography`），
+  複製 route.ts 判斷「這次算成功、還是該 fallback」的完全相同邏輯，
+  真的打 OpenAI + Google Places API，不寫 DB、不需要開 `npm run dev`。
+- 跑了 8 組情境，涵蓋短程/長程、單城市/多城市、budget 兩極端、冷門城市、
+  高強度自由文字偏好——這些軸線先前只靠 2 次手動瀏覽器測試涵蓋過。
+- **抓到一個真的、可重現的 `planTrip()` bug**：「台北→巴黎進／羅馬出，
+  9 天」這組兩次嘗試，AI 都自己在巴黎、羅馬之間多插了一個城市（兩次答案
+  不同，日內瓦、尼斯），但天數分配沒跟著扣，導致原本規劃的最後城市羅馬
+  被算成 0 天，違反 schema 驗證。跟 Phase 5(a) 的雪梨過度插入是同一個
+  bug 家族，但這次的失敗模式（插入城市擠掉最後城市的天數）不在既有
+  prompt 的天數加總檢查涵蓋範圍內。兩次都正確 fallback 回舊流程，沒有
+  壞掉，但決定先不修——列為獨立追蹤項目，不在這次清理性質的 Phase 6
+  裡臨時展開範圍。
+- **更重要的發現**：7/8 成功的案例裡，多數本身品質也不穩——幾乎每一個
+  都帶 `STOPS_ALL_SAME_TIME` 警告（呼應 Phase 2 影子模式當初從歷史資料
+  算出的「`time_of_day` 一致率僅 43%」，這次用全新真實生成再次重現），
+  10 天倫敦單城市行程更帶了 5 個 `DAY_TOO_FEW_STOPS`。這些警告目前不算
+  fallback 觸發條件（只有 `severity: "error"` 才算），代表「7/8 成功」
+  這個數字本身掩蓋了一批技術上沒 fallback、但生成品質有明顯瑕疵的案例。
+- **結論**：Phase 6 移除 fallback 現在還太早，而且原因比原本「樣本數不夠」
+  的顧慮更根本——規則引擎路徑本身還有一個真實可重現的失敗模式待修
+  （`planTrip` 的插入城市天數扣除邏輯），以及骨架排程品質（`time_of_day`/
+  站點數量分佈）目前沒有資料證明贏過舊 LLM 整段生成。兩點都需要真的動
+  規則引擎程式碼才能解決，已記錄成獨立範圍的追蹤項目。
+- 額外產出 `plan/places-api-cost-reduction.md`：追查 9/17-9/18 那次 Places
+  API 費用尖峰的成因（含這次批量測試自己造成的部分），提出三個尚未實作
+  的方案（景點搜尋改先試不限城市偏差、把 stop-suggestions 的搜尋中心對齊
+  粗網格讓相近的「換一個」共用快取、`MOCK_PLACES` 環境變數在 fetch 層攔截
+  Google 呼叫並用獨立 mock DB 避免污染 `dev.db` 真實快取）。
+
+### 2. 追查 9/23 的 Places 費用，找到「開頁面就燒錢」的漏洞，並做完整份成本計畫（分支 `fix/places-enrich-rebilling`）
+
+- 追查 9/23 的 136 元：`dev.db` 的每個版本（本機、9/23 和 9/28 的
+  commit）都完全沒有 9/23 的快取寫入。對照 commit 紀錄推論是 Phase 3 的
+  Playwright 端到端測試（`5cb34b0`，布拉格行程跑了兩次）：布拉格有 28 個
+  餐廳、6 個住宿從沒 enrich 過，開頁面時自動 enrich，restructure 後再跑
+  一次，dev 模式的 StrictMode 又讓每次都重複兩倍。明細無法精確還原，因為
+  當天的寫入後來隨著 `dev.db` 被 git 還原而消失（commit 說布拉格改成 8
+  天，現在的 `dev.db` 裡還是 7 天）。
+- **找到兩個比測試放大點更嚴重的漏洞**：(1) enrich 查不到、或因為離城市
+  太遠被擋掉的項目，既不寫快取、也不留紀錄，**每次打開行程頁都會付費
+  重查**（里斯本、東京 seed 行程每次約 40 次）；而且開頁面時有 4 個來源
+  同時在查同一個地點（`EditableItineraryCard` 和 `ItineraryMap` 各自
+  enrich，再各乘上 StrictMode 的兩倍）。(2) `dev.db` 被 git 追蹤，切分支
+  或放棄變更就會把付費查到的快取倒回舊版本。
+- 修正（`plan/places-api-cost-reduction.md` 第 0 節）：
+  - 失敗記號 `enrichFailure: { query, reason, at }` 存在 `days` JSON 裡，
+    **以失敗時的查詢字串為準**、30 天內跳過——改名或換城市時查詢字串
+    自然不同，會自動重查，不需要每條編輯路徑都記得清掉記號。三個
+    enrich 路由都接上，有記號的項目也不再送去 OpenAI 翻譯。
+  - `searchPlaceText` 做 in-flight 去重：同時的相同查詢共用一次 Google
+    呼叫。選在最底層做，而不是原本構想的 enrich-all-stops 路由層，因為
+    這樣四個來源一起擋得住，前端不用改。
+  - `.gitignore` 加 `/prisma/dev.db*`；`git rm --cached` 由使用者執行。
+- 同一個分支也把計畫原本的三項做完：加景點搜尋改成先查一次不限城市、
+  不準才逐城市展開（最好 1 次，而且最壞情況也比舊版少一次）；
+  stop-suggestions 的搜尋中心對齊 0.05° 網格讓附近的「換一個」共用快取
+  （衛星小鎮維持原座標）；`npm run dev:mock` 讓所有 Google 呼叫走同一個
+  `googleFetch()`，回傳格式跟真的一樣的假資料，原本的解析、快取、篩選
+  程式照常執行。mock 模式強制使用獨立的 `mock.db`，指向 `dev.db` 時
+  `db.ts` 載入就報錯，避免假地點被寫進真實快取。
+- 驗證：新增單元測試（`enrichFailure`、`placesTextSearch` 去重、
+  `places/search` 路由、`snapToGrid`、`mockPlaces`）和一個整合測試
+  （第一次查詢並標記、第二次不打 Google、改名後重查），全部 187 + 5 個
+  通過；實際啟動 `dev:mock` 確認搜尋回傳 `mock-` 地點、照片回 SVG、指向
+  `dev.db` 時被擋下。會實際付費的手動驗證（里斯本開兩次、開羅搜獅身
+  人面像、相近 stop 共用快取、Raszyn 衛星情境、mock 模式完整流程）由
+  使用者在瀏覽器上逐項驗證通過。
+- 移除 `dev.db` 追蹤後 CI 的 `npm run build` 失敗（`main.Itinerary` 不存在）：
+  `/itineraries` 頁面在 build 時被靜態預先產生，過去一直讀 git 裡那份
+  `dev.db`。這其實也是個既有 bug——正式版的行程清單會停在 build 當下的
+  內容。加上 `export const dynamic = "force-dynamic"` 改成每次請求才查，
+  用空資料庫重現 CI 情境確認 build 通過。
+- 教訓：快取表只記錄「查詢成功」的呼叫，所以**失敗的查詢是看不見的
+  成本**——從資料庫反推費用時會漏掉，程式碼註解說的「冪等」也只對成功
+  的項目成立。
+
+### 今天的結論
+
+- Phase 6 的範圍評估依然停在「只做無風險清理」，這次用真實批量資料把
+  「還太早移除 fallback」的直覺，換成了兩個具體、可獨立處理的技術原因。
+- Places API 成本這條線今天從「提出方案」一路做到「全部實作完」，而且
+  途中發現真正的大漏洞不是測試時的放大點，而是「不做任何事、光開頁面就
+  付費」的 enrich 重查。
+- 下一步：`planTrip` 插入城市天數 bug、time_of_day/站點數量分配品質
+  兩個問題的優先順序留給使用者決定；Places 成本修正已完成驗證，待
+  commit 後 merge。

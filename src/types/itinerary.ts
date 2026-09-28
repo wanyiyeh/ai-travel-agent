@@ -1,5 +1,7 @@
 // Shared TypeScript types for Itinerary data structures
 
+import type { EnrichFailure } from "@/lib/enrichFailure";
+
 export type Stop = {
   id?: string;
   name: string;
@@ -18,6 +20,9 @@ export type Stop = {
   photoName?: string | null;
   suspicious?: boolean;
   suspiciousReason?: string;
+  // Last failed Text Search attempt — enrich routes skip re-querying while
+  // it's recent and the query is unchanged (see lib/enrichFailure.ts).
+  enrichFailure?: EnrichFailure;
 };
 
 export type Accommodation = {
@@ -37,6 +42,9 @@ export type Accommodation = {
   estimated_cost_high?: number;
   nearestStation?: { name: string; distanceMeters: number } | null;
   photoName?: string | null;
+  // Last failed Text Search attempt — enrich routes skip re-querying while
+  // it's recent and the query is unchanged (see lib/enrichFailure.ts).
+  enrichFailure?: EnrichFailure;
 };
 
 // Candidates always come from a real Google Places result, so unlike the
@@ -56,6 +64,9 @@ export type Meal = {
   address?: string;
   rating?: number | null;
   photoName?: string | null;
+  // Last failed Text Search attempt — enrich routes skip re-querying while
+  // it's recent and the query is unchanged (see lib/enrichFailure.ts).
+  enrichFailure?: EnrichFailure;
 };
 
 export type DayMeals = {

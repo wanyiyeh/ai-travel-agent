@@ -36,3 +36,18 @@ export function centroid(pts: { lat: number; lng: number }[]): { lat: number; ln
   const sum = pts.reduce((a, p) => ({ lat: a.lat + p.lat, lng: a.lng + p.lng }), { lat: 0, lng: 0 });
   return { lat: sum.lat / pts.length, lng: sum.lng / pts.length };
 }
+
+// Snaps a point to the nearest corner of a stepDeg-sized lat/lng grid. Used to
+// make nearby-search cache keys shareable: callers that search a wide radius
+// around "roughly here" (e.g. stop-suggestions' 20km pool around whichever
+// stop is being replaced) would otherwise build a fresh cache key — and a
+// fresh paid Nearby Search — for every slightly different anchor point.
+// Rounded to 6 decimals so float noise (0.05 * 601 = 30.050000000000001)
+// can't split one grid point into several cache keys.
+export function snapToGrid(
+  point: { lat: number; lng: number },
+  stepDeg: number,
+): { lat: number; lng: number } {
+  const snap = (v: number) => Number((Math.round(v / stepDeg) * stepDeg).toFixed(6));
+  return { lat: snap(point.lat), lng: snap(point.lng) };
+}

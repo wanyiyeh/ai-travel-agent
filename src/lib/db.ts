@@ -1,4 +1,9 @@
 import { PrismaClient } from "@prisma/client";
+import { assertMockPlacesDatabase } from "@/lib/mockPlaces";
+
+// Refuse to start with MOCK_PLACES pointed at a real DB — fake places would be
+// cached into it and keep being served after mock mode is turned off.
+assertMockPlacesDatabase();
 
 const globalForPrisma = globalThis as unknown as {
   prisma: ReturnType<typeof makePrisma> | undefined;
