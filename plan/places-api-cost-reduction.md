@@ -233,5 +233,6 @@ C 可以之後當實驗：拿幾個已有 4-type 快取的城市（京都、開�
 - [x] 3. `MOCK_PLACES` + 獨立 mock 資料庫（`npm run dev:mock`）
 - [x] （追加）`getCityCenter` 記住確認查不到的城市（新表 `CityCenterMissCache`，30 天 TTL，API 錯誤不快取），補上 0-1 沒涵蓋到的城市中心查詢
 - [x] （追加）規則引擎路徑的餐廳／住宿改從真實候選挑選：`generateMealsAndAccommodation` 先對城市中心查 4 個 Nearby 候選池（早餐、午晚餐、點心、住宿，30 天快取），讓 AI 從編號清單挑，直接帶入 placeId／座標，enrich 不必再逐一 Text Search；查不到候選或 AI 沒照清單選時退回原本做法。邏輯在 `src/lib/mealLodgingPicks.ts`。舊 LLM fallback 路徑（hints 沒有 placeId）不在這次範圍。驗證：`dev:mock` 下實際生成東京 3 天（真的 OpenAI），走規則引擎路徑，12 餐 + 住宿全部從候選清單選中、都帶 placeId、沒有重複，費用由 priceLevel 估算
+- [x] （追加）規則引擎路徑的重複計費：`fetchNearbyPlaceCandidates` 一律抓 20 筆後在本地切，同一城市不同數量的查詢共用一份快取（key 的數量格固定為 20，既有 20 筆快取仍有效）；`getDistance` 記住 Routes 確認的 `ROUTE_NOT_FOUND`（存 `null` 進 `DistanceCache`，API 錯誤不存）。整合測試：`fetchCityRestaurants.integration.test.ts`、`distanceMatrix.integration.test.ts`。尚未處理：規則引擎失敗退回舊 LLM 流程時兩邊都付費
 - [ ] （之後再評估）stop-suggestions 合併 Nearby 查詢的實驗
 - [ ] （之後再評估）`MOCK_AI` 擴充到 `generate-stream` 規則引擎路徑

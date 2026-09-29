@@ -307,6 +307,13 @@ function buildCandidatesCacheKey(
   return `${roundCoord(coords.lat)},${roundCoord(coords.lng)}:${radius}:${maxCount}:${sortedTypes}:${sortedPriceLevels}`;
 }
 
+// Nearby Search bills per request, not per result, so every call fetches
+// Google's max and slices locally. Callers asking for different counts
+// (e.g. a transit day's arrivalActivityCount + 4 vs a 3-day city's
+// dayCount * STOPS_PER_DAY + 4) then share one cached pool per
+// coords/types/radius/price instead of each paying for its own.
+const NEARBY_FETCH_COUNT = 20;
+
 /**
  * Nearby place search that keeps real geo data (placeId/lat/lng/address).
  * Used to build real, pickable candidate lists (e.g. day stop suggestions,
@@ -320,13 +327,15 @@ export async function fetchNearbyPlaceCandidates(
   maxCount = 8,
   priceLevels?: string[],
 ): Promise<PlaceCandidate[]> {
-  const cacheKey = buildCandidatesCacheKey(coords, types, radius, maxCount, priceLevels);
+  // Key keeps the maxCount slot (fixed at NEARBY_FETCH_COUNT) so rows
+  // already cached by maxCount=20 callers stay valid.
+  const cacheKey = buildCandidatesCacheKey(coords, types, radius, NEARBY_FETCH_COUNT, priceLevels);
   const cached = await prisma.nearbyPlaceCandidatesCache.findUnique({ where: { cacheKey } });
   if (cached && Date.now() - cached.updatedAt.getTime() < NEARBY_CACHE_TTL_MS) {
-    return JSON.parse(cached.candidates) as PlaceCandidate[];
+    return (JSON.parse(cached.candidates) as PlaceCandidate[]).slice(0, maxCount);
   }
 
-  const candidates = await fetchNearbyPlaceCandidatesUncached(coords, apiKey, types, radius, maxCount, priceLevels);
+  const candidates = await fetchNearbyPlaceCandidatesUncached(coords, apiKey, types, radius, NEARBY_FETCH_COUNT, priceLevels);
   // Don't cache an empty pool — could be a transient API failure rather than
   // a genuinely sparse area, so let the next call retry instead of pinning it.
   if (candidates.length > 0) {
@@ -336,7 +345,7 @@ export async function fetchNearbyPlaceCandidates(
       update: { candidates: j(candidates) },
     });
   }
-  return candidates;
+  return candidates.slice(0, maxCount);
 }
 
 async function fetchNearbyPlaceCandidatesUncached(

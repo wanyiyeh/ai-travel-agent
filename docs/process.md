@@ -485,3 +485,43 @@
 - 下一步：`planTrip` 插入城市天數 bug、time_of_day/站點數量分配品質
   兩個問題的優先順序留給使用者決定；Places 成本修正已完成驗證，待
   commit 後 merge。
+
+---
+
+## 2026-09-29
+
+### 1. 追查「規則引擎比純 LLM 生成還貴」的原因（分支 `fix/rule-engine-api-cost`）
+
+- 起因：使用者感覺換成規則引擎後，每次生成的費用比舊的整段 LLM 生成還高。
+  手邊沒有帳單數據，這次是從程式碼逐一列出規則引擎路徑的付費呼叫：
+  - **fallback 兩邊都付費**：規則引擎失敗（Phase 6 批量測試 7/8 成功）時，
+    已經打出的 Nearby／Routes／OpenAI 不會退，接著舊 LLM 流程再整段付一次。
+  - **Routes 是新增的一整類付費呼叫**：舊流程生成時不算距離；規則引擎每天
+    每段相鄰景點都打一次 Compute Route Matrix，transit 沒路線再補打一次
+    driving，而且「沒路線」的結果不快取，每次生成都重打。
+  - **Nearby 快取 key 含 `maxCount`**：同一城市的移動日、觀光日、返程日各自
+    用不同數量查 `tourist_attraction`，一次生成最多付 3 次，行程天數一變
+    快取也對不上。但 Nearby 是按請求計費、不是按筆數。
+  - 最新的餐廳／住宿候選池每城市多 4 次 Nearby（價格篩選為空時最多 8 次）；
+    field mask 含 `rating`／`priceLevel`，可能落在免費額度較小的 Enterprise SKU
+    （待帳單 SKU 確認）。
+- 這次先修兩個便宜、不改行為的點：
+  - `fetchNearbyPlaceCandidates` 一律向 Google 抓 20 筆、存進快取、在本地切成
+    呼叫端要的數量。key 格式不變，只把數量那格固定為 20，所以既有的
+    20 筆快取仍然有效（避開 7/18 那種 key 一變整批失效）；其他數量的舊快取
+    列會各重抓一次。
+  - `getDistance` 把 Google 確認的 `ROUTE_NOT_FOUND` 以 `null` 寫進
+    `DistanceCache`（30 天），HTTP 錯誤／例外／`status` 錯誤碼不寫，下次重試。
+- 驗證：新增 `distanceMatrix.integration.test.ts`、
+  `fetchCityRestaurants.integration.test.ts`（mock fetch，確認只打一次 Google）；
+  單元 211/211、整合 11/11、`tsc`、ESLint 全過。沒有跑真實 API，實際省下
+  多少要看之後的帳單。
+
+### 今天的結論
+
+- 規則引擎本身不一定比較貴，貴在 fallback 雙重付費、新增的 Routes 呼叫，
+  以及快取 key 設計讓同一個查詢被拆成好幾次付費。
+- 下一步：到 GCP Billing 依 SKU 確認 `Nearby Search`／`Compute Route Matrix`
+  的增加時間點；可以考慮在 `googleFetch` 加計數器，用 `dev:mock` 數出一次
+  生成的呼叫次數（Google 不花錢，OpenAI 仍是真的）。fallback 雙重付費要等
+  規則引擎成功率提升才能處理。
