@@ -204,7 +204,7 @@ async function buildCityBlock(
           })
         : Promise.resolve([]),
       newDaysNeeded > 0
-        ? generateMealsAndAccommodation(city.name, newDaysNeeded, currency).catch(() => ({
+        ? generateMealsAndAccommodation(city.name, newDaysNeeded, currency, budget).catch(() => ({
             accommodation: {},
             mealsByDay: Array.from({ length: newDaysNeeded }, () => ({})),
           }))
@@ -274,7 +274,7 @@ async function buildCityBlock(
           return Array.from({ length: aiDayCount }, () => []);
         })
       : Promise.resolve([]),
-    generateMealsAndAccommodation(city.name, nights, currency).catch(() => ({
+    generateMealsAndAccommodation(city.name, nights, currency, budget).catch(() => ({
       accommodation: {},
       mealsByDay: Array.from({ length: nights }, () => ({})),
     })),

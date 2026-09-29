@@ -1,6 +1,7 @@
 import { openai } from "@/lib/openai";
 import { getCityCenter } from "@/lib/placesTextSearch";
-import { fetchNearbyPlaceCandidates, getPriceLevels, type RestaurantHint, type BudgetLevel, type PlaceCandidate } from "@/lib/fetchCityRestaurants";
+import { fetchNearbyPlaceCandidates, getPriceLevels, getMealPlaceTypes, getLodgingTypes, type RestaurantHint, type BudgetLevel, type PlaceCandidate } from "@/lib/fetchCityRestaurants";
+import { applyCandidatePicks, formatCandidateLists, hasAnyCandidates, type MealLodgingPools } from "@/lib/mealLodgingPicks";
 import { placeCandidatesToStopCandidates } from "@/lib/scheduler/placeCandidatesToStopCandidates";
 import { distributeStopsPerDay, partitionCandidatesByDay } from "@/lib/scheduler/partitionCandidatesByDay";
 import { buildDaySkeleton, type SkeletonStop } from "@/lib/scheduler/buildDaySkeleton";
@@ -371,12 +372,64 @@ export async function generateDepartureDayStops(
   }
 }
 
+// Search radius around the city center for meal/lodging candidates — same
+// 3km the accommodation regenerate route uses for its hotel pool.
+const MEAL_LODGING_RADIUS_M = 3000;
+const MEAL_LODGING_MAX_COUNT = 20;
+
+async function fetchMealLodgingPools(cityName: string, budget: BudgetLevel | undefined): Promise<MealLodgingPools | null> {
+  const apiKey = process.env.GOOGLE_PLACES_API_KEY;
+  if (!apiKey) return null;
+  const coords = await getCityCenter(cityName, apiKey);
+  if (!coords) return null;
+
+  const priceLevels = getPriceLevels(budget);
+  // Same "empty with the price filter -> retry without it" fallback as the
+  // meal/accommodation regenerate routes: small destinations often don't tag
+  // price level on dining/lodging listings.
+  const search = async (types: string[]) => {
+    const places = await fetchNearbyPlaceCandidates(coords, apiKey, types, MEAL_LODGING_RADIUS_M, MEAL_LODGING_MAX_COUNT, priceLevels);
+    if (places.length > 0 || !priceLevels) return places;
+    return fetchNearbyPlaceCandidates(coords, apiKey, types, MEAL_LODGING_RADIUS_M, MEAL_LODGING_MAX_COUNT);
+  };
+
+  const [breakfast, main, snack, lodging] = await Promise.all([
+    search(getMealPlaceTypes("breakfast", budget)),
+    search(getMealPlaceTypes("lunch", budget)),
+    search(getMealPlaceTypes("snack", budget)),
+    search(getLodgingTypes(budget)),
+  ]);
+  return { breakfast, main, snack, lodging };
+}
+
 export async function generateMealsAndAccommodation(
   cityName: string,
   stayDays: number,
-  currency: string
+  currency: string,
+  budget?: BudgetLevel,
 ): Promise<{ accommodation: Record<string, unknown>; mealsByDay: Array<Record<string, unknown>> }> {
   const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
+
+  // Real candidates first: 4 Nearby Searches per city (cached 30 days per
+  // city center) replace one Text Search per meal/hotel during enrich, and
+  // the LLM can't invent a name that later comes back "not found". Any
+  // failure here just means the old invent-the-names prompt below.
+  const pools = await fetchMealLodgingPools(cityName, budget).catch(() => null);
+  const useCandidates = pools !== null && hasAnyCandidates(pools);
+
+  const candidateRules = useCandidates
+    ? `
+
+以下是 ${cityName} 真實存在的店家候選（Google 地圖資料）。每個欄位都要從對應清單中選一個，並在 "id" 填入它的編號（例如 "M3"），"name" 照抄清單上的名稱：
+- 住宿從「住宿候選」選一個
+- 早餐從「早餐候選」選，午餐和晚餐都從「午餐／晚餐候選」選，點心從「點心候選」選
+- 同一家店在整段停留期間只能出現一次（午餐和晚餐也不能選同一家）
+- 某個清單的候選不夠用時，才自行推薦真實店家，id 填 null
+
+${formatCandidateLists(pools)}`
+    : "";
+  const idField = useCandidates ? `"id": "候選編號或 null", ` : "";
+
   const completion = await openai.chat.completions.create({
     model,
     messages: [
@@ -386,13 +439,13 @@ export async function generateMealsAndAccommodation(
 
 回傳嚴格的 JSON 格式（不要其他文字）：
 {
-  "accommodation": { "name": "住宿名稱（使用原文或英文）", "area": "所在區域" },
+  "accommodation": { ${idField}"name": "住宿名稱（使用原文或英文）", "area": "所在區域" },
   "meals": [
     {
-      "breakfast": { "name": "餐廳名稱", "description": "一句話簡介", "estimated_cost": 0 },
-      "lunch": { "name": "餐廳名稱", "description": "一句話簡介", "estimated_cost": 0 },
-      "dinner": { "name": "餐廳名稱", "description": "一句話簡介", "estimated_cost": 0 },
-      "snack": { "name": "咖啡館或甜點店名稱", "description": "一句話簡介", "estimated_cost": 0 }
+      "breakfast": { ${idField}"name": "餐廳名稱", "description": "一句話簡介", "estimated_cost": 0 },
+      "lunch": { ${idField}"name": "餐廳名稱", "description": "一句話簡介", "estimated_cost": 0 },
+      "dinner": { ${idField}"name": "餐廳名稱", "description": "一句話簡介", "estimated_cost": 0 },
+      "snack": { ${idField}"name": "咖啡館或甜點店名稱", "description": "一句話簡介", "estimated_cost": 0 }
     }
   ]
 }
@@ -401,7 +454,7 @@ export async function generateMealsAndAccommodation(
 - accommodation 為整個在 ${cityName} 停留期間的住宿，必須是真實存在且可在 Booking.com 找到的飯店
 - meals 陣列共 ${stayDays} 個元素，每天推薦不同的餐廳
 - 所有餐廳必須是 ${cityName} 真實存在的知名店家；snack 須為咖啡館、甜點店或冰淇淋店，不可填正餐型餐廳
-- estimated_cost 為 ${currency} 整數，代表每人平均消費`,
+- estimated_cost 為 ${currency} 整數，代表每人平均消費${candidateRules}`,
       },
       {
         role: "user",
@@ -419,6 +472,7 @@ export async function generateMealsAndAccommodation(
     accommodation?: Record<string, unknown>;
     meals?: Array<Record<string, unknown>>;
   };
+  if (useCandidates) return applyCandidatePicks(parsed, pools, stayDays, currency);
   return {
     accommodation: parsed.accommodation ?? {},
     mealsByDay: Array.from({ length: stayDays }, (_, i) => parsed.meals?.[i] ?? {}),

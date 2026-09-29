@@ -1,0 +1,92 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { PlaceCandidate } from "@/lib/fetchCityRestaurants";
+
+const createMock = vi.fn();
+const nearbyMock = vi.fn();
+
+vi.mock("@/lib/openai", () => ({
+  openai: { chat: { completions: { create: (...args: unknown[]) => createMock(...args) } } },
+}));
+vi.mock("@/lib/placesTextSearch", () => ({
+  getCityCenter: async () => ({ lat: 35.01, lng: 135.77 }),
+}));
+vi.mock("@/lib/fetchCityRestaurants", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/fetchCityRestaurants")>()),
+  fetchNearbyPlaceCandidates: (...args: unknown[]) => nearbyMock(...args),
+}));
+
+const { generateMealsAndAccommodation } = await import("./itineraryCityGen");
+
+function place(name: string): PlaceCandidate {
+  return { name, placeId: `pid-${name}`, lat: 35, lng: 135.7, address: "addr", rating: 4.1, priceLevel: 2 };
+}
+
+function mockLlm(json: unknown) {
+  createMock.mockResolvedValueOnce({ choices: [{ message: { content: JSON.stringify(json) } }] });
+}
+
+function systemPrompt(): string {
+  return createMock.mock.calls[0][0].messages[0].content;
+}
+
+beforeEach(() => {
+  vi.stubEnv("GOOGLE_PLACES_API_KEY", "key");
+  createMock.mockReset();
+  nearbyMock.mockReset();
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
+describe("generateMealsAndAccommodation", () => {
+  it("offers real candidates to the model and carries the picked place data through", async () => {
+    // breakfast, main, snack, lodging — in that order
+    nearbyMock
+      .mockResolvedValueOnce([place("Cafe A")])
+      .mockResolvedValueOnce([place("Ramen X"), place("Sushi Y")])
+      .mockResolvedValueOnce([place("Gelato Q")])
+      .mockResolvedValueOnce([place("Hotel H")]);
+    mockLlm({
+      accommodation: { id: "H1", name: "Hotel H", area: "Gion" },
+      meals: [{ breakfast: { id: "B1" }, lunch: { id: "M1" }, dinner: { id: "M2" }, snack: { id: "S1" } }],
+    });
+
+    const result = await generateMealsAndAccommodation("京都", 1, "JPY", "moderate");
+
+    expect(nearbyMock).toHaveBeenCalledTimes(4);
+    expect(systemPrompt()).toContain("M2: Sushi Y");
+    expect(result.accommodation.placeId).toBe("pid-Hotel H");
+    expect((result.mealsByDay[0].dinner as Record<string, unknown>).placeId).toBe("pid-Sushi Y");
+  });
+
+  it("retries a pool without the price filter when the filtered search is empty", async () => {
+    nearbyMock.mockResolvedValue([]);
+    mockLlm({ accommodation: {}, meals: [] });
+
+    await generateMealsAndAccommodation("小鎮", 1, "JPY", "luxury");
+
+    // 4 pools x (filtered + unfiltered retry)
+    expect(nearbyMock).toHaveBeenCalledTimes(8);
+  });
+
+  it("falls back to the invent-the-names prompt when there are no candidates", async () => {
+    nearbyMock.mockResolvedValue([]);
+    mockLlm({ accommodation: { name: "Some Hotel", area: "X" }, meals: [{ lunch: { name: "Some Place" } }] });
+
+    const result = await generateMealsAndAccommodation("小鎮", 1, "JPY");
+
+    expect(systemPrompt()).not.toContain("候選");
+    expect(result.accommodation).toEqual({ name: "Some Hotel", area: "X" });
+    expect(result.mealsByDay[0]).toEqual({ lunch: { name: "Some Place" } });
+  });
+
+  it("skips the Places lookup entirely without an API key", async () => {
+    vi.stubEnv("GOOGLE_PLACES_API_KEY", "");
+    mockLlm({ accommodation: {}, meals: [] });
+
+    await generateMealsAndAccommodation("京都", 1, "JPY");
+
+    expect(nearbyMock).not.toHaveBeenCalled();
+  });
+});
