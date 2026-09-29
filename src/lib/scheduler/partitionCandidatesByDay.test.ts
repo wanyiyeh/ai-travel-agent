@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { partitionCandidatesByDay } from "@/lib/scheduler/partitionCandidatesByDay";
+import { distributeStopsPerDay, partitionCandidatesByDay } from "@/lib/scheduler/partitionCandidatesByDay";
 import type { StopCandidate } from "@/lib/scheduler/selectAndOrderStops";
 
 function candidate(id: string, lat: number, lng: number, rating?: number): StopCandidate {
@@ -65,5 +65,19 @@ describe("partitionCandidatesByDay", () => {
     pool[1].type = "temple";
     const days = partitionCandidatesByDay(pool, [1, 1], { temple: 2 });
     expect(days[0][0].id).toBe("boosted-type");
+  });
+});
+
+describe("distributeStopsPerDay", () => {
+  it("gives every day the max when the pool is big enough", () => {
+    expect(distributeStopsPerDay(20, 3, 4)).toEqual([4, 4, 4]);
+  });
+
+  it("spreads a 20-place pool over 9 days instead of leaving the last days empty", () => {
+    expect(distributeStopsPerDay(20, 9, 4)).toEqual([3, 3, 2, 2, 2, 2, 2, 2, 2]);
+  });
+
+  it("returns no days for a zero-day block", () => {
+    expect(distributeStopsPerDay(20, 0, 4)).toEqual([]);
   });
 });

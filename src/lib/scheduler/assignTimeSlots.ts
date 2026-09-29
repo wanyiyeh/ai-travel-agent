@@ -32,6 +32,13 @@ export type AssignTimeSlotsOptions = {
   pace?: Pace;
   /** Minutes since midnight the day's first stop can start at. Default 08:00. */
   dayStartMinute?: number;
+  /**
+   * Minutes since midnight the day's last stop should finish by. When given
+   * and the packed schedule finishes well before it, the leftover time is
+   * spread evenly across the gaps between stops instead of leaving the whole
+   * afternoon empty. Omit to keep stops packed back-to-back.
+   */
+  dayEndMinute?: number;
 };
 
 export type DurationCategory = "museum" | "viewpoint" | "temple" | "park" | "shopping" | "landmark";
@@ -58,6 +65,18 @@ const MEAL_WINDOWS: { startMinute: number; endMinute: number }[] = [
   { startMinute: 18 * 60, endMinute: 20 * 60 },
 ];
 
+// Attraction-only days (the scheduler's candidate pools are all
+// tourist_attraction — meals live separately on day.meals) still need to
+// leave room for lunch, or four ~1-hour stops from 08:00 all land before noon
+// and every stop comes out "morning" (validateItinerary's STOPS_ALL_SAME_TIME,
+// plan/hybrid-rule-engine-scheduling.md 0.10).
+const LUNCH_BREAK = { startMinute: 12 * 60, endMinute: 13 * 60 };
+
+// Cap on the extra gap stretching adds between two stops, so a 2-stop day
+// isn't spread into two stops five hours apart.
+const MAX_STRETCH_MINUTES = 120;
+const STRETCH_STEP_MINUTES = 5;
+
 const BUFFER_MINUTES_BY_PACE: Record<Pace, number> = {
   relaxed: 30,
   moderate: 15,
@@ -81,39 +100,34 @@ function estimateDuration(stop: SchedulableStop): number {
   return DEFAULT_DURATION_FALLBACK_MINUTES;
 }
 
-/**
- * Lays already-ordered stops onto a clock timeline, replacing the naive
- * index/total thirds-split above with duration- and pace-aware scheduling
- * (plan/hybrid-rule-engine-scheduling.md, section 3.3). A meal stop snaps
- * forward to the next fixed meal window that hasn't fully passed yet
- * (falling back to the last window if the clock has run past all of them,
- * rather than waiting indefinitely); a non-meal stop's duration comes from
- * `durationMinutes` when known, else a type -> default-duration lookup.
- * `pace` sets the buffer inserted between consecutive stops: relaxed spaces
- * stops out more, intensive packs them tighter. Pure function — selection
- * and ordering of stops happen elsewhere (selectAndOrderStops).
- */
-export function assignTimeSlots(
+function layOut(
   stops: SchedulableStop[],
-  options: AssignTimeSlotsOptions = {}
+  dayStartMinute: number,
+  buffer: number
 ): ScheduledStop[] {
-  const pace = options.pace ?? "moderate";
-  const buffer = BUFFER_MINUTES_BY_PACE[pace];
-  let cursor = options.dayStartMinute ?? 8 * 60;
+  const reserveLunch = !stops.some((s) => s.isMeal);
+  let cursor = dayStartMinute;
 
-  return stops.map((stop) => {
+  return stops.map((stop, index) => {
     const duration = estimateDuration(stop);
-    let startMinute = cursor;
+    // No buffer before the day's first stop — it starts at dayStartMinute.
+    let startMinute = index === 0 ? cursor : cursor + buffer;
 
     if (stop.isMeal) {
       const window =
-        MEAL_WINDOWS.find((w) => w.endMinute > cursor) ??
+        MEAL_WINDOWS.find((w) => w.endMinute > startMinute) ??
         MEAL_WINDOWS[MEAL_WINDOWS.length - 1];
-      startMinute = Math.max(cursor, window.startMinute);
+      startMinute = Math.max(startMinute, window.startMinute);
+    } else if (
+      reserveLunch &&
+      startMinute < LUNCH_BREAK.endMinute &&
+      startMinute + duration > LUNCH_BREAK.startMinute
+    ) {
+      startMinute = LUNCH_BREAK.endMinute;
     }
 
     const endMinute = startMinute + duration;
-    cursor = endMinute + buffer;
+    cursor = endMinute;
 
     return {
       ...stop,
@@ -123,4 +137,44 @@ export function assignTimeSlots(
       time_of_day: classifyTimeOfDay(startMinute),
     };
   });
+}
+
+/**
+ * Lays already-ordered stops onto a clock timeline, replacing the naive
+ * index/total thirds-split above with duration- and pace-aware scheduling
+ * (plan/hybrid-rule-engine-scheduling.md, section 3.3). A meal stop snaps
+ * forward to the next fixed meal window that hasn't fully passed yet
+ * (falling back to the last window if the clock has run past all of them,
+ * rather than waiting indefinitely); a non-meal stop's duration comes from
+ * `durationMinutes` when known, else a type -> default-duration lookup.
+ * When the stops include no meal of their own, a non-meal stop that would
+ * run into the 12:00-13:00 lunch break starts after it instead.
+ * `pace` sets the buffer inserted between consecutive stops: relaxed spaces
+ * stops out more, intensive packs them tighter. With `dayEndMinute`, spare
+ * time before it is added evenly to every gap (the largest 5-minute step,
+ * up to MAX_STRETCH_MINUTES, that still finishes in time). Pure function —
+ * selection and ordering of stops happen elsewhere (selectAndOrderStops).
+ */
+export function assignTimeSlots(
+  stops: SchedulableStop[],
+  options: AssignTimeSlotsOptions = {}
+): ScheduledStop[] {
+  const pace = options.pace ?? "moderate";
+  const buffer = BUFFER_MINUTES_BY_PACE[pace];
+  const dayStartMinute = options.dayStartMinute ?? 8 * 60;
+
+  let scheduled = layOut(stops, dayStartMinute, buffer);
+  const { dayEndMinute } = options;
+  if (dayEndMinute == null || scheduled.length < 2) return scheduled;
+
+  // End time only ever grows with the extra gap, so the first step that
+  // fits, counting down from the cap, is the largest one.
+  for (let extra = MAX_STRETCH_MINUTES; extra > 0; extra -= STRETCH_STEP_MINUTES) {
+    const stretched = layOut(stops, dayStartMinute, buffer + extra);
+    if (stretched[stretched.length - 1].endMinute <= dayEndMinute) {
+      scheduled = stretched;
+      break;
+    }
+  }
+  return scheduled;
 }

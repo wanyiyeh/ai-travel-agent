@@ -93,6 +93,69 @@ describe("assignTimeSlots", () => {
     expect(relaxed[1].startMinute).toBeGreaterThan(intensive[1].startMinute);
   });
 
+  it("moves an attraction that would run into lunch to after the lunch break", () => {
+    const result = assignTimeSlots(
+      [
+        { id: "a", durationMinutes: 60 },
+        { id: "b", durationMinutes: 60 },
+        { id: "c", durationMinutes: 60 },
+        { id: "d", durationMinutes: 60 },
+      ],
+      { dayStartMinute: 9 * 60 }
+    );
+    // 09:00, 10:15, 11:30 would end 12:30 -> pushed to 13:00, then 14:15
+    expect(result.map((s) => s.startMinute)).toEqual([540, 615, 780, 855]);
+    expect(result[2].time_of_day).toBe("afternoon");
+  });
+
+  it("does not reserve a lunch break when the stops include their own meal", () => {
+    const result = assignTimeSlots(
+      [
+        { id: "a", durationMinutes: 60 },
+        { id: "lunch", isMeal: true },
+      ],
+      { dayStartMinute: 11 * 60 + 30 }
+    );
+    expect(result[0].startMinute).toBe(11 * 60 + 30);
+    expect(result[1].startMinute).toBe(12 * 60 + 45);
+  });
+
+  it("spreads an attraction-only day out to dayEndMinute instead of finishing by noon (STOPS_ALL_SAME_TIME)", () => {
+    const stops = [
+      { id: "a", type: "landmark" },
+      { id: "b", type: "temple" },
+      { id: "c", type: "landmark" },
+      { id: "d", type: "park" },
+    ];
+    const packed = assignTimeSlots(stops);
+    const spread = assignTimeSlots(stops, { dayEndMinute: 18 * 60 });
+
+    expect(new Set(packed.map((s) => s.time_of_day))).toEqual(new Set(["morning"]));
+    expect(new Set(spread.map((s) => s.time_of_day))).toEqual(new Set(["morning", "afternoon"]));
+    expect(spread[0].startMinute).toBe(8 * 60);
+    expect(spread[spread.length - 1].endMinute).toBeLessThanOrEqual(18 * 60);
+  });
+
+  it("never stretches past dayEndMinute or leaves a gap over the cap", () => {
+    const spread = assignTimeSlots(
+      [
+        { id: "a", durationMinutes: 30 },
+        { id: "b", durationMinutes: 30 },
+      ],
+      { dayEndMinute: 22 * 60 }
+    );
+    // 15-minute moderate buffer + at most 120 minutes of stretch
+    expect(spread[1].startMinute - spread[0].endMinute).toBe(135);
+  });
+
+  it("keeps the packed schedule when it already runs past dayEndMinute", () => {
+    const stops = [
+      { id: "a", durationMinutes: 120 },
+      { id: "b", durationMinutes: 120 },
+    ];
+    expect(assignTimeSlots(stops, { dayEndMinute: 10 * 60 })).toEqual(assignTimeSlots(stops));
+  });
+
   it("classifies time_of_day from clock time, not position in the list", () => {
     const [afternoonStop] = assignTimeSlots([{ id: "a", durationMinutes: 30 }], {
       dayStartMinute: 12 * 60,
