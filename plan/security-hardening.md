@@ -80,8 +80,8 @@
 ### Phase 1 — 成本濫用防護（程式層，部署前必做）
 
 **1a. 輸入上限（最便宜的防線）** — 對應 R4、R5、R11
-- [ ] `FlightInfoSchema`：日期改成 `z.string().regex(/^\d{4}-\d{2}-\d{2}$/)` 並用 `.refine` 檢查：`returnDate > departureDate`、**天數 ≤ 30**（數字可討論）、出發日不早於今天太多。
-- [ ] 把 `prompt` 納入 zod schema：`z.string().max(500).optional()`。
+- [x] `FlightInfoSchema`：日期改成 `z.string().regex(/^\d{4}-\d{2}-\d{2}$/)` 並用 `.refine` 檢查：`returnDate > departureDate`、**天數 ≤ 30**（數字可討論）。（2026-09-29，`MAX_TRIP_DAYS` 在 `src/lib/inputLimits.ts`，前端表單同步擋。）「出發日不早於今天太多」沒做——過去日期不會讓單次請求變貴，不是成本問題。
+- [x] 把 `prompt` 納入 zod schema（`GenerateRequestSchema`）：伺服器上限 1000 字、表單輸入框 500 字（表單會在後面接「中途停留城市：…」，所以伺服器留空間）。`generate-stream` 改用 `safeParse`，不合格回 400（原本 parse 失敗會變 500）。`TripPreferences.interests` 加 `.max(5)`。
 - [ ] 所有自由文字與陣列欄位加 `.max()`（`interestBoost`、`avoid`、restructure 的城市清單、stops batch 等）。
 - [ ] `restructure` 限制城市數量、每城天數。
 - [ ] 所有 `request.json()` 在 parse 前限制 body 大小（例如 > 100KB 直接 413）。
