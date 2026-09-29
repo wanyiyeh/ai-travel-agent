@@ -71,29 +71,34 @@ export async function getDistance(
 
   const cached = await prisma.distanceCache.findUnique({ where: { cacheKey } });
   if (cached && Date.now() - cached.updatedAt.getTime() < DISTANCE_CACHE_TTL_MS) {
-    return JSON.parse(cached.distance) as DistanceResult;
+    return JSON.parse(cached.distance) as DistanceResult | null;
   }
 
   const result = await fetchDistanceFromRoutesApi(origin, destination, mode);
-  if (result) {
+  // A confirmed "no route" (e.g. no transit coverage between two stops) is
+  // cached as null, so it isn't re-billed on every generation; an API error
+  // (undefined) isn't, so the next call retries.
+  if (result !== undefined) {
     await prisma.distanceCache.upsert({
       where: { cacheKey },
       create: { cacheKey, distance: j(result) },
       update: { distance: j(result) },
     });
   }
-  return result;
+  return result ?? null;
 }
 
 // Uses the Routes API (Compute Route Matrix) rather than the legacy Distance
 // Matrix API, per Google's migration guidance — same per-element billing but
 // with a 10k/month free tier and better volume discounts. Requires the
 // "Routes API" to be enabled for the project behind GOOGLE_PLACES_API_KEY.
+// Returns null when Google confirms there's no route (ROUTE_NOT_FOUND) and
+// undefined for any error, so getDistance only caches the former.
 async function fetchDistanceFromRoutesApi(
   origin: Location,
   destination: Location,
   mode: TravelMode
-): Promise<DistanceResult | null> {
+): Promise<DistanceResult | null | undefined> {
   try {
     const res = await googleFetch(
       "https://routes.googleapis.com/distanceMatrix/v2:computeRouteMatrix",
@@ -113,14 +118,17 @@ async function fetchDistanceFromRoutesApi(
         }),
       }
     );
+    if (!res.ok) return undefined;
     const data = await res.json() as
-      | { distanceMeters?: number; duration?: string; condition?: string }[]
+      | { distanceMeters?: number; duration?: string; condition?: string; status?: { code?: number } }[]
       | { error: unknown };
 
-    if (!Array.isArray(data)) return null;
+    if (!Array.isArray(data)) return undefined;
     const element = data[0];
-    if (!element || element.condition !== "ROUTE_EXISTS" || element.distanceMeters == null || !element.duration) {
-      return null;
+    if (!element || element.status?.code) return undefined;
+    if (element.condition === "ROUTE_NOT_FOUND") return null;
+    if (element.condition !== "ROUTE_EXISTS" || element.distanceMeters == null || !element.duration) {
+      return undefined;
     }
 
     const durationSeconds = parseInt(element.duration, 10);
@@ -131,7 +139,7 @@ async function fetchDistanceFromRoutesApi(
       durationSeconds,
     };
   } catch {
-    return null;
+    return undefined;
   }
 }
 
