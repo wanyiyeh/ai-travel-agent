@@ -1,11 +1,21 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { isMockPlaces, mockPhotoSvg } from "@/lib/mockPlaces";
+import { isValidPhotoName } from "@/lib/placePhotoName";
 
 const PLACES_API_BASE = "https://places.googleapis.com/v1";
 const DEFAULT_MAX_WIDTH_PX = 800;
-// Places API caps photo requests at 4800px on the long edge.
-const MAX_WIDTH_PX_CAP = 1600;
+// Every distinct width is a separate billable Photo Media request (and cache
+// entry), so an arbitrary ?maxWidthPx= would let a caller re-bill the same
+// photo up to 1600 times. Round the request up to a fixed set of widths
+// instead; the browser scales the image down to the rendered size anyway.
+// Places API itself caps photo requests at 4800px on the long edge.
+const WIDTH_BUCKETS_PX = [128, 256, 512, 800, 1600];
+
+function bucketWidth(requestedWidth: number): number {
+  if (!Number.isFinite(requestedWidth) || requestedWidth <= 0) return DEFAULT_MAX_WIDTH_PX;
+  return WIDTH_BUCKETS_PX.find((w) => w >= requestedWidth) ?? WIDTH_BUCKETS_PX[WIDTH_BUCKETS_PX.length - 1];
+}
 
 // Google's signed photoUri is valid for ~60 minutes. Without this, every
 // <img> load — including repeat ones from a different browser/incognito
@@ -15,7 +25,19 @@ const MAX_WIDTH_PX_CAP = 1600;
 // makes it a distinct Google request (photo + width), so only the first
 // request per photo per ~50min actually calls Google.
 const PHOTO_URI_TTL_MS = 50 * 60 * 1000;
+// Bounded so a flood of distinct photo names can't grow this without limit.
+// Map iteration order is insertion order, so the first key is the oldest.
+const PHOTO_URI_CACHE_MAX_ENTRIES = 2000;
 const photoUriCache = new Map<string, { photoUri: string; expiresAt: number }>();
+
+function cachePhotoUri(cacheKey: string, photoUri: string) {
+  photoUriCache.delete(cacheKey);
+  if (photoUriCache.size >= PHOTO_URI_CACHE_MAX_ENTRIES) {
+    const oldestKey = photoUriCache.keys().next().value;
+    if (oldestKey !== undefined) photoUriCache.delete(oldestKey);
+  }
+  photoUriCache.set(cacheKey, { photoUri, expiresAt: Date.now() + PHOTO_URI_TTL_MS });
+}
 
 async function resolvePhotoUri(photoName: string, maxWidthPx: number, apiKey: string): Promise<string | null> {
   const cacheKey = `${photoName}:${maxWidthPx}`;
@@ -31,7 +53,7 @@ async function resolvePhotoUri(photoName: string, maxWidthPx: number, apiKey: st
   const data = await res.json();
   if (!data.photoUri) return null;
 
-  photoUriCache.set(cacheKey, { photoUri: data.photoUri, expiresAt: Date.now() + PHOTO_URI_TTL_MS });
+  cachePhotoUri(cacheKey, data.photoUri);
   return data.photoUri;
 }
 
@@ -43,6 +65,17 @@ export async function GET(
   { params }: { params: Promise<{ placeId: string }> }
 ) {
   const { placeId } = await params;
+  const { searchParams } = new URL(request.url);
+
+  // Picker candidates carry their own `photos[0].name` before they've ever
+  // been upserted into the Place cache (that only happens on select/enrich),
+  // so a caller can pass it directly instead of relying on a DB lookup that
+  // would 404 for a place nobody has picked yet. Checked before the mock
+  // short-circuit so `dev:mock` exercises the same rejection path.
+  const requestedPhotoName = searchParams.get("name");
+  if (requestedPhotoName && !isValidPhotoName(requestedPhotoName, placeId)) {
+    return NextResponse.json({ error: "Invalid photo name" }, { status: 400 });
+  }
 
   // MOCK_PLACES: serve a placeholder instead of calling the billable Photo
   // Media endpoint (a redirect to a data: URL would be blocked by browsers).
@@ -57,26 +90,18 @@ export async function GET(
     return NextResponse.json({ error: "GOOGLE_PLACES_API_KEY not configured" }, { status: 503 });
   }
 
-  const { searchParams } = new URL(request.url);
-
-  // Picker candidates carry their own `photos[0].name` before they've ever
-  // been upserted into the Place cache (that only happens on select/enrich),
-  // so a caller can pass it directly instead of relying on a DB lookup that
-  // would 404 for a place nobody has picked yet.
-  let photoName = searchParams.get("name");
+  let photoName = requestedPhotoName;
   if (!photoName) {
     const place = await prisma.place.findUnique({ where: { id: placeId } });
     photoName = place?.photoName ?? null;
   }
-  if (!photoName) {
+  // The cached name came from Google, but it's spliced into the same keyed
+  // URL, so hold it to the same shape rather than trusting the DB blindly.
+  if (!photoName || !isValidPhotoName(photoName, placeId)) {
     return NextResponse.json({ error: "No photo available for this place" }, { status: 404 });
   }
 
-  const requestedWidth = Number(searchParams.get("maxWidthPx"));
-  const maxWidthPx =
-    Number.isFinite(requestedWidth) && requestedWidth > 0
-      ? Math.min(requestedWidth, MAX_WIDTH_PX_CAP)
-      : DEFAULT_MAX_WIDTH_PX;
+  const maxWidthPx = bucketWidth(Number(searchParams.get("maxWidthPx")));
 
   const photoUri = await resolvePhotoUri(photoName, maxWidthPx, apiKey);
   if (!photoUri) {
