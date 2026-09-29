@@ -517,6 +517,28 @@
   單元 211/211、整合 11/11、`tsc`、ESLint 全過。沒有跑真實 API，實際省下
   多少要看之後的帳單。
 
+### 2. 資安盤點與 Google API key 拆分
+
+- 寫了一份資安強化計畫（威脅模型、現況盤點、分階段修補）。判斷這個專案
+  最值錢的是付費 API 額度，所以優先順序是成本濫用防護 → 存取控制 →
+  傳統 Web 漏洞。
+- 盤點程式碼，找出存取控制、請求頻率限制、輸入驗證、錯誤訊息與安全標頭
+  幾類待補強項目，列入分階段計畫，之後逐項開分支修補。
+- 到 GCP Console 實際檢查後發現：`.env` 的 `GOOGLE_PLACES_API_KEY` 與
+  `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` **是同一把 key**，Application restrictions
+  為 None，API restrictions 是 Maps Platform 預設的 32 支——等於打包進前端、
+  人人可見的 key 可以直接呼叫 Places／Routes。已處理：
+  - 新建瀏覽器專用 key：Websites 限 `localhost:3000/*`、`localhost:3001/*`，
+    只開 Maps JavaScript API。踩到一次 `RefererNotAllowedMapError`，原因是
+    規則少了結尾 `*`，只放行首頁、子頁面被擋。
+  - 原 key 改為伺服器專用：對照 `src/`、`scripts/` 只打
+    `places.googleapis.com`、`routes.googleapis.com`，所以縮到只剩
+    Places API (New)、Routes API。
+  - 刪除未使用的 OAuth Client ID。
+  - `.env` 從未進過 git 歷史（`git log --all -- .env` 為空）。
+- 同時發現：9 月 Google 花費超出月預算數倍，預算警示有設但沒收到信。
+  來源還沒查，可能跟上面規則引擎的額外呼叫有關，也要排除 key 被盜用。
+
 ### 今天的結論
 
 - 規則引擎本身不一定比較貴，貴在 fallback 雙重付費、新增的 Routes 呼叫，
@@ -525,3 +547,7 @@
   的增加時間點；可以考慮在 `googleFetch` 加計數器，用 `dev:mock` 數出一次
   生成的呼叫次數（Google 不花錢，OpenAI 仍是真的）。fallback 雙重付費要等
   規則引擎成功率提升才能處理。
+- 資安方面，瀏覽器 key 外露且沒限制是當下最大的洞，已先在主控台擋住；
+  程式層的修補照資安計畫分階段、各開獨立分支做。
+- 下一步：Billing Reports 依 SKU／每日查超支來源；預算連結 Monitoring
+  email 通知管道；設 Places／Routes 每日配額；OpenAI 設用量上限。
