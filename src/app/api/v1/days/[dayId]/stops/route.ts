@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { MAX_LIST_LENGTH, MAX_NAME_LENGTH } from "@/lib/inputLimits";
 import { prisma, j } from "@/lib/db";
 import { StopCandidateSchema, StopDescriptionFillSchema } from "@/lib/schemas";
 import { lookupByQuery, upsertPlace } from "@/lib/placeCache";
@@ -11,12 +12,12 @@ import { findDayIndex, getCityHintForDay } from "@/lib/itineraryDays";
 
 const RequestSchema = z.object({
   itineraryId: z.string().min(1),
-  stopName: z.string().min(1),
+  stopName: z.string().min(1).max(MAX_NAME_LENGTH),
 });
 
 const BatchRequestSchema = z.object({
   itineraryId: z.string().min(1),
-  stops: z.array(StopCandidateSchema).min(1),
+  stops: z.array(StopCandidateSchema).min(1).max(MAX_LIST_LENGTH),
 });
 
 // Default stay length for a manually-added stop — same fallback used by

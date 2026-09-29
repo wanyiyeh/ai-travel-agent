@@ -11,15 +11,16 @@ import {
 import { parsePreferenceIntent } from "@/lib/preferenceIntent";
 import type { PreferenceIntent } from "@/lib/schemas";
 import type { BudgetLevel } from "@/lib/fetchCityRestaurants";
+import { MAX_CITY_DAYS, MAX_NAME_LENGTH, MAX_TEXT_LENGTH, MAX_TRIP_DAYS } from "@/lib/inputLimits";
 
 const LockedAttractionSchema = z.object({
-  name: z.string().min(1),
-  placeId: z.string().optional(),
+  name: z.string().min(1).max(MAX_NAME_LENGTH),
+  placeId: z.string().max(MAX_NAME_LENGTH).optional(),
   lat: z.number().optional(),
   lng: z.number().optional(),
-  address: z.string().optional(),
+  address: z.string().max(MAX_TEXT_LENGTH).optional(),
   rating: z.number().nullable().optional(),
-  photoName: z.string().nullable().optional(),
+  photoName: z.string().max(MAX_TEXT_LENGTH).nullable().optional(),
   priceLevel: z.number().nullable().optional(),
 });
 
@@ -28,15 +29,25 @@ const LockedAttractionSchema = z.object({
 // its leading transit day; for an existing city it includes its structural
 // (transit/return) days.
 const CitySchema = z.object({
-  name: z.string().min(1),
+  name: z.string().min(1).max(MAX_NAME_LENGTH),
   isNew: z.boolean(),
-  targetDays: z.number().int().min(1),
-  keepDayIds: z.array(z.string()).default([]),
-  lockedAttractions: z.array(LockedAttractionSchema).default([]),
+  targetDays: z.number().int().min(1).max(MAX_CITY_DAYS),
+  keepDayIds: z.array(z.string().max(MAX_NAME_LENGTH)).max(MAX_CITY_DAYS).default([]),
+  // Each locked attraction fills a whole day, so a city can't have more of
+  // them than days.
+  lockedAttractions: z.array(LockedAttractionSchema).max(MAX_CITY_DAYS).default([]),
 });
 
+// Every city and day here is generated in parallel (OpenAI + Google per
+// city), so the whole request is held to the same trip-length cap as a
+// fresh generation.
 const RequestSchema = z.object({
-  cities: z.array(CitySchema).min(1),
+  cities: z
+    .array(CitySchema)
+    .min(1)
+    .refine((cities) => cities.reduce((sum, c) => sum + c.targetDays, 0) <= MAX_TRIP_DAYS, {
+      message: `整趟行程最多 ${MAX_TRIP_DAYS} 天`,
+    }),
 });
 
 type CityInput = z.infer<typeof CitySchema>;

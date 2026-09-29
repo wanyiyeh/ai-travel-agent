@@ -82,9 +82,10 @@
 **1a. 輸入上限（最便宜的防線）** — 對應 R4、R5、R11
 - [x] `FlightInfoSchema`：日期改成 `z.string().regex(/^\d{4}-\d{2}-\d{2}$/)` 並用 `.refine` 檢查：`returnDate > departureDate`、**天數 ≤ 30**（數字可討論）。（2026-09-29，`MAX_TRIP_DAYS` 在 `src/lib/inputLimits.ts`，前端表單同步擋。）「出發日不早於今天太多」沒做——過去日期不會讓單次請求變貴，不是成本問題。
 - [x] 把 `prompt` 納入 zod schema（`GenerateRequestSchema`）：伺服器上限 1000 字、表單輸入框 500 字（表單會在後面接「中途停留城市：…」，所以伺服器留空間）。`generate-stream` 改用 `safeParse`，不合格回 400（原本 parse 失敗會變 500）。`TripPreferences.interests` 加 `.max(5)`。
-- [ ] 所有自由文字與陣列欄位加 `.max()`（`interestBoost`、`avoid`、restructure 的城市清單、stops batch 等）。
-- [ ] `restructure` 限制城市數量、每城天數。
-- [ ] 所有 `request.json()` 在 parse 前限制 body 大小（例如 > 100KB 直接 413）。
+- [x] 會進 prompt／Google 查詢的自由文字與陣列欄位加 `.max()`（2026-09-29）：`places/search`（query、cityHint、candidateCities ≤ 30）、`places/city-centers`（cityNames ≤ 30）、`stop-suggestions`（context、excludeNames）、`days/[dayId]/stops`（stopName、batch ≤ 50）、`transit-recommendations`（existingStops）。上限數字集中在 `src/lib/inputLimits.ts`。名稱清單上限放寬到 500，因為前端會送整趟行程的所有景點名。`interestBoost`/`avoid` 是 LLM 輸出、不是請求輸入，不需要。
+- [ ] 還沒有 schema 的路由改用 zod：`stops/[stopId]`（PATCH/DELETE）、`stops/reorder`、`stops/[stopId]/enrich`、`accommodation/enrich`（目前靠下面的 body 上限兜底）。
+- [x] `restructure` 限制每城天數 ≤ 14（跟前端一致）、全部城市加總 ≤ 30 天，前端超過時擋套用鈕並提示。
+- [x] 所有 API 在 parse 前限制 body 大小：`src/proxy.ts`（Next 16 的 proxy）對 `/api/*` 的 POST/PUT/PATCH 檢查 `Content-Length`，> 256KB 回 413、沒帶回 411。
 
 **1b. Rate limiting** — 對應 R3、R8
 - [ ] 建一個共用的 `src/lib/rateLimit.ts`，依 **IP（之後改依 user）** 做滑動視窗計數。

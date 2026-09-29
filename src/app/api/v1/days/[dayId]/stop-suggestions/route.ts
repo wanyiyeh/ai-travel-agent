@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { MAX_NAME_LENGTH, MAX_NAME_LIST_LENGTH, MAX_TEXT_LENGTH } from "@/lib/inputLimits";
 import { prisma, j } from "@/lib/db";
 import { openai } from "@/lib/openai";
 import { StopDescriptionFillSchema } from "@/lib/schemas";
@@ -13,8 +14,9 @@ import { findDayIndex, getCityHintForDay } from "@/lib/itineraryDays";
 
 const RequestSchema = z.object({
   itineraryId: z.string().min(1),
-  context: z.string().optional(),
-  excludeNames: z.array(z.string()).optional(),
+  // Both are spliced into the OpenAI prompt.
+  context: z.string().max(MAX_TEXT_LENGTH).optional(),
+  excludeNames: z.array(z.string().max(MAX_NAME_LENGTH)).max(MAX_NAME_LIST_LENGTH).optional(),
   // Only set when called from the single-stop "換一個" picker — a specific
   // stop being replaced, as opposed to the day-level bulk-add flow, which
   // has no single stop to scope a candidate history log to.
