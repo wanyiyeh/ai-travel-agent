@@ -2,7 +2,7 @@ import { openai } from "@/lib/openai";
 import { getCityCenter } from "@/lib/placesTextSearch";
 import { fetchNearbyPlaceCandidates, getPriceLevels, type RestaurantHint, type BudgetLevel, type PlaceCandidate } from "@/lib/fetchCityRestaurants";
 import { placeCandidatesToStopCandidates } from "@/lib/scheduler/placeCandidatesToStopCandidates";
-import { partitionCandidatesByDay } from "@/lib/scheduler/partitionCandidatesByDay";
+import { distributeStopsPerDay, partitionCandidatesByDay } from "@/lib/scheduler/partitionCandidatesByDay";
 import { buildDaySkeleton, type SkeletonStop } from "@/lib/scheduler/buildDaySkeleton";
 import { computeDepartureDayBudget } from "@/lib/scheduler/departureDayBudget";
 import { type DurationCategory } from "@/lib/scheduler/assignTimeSlots";
@@ -251,6 +251,7 @@ async function generateTransitDayStopsViaScheduler(
       count: plan.arrivalActivityCount,
       pace: preferenceIntent.pace ?? undefined,
       dayStartMinute: plan.arrivalMinute,
+      dayEndMinute: SIGHTSEEING_DAY_END_MINUTE,
       interestWeights,
     });
 
@@ -340,6 +341,7 @@ export async function generateDepartureDayStops(
       count: estimatedCount,
       pace: preferenceIntent.pace ?? undefined,
       dayStartMinute,
+      dayEndMinute: cutoffMinute,
       interestWeights,
     });
 
@@ -525,6 +527,10 @@ function buildInterestWeights(interestBoost: string[]): Record<string, number> {
 
 const START_TIME_MINUTE: Record<string, number> = { early: 7 * 60, late: 10 * 60 };
 
+// Sightseeing stops spread out until dinner (assignTimeSlots' dinner window
+// opens at 18:00) instead of all finishing before lunch.
+const SIGHTSEEING_DAY_END_MINUTE = 18 * 60;
+
 // Shared by generateDayStopsViaScheduler and generateTransitDayStopsViaScheduler
 // — both pick/order/time-slot a candidate pool via buildDaySkeleton and then
 // need the exact same Stop-shape assembly (real placeId/name/address from the
@@ -613,13 +619,18 @@ async function generateDayStopsViaScheduler(
       ? START_TIME_MINUTE[preferenceIntent.startTimePreference]
       : undefined;
 
-    const dayGroups = partitionCandidatesByDay(candidates, Array(dayCount).fill(STOPS_PER_DAY), interestWeights);
+    const dayGroups = partitionCandidatesByDay(
+      candidates,
+      distributeStopsPerDay(candidates.length, dayCount, STOPS_PER_DAY),
+      interestWeights
+    );
     const skeletonsByDay: SkeletonStop[][] = dayGroups.map((group, dayIdx) =>
       group.length > 0
         ? buildDaySkeleton(group, {
             count: group.length,
             pace: preferenceIntent.pace ?? undefined,
             dayStartMinute: dayIdx === 0 ? (firstDayStartMinute ?? dayStartMinute) : dayStartMinute,
+            dayEndMinute: SIGHTSEEING_DAY_END_MINUTE,
             interestWeights,
           })
         : []

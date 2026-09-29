@@ -11,6 +11,8 @@ export type BuildDaySkeletonOptions = {
   interestWeights?: Record<string, number>;
   /** Minutes since midnight the day's first stop can start at. Default 08:00. */
   dayStartMinute?: number;
+  /** Minutes since midnight the day's last stop should finish by — see assignTimeSlots. */
+  dayEndMinute?: number;
   /** Candidate `type` values treated as meal stops for time-slot snapping. */
   mealTypes?: string[];
 };
@@ -31,8 +33,15 @@ export function buildDaySkeleton(
   candidates: StopCandidate[],
   options: BuildDaySkeletonOptions
 ): SkeletonStop[] {
-  const { count, pace, origin, interestWeights, dayStartMinute, mealTypes = DEFAULT_MEAL_TYPES } =
-    options;
+  const {
+    count,
+    pace,
+    origin,
+    interestWeights,
+    dayStartMinute,
+    dayEndMinute,
+    mealTypes = DEFAULT_MEAL_TYPES,
+  } = options;
 
   const ordered = selectAndOrderStops(candidates, { count, origin, interestWeights });
 
@@ -42,7 +51,7 @@ export function buildDaySkeleton(
       type: c.type,
       isMeal: c.type != null && mealTypes.includes(c.type),
     })),
-    { pace, dayStartMinute }
+    { pace, dayStartMinute, dayEndMinute }
   );
 
   // assignTimeSlots preserves input order/length 1:1 (a plain .map), so

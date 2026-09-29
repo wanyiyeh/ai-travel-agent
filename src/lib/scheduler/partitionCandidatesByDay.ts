@@ -2,6 +2,21 @@ import { haversineKm } from "@/lib/distanceMatrix";
 import { scoreCandidate, type StopCandidate } from "@/lib/scheduler/selectAndOrderStops";
 
 /**
+ * Per-day stop counts for partitionCandidatesByDay when the pool is too small
+ * to give every day `maxPerDay`. Nearby Search returns at most 20 places, so
+ * a flat `Array(dayCount).fill(4)` for a 9-day city block let days 1-5 take
+ * all 20 and left days 6-9 empty (validateItinerary's DAY_TOO_FEW_STOPS,
+ * plan/hybrid-rule-engine-scheduling.md 0.10). Spreads the pool evenly
+ * instead, earlier days getting the remainder, never more than `maxPerDay`.
+ */
+export function distributeStopsPerDay(poolSize: number, dayCount: number, maxPerDay: number): number[] {
+  if (dayCount <= 0) return [];
+  const base = Math.floor(poolSize / dayCount);
+  const remainder = poolSize % dayCount;
+  return Array.from({ length: dayCount }, (_, i) => Math.min(maxPerDay, base + (i < remainder ? 1 : 0)));
+}
+
+/**
  * Splits one shared candidate pool into disjoint per-day groups — the gap
  * found while scoping how to wire buildDaySkeleton into a real multi-day
  * city block (plan/hybrid-rule-engine-scheduling.md Phase 3): every existing
