@@ -16,6 +16,7 @@ import TransitRecommendationCard from "@/components/TransitRecommendationCard";
 import type { TransitRecommendation } from "@/types/itinerary";
 import { SUSPICIOUS_DISTANCE_KM as NEAREST_CITY_KM_THRESHOLD, haversineKm } from "@/lib/geo";
 import { iataToCity } from "@/lib/airports";
+import { MAX_CITY_DAYS, MAX_TRIP_DAYS } from "@/lib/inputLimits";
 import { useItinerarySensors } from "@/hooks/useItinerarySensors";
 import { useSortableItem } from "@/hooks/useSortableItem";
 
@@ -24,7 +25,7 @@ import { useSortableItem } from "@/hooks/useSortableItem";
 // module pulls in server-only deps (Google API key, prisma place cache) that
 // can't ship to the client bundle.
 const PRIMARY_CITY_KEY = "__primary__";
-const MAX_TARGET_DAYS = 14;
+const MAX_TARGET_DAYS = MAX_CITY_DAYS;
 
 export interface RestructureDayLite {
   id: string;
@@ -1134,6 +1135,11 @@ export default function RestructurePanel({
                 {dayDelta > 0 ? "順延" : "提前"}至 {newReturnDate}。
               </p>
             )}
+            {totalAfter > MAX_TRIP_DAYS && (
+              <p className="text-xs text-red-600 dark:text-red-400 font-semibold">
+                整趟行程最多 {MAX_TRIP_DAYS} 天，請減少城市或天數。
+              </p>
+            )}
             {applyError && <p className="text-xs text-red-600 dark:text-red-400">{applyError}</p>}
           </div>
         )}
@@ -1158,7 +1164,7 @@ export default function RestructurePanel({
           ) : (
             <button
               onClick={handleApply}
-              disabled={applying}
+              disabled={applying || totalAfter > MAX_TRIP_DAYS}
               className="px-4 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed text-white text-sm font-semibold transition-colors"
             >
               {applying ? "套用中…" : "套用至行程"}

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { MAX_NAME_LENGTH, MAX_NAME_LIST_LENGTH } from "@/lib/inputLimits";
 import { openai } from "@/lib/openai";
 import { prisma } from "@/lib/db";
 import { TransitRecommendationSchema } from "@/lib/schemas";
@@ -9,7 +10,9 @@ import { getMockMode, mockDelay, MOCK_FIXTURES } from "@/lib/mockAi";
 const RequestSchema = z.object({
   originIata: z.string().regex(/^[A-Z]{3}$/),
   destinationIata: z.string().regex(/^[A-Z]{3}$/),
-  existingStops: z.array(z.string().min(1)).optional(),
+  // Every city and stop name already in the trip, used to filter out
+  // recommendations the trip already has.
+  existingStops: z.array(z.string().min(1).max(MAX_NAME_LENGTH)).max(MAX_NAME_LIST_LENGTH).optional(),
   forceRefresh: z.boolean().optional(),
 });
 

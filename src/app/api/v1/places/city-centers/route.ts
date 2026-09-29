@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { MAX_NAME_LENGTH, MAX_TRIP_DAYS } from "@/lib/inputLimits";
 import { getCityCenter } from "@/lib/placesTextSearch";
 
 const RequestSchema = z.object({
-  cityNames: z.array(z.string().min(1)).min(1),
+  // One Google lookup per uncached name; a trip can't have more cities than days.
+  cityNames: z.array(z.string().min(1).max(MAX_NAME_LENGTH)).min(1).max(MAX_TRIP_DAYS),
 });
 
 // Resolves a batch of city names to coordinates, purely so the restructure

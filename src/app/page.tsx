@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useStreamingGenerate } from "@/hooks/useStreamingGenerate";
 import StreamingPreview from "@/components/StreamingPreview";
 import type { TripPreferences, FlightInfo } from "@/lib/schemas";
+import { MAX_TRIP_DAYS, PROMPT_INPUT_MAX_LENGTH } from "@/lib/inputLimits";
 import { AIRPORTS, iataToCity } from "@/lib/airports";
 import { IATA_COUNTRY_ZH } from "@/lib/iataCountry";
 
@@ -381,7 +382,8 @@ export default function Home() {
     arrivalCity.length === 3 &&
     departureDate &&
     returnDate &&
-    days > 0;
+    days > 0 &&
+    days <= MAX_TRIP_DAYS;
 
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 py-16 px-4">
@@ -471,6 +473,9 @@ export default function Home() {
               {days > 0 && (
                 <p className="text-sm text-zinc-500 dark:text-zinc-400">
                   共 <span className="font-semibold text-zinc-900 dark:text-zinc-50">{days} 天</span> 行程
+                  {days > MAX_TRIP_DAYS && (
+                    <span className="text-red-600 dark:text-red-400">（最多 {MAX_TRIP_DAYS} 天，請縮短日期）</span>
+                  )}
                 </p>
               )}
             </div>
@@ -543,6 +548,7 @@ export default function Home() {
                 type="text"
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
+                maxLength={PROMPT_INPUT_MAX_LENGTH}
                 placeholder="例：以文化美食為主、想體驗當地生活"
                 className="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-4 py-3 text-zinc-900 dark:text-zinc-50 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-100"
               />

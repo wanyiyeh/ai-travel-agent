@@ -1,8 +1,7 @@
 import { openai } from "@/lib/openai";
 import {
   ItinerarySchema,
-  FlightInfoSchema,
-  TripPreferencesSchema,
+  GenerateRequestSchema,
   type FlightInfo,
 } from "@/lib/schemas";
 import { validateItinerary } from "@/lib/validateItinerary";
@@ -89,23 +88,17 @@ function addIdsPreservingExisting(data: AssembledItinerary) {
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
-    const {
-      prompt,
-      flightInfo: rawFlightInfo,
-      preferences: rawPreferences,
-    } = body;
-
-    if (!rawFlightInfo) {
-      return new Response("Missing flightInfo", { status: 400 });
+    const body = await request.json().catch(() => null);
+    // Rejects before any OpenAI/Google call: an over-long trip or prompt is
+    // the cheapest way to multiply one request's cost.
+    const parsed = GenerateRequestSchema.safeParse(body);
+    if (!parsed.success) {
+      return Response.json({ error: "Invalid request", issues: parsed.error.issues }, { status: 400 });
     }
 
-    const flightInfo: FlightInfo = FlightInfoSchema.parse(rawFlightInfo);
+    const { prompt, preferences } = parsed.data;
+    const flightInfo: FlightInfo = parsed.data.flightInfo;
     const days = calcDays(flightInfo.departureDate, flightInfo.returnDate);
-
-    const preferences = rawPreferences
-      ? TripPreferencesSchema.parse(rawPreferences)
-      : undefined;
 
     const encoder = new TextEncoder();
     const stream = new ReadableStream({

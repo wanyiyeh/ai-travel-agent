@@ -47,6 +47,25 @@ beforeEach(() => {
   searchPlaceText.mockReset();
 });
 
+describe("places/search input limits", () => {
+  it("rejects an oversized query without calling Google", async () => {
+    const res = await POST(
+      new Request("http://test/api", { method: "POST", body: JSON.stringify({ query: "a".repeat(201) }) }),
+    );
+    expect(res.status).toBe(400);
+    expect(searchPlaceText).not.toHaveBeenCalled();
+  });
+
+  it("rejects more candidate cities than a trip can have days", async () => {
+    const candidateCities = Array.from({ length: 31 }, (_, i) => `city${i}`);
+    const res = await POST(
+      new Request("http://test/api", { method: "POST", body: JSON.stringify({ query: "x", candidateCities }) }),
+    );
+    expect(res.status).toBe(400);
+    expect(searchPlaceText).not.toHaveBeenCalled();
+  });
+});
+
 describe("places/search attraction search", () => {
   it("uses the single unbiased match when it lands near a trip city", async () => {
     searchPlaceText.mockResolvedValue(place("sphinx", { lat: 29.9753, lng: 31.1376 }));

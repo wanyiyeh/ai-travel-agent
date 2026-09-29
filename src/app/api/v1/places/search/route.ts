@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { MAX_NAME_LENGTH, MAX_TRIP_DAYS } from "@/lib/inputLimits";
 import { searchPlaceText, getCityCenter, PlacesApiError, type TextSearchPlace } from "@/lib/placesTextSearch";
 import { lookupByQuery, upsertPlace } from "@/lib/placeCache";
 import { nearestCity, NEAREST_CITY_KM_THRESHOLD } from "@/lib/nearestCity";
@@ -52,15 +53,17 @@ async function cachedSearchPlaceText(
 }
 
 const RequestSchema = z.object({
-  query: z.string().min(1),
+  query: z.string().min(1).max(MAX_NAME_LENGTH),
   // When provided, biases results toward this city (e.g. searching
   // "LEGOLAND" with cityHint "名古屋") and rejects far-away homonyms —
   // see REJECT_KM_THRESHOLD in placesTextSearch.ts.
-  cityHint: z.string().optional(),
+  cityHint: z.string().max(MAX_NAME_LENGTH).optional(),
   // When provided (restructure flow's attraction search), the response also
   // includes which of these cities the found place is nearest to — lets the
   // frontend auto-assign a searched attraction to a city instead of asking.
-  candidateCities: z.array(z.string()).optional(),
+  // Each city may cost a city-center lookup, and a trip can't have more
+  // cities than days.
+  candidateCities: z.array(z.string().max(MAX_NAME_LENGTH)).max(MAX_TRIP_DAYS).optional(),
 });
 
 // Resolves the place a search query refers to — either biased toward every

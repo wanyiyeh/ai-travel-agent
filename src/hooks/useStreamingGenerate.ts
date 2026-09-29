@@ -42,6 +42,9 @@ export function useStreamingGenerate() {
         body: JSON.stringify({ prompt, flightInfo, preferences }),
       });
 
+      if (response.status === 400) {
+        throw new Error("輸入的行程資料不符合限制，請檢查日期與風格描述");
+      }
       if (!response.ok) {
         throw new Error("Failed to connect to streaming API");
       }

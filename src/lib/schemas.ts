@@ -1,19 +1,41 @@
 import { z } from "zod";
+import { MAX_PROMPT_LENGTH, MAX_TRIP_DAYS } from "@/lib/inputLimits";
 
 const iataCode = z
   .string()
   .regex(/^[A-Z]{3}$/, "請輸入 3 碼 IATA 機場代號（大寫英文字母，例：TPE）");
 
-export const FlightInfoSchema = z.object({
-  departureCity: iataCode,      // 去程出發機場 IATA 代號，例：TPE
-  arrivalCity: iataCode,        // 去程抵達機場 IATA 代號，例：SYD
-  returnDepartureCity: iataCode, // 回程出發機場 IATA 代號，例：MEL
-  returnArrivalCity: iataCode.optional(), // 回程抵達機場 IATA 代號，例：TPE（預設同去程出發地）
-  departureDate: z.string().min(1),      // YYYY-MM-DD
-  returnDate: z.string().min(1),         // YYYY-MM-DD
-  arrivalTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),         // 去程航班抵達時間 HH:MM
-  returnDepartureTime: z.string().regex(/^\d{2}:\d{2}$/).optional(), // 回程航班出發時間 HH:MM
-});
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+// A real calendar date: `2026-02-31` matches the shape but Date rolls it
+// over to March, so round-trip it back to the same string.
+const isoDate = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "日期格式須為 YYYY-MM-DD")
+  .refine((s) => {
+    const d = new Date(`${s}T00:00:00Z`);
+    return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;
+  }, "不是有效的日期");
+
+export const FlightInfoSchema = z
+  .object({
+    departureCity: iataCode,      // 去程出發機場 IATA 代號，例：TPE
+    arrivalCity: iataCode,        // 去程抵達機場 IATA 代號，例：SYD
+    returnDepartureCity: iataCode, // 回程出發機場 IATA 代號，例：MEL
+    returnArrivalCity: iataCode.optional(), // 回程抵達機場 IATA 代號，例：TPE（預設同去程出發地）
+    departureDate: isoDate,       // YYYY-MM-DD
+    returnDate: isoDate,          // YYYY-MM-DD
+    arrivalTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),         // 去程航班抵達時間 HH:MM
+    returnDepartureTime: z.string().regex(/^\d{2}:\d{2}$/).optional(), // 回程航班出發時間 HH:MM
+  })
+  .superRefine(({ departureDate, returnDate }, ctx) => {
+    const days = (Date.parse(returnDate) - Date.parse(departureDate)) / DAY_MS;
+    if (!(days > 0)) {
+      ctx.addIssue({ code: "custom", path: ["returnDate"], message: "回程日期必須晚於出發日期" });
+    } else if (days > MAX_TRIP_DAYS) {
+      ctx.addIssue({ code: "custom", path: ["returnDate"], message: `行程最多 ${MAX_TRIP_DAYS} 天` });
+    }
+  });
 
 export type FlightInfo = z.infer<typeof FlightInfoSchema>;
 
@@ -22,11 +44,18 @@ export const TripPreferencesSchema = z.object({
   budget: z.enum(["budget", "moderate", "luxury"]).optional(),
   interests: z
     .array(z.enum(["food", "culture", "nature", "shopping", "adventure"]))
+    .max(5)
     .optional(),
   travelers: z.number().int().min(1).max(20).optional(),
 });
 
 export type TripPreferences = z.infer<typeof TripPreferencesSchema>;
+
+export const GenerateRequestSchema = z.object({
+  prompt: z.string().max(MAX_PROMPT_LENGTH).optional(),
+  flightInfo: FlightInfoSchema,
+  preferences: TripPreferencesSchema.optional(),
+});
 
 // Structured intent parsed from the user's free-text preference blurb by
 // parsePreferenceIntent() — see plan/hybrid-rule-engine-scheduling.md Phase 1.
