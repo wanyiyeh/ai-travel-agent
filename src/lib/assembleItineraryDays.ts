@@ -104,7 +104,7 @@ export async function assembleItineraryDays(
     // assembleItineraryDays, breaking its "never throws except when planTrip
     // fails" contract. restructure/route.ts already wraps every one of its
     // own call sites with this same degrade-to-empty pattern.
-    const mealsAndAccommodationPromise = generateMealsAndAccommodation(city.name, nights, plan.currency).catch(
+    const mealsAndAccommodationPromise = generateMealsAndAccommodation(city.name, nights, plan.currency, budget).catch(
       () => emptyMealsAndAccommodation(nights)
     );
 
