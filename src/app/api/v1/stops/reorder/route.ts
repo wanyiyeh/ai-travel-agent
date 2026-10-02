@@ -1,17 +1,27 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { prisma, j } from "@/lib/db";
+import { MAX_NAME_LENGTH, MAX_NAME_LIST_LENGTH } from "@/lib/inputLimits";
+
+const id = z.string().min(1).max(MAX_NAME_LENGTH);
+
+// The client sends every day of the trip, each with its full stop-id order.
+// Day count is checked loosely (older itineraries predate MAX_TRIP_DAYS);
+// the point is a bounded, well-typed shape rather than trusting `as` casts.
+const RequestSchema = z.object({
+  itineraryId: id,
+  days: z
+    .array(z.object({ dayId: id, stopIds: z.array(id).max(MAX_NAME_LIST_LENGTH) }))
+    .max(MAX_NAME_LIST_LENGTH),
+});
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
-    const { itineraryId, days: reorderDays } = body;
-
-    if (!itineraryId || !reorderDays) {
-      return NextResponse.json(
-        { error: "itineraryId and days are required" },
-        { status: 400 }
-      );
+    const parsed = RequestSchema.safeParse(await request.json().catch(() => null));
+    if (!parsed.success) {
+      return NextResponse.json({ error: "Invalid request", details: parsed.error.flatten() }, { status: 400 });
     }
+    const { itineraryId, days: reorderDays } = parsed.data;
 
     const itinerary = await prisma.itinerary.findUnique({
       where: { id: itineraryId },
@@ -37,10 +47,7 @@ export async function POST(request: Request) {
       }
     }
 
-    for (const reorderDay of reorderDays as {
-      dayId: string;
-      stopIds: string[];
-    }[]) {
+    for (const reorderDay of reorderDays) {
       const { dayId, stopIds } = reorderDay;
       const day = days.find((d) => d.id === dayId);
       if (!day) continue;

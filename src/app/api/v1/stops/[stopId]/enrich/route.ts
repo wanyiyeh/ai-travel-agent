@@ -1,9 +1,18 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { prisma, j } from "@/lib/db";
 import { lookupByQuery, lookupByPlaceId, upsertPlace } from "@/lib/placeCache";
 import { searchPlaceText, getCityCenter, buildStopQuery } from "@/lib/placesTextSearch";
 import { findStopAcrossDays, getCityHintForDay } from "@/lib/itineraryDays";
 import { isRecentEnrichFailure, enrichFailureMarker } from "@/lib/enrichFailure";
+import { MAX_NAME_LENGTH } from "@/lib/inputLimits";
+
+// `context` (the trip's destination city) becomes part of a Google Text
+// Search query and a city-center lookup, so it's capped like any name.
+const RequestSchema = z.object({
+  itineraryId: z.string().min(1).max(MAX_NAME_LENGTH),
+  context: z.string().max(MAX_NAME_LENGTH).nullable().optional(),
+});
 
 // Re-reads the itinerary right before writing (the caller's Text Search call
 // can take a while, and enrich-all-stops may have saved in the meantime) so this
@@ -25,15 +34,11 @@ export async function POST(
 ) {
   try {
     const { stopId } = await params;
-    const body = await request.json();
-    const { itineraryId, context } = body;
-
-    if (!itineraryId) {
-      return NextResponse.json(
-        { error: "itineraryId is required" },
-        { status: 400 }
-      );
+    const parsed = RequestSchema.safeParse(await request.json().catch(() => null));
+    if (!parsed.success) {
+      return NextResponse.json({ error: "Invalid request", details: parsed.error.flatten() }, { status: 400 });
     }
+    const { itineraryId, context } = parsed.data;
 
     const itinerary = await prisma.itinerary.findUnique({
       where: { id: itineraryId },

@@ -1,7 +1,31 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { prisma, j } from "@/lib/db";
 import { upsertPlace } from "@/lib/placeCache";
 import { findStopAcrossDays } from "@/lib/itineraryDays";
+import { MAX_NAME_LENGTH, MAX_TEXT_LENGTH } from "@/lib/inputLimits";
+
+const id = z.string().min(1).max(MAX_NAME_LENGTH);
+
+// Everything here is written straight into the itinerary JSON, and a place
+// swap also goes into the shared Place cache (upsertPlace) — so types and
+// ranges are checked rather than storing whatever the caller sent.
+const PatchSchema = z.object({
+  itineraryId: id,
+  name: z.string().min(1).max(MAX_NAME_LENGTH).optional(),
+  description: z.string().max(MAX_TEXT_LENGTH).nullable().optional(),
+  // A cleared number input serializes as null (JSON has no NaN).
+  duration_minutes: z.number().min(0).max(24 * 60).nullable().optional(),
+  estimated_cost: z.number().min(0).max(1e9).nullable().optional(),
+  placeId: id.nullable().optional(),
+  lat: z.number().min(-90).max(90).nullable().optional(),
+  lng: z.number().min(-180).max(180).nullable().optional(),
+  address: z.string().max(MAX_TEXT_LENGTH).nullable().optional(),
+  rating: z.number().min(0).max(5).nullable().optional(),
+  photoName: z.string().max(MAX_TEXT_LENGTH).nullable().optional(),
+});
+
+const DeleteSchema = z.object({ itineraryId: id });
 
 export async function PATCH(
   request: Request,
@@ -9,19 +33,16 @@ export async function PATCH(
 ) {
   try {
     const { stopId } = await params;
-    const body = await request.json();
-    const { name, description, duration_minutes, estimated_cost, itineraryId } = body;
+    const body = await request.json().catch(() => null);
+    const parsed = PatchSchema.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json({ error: "Invalid request", details: parsed.error.flatten() }, { status: 400 });
+    }
+    const { name, description, duration_minutes, estimated_cost, itineraryId } = parsed.data;
     // A full place swap (via the "換一個" picker) sends `placeId` alongside the
     // fields above — distinct from a plain text edit, which never includes it.
     const isPlaceSwap = "placeId" in body;
-    const { placeId, lat, lng, address, rating, photoName } = body;
-
-    if (!itineraryId) {
-      return NextResponse.json(
-        { error: "itineraryId is required" },
-        { status: 400 }
-      );
-    }
+    const { placeId, lat, lng, address, rating, photoName } = parsed.data;
 
     const itinerary = await prisma.itinerary.findUnique({
       where: { id: itineraryId },
@@ -105,15 +126,11 @@ export async function DELETE(
 ) {
   try {
     const { stopId } = await params;
-    const body = await request.json();
-    const { itineraryId } = body;
-
-    if (!itineraryId) {
-      return NextResponse.json(
-        { error: "itineraryId is required" },
-        { status: 400 }
-      );
+    const parsed = DeleteSchema.safeParse(await request.json().catch(() => null));
+    if (!parsed.success) {
+      return NextResponse.json({ error: "Invalid request", details: parsed.error.flatten() }, { status: 400 });
     }
+    const { itineraryId } = parsed.data;
 
     const itinerary = await prisma.itinerary.findUnique({
       where: { id: itineraryId },
