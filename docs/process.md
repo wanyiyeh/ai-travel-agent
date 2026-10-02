@@ -595,11 +595,70 @@
 - PR #32：行程天數上限 30 天、風格描述長度上限、各 API 欄位長度上限、
   `restructure` 每城／總天數上限、`/api/*` 請求 body 上限（`src/proxy.ts`）。
 
+### 3. 主控台的成本上限（Phase 0）
+
+- GCP：Places API 設每日配額，程式就算失控，Google 每天的花費也有上限。
+- OpenAI：Project 設 spend limit；Allow models 只開 `gpt-4o-mini`——程式碼
+  所有呼叫都是 `OPENAI_MODEL ?? "gpt-4o-mini"`，`.env` 沒設 `OPENAI_MODEL`，
+  所以 key 外流也不能拿去打貴的模型。之後要換模型得先加進允許清單。
+- 還沒做：預算連結 Monitoring email 通知管道（9 月的預算警示沒收到信）。
+
+### 4. Rate limiting 與全站每日上限（PR #34，分支 `security/rate-limit`）
+
+- `src/lib/rateLimit.ts`，在 `src/proxy.ts` 執行（路由跑之前就擋）：依
+  「IP + 費用等級」做滑動視窗計數（sliding-window counter：每個 key 只存
+  目前與上一個視窗的計數，沒有固定視窗在邊界的 2 倍突發）。被擋的請求不
+  計入，超限回 429 + `Retry-After`。
+  - 等級：generate（`generate-stream` 每天 30 次）、ai（每小時 60）、
+    google（每分鐘 120）、photo（每分鐘 300）、其餘純 DB（每分鐘 300）。
+  - 數字以「一個人正常用 + 餘裕」設：打開行程頁會對每個景點／每天各打一次
+    enrich，Google 等級要容得下這個突發。
+- `src/lib/dailyBudget.ts`：全站每日呼叫上限（Google 3,000、OpenAI 1,000），
+  接在 `googleFetch` 和 OpenAI client 的自訂 `fetch` 這兩個所有呼叫都會經過
+  的點。是防止換很多 IP 繞過 per-IP 限制的最後一道牆。超過時回假的 429，
+  帶 `x-should-retry: false`（OpenAI SDK 預設會重試 429，這個 header 讓它
+  不重試）。
+- `generate-stream` 同一 IP 同時只能跑 1 條串流，串流結束時在 `finally`
+  釋放；前端 `useStreamingGenerate` 對 429 顯示中文提示。
+- 取捨：計數存在單一 server 的記憶體，適合 `next dev` 或單機部署；部署到
+  serverless／多實例要換成共用儲存（Redis 等），`RateLimitStore` 介面不用改。
+  `x-forwarded-for` 在沒有可信任 reverse proxy 時可偽造，靠全站上限兜底。
+- 驗證：單元測試涵蓋分級對照、滑動視窗、Retry-After、LRU 淘汰、每日上限、
+  併發閘。另外用 `dev:mock` 實測：計數器跨請求保留（剩餘 299→298→297）；
+  對 `generate-stream` 送無效 body（在呼叫 OpenAI 前就回 400，不花錢），
+  第 31 次回 429。
+
+### 5. 剩下的路由補上 zod 驗證（PR #35，分支 `security/route-schemas`）
+
+- `stops/[stopId]`（PATCH／DELETE）、`stops/reorder`、`stops/[stopId]/enrich`、
+  `accommodation/enrich` 原本直接解構 `request.json()`。PATCH 最需要：它把
+  欄位寫進行程 JSON，換地點時還寫進共用的 Place 快取，原本可以存進
+  `lat: 500`、`rating: 99` 或物件當名稱。現在檢查型別與範圍（緯度 ±90、
+  經度 ±180、評分 0–5、時長 0–1440 分、費用 ≥ 0、文字長度上限）。
+- 先查前端實際送出的內容再寫 schema：清空數字輸入框會送 `null`、換地點的
+  `placeId`／`rating` 可能是 `null`，都要允許。測試直接用前端的真實
+  payload，確認能通過、壞資料在碰 DB 之前就被擋。壞掉的 JSON 改回 400
+  （原本 500）。
+- 用 `dev:mock` 手動確認編輯、換景點、拖曳排序、刪除都正常。
+
+### 6. 排查「行程頁沒有圖、行程怪怪的」
+
+- 結果是預期行為：那個行程在 `prisma/mock.db`（`dev.db` 沒有），也就是
+  `dev:mock` 生成的，景點都是「Mock tourist_attraction N」，照片是 SVG
+  佔位圖。查證方式：唯讀查兩個 DB 的資料、檢查 10 個景點的照片名稱都符合
+  照片路由的新驗證，再用另開的 mock server 打照片路由確認回 200 + SVG。
+- 踩到：使用者的 `next dev` 還開著時，第二個 `next dev` 會因為 `.next/dev/lock`
+  無法啟動，同一個專案一次只能跑一個 dev server。
+
 ### 今天的結論
 
 - 看帳單先確認幣別。這次差點把 NT$3,180 當成 US$3,180 處理。
 - Google Places (New) 的計費是「整個請求按最高等級欄位算」，field mask
   多一個欄位就可能換到貴很多、免費額度也少很多的 SKU。新增欄位前要先查
   它屬於哪個等級。
-- 下一步：設 Places／Routes 每日配額、預算連結 Monitoring email 通知、
-  OpenAI 用量上限；程式層接著做 rate limiting（Phase 1b）。
+- 資安計畫的 Phase 0、Phase 1 完成，「被別人拿去燒錢」這類風險大致擋住。
+  Phase 1 只剩照片路由把 key 改放 header（要打一次真實 API 驗證）。
+- Phase 2（存取控制）先暫停：網站還沒部署，目前沒有實際風險。部署前一定
+  要做——現在任何人知道行程 id 就能刪改它。
+- 下一步：預算連結 Monitoring email 通知；10 月帳單出來後確認 Text Search
+  Enterprise 用量接近 0。
