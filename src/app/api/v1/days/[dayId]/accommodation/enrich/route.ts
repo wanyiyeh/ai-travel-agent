@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { prisma, j } from "@/lib/db";
 import { iataToCity } from "@/lib/iataCity";
 import { lookupByQuery, upsertPlace } from "@/lib/placeCache";
@@ -7,6 +8,9 @@ import { PRICE_LEVEL_MAP } from "@/lib/fetchCityRestaurants";
 import { estimateLodgingCostPerNight, estimateLodgingCostRange } from "@/lib/priceLevelCost";
 import { findDayIndex } from "@/lib/itineraryDays";
 import { isRecentEnrichFailure, enrichFailureMarker } from "@/lib/enrichFailure";
+import { MAX_NAME_LENGTH } from "@/lib/inputLimits";
+
+const RequestSchema = z.object({ itineraryId: z.string().min(1).max(MAX_NAME_LENGTH) });
 
 // Re-reads the itinerary right before writing (the caller's Text Search call
 // can take a while, and other enrich routes may have saved in the meantime) so
@@ -28,12 +32,11 @@ export async function POST(
 ) {
   try {
     const { dayId } = await params;
-    const body = await request.json();
-    const { itineraryId } = body;
-
-    if (!itineraryId) {
-      return NextResponse.json({ error: "itineraryId is required" }, { status: 400 });
+    const parsed = RequestSchema.safeParse(await request.json().catch(() => null));
+    if (!parsed.success) {
+      return NextResponse.json({ error: "Invalid request", details: parsed.error.flatten() }, { status: 400 });
     }
+    const { itineraryId } = parsed.data;
 
     const itinerary = await prisma.itinerary.findUnique({
       where: { id: itineraryId },
