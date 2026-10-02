@@ -6,6 +6,7 @@ import { prisma } from "@/lib/db";
 import { TransitRecommendationSchema } from "@/lib/schemas";
 import type { TransitRecommendation } from "@/types/itinerary";
 import { getMockMode, mockDelay, MOCK_FIXTURES } from "@/lib/mockAi";
+import { internalErrorResponse } from "@/lib/apiError";
 
 const RequestSchema = z.object({
   originIata: z.string().regex(/^[A-Z]{3}$/),
@@ -260,10 +261,6 @@ export async function POST(
 
     return NextResponse.json({ recommendations });
   } catch (error) {
-    console.error("[Transit Recommendations Error]", error);
-    return NextResponse.json(
-      { error: "Failed to get transit recommendations", details: String(error) },
-      { status: 500 }
-    );
+    return internalErrorResponse("Transit Recommendations Error", error, "Failed to get transit recommendations");
   }
 }

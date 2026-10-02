@@ -18,6 +18,7 @@ import {
 } from "@/lib/itineraryGen";
 import { assembleItineraryDays, type AssembledItinerary } from "@/lib/assembleItineraryDays";
 import { clientIp, generateStreamGate } from "@/lib/rateLimit";
+import { newRequestId } from "@/lib/apiError";
 import type { Day, Itinerary } from "@/types/itinerary";
 
 const DEMO_USER_ID = "00000000-0000-0000-0000-000000000001";
@@ -379,11 +380,14 @@ export async function POST(request: Request) {
               controller.close();
               return;
             } catch (error) {
-              console.warn(`[Itinerary Validation] Attempt ${attempt} parse/schema error:`, error);
+              // The raw parse/zod/DB error stays in the server log, keyed by
+              // requestId; the client only gets the id to quote.
+              const requestId = newRequestId();
+              console.warn(`[Itinerary Validation] requestId=${requestId} attempt ${attempt} parse/schema error:`, error);
               lastErrorEvent = {
                 type: "error",
                 error: "資料格式驗證失敗",
-                details: error instanceof Error ? error.message : String(error),
+                requestId,
               };
               if (attempt < MAX_GENERATION_ATTEMPTS) continue;
             }
@@ -392,10 +396,12 @@ export async function POST(request: Request) {
           controller.enqueue(encoder.encode(`data: ${JSON.stringify(lastErrorEvent)}\n\n`));
           controller.close();
         } catch (error) {
+          const requestId = newRequestId();
+          console.error(`[Generate Stream] requestId=${requestId}`, error);
           const errorData = JSON.stringify({
             type: "error",
             error: "生成失敗",
-            details: error instanceof Error ? error.message : String(error),
+            requestId,
           });
           controller.enqueue(encoder.encode(`data: ${errorData}\n\n`));
           controller.close();

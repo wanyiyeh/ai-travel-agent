@@ -6,6 +6,7 @@ import { getMockMode, mockDelay } from "@/lib/mockAi";
 import { isMealType } from "@/types/itinerary";
 import { upsertPlace } from "@/lib/placeCache";
 import { findDayIndex } from "@/lib/itineraryDays";
+import { internalErrorResponse } from "@/lib/apiError";
 
 const RequestSchema = z.object({
   itineraryId: z.string().min(1),
@@ -83,10 +84,6 @@ export async function POST(
 
     return NextResponse.json({ success: true, meal });
   } catch (error) {
-    console.error("[Meal Select Error]", error);
-    return NextResponse.json(
-      { error: "Failed to select meal", details: String(error) },
-      { status: 500 }
-    );
+    return internalErrorResponse("Meal Select Error", error, "Failed to select meal");
   }
 }

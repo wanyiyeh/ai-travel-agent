@@ -13,6 +13,7 @@ import { translatePlaceNames } from "@/lib/translatePlaceNames";
 import { isMealType } from "@/types/itinerary";
 import { findDayIndex } from "@/lib/itineraryDays";
 import type { MealCandidate } from "@/types/itinerary";
+import { internalErrorResponse } from "@/lib/apiError";
 
 const RequestSchema = z.object({
   itineraryId: z.string().min(1),
@@ -161,10 +162,6 @@ export async function POST(
 
     return NextResponse.json({ success: true, candidates });
   } catch (error) {
-    console.error("[Meal Candidates Error]", error);
-    return NextResponse.json(
-      { error: "Failed to fetch meal candidates", details: String(error) },
-      { status: 500 }
-    );
+    return internalErrorResponse("Meal Candidates Error", error, "Failed to fetch meal candidates");
   }
 }

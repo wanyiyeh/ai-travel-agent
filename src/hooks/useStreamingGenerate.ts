@@ -104,7 +104,14 @@ export function useStreamingGenerate() {
               setId(data.id || null);
               setState("complete");
             } else if (data.type === "error") {
-              setError(data.error + ": " + (data.details || ""));
+              // `details` only carries validation codes for the generated
+              // itinerary; unexpected failures carry a requestId instead,
+              // which matches the server log line.
+              setError(
+                data.error +
+                  (data.details ? `：${data.details}` : "") +
+                  (data.requestId ? `（錯誤代碼 ${data.requestId}）` : ""),
+              );
               setState("error");
             }
           } catch {

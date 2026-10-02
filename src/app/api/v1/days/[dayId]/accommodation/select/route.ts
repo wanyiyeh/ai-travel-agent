@@ -5,6 +5,7 @@ import { AccommodationSchema } from "@/lib/schemas";
 import { getMockMode, mockDelay } from "@/lib/mockAi";
 import { upsertPlace } from "@/lib/placeCache";
 import { findDayIndex } from "@/lib/itineraryDays";
+import { internalErrorResponse } from "@/lib/apiError";
 
 const RequestSchema = z.object({
   itineraryId: z.string().min(1),
@@ -77,10 +78,6 @@ export async function POST(
 
     return NextResponse.json({ success: true, accommodation });
   } catch (error) {
-    console.error("[Accommodation Select Error]", error);
-    return NextResponse.json(
-      { error: "Failed to select accommodation", details: String(error) },
-      { status: 500 }
-    );
+    return internalErrorResponse("Accommodation Select Error", error, "Failed to select accommodation");
   }
 }

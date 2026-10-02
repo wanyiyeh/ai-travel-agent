@@ -8,6 +8,7 @@ import { estimateMealCost } from "@/lib/priceLevelCost";
 import { translatePlaceNames } from "@/lib/translatePlaceNames";
 import { getCityHintForDay } from "@/lib/itineraryDays";
 import { isRecentEnrichFailure, enrichFailureMarker } from "@/lib/enrichFailure";
+import { internalErrorResponse } from "@/lib/apiError";
 
 export async function POST(
   _request: Request,
@@ -346,10 +347,6 @@ export async function POST(
       suspiciousStops,
     });
   } catch (error) {
-    console.error("[Enrich All Stops Error]", error);
-    return NextResponse.json(
-      { error: "Failed to enrich stops", details: String(error) },
-      { status: 500 }
-    );
+    return internalErrorResponse("Enrich All Stops Error", error, "Failed to enrich stops");
   }
 }

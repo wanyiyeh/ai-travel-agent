@@ -11,6 +11,7 @@ import { upsertPlace } from "@/lib/placeCache";
 import { haversineKm, centroid, SUSPICIOUS_DISTANCE_KM as SUSPICIOUS_KM } from "@/lib/distanceMatrix";
 import { snapToGrid } from "@/lib/geo";
 import { findDayIndex, getCityHintForDay } from "@/lib/itineraryDays";
+import { internalErrorResponse } from "@/lib/apiError";
 
 const RequestSchema = z.object({
   itineraryId: z.string().min(1),
@@ -362,10 +363,6 @@ Names in order: ${names.map((n) => `"${n}"`).join(", ")}`,
     await logCandidates(candidates);
     return NextResponse.json({ candidates, isFallback: false });
   } catch (error) {
-    console.error("[Stop Suggestions Error]", error);
-    return NextResponse.json(
-      { error: "Failed to fetch suggestions", details: String(error) },
-      { status: 500 }
-    );
+    return internalErrorResponse("Stop Suggestions Error", error, "Failed to fetch suggestions");
   }
 }
