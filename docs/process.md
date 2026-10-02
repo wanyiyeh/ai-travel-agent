@@ -551,3 +551,55 @@
   程式層的修補照資安計畫分階段、各開獨立分支做。
 - 下一步：Billing Reports 依 SKU／每日查超支來源；預算連結 Monitoring
   email 通知管道；設 Places／Routes 每日配額；OpenAI 設用量上限。
+
+## 2026-10-02
+
+### 1. 查出 9 月 Google 超支的來源：Text Search 被按 Enterprise 計費（分支 `fix/text-search-pro-tier`）
+
+- 拿到 9 月的 GCP Billing 報表（依 SKU 拆分）。小計 3,029.19、稅金 151、總計
+  3,180，乍看以為是美元，其實帳單幣別是**新台幣**（約 US$100）：
+  - Text Search Enterprise：3,678 次 → 2,971.05（**98%**）
+  - Place Details Photos：1,262 次 → 58.13
+  - 其餘（Nearby Search Pro/Enterprise、Compute Route Matrix、Place Details
+    Essentials、Text Search Pro、Dynamic Maps）全部在免費額度內，0 元。
+- 怎麼確認是新台幣：用 Google 公布的美元單價反推，扣掉每月 1,000 次免費後
+  Text Search Enterprise 2,678 × $35/千 = $93.7、Photos 262 × $7/千 = $1.83，
+  兩項都對上同一個約 31.7 的匯率；稅金 151 剛好是 5% 營業稅。所以預算
+  「$500」其實也是 NT$500。
+- 修正 9/29 的猜測：當時懷疑規則引擎新增的 Nearby／Routes 呼叫是主因，報表
+  顯示這兩類都還在免費額度內，真正的大宗是 Text Search。
+- 成因：`placesTextSearch.ts` 的 field mask 含 `rating`、`priceLevel`。一個
+  請求只要有任何 Enterprise 等級的欄位，整個請求就按 Enterprise 計費（每月
+  免費 1,000 次）；拿掉之後落在 Pro（每月免費 5,000 次），9 月的 3,678 次
+  會全部在免費額度內。
+- 代價與取捨：
+  - `priceLevel` 本來就沒存進快取，命中快取時一直都拿不到，估價會退回中間價，
+    行為不變。
+  - `rating`：之後透過 Text Search 新補的景點不會有星等；餐廳／住宿候選走
+    Nearby Search，星等照常。
+- 連帶修掉一個會被這次改動放大的 bug：`upsertPlace` 更新時寫
+  `rating: data.rating ?? null`，Text Search 不再回評分後，每次 enrich 都會
+  把 Nearby 存下來的評分清空。改成只有拿到新評分才更新；
+  `scripts/enrich-all-itineraries.ts` 自己寫 DB 的邏輯也同步修。
+- 驗證：新增單元測試鎖住 field mask 不含 Enterprise 欄位（避免之後又加回
+  `rating`）、新增 `placeCache.integration.test.ts` 確認既有評分不會被蓋掉。
+  單元 247/247、整合 13/13、`tsc`、ESLint 全過。沒有跑真實 API，實際效果
+  要看 10 月帳單的 Text Search Enterprise 用量是否接近 0。
+- 不是 key 被盜用：網站沒有公開部署，用量只集中在 Text Search 和照片，跟
+  自己 enrich／搜尋地點的使用方式一致。
+
+### 2. 補記：9/29 之後合併的資安修補
+
+- PR #31：照片代理路由驗證 `name` 參數（格式＋placeId 必須一致）、圖片寬度
+  收斂到固定幾種尺寸（避免同一張照片換寬度重複計費）、照片網址快取設上限。
+- PR #32：行程天數上限 30 天、風格描述長度上限、各 API 欄位長度上限、
+  `restructure` 每城／總天數上限、`/api/*` 請求 body 上限（`src/proxy.ts`）。
+
+### 今天的結論
+
+- 看帳單先確認幣別。這次差點把 NT$3,180 當成 US$3,180 處理。
+- Google Places (New) 的計費是「整個請求按最高等級欄位算」，field mask
+  多一個欄位就可能換到貴很多、免費額度也少很多的 SKU。新增欄位前要先查
+  它屬於哪個等級。
+- 下一步：設 Places／Routes 每日配額、預算連結 Monitoring email 通知、
+  OpenAI 用量上限；程式層接著做 rate limiting（Phase 1b）。

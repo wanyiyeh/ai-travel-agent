@@ -56,3 +56,19 @@ describe("searchPlaceText in-flight dedupe", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });
+
+// Any Enterprise-tier field in the mask bills the whole request as Enterprise
+// (1,000 free/month vs Pro's 5,000) — this was ~98% of the 2026-09 bill.
+describe("searchPlaceText field mask", () => {
+  it("requests only Pro-tier fields", async () => {
+    const fetchMock = stubFetch();
+    await searchPlaceText("Field Mask Tier Check", "key");
+
+    const init = (fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1];
+    const mask = (init.headers as Record<string, string>)["X-Goog-FieldMask"].split(",");
+    for (const enterpriseField of ["places.rating", "places.priceLevel", "places.userRatingCount"]) {
+      expect(mask).not.toContain(enterpriseField);
+    }
+    expect(mask).toEqual(expect.arrayContaining(["places.id", "places.location", "places.photos"]));
+  });
+});
