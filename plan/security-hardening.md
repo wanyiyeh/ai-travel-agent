@@ -140,15 +140,16 @@
 
 對應 R9、R10。
 
-- [ ] `next.config.ts` 加 `headers()`：
-  - `Content-Security-Policy`（允許 `self`、Google Maps 需要的網域 `maps.googleapis.com`、`maps.gstatic.com`、照片的 `lh3.googleusercontent.com` 等 —— 先用 `Content-Security-Policy-Report-Only` 觀察一週再正式啟用）
-  - `X-Frame-Options: DENY`（或 CSP `frame-ancestors 'none'`）
-  - `X-Content-Type-Options: nosniff`
-  - `Referrer-Policy: strict-origin-when-cross-origin`
-  - `Permissions-Policy: camera=(), microphone=(), geolocation=()`
-  - `Strict-Transport-Security`（部署在 HTTPS 後）
+- [x] `next.config.ts` 加 `headers()`（2026-10-02，內容在 `src/lib/securityHeaders.ts`，有單元測試）：
+  - `Content-Security-Policy`：**目前是 `Content-Security-Policy-Report-Only`**，違規只會出現在瀏覽器 Console、不會擋東西。允許清單照 Google 官方的 Maps JS CSP 指南（`*.googleapis.com`、`*.gstatic.com`、`*.google.com`、`*.ggpht.com`、`*.googleusercontent.com`，照片轉址也落在這裡），加上 `frame-ancestors 'none'`、`object-src 'none'`、`base-uri 'self'`、`form-action 'self'`。dev 額外允許 `ws:`（HMR）。
+    - Next.js 的 inline script 沒設 nonce，所以 `script-src` 有 `'unsafe-inline'`；Maps JS 需要 `'unsafe-eval'`。之後要更嚴可以改用 nonce（Next 支援在 proxy 產生）。
+    - [ ] 正常使用一段時間、Console 沒有 CSP 違規後，設 `CSP_ENFORCE=1` 改成強制執行。
+  - `X-Frame-Options: DENY`、`X-Content-Type-Options: nosniff`、`Referrer-Policy: strict-origin-when-cross-origin`、`Permissions-Policy`（相機、麥克風、定位、付款、USB 全關，程式碼都沒用到）。
+  - `Strict-Transport-Security`：只在 production 加（http://localhost 不需要）。
+  - `poweredByHeader: false`：不再回 `X-Powered-By: Next.js`。
+  - 驗證：`dev:mock` 實測首頁和 API 回應都帶上述標頭。
 - [ ] 錯誤處理：建 `src/lib/apiError.ts`，對外只回通用訊息 + 一個 request id；`String(error)` 只寫進伺服器 log。zod 的 `error.flatten()` 可保留（它只描述使用者自己送的欄位）。
-- [ ] API 路由不需要被跨站呼叫 → 不設定 CORS（預設就是同源），確認之後也不要加 `Access-Control-Allow-Origin: *`。
+- [x] API 路由不需要被跨站呼叫 → 不設定 CORS（預設就是同源），確認之後也不要加 `Access-Control-Allow-Origin: *`。（2026-10-02 確認程式碼沒有任何 `Access-Control-Allow-Origin`。）
 
 ### Phase 5 — 監控、依賴與流程
 
