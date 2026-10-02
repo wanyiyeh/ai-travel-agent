@@ -26,18 +26,19 @@ export interface TextSearchPlace {
   photos?: { name: string; widthPx?: number; heightPx?: number }[];
 }
 
-// `photos` is a Pro-tier field, same tier as `rating`/`priceLevel` are
-// Enterprise-tier — since the mask already has Enterprise fields, the whole
-// request bills at Enterprise regardless, so adding `photos` here doesn't
-// add cost. It only returns photo *metadata* (a resource name); the actual
-// image bytes are a separate billable call via the Photo Media endpoint.
+// Kept to Pro-tier fields on purpose. A request bills at the highest tier of
+// any field in its mask, and `rating`/`priceLevel` are Enterprise-tier: with
+// them here, every Text Search billed as Enterprise (1,000 free/month), which
+// was ~98% of the 2026-09 Google bill. Pro gets 5,000 free/month. Callers
+// already handle both as optional (a cache hit never carried priceLevel),
+// and Nearby Search still supplies ratings for meal/lodging candidates.
+// `photos` only returns photo *metadata* (a resource name); the actual image
+// bytes are a separate billable call via the Photo Media endpoint.
 const FIELD_MASK = [
   "places.id",
   "places.displayName",
   "places.formattedAddress",
   "places.location",
-  "places.rating",
-  "places.priceLevel",
   "places.photos",
 ].join(",");
 

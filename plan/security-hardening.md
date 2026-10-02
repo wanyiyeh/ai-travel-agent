@@ -48,7 +48,7 @@
 | R10 | `next.config.ts` 是空的 —— 沒有安全標頭（CSP、X-Frame-Options 等） | `next.config.ts` | 低中 |
 | R11 | `departureDate`/`returnDate` 只驗 `min(1)`，不是真正的日期格式；陣列欄位（`interestBoost` 等）沒有長度上限 | `src/lib/schemas.ts` | 低 |
 | R12 | ~~瀏覽器與伺服器共用同一把 Google key（`.env` 兩個變數值相同），且 Application restrictions = None、API restrictions = 預設 32 APIs~~ → 2026-09-29 已拆成兩把 key 並各自限縮，見 Phase 0 | GCP Console | ✅ 已處理 |
-| R13 | 2026-09 當月 Google 花費 **$3,029.19**（預算 $500 的 6 倍），預算警示有設但**沒收到通知**；來源尚未查明 | GCP Billing | 高・調查中 |
+| R13 | 2026-09 當月 Google 花費 **NT$3,029**（約 US$95，帳單幣別是新台幣；預算是 NT$500），預算警示有設但**沒收到通知**。來源已查明：98% 是 Text Search Enterprise（3,678 次），因為 field mask 含 `rating`/`priceLevel`，見 Phase 0 | GCP Billing | 中・費用已修、通知待處理 |
 
 ---
 
@@ -63,7 +63,7 @@
   - [ ] 勾「Link Monitoring email notification channels」，直接指定自己的 email，不依賴 billing admin 權限。
   - [ ] 確認 Billing Account Administrator 是哪個帳號；Gmail 搜 `from:CloudPlatform-noreply@google.com`（含垃圾郵件）。
   - [ ] 預算只會通知、不會擋花費 → 評估設定 spend cap。
-- [ ] **查明 2026-09 的 $3,029**（R13）：Billing → Reports，本月、Group by SKU + 每日檢視，找出暴增日期，對照當天跑過的 script / 功能（參考 `plan/google-api-cost-spike-2026-07.md` 的調查方式）。若網站曾公開部署過，考慮 key 被盜用，伺服器 key 要 Rotate。
+- [x] **查明 2026-09 的 NT$3,029**（R13，2026-10-02）：Billing 報表依 SKU 拆分 —— Text Search Enterprise 3,678 次 = NT$2,971（98%）、Place Details Photos 1,262 次 = NT$58，其餘都在免費額度內。用美元單價反推（扣每月免費 1,000 次後 ×$35/千、×$7/千）兩項都對上約 31.7 的匯率，確認帳單幣別是新台幣；稅金 151 = 5% 營業稅。成因：`placesTextSearch.ts` 的 field mask 含 Enterprise 欄位 `rating`/`priceLevel`，整個請求都按 Enterprise 計費。修法（分支 `fix/text-search-pro-tier`）：field mask 降到 Pro（每月 5,000 次免費），`upsertPlace` 不再用「沒抓評分」蓋掉既有評分。網站未部署、用量型態符合自己的 enrich/搜尋，不是 key 被盜用。
 - [ ] **Google Cloud：每日配額上限** — APIs & Services → Places API (New) / Routes API → Quotas，把每日請求數設成合理值（例如預期用量的 2–3 倍）。超過直接失敗，而不是繼續扣錢。
 - [x] **拆成兩把 key**（2026-09-29）— 原本 `.env` 的兩個變數是同一把 key，瀏覽器可看到且可呼叫 Places/Routes。
 - [x] **瀏覽器 key（`NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`）**：新建一把專用 key。
@@ -105,9 +105,9 @@
 - [ ] `generate-stream` 加**同時執行數限制**（同一 IP 同時只能有 1 條串流）。
 
 **1c. 修照片路由** — 對應 R6、R7
-- [ ] `name` 參數用白名單 regex 驗證，只接受 `^places/[A-Za-z0-9_-]+/photos/[A-Za-z0-9_-]+$`，不符合回 400。
-- [ ] 或更嚴格：只接受 DB 內已存在的 `photoName`，或 name 的 `places/<id>` 前綴必須等於路徑上的 `placeId`。
-- [ ] `photoUriCache` 改成有上限的 LRU（例如 2000 筆）。
+- [x] `name` 參數用白名單 regex 驗證，只接受 `^places/[A-Za-z0-9_-]+/photos/[A-Za-z0-9_-]+$`，不符合回 400。
+- [x] 或更嚴格：只接受 DB 內已存在的 `photoName`，或 name 的 `places/<id>` 前綴必須等於路徑上的 `placeId`。
+- [x] `photoUriCache` 改成有上限的 LRU（例如 2000 筆）。
 - [ ] API key 改放 header（`X-Goog-Api-Key`）而不是 query string，避免出現在任何 log。
 
 ### Phase 2 — 存取控制（對外開放給他人使用前必做）

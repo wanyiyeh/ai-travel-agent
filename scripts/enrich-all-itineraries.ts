@@ -118,7 +118,7 @@ async function searchPlace(
     headers: {
       "Content-Type": "application/json",
       "X-Goog-Api-Key": apiKey,
-      "X-Goog-FieldMask": "places.id,places.displayName,places.formattedAddress,places.location,places.rating,places.photos",
+      "X-Goog-FieldMask": "places.id,places.displayName,places.formattedAddress,places.location,places.photos",
     },
     body: JSON.stringify(body),
   });
@@ -274,7 +274,7 @@ async function main() {
               await prisma.place.upsert({
                 where: { id: place.id },
                 create: { id: place.id, name: place.displayName?.text ?? String(meal.name), address: place.formattedAddress, lat: place.location.latitude, lng: place.location.longitude, rating: place.rating ?? null, photoName },
-                update: { name: place.displayName?.text ?? String(meal.name), address: place.formattedAddress, lat: place.location.latitude, lng: place.location.longitude, rating: place.rating ?? null, ...(photoName ? { photoName } : {}) },
+                update: { name: place.displayName?.text ?? String(meal.name), address: place.formattedAddress, lat: place.location.latitude, lng: place.location.longitude, ...(place.rating != null ? { rating: place.rating } : {}), ...(photoName ? { photoName } : {}) },
               });
               await prisma.placeQuery.upsert({
                 where: { query },
@@ -400,7 +400,7 @@ async function main() {
             await prisma.place.upsert({
               where: { id: place.id },
               create: { id: place.id, name: place.displayName?.text ?? String(stop.name), address: place.formattedAddress, lat: place.location.latitude, lng: place.location.longitude, rating: place.rating ?? null, photoName },
-              update: { name: place.displayName?.text ?? String(stop.name), address: place.formattedAddress, lat: place.location.latitude, lng: place.location.longitude, rating: place.rating ?? null, ...(photoName ? { photoName } : {}) },
+              update: { name: place.displayName?.text ?? String(stop.name), address: place.formattedAddress, lat: place.location.latitude, lng: place.location.longitude, ...(place.rating != null ? { rating: place.rating } : {}), ...(photoName ? { photoName } : {}) },
             });
             await prisma.placeQuery.upsert({
               where: { query },

@@ -59,7 +59,10 @@ export async function upsertPlace(
       address: data.address,
       lat: data.lat,
       lng: data.lng,
-      rating: data.rating ?? null,
+      // Text Search no longer requests `rating` (see FIELD_MASK in
+      // placesTextSearch.ts), so a missing rating means "not fetched", not
+      // "has none" — don't let it wipe one a Nearby Search already stored.
+      ...(data.rating != null ? { rating: data.rating } : {}),
       ...(types !== undefined ? { types } : {}),
       ...(data.photoName !== undefined ? { photoName: data.photoName } : {}),
     },
