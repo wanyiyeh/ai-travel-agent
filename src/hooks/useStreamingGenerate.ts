@@ -45,6 +45,15 @@ export function useStreamingGenerate() {
       if (response.status === 400) {
         throw new Error("輸入的行程資料不符合限制，請檢查日期與風格描述");
       }
+      if (response.status === 429) {
+        // Either another generation is still running, or today's quota is used up.
+        const body = await response.json().catch(() => null);
+        throw new Error(
+          body?.error === "A generation is already in progress"
+            ? "已有一個行程正在生成，請等它完成後再試"
+            : "今天的生成次數已達上限，請稍後再試",
+        );
+      }
       if (!response.ok) {
         throw new Error("Failed to connect to streaming API");
       }

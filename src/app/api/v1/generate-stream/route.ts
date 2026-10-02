@@ -17,6 +17,7 @@ import {
   tagWaypointCities,
 } from "@/lib/itineraryGen";
 import { assembleItineraryDays, type AssembledItinerary } from "@/lib/assembleItineraryDays";
+import { clientIp, generateStreamGate } from "@/lib/rateLimit";
 import type { Day, Itinerary } from "@/types/itinerary";
 
 const DEMO_USER_ID = "00000000-0000-0000-0000-000000000001";
@@ -99,6 +100,16 @@ export async function POST(request: Request) {
     const { prompt, preferences } = parsed.data;
     const flightInfo: FlightInfo = parsed.data.flightInfo;
     const days = calcDays(flightInfo.departureDate, flightInfo.returnDate);
+
+    // One generation at a time per client; released when the stream ends,
+    // whichever way it ends.
+    const ip = clientIp(request.headers);
+    if (!generateStreamGate.tryAcquire(ip)) {
+      return Response.json(
+        { error: "A generation is already in progress" },
+        { status: 429, headers: { "Retry-After": "30" } },
+      );
+    }
 
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
@@ -388,6 +399,8 @@ export async function POST(request: Request) {
           });
           controller.enqueue(encoder.encode(`data: ${errorData}\n\n`));
           controller.close();
+        } finally {
+          generateStreamGate.release(ip);
         }
       },
     });
