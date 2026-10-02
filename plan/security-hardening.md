@@ -64,7 +64,7 @@
   - [ ] 確認 Billing Account Administrator 是哪個帳號；Gmail 搜 `from:CloudPlatform-noreply@google.com`（含垃圾郵件）。
   - [ ] 預算只會通知、不會擋花費 → 評估設定 spend cap。
 - [x] **查明 2026-09 的 NT$3,029**（R13，2026-10-02）：Billing 報表依 SKU 拆分 —— Text Search Enterprise 3,678 次 = NT$2,971（98%）、Place Details Photos 1,262 次 = NT$58，其餘都在免費額度內。用美元單價反推（扣每月免費 1,000 次後 ×$35/千、×$7/千）兩項都對上約 31.7 的匯率，確認帳單幣別是新台幣；稅金 151 = 5% 營業稅。成因：`placesTextSearch.ts` 的 field mask 含 Enterprise 欄位 `rating`/`priceLevel`，整個請求都按 Enterprise 計費。修法（分支 `fix/text-search-pro-tier`）：field mask 降到 Pro（每月 5,000 次免費），`upsertPlace` 不再用「沒抓評分」蓋掉既有評分。網站未部署、用量型態符合自己的 enrich/搜尋，不是 key 被盜用。
-- [ ] **Google Cloud：每日配額上限** — APIs & Services → Places API (New) / Routes API → Quotas，把每日請求數設成合理值（例如預期用量的 2–3 倍）。超過直接失敗，而不是繼續扣錢。
+- [x] **Google Cloud：每日配額上限**（2026-10-02 已設）— APIs & Services → Places API (New) / Routes API → Quotas，把每日請求數設成合理值（例如預期用量的 2–3 倍）。超過直接失敗，而不是繼續扣錢。
 - [x] **拆成兩把 key**（2026-09-29）— 原本 `.env` 的兩個變數是同一把 key，瀏覽器可看到且可呼叫 Places/Routes。
 - [x] **瀏覽器 key（`NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`）**：新建一把專用 key。
   - Application restriction → Websites：`http://localhost:3000/*`、`http://localhost:3001/*`（結尾一定要有 `*`，否則子頁面會 `RefererNotAllowedMapError`）。部署後再加正式網域。
@@ -74,7 +74,8 @@
   - Application restriction 維持 None（伺服器請求沒有 referrer）；部署到固定出口 IP 的主機後改 IP restriction。
   - 之後要用新的 Google API：前端呼叫就加到瀏覽器 key，後端呼叫就加到伺服器 key，不要一次全開。
 - [x] 刪除未使用的 OAuth Client ID「網路用戶端 1」（30 天內可還原）。
-- [ ] **OpenAI：** Settings → Limits 設 monthly budget hard limit；用 Project 專屬 key，不要用帳號層級 key。
+- [x] **OpenAI：**（2026-10-02）Project Settings → Limits 設 spend limit；Allow models 只開 `gpt-4o-mini`（程式碼所有呼叫都用 `OPENAI_MODEL ?? "gpt-4o-mini"`，`.env` 沒設 `OPENAI_MODEL`）。之後若改 `OPENAI_MODEL` 要先把新模型加進允許清單。
+  - [ ] 確認 spend limit 是「擋請求」還是「只提醒」；若只提醒，Billing 的 Auto recharge 要關，預付額度才是硬上限。
 - [ ] **金鑰輪替：** 如果任何 key 曾經出現在 commit、截圖、issue、聊天紀錄中，直接換掉。用 `git log -p -S "AIza"` / `git log -p -S "sk-"` 檢查歷史。
 
 ### Phase 1 — 成本濫用防護（程式層，部署前必做）
@@ -88,21 +89,24 @@
 - [x] 所有 API 在 parse 前限制 body 大小：`src/proxy.ts`（Next 16 的 proxy）對 `/api/*` 的 POST/PUT/PATCH 檢查 `Content-Length`，> 256KB 回 413、沒帶回 411。
 
 **1b. Rate limiting** — 對應 R3、R8
-- [ ] 建一個共用的 `src/lib/rateLimit.ts`，依 **IP（之後改依 user）** 做滑動視窗計數。
-  - 單機部署：in-memory LRU（有上限的 Map）就夠。
-  - Serverless / 多實例：需要外部儲存（Upstash Redis、或 SQLite 表）。
-- [ ] 分級套用：
+- [x] `src/lib/rateLimit.ts`（2026-10-02）：依 **IP + 費用等級** 做滑動視窗計數（sliding-window counter，每個 key O(1) 記憶體、沒有固定視窗邊界的 2 倍突發），被擋的請求不計入。在 `src/proxy.ts` 執行，路由跑之前就擋。
+  - 目前是 in-memory（上限 10,000 個 key，LRU 淘汰），適合單機 / `next dev`。部署到 serverless / 多實例時，換成共用儲存（Upstash Redis 等），介面 `RateLimitStore` 不用改。
+  - IP 取 `x-forwarded-for` 第一段 → `x-real-ip` → `"unknown"`。沒有可信任的 reverse proxy 時 `x-forwarded-for` 可偽造，靠下面的全域熔斷兜底。部署時確認平台會覆寫這個 header。
+- [x] 分級套用（數字以「一個人正常使用 + 餘裕」為準；打開行程頁會一次對每個景點/每天各打一次 enrich，所以 Google 等級要容得下這種突發）：
 
-  | 路由類型 | 範例 | 建議上限（起始值） |
+  | 等級 | 路由 | 上限 |
   |---|---|---|
-  | 會呼叫 OpenAI | `generate-stream`、`*/regenerate`、`stop-suggestions`、`restructure`、`transit-recommendations` | 每 IP 每小時 5–10 次；`generate-stream` 每日 3–5 次 |
-  | 會呼叫 Google | `places/search`、`*/enrich`、`recalculate-transport`、`enrich-all-stops` | 每 IP 每分鐘 20–30 次 |
-  | 照片 | `places/[id]/photo` | 每 IP 每分鐘 100 次 |
-  | 純 DB | 讀取、刪除、排序 | 每 IP 每分鐘 120 次 |
+  | generate | `generate-stream` | 每 IP 每天 30 次（UTC 日界） |
+  | ai | `*/regenerate`、`stop-suggestions`、`days/[dayId]/stops` POST、`restructure`、`transit-recommendations` | 每 IP 每小時 60 次 |
+  | google | `places/search`、`places/city-centers`、`*/enrich`、`recalculate-transport`、`enrich-all-stops` | 每 IP 每分鐘 120 次 |
+  | photo | `places/[id]/photo` | 每 IP 每分鐘 300 次 |
+  | default | 其餘（純 DB） | 每 IP 每分鐘 300 次 |
 
-- [ ] 超限回 `429` + `Retry-After`。
-- [ ] **全域熔斷（circuit breaker）**：在 `googleFetch.ts` 與 `openai.ts` 外層加「今日全站呼叫次數」計數，超過門檻就拒絕所有新呼叫 —— 這是防止 rate limit 被分散 IP 繞過的最後一道牆。
-- [ ] `generate-stream` 加**同時執行數限制**（同一 IP 同時只能有 1 條串流）。
+- [x] 超限回 `429` + `Retry-After`（另附 `X-RateLimit-Limit` / `X-RateLimit-Remaining`）。前端 `useStreamingGenerate` 對 429 顯示中文訊息。
+- [x] **全域熔斷**：`src/lib/dailyBudget.ts`，在 `googleFetch.ts` 與 OpenAI client 的自訂 `fetch`（`openai.ts`）計「今日（UTC）全站呼叫次數」，Google 3,000 次、OpenAI 1,000 次，超過回假的 429（帶 `x-should-retry: false`，OpenAI SDK 不會重試；呼叫端本來就把非 OK 當暫時失敗、不寫快取）。in-memory，重啟歸零 —— GCP 每日配額與 OpenAI spend limit 是外層上限。`scripts/*` 用自己的 fetch，不受此限。
+- [x] `generate-stream` **同時執行數限制**：同一 IP 同時只能 1 條串流，串流結束（不論成功、失敗、例外）在 `finally` 釋放。
+- 驗證：單元測試（分級對照、滑動視窗、Retry-After、LRU、熔斷、併發閘）；`dev:mock` 實測同一 server 的計數器跨請求保留，`generate-stream` 送無效 body（400、不呼叫 OpenAI）第 31 次回 429。
+- 已知限制：無效請求也會吃 generate 次數；`Retry-After` 以 UTC 日界計算（台灣早上 8 點重置）。
 
 **1c. 修照片路由** — 對應 R6、R7
 - [x] `name` 參數用白名單 regex 驗證，只接受 `^places/[A-Za-z0-9_-]+/photos/[A-Za-z0-9_-]+$`，不符合回 400。
