@@ -19,6 +19,7 @@ import {
 import { assembleItineraryDays, type AssembledItinerary } from "@/lib/assembleItineraryDays";
 import { clientIp, generateStreamGate } from "@/lib/rateLimit";
 import { newRequestId } from "@/lib/apiError";
+import { UNTRUSTED_INPUT_RULE, wrapUntrusted } from "@/lib/untrustedInput";
 import type { Day, Itinerary } from "@/types/itinerary";
 
 const DEMO_USER_ID = "00000000-0000-0000-0000-000000000001";
@@ -236,7 +237,7 @@ export async function POST(request: Request) {
             ? `${flightInfo.arrivalCity} → ${flightInfo.returnDepartureCity}`
             : flightInfo.arrivalCity;
           const userContent = prompt?.trim()
-            ? `請規劃行程，風格描述：${prompt}`
+            ? `請規劃 ${destinationDesc} ${days} 天行程，旅客的風格描述：\n${wrapUntrusted(prompt)}`
             : `請規劃 ${destinationDesc} ${days} 天行程`;
 
           let lastErrorEvent: Record<string, unknown> | null = null;
@@ -254,7 +255,7 @@ export async function POST(request: Request) {
             const completion = await openai.chat.completions.create({
               model: process.env.OPENAI_MODEL ?? "gpt-4o-mini",
               messages: [
-                { role: "system", content: systemPrompt },
+                { role: "system", content: systemPrompt + UNTRUSTED_INPUT_RULE },
                 { role: "user", content: userContent },
               ],
               response_format: { type: "json_object" },

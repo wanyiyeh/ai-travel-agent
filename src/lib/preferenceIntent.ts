@@ -1,4 +1,5 @@
 import { openai } from "@/lib/openai";
+import { UNTRUSTED_INPUT_RULE, wrapUntrusted } from "@/lib/untrustedInput";
 import {
   NEUTRAL_PREFERENCE_INTENT,
   PreferenceIntentSchema,
@@ -57,8 +58,8 @@ export async function parsePreferenceIntent(
     const completion = await openai.chat.completions.create({
       model,
       messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        { role: "user", content: trimmed },
+        { role: "system", content: SYSTEM_PROMPT + UNTRUSTED_INPUT_RULE },
+        { role: "user", content: wrapUntrusted(trimmed) },
       ],
       response_format: { type: "json_object" },
     });

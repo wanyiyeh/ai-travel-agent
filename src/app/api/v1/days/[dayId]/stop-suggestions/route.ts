@@ -12,6 +12,7 @@ import { haversineKm, centroid, SUSPICIOUS_DISTANCE_KM as SUSPICIOUS_KM } from "
 import { snapToGrid } from "@/lib/geo";
 import { findDayIndex, getCityHintForDay } from "@/lib/itineraryDays";
 import { internalErrorResponse } from "@/lib/apiError";
+import { UNTRUSTED_INPUT_RULE, wrapUntrusted, wrapUntrustedList } from "@/lib/untrustedInput";
 
 const RequestSchema = z.object({
   itineraryId: z.string().min(1),
@@ -39,11 +40,13 @@ async function suggestFallbackText(
 Output strictly valid JSON matching this schema:
 { "candidates": [{ "name": string, "description": string, "duration_minutes": number }] }
 Suggest 8 different attractions suitable for this day of the trip.
-IMPORTANT: Do NOT suggest any of the following places already used today: ${excludeNames.map((n) => `"${n}"`).join(", ")}`,
+IMPORTANT: Do NOT suggest any of the places listed as already used today in the user message.${UNTRUSTED_INPUT_RULE}`,
       },
       {
+        // tripContext and excludeNames come from the request body, so they
+        // ride here as tagged data rather than in the system prompt.
         role: "user",
-        content: `Trip: ${tripContext}. Day theme: ${dayTheme}. Suggest 8 new stops for this day that are not already listed.`,
+        content: `Trip:\n${wrapUntrusted(tripContext)}\nDay theme: ${dayTheme}.\nPlaces already used today (do not suggest these):\n${wrapUntrustedList(excludeNames)}\nSuggest 8 new stops for this day that are not already listed.`,
       },
     ],
     response_format: { type: "json_object" },
@@ -310,11 +313,13 @@ export async function POST(
             content: `你是專業的旅遊規劃專家。Always respond in Traditional Chinese (繁體中文).
 Output strictly valid JSON: { "candidates": [{ "name": string, "description": string, "duration_minutes": number }] }
 The "candidates" array MUST have exactly ${names.length} items, in the SAME ORDER, with the EXACT SAME "name" values as given below. Do not add, remove, reorder, or rename any item — only fill in "description" and "duration_minutes" for each.
-Names in order: ${names.map((n) => `"${n}"`).join(", ")}`,
+Names in order: ${names.map((n) => `"${n}"`).join(", ")}${UNTRUSTED_INPUT_RULE}`,
           },
           {
+            // The names above come from Google; tripContext can come from the
+            // request body, so only it is wrapped as caller data.
             role: "user",
-            content: `Trip: ${tripContext}. Day theme: ${dayTheme}. Write a short Traditional Chinese description and a suggested visit duration (minutes) for each of the ${names.length} named places above, in the same order.`,
+            content: `Trip:\n${wrapUntrusted(tripContext)}\nDay theme: ${dayTheme}. Write a short Traditional Chinese description and a suggested visit duration (minutes) for each of the ${names.length} named places above, in the same order.`,
           },
         ],
         response_format: { type: "json_object" },

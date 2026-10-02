@@ -3,6 +3,7 @@ import { openai } from "@/lib/openai";
 import type { FlightInfo, TripPreferences } from "@/lib/schemas";
 import { iataToCity } from "@/lib/iataCity";
 import { calcDays, buildFlightTimePrompt, buildPreferencePrompt } from "@/lib/itineraryGen";
+import { UNTRUSTED_INPUT_RULE, wrapUntrusted } from "@/lib/untrustedInput";
 
 // plan/hybrid-rule-engine-scheduling.md Phase 5(a): generate-stream currently
 // has no structured city list at all — how many cities and how many days
@@ -65,7 +66,6 @@ export function rebalanceZeroDayCities(cities: TripPlan["cities"]): TripPlan["ci
 function buildSystemPrompt(
   flightInfo: FlightInfo,
   preferences: TripPreferences | undefined,
-  prompt: string | undefined,
   totalDays: number
 ): string {
   const arrivalCityName = iataToCity(flightInfo.arrivalCity);
@@ -92,7 +92,7 @@ function buildSystemPrompt(
 航班：從 ${arrivalCityName} 進、從 ${returnCityName} 出${isMultiCity ? "（不同城市，開口式行程）" : "（同一城市來回）"}。
 總天數：${totalDays} 天，但最後一天固定是回程日（不計入下面的城市天數分配），
 你只需要分配前 ${citiesBudget} 天。${buildFlightTimePrompt(flightInfo)}${buildPreferencePrompt(preferences)}
-${prompt?.trim() ? `\n使用者風格描述：${prompt}` : ""}${!isMultiCity ? singleCityConstraint : ""}${daysSumExample}
+${!isMultiCity ? singleCityConstraint : ""}${daysSumExample}${UNTRUSTED_INPUT_RULE}
 
 回傳嚴格的 JSON 格式（不要其他文字）：
 {
@@ -155,7 +155,12 @@ export async function planTrip(
   // single-day trip is entirely covered by generateDepartureDayStops alone.
   if (totalDays <= 1) return null;
 
-  const systemPrompt = buildSystemPrompt(flightInfo, preferences, prompt, totalDays);
+  const systemPrompt = buildSystemPrompt(flightInfo, preferences, totalDays);
+  // The style blurb is caller-controlled, so it rides in the user message as
+  // tagged data rather than in the system prompt (see untrustedInput.ts).
+  const userMessage =
+    `請規劃這趟 ${totalDays} 天行程的城市與天數分配。` +
+    (prompt?.trim() ? `\n\n旅客的風格描述：\n${wrapUntrusted(prompt)}` : "");
 
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
@@ -163,7 +168,7 @@ export async function planTrip(
         model,
         messages: [
           { role: "system", content: systemPrompt },
-          { role: "user", content: `請規劃這趟 ${totalDays} 天行程的城市與天數分配。` },
+          { role: "user", content: userMessage },
         ],
         response_format: { type: "json_object" },
         temperature: 0.7,

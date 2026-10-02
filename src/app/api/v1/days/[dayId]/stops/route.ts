@@ -10,6 +10,7 @@ import { estimateAttractionCost } from "@/lib/priceLevelCost";
 import { openai } from "@/lib/openai";
 import { findDayIndex, getCityHintForDay } from "@/lib/itineraryDays";
 import { internalErrorResponse } from "@/lib/apiError";
+import { UNTRUSTED_INPUT_RULE, wrapUntrusted } from "@/lib/untrustedInput";
 
 const RequestSchema = z.object({
   itineraryId: z.string().min(1),
@@ -44,11 +45,13 @@ async function describeStopWithAI(
           content: `你是專業的旅遊規劃專家。Always respond in Traditional Chinese (繁體中文).
 Output strictly valid JSON matching this schema:
 { "candidates": [{ "name": string, "description": string, "duration_minutes": number }] }
-The array MUST have exactly 1 item, with the EXACT SAME "name" value as given: "${name}". Do not rename it — only fill in "description" and "duration_minutes".`,
+The array MUST have exactly 1 item, with the EXACT SAME "name" value as the place name given in the user message. Do not rename it — only fill in "description" and "duration_minutes".${UNTRUSTED_INPUT_RULE}`,
         },
         {
+          // `name` is whatever the traveler typed, so it goes here as tagged
+          // data rather than into the system prompt above.
           role: "user",
-          content: `Trip: ${tripContext}${cityHint ? `. City: ${cityHint}` : ""}. Write a short (one sentence) Traditional Chinese description and a suggested visit duration (minutes) for "${name}".`,
+          content: `Trip: ${tripContext}${cityHint ? `. City: ${cityHint}` : ""}. Write a short (one sentence) Traditional Chinese description and a suggested visit duration (minutes) for this place:\n${wrapUntrusted(name)}`,
         },
       ],
       response_format: { type: "json_object" },
