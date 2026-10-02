@@ -148,7 +148,7 @@
   - `Strict-Transport-Security`：只在 production 加（http://localhost 不需要）。
   - `poweredByHeader: false`：不再回 `X-Powered-By: Next.js`。
   - 驗證：`dev:mock` 實測首頁和 API 回應都帶上述標頭。
-- [ ] 錯誤處理：建 `src/lib/apiError.ts`，對外只回通用訊息 + 一個 request id；`String(error)` 只寫進伺服器 log。zod 的 `error.flatten()` 可保留（它只描述使用者自己送的欄位）。
+- [x] 錯誤處理（2026-10-02）：`src/lib/apiError.ts` 的 `internalErrorResponse()`，15 支路由的 catch 改用它 —— 完整錯誤只寫進伺服器 log，回給前端的只有通用訊息 + 8 碼 `requestId`（同一個 id 也印在 log 那一行，可對照）。`generate-stream` 串流裡的兩處 `error.message` 也改成 `requestId`，前端顯示「（錯誤代碼 xxxx）」。保留的：zod 的 `error.flatten()`（只描述呼叫端自己送的欄位）、`generate-stream` 的行程驗證代碼（描述 AI 產出的行程哪裡不合格，不含內部資訊）。
 - [x] API 路由不需要被跨站呼叫 → 不設定 CORS（預設就是同源），確認之後也不要加 `Access-Control-Allow-Origin: *`。（2026-10-02 確認程式碼沒有任何 `Access-Control-Allow-Origin`。）
 
 ### Phase 5 — 監控、依賴與流程

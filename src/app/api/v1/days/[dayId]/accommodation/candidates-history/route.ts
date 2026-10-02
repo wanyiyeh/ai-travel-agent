@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import type { AccommodationCandidate } from "@/types/itinerary";
+import { internalErrorResponse } from "@/lib/apiError";
 
 const PAGE_SIZE = 3;
 
@@ -38,10 +39,6 @@ export async function GET(
 
     return NextResponse.json({ success: true, history, nextCursor });
   } catch (error) {
-    console.error("[Accommodation Candidates History Error]", error);
-    return NextResponse.json(
-      { error: "Failed to fetch accommodation candidate history", details: String(error) },
-      { status: 500 }
-    );
+    return internalErrorResponse("Accommodation Candidates History Error", error, "Failed to fetch accommodation candidate history");
   }
 }

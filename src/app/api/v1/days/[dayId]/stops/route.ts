@@ -9,6 +9,7 @@ import { PRICE_LEVEL_MAP } from "@/lib/fetchCityRestaurants";
 import { estimateAttractionCost } from "@/lib/priceLevelCost";
 import { openai } from "@/lib/openai";
 import { findDayIndex, getCityHintForDay } from "@/lib/itineraryDays";
+import { internalErrorResponse } from "@/lib/apiError";
 
 const RequestSchema = z.object({
   itineraryId: z.string().min(1),
@@ -226,10 +227,6 @@ export async function POST(
 
     return NextResponse.json({ stop: newStop });
   } catch (error) {
-    console.error("[Add Stop Error]", error);
-    return NextResponse.json(
-      { error: "Failed to add stop", details: String(error) },
-      { status: 500 }
-    );
+    return internalErrorResponse("Add Stop Error", error, "Failed to add stop");
   }
 }

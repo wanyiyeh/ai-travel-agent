@@ -9,6 +9,7 @@ import { estimateLodgingCostPerNight, estimateLodgingCostRange } from "@/lib/pri
 import { findDayIndex } from "@/lib/itineraryDays";
 import { isRecentEnrichFailure, enrichFailureMarker } from "@/lib/enrichFailure";
 import { MAX_NAME_LENGTH } from "@/lib/inputLimits";
+import { internalErrorResponse } from "@/lib/apiError";
 
 const RequestSchema = z.object({ itineraryId: z.string().min(1).max(MAX_NAME_LENGTH) });
 
@@ -165,10 +166,6 @@ export async function POST(
 
     return NextResponse.json({ success: true, accommodation: enriched });
   } catch (error) {
-    console.error("[Accommodation Enrich Error]", error);
-    return NextResponse.json(
-      { error: "Failed to enrich accommodation", details: String(error) },
-      { status: 500 }
-    );
+    return internalErrorResponse("Accommodation Enrich Error", error, "Failed to enrich accommodation");
   }
 }

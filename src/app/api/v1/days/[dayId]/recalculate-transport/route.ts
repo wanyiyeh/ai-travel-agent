@@ -8,6 +8,7 @@ import {
 } from "@/lib/distanceMatrix";
 import { findDayIndex } from "@/lib/itineraryDays";
 import { assignTimeOfDay } from "@/lib/scheduler/assignTimeSlots";
+import { internalErrorResponse } from "@/lib/apiError";
 
 const RequestSchema = z.object({
   itineraryId: z.string().min(1),
@@ -120,10 +121,6 @@ export async function POST(
 
     return NextResponse.json({ stops: updatedFields });
   } catch (error) {
-    console.error("[Recalculate Transport Error]", error);
-    return NextResponse.json(
-      { error: "Failed to recalculate", details: String(error) },
-      { status: 500 }
-    );
+    return internalErrorResponse("Recalculate Transport Error", error, "Failed to recalculate");
   }
 }

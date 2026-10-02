@@ -12,6 +12,7 @@ import { parsePreferenceIntent } from "@/lib/preferenceIntent";
 import type { PreferenceIntent } from "@/lib/schemas";
 import type { BudgetLevel } from "@/lib/fetchCityRestaurants";
 import { MAX_CITY_DAYS, MAX_NAME_LENGTH, MAX_TEXT_LENGTH, MAX_TRIP_DAYS } from "@/lib/inputLimits";
+import { internalErrorResponse } from "@/lib/apiError";
 
 const LockedAttractionSchema = z.object({
   name: z.string().min(1).max(MAX_NAME_LENGTH),
@@ -457,10 +458,6 @@ export async function POST(
       warnings,
     });
   } catch (error) {
-    console.error("[Restructure Itinerary Error]", error);
-    return NextResponse.json(
-      { error: "Failed to restructure itinerary", details: String(error) },
-      { status: 500 }
-    );
+    return internalErrorResponse("Restructure Itinerary Error", error, "Failed to restructure itinerary");
   }
 }

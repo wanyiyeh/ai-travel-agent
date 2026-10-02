@@ -6,6 +6,7 @@ import { searchPlaceText, getCityCenter, buildStopQuery } from "@/lib/placesText
 import { findStopAcrossDays, getCityHintForDay } from "@/lib/itineraryDays";
 import { isRecentEnrichFailure, enrichFailureMarker } from "@/lib/enrichFailure";
 import { MAX_NAME_LENGTH } from "@/lib/inputLimits";
+import { internalErrorResponse } from "@/lib/apiError";
 
 // `context` (the trip's destination city) becomes part of a Google Text
 // Search query and a city-center lookup, so it's capped like any name.
@@ -137,10 +138,6 @@ export async function POST(
 
     return NextResponse.json({ success: true, ...enriched });
   } catch (error) {
-    console.error("[Stop Enrich Error]", error);
-    return NextResponse.json(
-      { error: "Failed to enrich stop", details: String(error) },
-      { status: 500 }
-    );
+    return internalErrorResponse("Stop Enrich Error", error, "Failed to enrich stop");
   }
 }
