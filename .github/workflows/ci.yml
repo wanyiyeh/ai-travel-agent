@@ -24,6 +24,10 @@ jobs:
 
       - run: npm ci
 
+      # Fails the build on a known high/critical vulnerability in anything
+      # that ships (dev-only tooling is left to Dependabot's update PRs).
+      - run: npm audit --omit=dev --audit-level=high
+
       - run: npx prisma generate
 
       - run: npm run lint

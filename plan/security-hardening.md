@@ -160,13 +160,15 @@
 
 - [ ] **記錄**：每次 OpenAI / Google 呼叫記下 時間、路由、IP（或 user）、估算成本；可以直接擴充 `googleFetch.ts`。這樣被濫用時能看出是誰、從哪個路由。
 - [ ] **告警**：當日成本估算超過門檻時通知（email / Discord webhook）。
-- [ ] **依賴安全**：
-  - 定期 `npm audit`；GitHub repo 開啟 Dependabot alerts + security updates。
-  - Next.js 有過多次 middleware 繞過類漏洞，**保持 `next` 在最新 patch 版本**，且不要只靠 middleware 做授權（路由內也要檢查）。
-- [ ] **祕密掃描**：GitHub 開啟 Secret scanning + Push protection；本地可加 `gitleaks` 作為 pre-commit hook。
-- [ ] **CI**：PR 時跑 `npm run lint`、`npm test`、`npm audit --audit-level=high`。
-- [ ] **資料庫**：SQLite 檔案不要放在 `public/` 或可被靜態服務的位置；部署時定期備份。
-
+- [x] **依賴安全**（2026-10-02）：
+  - `npm audit` 原本 11 個漏洞（1 critical、7 high），critical 在 Next.js 本身（含「Windows 上的 server 可被未驗證遠端執行程式碼」—— 開發機就是 Windows，`next dev` 也會開在區網）。`next`、`eslint-config-next` 16.1.6 → 16.3.8（同一個 major），其餘用 `npm audit fix` 在原版本範圍內修掉 → **0 個**。升級後單元／整合測試、`tsc`、lint、`npm run build` 全過，`dev:mock` 實測頁面、安全標頭、rate limit 正常。
+  - 新增 `.github/dependabot.yml`：npm 每週一次（minor/patch 合成一個 PR）、GitHub Actions 每月一次。
+  - [ ] GitHub repo **Settings → Code security** 開啟 Dependabot alerts 與 Dependabot security updates（要在網頁上開）。
+  - Next.js 有過多次 middleware 繞過類漏洞，**保持 `next` 在最新 patch 版本**，且不要只靠 middleware（`proxy.ts`）做授權（Phase 2 做登入時，路由內也要檢查）。
+  - 附帶：Next 16.3 的 `next dev` 會在 repo 根目錄自動產生 `AGENTS.md`／`CLAUDE.md`，已在 `next.config.ts` 設 `agentRules: false` 關掉。
+- [ ] **祕密掃描**：GitHub **Settings → Code security** 開啟 Secret scanning + Push protection（公開 repo 免費，要在網頁上開）。本地 `gitleaks` pre-commit hook 先不加。
+- [x] **CI**：`.github/workflows/ci.yml` 其實 2026-09-13 就有了（lint、單元測試、整合測試、build）；2026-10-02 加上 `npm audit --omit=dev --audit-level=high`，會出貨的依賴有 high 以上漏洞就讓 CI 失敗；只用在開發的工具交給 Dependabot。
+- [x] **資料庫**：SQLite 在 `prisma/`，不在 `public/`（已確認），也不會被靜態服務；`dev.db`、`mock.db`、`test.db` 都在 `.gitignore`。部署時的備份等 Phase 2／部署時再處理。
 ---
 
 ## 3. 建議執行順序

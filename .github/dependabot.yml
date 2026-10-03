@@ -1,0 +1,18 @@
+# Weekly dependency update PRs. Security advisories trigger their own PRs
+# immediately once "Dependabot security updates" is on in repo settings.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      # One PR for all minor/patch bumps instead of one per package.
+      minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
