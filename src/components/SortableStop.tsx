@@ -79,7 +79,7 @@ export function SortableStop({
       }${isDragging ? " opacity-30" : ""}`}
     >
       {/* Drag handle */}
-      <div className="shrink-0">
+      <div className="shrink-0" data-print-hidden>
         <div
           className={`w-9 h-9 bg-blue-50 dark:bg-blue-950 rounded-full flex items-center justify-center${
             isEditing || isLoading ? "" : " cursor-grab active:cursor-grabbing"
