@@ -11,6 +11,9 @@ const securityHeaders = buildSecurityHeaders({
 const nextConfig: NextConfig = {
   // Don't advertise the framework in every response.
   poweredByHeader: false,
+  // Next 16.3+ writes AGENTS.md/CLAUDE.md into the repo root on every
+  // `next dev`; this repo keeps its own agent notes instead.
+  agentRules: false,
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },
