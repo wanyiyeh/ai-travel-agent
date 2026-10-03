@@ -45,6 +45,9 @@ export function useStreamingGenerate() {
       if (response.status === 400) {
         throw new Error("輸入的行程資料不符合限制，請檢查日期與風格描述");
       }
+      if (response.status === 401) {
+        throw new Error("請先用右上角的「用 Google 登入」，才能生成行程");
+      }
       if (response.status === 429) {
         // Either another generation is still running, or today's quota is used up.
         const body = await response.json().catch(() => null);

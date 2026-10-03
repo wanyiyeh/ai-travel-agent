@@ -4,6 +4,7 @@ import { prisma, j } from "@/lib/db";
 import { upsertPlace } from "@/lib/placeCache";
 import { findStopAcrossDays } from "@/lib/itineraryDays";
 import { MAX_NAME_LENGTH, MAX_TEXT_LENGTH } from "@/lib/inputLimits";
+import { authorizeItinerary } from "@/lib/auth/ownership";
 
 const id = z.string().min(1).max(MAX_NAME_LENGTH);
 
@@ -44,16 +45,9 @@ export async function PATCH(
     const isPlaceSwap = "placeId" in body;
     const { placeId, lat, lng, address, rating, photoName } = parsed.data;
 
-    const itinerary = await prisma.itinerary.findUnique({
-      where: { id: itineraryId },
-    });
-
-    if (!itinerary) {
-      return NextResponse.json(
-        { error: "Itinerary not found" },
-        { status: 404 }
-      );
-    }
+    const access = await authorizeItinerary(itineraryId);
+    if (!access.ok) return access.response;
+    const { itinerary } = access;
 
     const days = itinerary.days as Record<string, unknown>[];
     const location = findStopAcrossDays(days, stopId);
@@ -132,16 +126,9 @@ export async function DELETE(
     }
     const { itineraryId } = parsed.data;
 
-    const itinerary = await prisma.itinerary.findUnique({
-      where: { id: itineraryId },
-    });
-
-    if (!itinerary) {
-      return NextResponse.json(
-        { error: "Itinerary not found" },
-        { status: 404 }
-      );
-    }
+    const access = await authorizeItinerary(itineraryId);
+    if (!access.ok) return access.response;
+    const { itinerary } = access;
 
     const days = itinerary.days as Record<string, unknown>[];
     const location = findStopAcrossDays(days, stopId);

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import type { DayWithId } from "@/types/itinerary";
+import { authorizeItinerary } from "@/lib/auth/ownership";
 
 // Mirrors trash/route.ts (per-stop trash) but lists whole-day entries
 // created by the restructure flow when it shrinks a city's day count.
@@ -10,6 +11,8 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
+    const access = await authorizeItinerary(id);
+    if (!access.ok) return access.response;
 
     const entries = await prisma.deletedDay.findMany({
       where: { itineraryId: id },

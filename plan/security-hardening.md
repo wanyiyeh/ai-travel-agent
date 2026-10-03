@@ -36,8 +36,8 @@
 
 | # | 風險 | 位置 | 嚴重度 |
 |---|---|---|---|
-| R1 | **完全沒有身分驗證**，所有 API 公開；`DEMO_USER_ID` 寫死 | 全部 `src/app/api/v1/**` | 高 |
-| R2 | **任何人可刪除/修改任何行程**（IDOR），而且 `/itineraries` 頁面會列出所有 id | `itinerary/[id]/route.ts` `DELETE`、各 days/stops 路由 | 高 |
+| R1 | **完全沒有身分驗證**，所有 API 公開；`DEMO_USER_ID` 寫死 | 全部 `src/app/api/v1/**` | ✅ 2026-10-03 已處理（Google 登入，plan/access-control.md PR 1） |
+| R2 | **任何人可刪除/修改任何行程**（IDOR），而且 `/itineraries` 頁面會列出所有 id | `itinerary/[id]/route.ts` `DELETE`、各 days/stops 路由 | ✅ 2026-10-03 已處理（擁有權檢查，plan/access-control.md PR 2） |
 | R3 | **沒有 rate limit**，一個 script 就能無限觸發 OpenAI + Google | 全部，特別是 `generate-stream`、`*/regenerate`、`stop-suggestions`、`restructure`、`enrich-*` | 高 |
 | R4 | **生成天數沒有伺服器端上限**：`calcDays()` 只取 `returnDate - departureDate`，送一個 365 天的行程就會產生巨大的 prompt/token 與 Google 查詢 | `src/lib/itineraryGen.ts:25`、`generate-stream/route.ts` | 高 |
 | R5 | **`prompt`（風格描述）沒有長度限制也沒過 schema**，直接拼進給 OpenAI 的訊息 → 提示注入 + token 成本放大 | `generate-stream/route.ts:233` | 中高 |

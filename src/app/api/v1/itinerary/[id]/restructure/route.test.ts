@@ -1,13 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { signInAs } from "@tests/setup/mockAuth";
 
-const findUnique = vi.fn();
+const findFirst = vi.fn();
 
 // Only the request-validation path is exercised here, which returns before
 // any DB or OpenAI work — the mocks just keep module loading hermetic
 // (openai.ts throws at import time without OPENAI_API_KEY).
 vi.mock("@/lib/openai", () => ({ openai: {} }));
 vi.mock("@/lib/db", () => ({
-  prisma: { itinerary: { findUnique: (...args: unknown[]) => findUnique(...args) } },
+  prisma: { itinerary: { findFirst: (...args: unknown[]) => findFirst(...args) } },
   j: (v: unknown) => v,
 }));
 
@@ -23,8 +24,9 @@ function restructure(cities: unknown[]) {
 const city = (targetDays: number) => ({ name: "京都", isNew: true, targetDays });
 
 beforeEach(() => {
-  findUnique.mockReset();
-  findUnique.mockResolvedValue(null);
+  findFirst.mockReset();
+  signInAs({ id: "u1", email: "u1@example.com" });
+  findFirst.mockResolvedValue(null);
 });
 
 describe("restructure input limits", () => {
@@ -32,19 +34,19 @@ describe("restructure input limits", () => {
     const res = await restructure([city(14), city(14)]);
     // Gets as far as the itinerary lookup (mocked as not found).
     expect(res.status).toBe(404);
-    expect(findUnique).toHaveBeenCalled();
+    expect(findFirst).toHaveBeenCalled();
   });
 
   it("rejects a city over the per-city day cap", async () => {
     const res = await restructure([city(15)]);
     expect(res.status).toBe(400);
-    expect(findUnique).not.toHaveBeenCalled();
+    expect(findFirst).not.toHaveBeenCalled();
   });
 
   it("rejects a trip whose cities add up to more than the trip cap", async () => {
     const res = await restructure([city(14), city(14), city(3)]);
     expect(res.status).toBe(400);
-    expect(findUnique).not.toHaveBeenCalled();
+    expect(findFirst).not.toHaveBeenCalled();
   });
 
   it("rejects an oversized city name", async () => {

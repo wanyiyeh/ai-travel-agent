@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import type { Stop } from "@/types/itinerary";
+import { authorizeItinerary } from "@/lib/auth/ownership";
 
 export async function GET(
   _request: Request,
@@ -8,6 +9,8 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
+    const access = await authorizeItinerary(id);
+    if (!access.ok) return access.response;
 
     const entries = await prisma.deletedStop.findMany({
       where: { itineraryId: id },

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
+import { getActor } from "@/lib/auth/actor";
 import ItineraryList from "@/components/ItineraryList";
 
 // This page reads the DB but uses no dynamic API, so Next.js was prerendering
@@ -9,7 +10,21 @@ import ItineraryList from "@/components/ItineraryList";
 export const dynamic = "force-dynamic";
 
 export default async function ItinerariesPage() {
+  const actor = await getActor();
+  if (!actor) {
+    return (
+      <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 py-16 px-4">
+        <div className="max-w-2xl mx-auto text-center">
+          <h1 className="text-3xl font-bold text-zinc-900 dark:text-zinc-50">已儲存的行程</h1>
+          <p className="mt-4 text-zinc-500 dark:text-zinc-400">請先用右上角的「用 Google 登入」，才能看到你儲存的行程。</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Only the signed-in user's own itineraries (plan/access-control.md §6).
   const itineraries = await prisma.itinerary.findMany({
+    where: { userId: actor.userId },
     orderBy: { createdAt: "desc" },
     select: {
       id: true,

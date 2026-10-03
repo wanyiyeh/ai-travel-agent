@@ -13,6 +13,7 @@ import { snapToGrid } from "@/lib/geo";
 import { findDayIndex, getCityHintForDay } from "@/lib/itineraryDays";
 import { internalErrorResponse } from "@/lib/apiError";
 import { UNTRUSTED_INPUT_RULE, wrapUntrusted, wrapUntrustedList } from "@/lib/untrustedInput";
+import { authorizeItinerary } from "@/lib/auth/ownership";
 
 const RequestSchema = z.object({
   itineraryId: z.string().min(1),
@@ -92,6 +93,10 @@ export async function POST(
           })
         : Promise.resolve();
 
+    const access = await authorizeItinerary(itineraryId);
+    if (!access.ok) return access.response;
+    const { itinerary } = access;
+
     const mockMode = getMockMode();
     if (mockMode === "error") {
       return NextResponse.json({ error: "Mock AI error (MOCK_AI=error)" }, { status: 500 });
@@ -99,11 +104,6 @@ export async function POST(
     if (mockMode === "slow" || mockMode === "fixture") {
       await mockDelay(mockMode === "slow" ? 3500 : 0);
       return NextResponse.json({ candidates: MOCK_FIXTURES.stopCandidates, isFallback: false });
-    }
-
-    const itinerary = await prisma.itinerary.findUnique({ where: { id: itineraryId } });
-    if (!itinerary) {
-      return NextResponse.json({ error: "Itinerary not found" }, { status: 404 });
     }
 
     const days = itinerary.days as Record<string, unknown>[];

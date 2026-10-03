@@ -1,4 +1,5 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { signInAs } from "@tests/setup/mockAuth";
 import { prisma, j } from "@/lib/db";
 import { MOCK_FIXTURES } from "@/lib/mockAi";
 import { POST as regenerate } from "./regenerate/route";
@@ -10,11 +11,16 @@ import { POST as select } from "./select/route";
 describe("accommodation regenerate -> select flow", () => {
   const dayId = "day-1";
   let itineraryId: string;
+  let owner: { id: string; email: string };
+
+  // Routes only serve an itinerary to its owner.
+  beforeEach(() => signInAs(owner));
 
   beforeAll(async () => {
     const user = await prisma.user.create({
       data: { email: `accommodation-flow-${Date.now()}@test.local` },
     });
+    owner = { id: user.id, email: user.email! };
 
     const itinerary = await prisma.itinerary.create({
       data: {

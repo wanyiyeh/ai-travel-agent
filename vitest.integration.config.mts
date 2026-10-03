@@ -8,10 +8,13 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(import.meta.dirname, "./src"),
+      "@tests": path.resolve(import.meta.dirname, "./tests"),
     },
   },
   test: {
     environment: "node",
+    // Mocks "@/auth"; tests pick the signed-in user with signInAs().
+    setupFiles: ["./tests/setup/mockAuth.ts"],
     include: ["src/**/*.integration.test.ts"],
     globalSetup: ["./tests/integration/global-setup.ts"],
     env: {

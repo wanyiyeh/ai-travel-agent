@@ -42,6 +42,9 @@ export default function ViewContent({ id }: ViewContentProps) {
     setLoading(true);
     fetch(`/api/v1/itinerary/${id}`)
       .then((res) => {
+        // 404 covers both "doesn't exist" and "not yours" on purpose.
+        if (res.status === 401) throw new Error("請先登入才能查看行程");
+        if (res.status === 404) throw new Error("找不到這個行程，或你沒有權限查看");
         if (!res.ok) throw new Error("無法載入行程");
         return res.json();
       })

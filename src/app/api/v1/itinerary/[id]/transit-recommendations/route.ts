@@ -7,6 +7,7 @@ import { TransitRecommendationSchema } from "@/lib/schemas";
 import type { TransitRecommendation } from "@/types/itinerary";
 import { getMockMode, mockDelay, MOCK_FIXTURES } from "@/lib/mockAi";
 import { internalErrorResponse } from "@/lib/apiError";
+import { authorizeItinerary } from "@/lib/auth/ownership";
 
 const RequestSchema = z.object({
   originIata: z.string().regex(/^[A-Z]{3}$/),
@@ -213,6 +214,8 @@ export async function POST(
 ) {
   try {
     const { id: itineraryId } = await params;
+    const access = await authorizeItinerary(itineraryId);
+    if (!access.ok) return access.response;
     const body = await request.json();
     const parsed = RequestSchema.safeParse(body);
 

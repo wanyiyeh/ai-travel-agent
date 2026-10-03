@@ -9,6 +9,7 @@ import {
 import { findDayIndex } from "@/lib/itineraryDays";
 import { assignTimeOfDay } from "@/lib/scheduler/assignTimeSlots";
 import { internalErrorResponse } from "@/lib/apiError";
+import { authorizeItinerary } from "@/lib/auth/ownership";
 
 const RequestSchema = z.object({
   itineraryId: z.string().min(1),
@@ -29,13 +30,9 @@ export async function POST(
 
     const { itineraryId } = parsed.data;
 
-    const itinerary = await prisma.itinerary.findUnique({
-      where: { id: itineraryId },
-    });
-
-    if (!itinerary) {
-      return NextResponse.json({ error: "Itinerary not found" }, { status: 404 });
-    }
+    const access = await authorizeItinerary(itineraryId);
+    if (!access.ok) return access.response;
+    const { itinerary } = access;
 
     const days = itinerary.days as Record<string, unknown>[];
     const dayIndex = findDayIndex(days, dayId);
