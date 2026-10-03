@@ -24,7 +24,8 @@ export default async function ItinerariesPage() {
 
   // Only the signed-in user's own itineraries (plan/access-control.md §6).
   const itineraries = await prisma.itinerary.findMany({
-    where: { userId: actor.userId },
+    // Expired guest itineraries are already unopenable; don't list them either.
+    where: { userId: actor.userId, OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] },
     orderBy: { createdAt: "desc" },
     select: {
       id: true,

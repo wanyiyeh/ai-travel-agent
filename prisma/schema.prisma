@@ -10,8 +10,11 @@ datasource db {
 
 model User {
   id          String      @id @default(uuid())
-  email       String      @unique
+  // Null for guests (signed-out visitors identified by a signed cookie);
+  // Google sign-in users are keyed by email. plan/access-control.md §4.
+  email       String?     @unique
   name        String?
+  isGuest     Boolean     @default(false) @map("is_guest")
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
   itineraries Itinerary[]
@@ -25,6 +28,9 @@ model Itinerary {
   title                       String
   days                        String
   config                      String
+  // Guest itineraries expire 3 days after creation unless claimed by signing
+  // in (then cleared to null); expired ones read as not found.
+  expiresAt                   DateTime?                    @map("expires_at")
   createdAt                   DateTime                     @default(now())
   updatedAt                   DateTime                     @updatedAt
   accommodationCandidateLogs  AccommodationCandidateLog[]

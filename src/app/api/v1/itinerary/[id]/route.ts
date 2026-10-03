@@ -93,6 +93,8 @@ export async function GET(
       },
       config,
       createdAt: itinerary.createdAt,
+      // Set only for guest itineraries; the page shows a "sign in to keep it" notice.
+      expiresAt: itinerary.expiresAt,
     });
   } catch (error) {
     console.error("[Itinerary GET Error]", error);

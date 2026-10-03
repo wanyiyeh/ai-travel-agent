@@ -75,6 +75,6 @@ describe("stops/[stopId] ownership", () => {
 
   it("only looks the itinerary up scoped to the caller", async () => {
     await DELETE(req("DELETE", { itineraryId: "i1" }), params);
-    expect(findFirst).toHaveBeenCalledWith({ where: { id: "i1", userId: "u1" } });
+    expect(findFirst).toHaveBeenCalledWith({ where: expect.objectContaining({ id: "i1", userId: "u1" }) });
   });
 });
