@@ -7,7 +7,7 @@ export default async function AccountBar() {
   const email = session?.user?.email;
 
   return (
-    <div className="flex items-center justify-end gap-3 px-4 py-2 text-sm text-zinc-600 dark:text-zinc-400">
+    <div data-print-hidden className="flex items-center justify-end gap-3 px-4 py-2 text-sm text-zinc-600 dark:text-zinc-400">
       {email ? (
         <>
           <span className="truncate max-w-[60vw]" title={email}>

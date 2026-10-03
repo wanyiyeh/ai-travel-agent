@@ -39,3 +39,42 @@ body {
 .animate-fade-in {
   animation: fade-in 0.3s ease-out;
 }
+
+/*
+ * Print / "Save as PDF" layout for the itinerary page (plan/access-control.md
+ * §8). Interactive chrome (every button, the account bar, map, edit panels)
+ * is dropped, and everything is forced to dark-on-white: with an OS in dark
+ * mode the dark: variants would otherwise print light text on white paper.
+ */
+@media print {
+  @page {
+    margin: 12mm;
+  }
+
+  html,
+  body {
+    background: #ffffff !important;
+  }
+
+  body * {
+    color: #18181b !important;
+    background: transparent !important;
+    border-color: #d4d4d8 !important;
+    box-shadow: none !important;
+  }
+
+  button,
+  [data-print-hidden] {
+    display: none !important;
+  }
+
+  /* Keep a single stop / meal / hotel row on one page. */
+  li,
+  [data-print-keep] {
+    break-inside: avoid;
+  }
+
+  a {
+    text-decoration: none !important;
+  }
+}

@@ -9,7 +9,7 @@ export default function GuestNotice({ expiresInHours }: { expiresInHours: number
   const remaining = expiresInHours >= 24 ? `${Math.ceil(expiresInHours / 24)} 天` : `${expiresInHours} 小時`;
 
   return (
-    <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100">
+    <div data-print-hidden className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100">
       <span>
         你目前是訪客，這個行程會在 <strong>{remaining}</strong>後自動刪除。登入即可永久保存，並下載 PDF。
       </span>
