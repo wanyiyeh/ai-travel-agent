@@ -22,6 +22,7 @@ import { newRequestId } from "@/lib/apiError";
 import { UNTRUSTED_INPUT_RULE, wrapUntrusted } from "@/lib/untrustedInput";
 import { runMetered } from "@/lib/usageMeter";
 import { getActor } from "@/lib/auth/actor";
+import { createGuestUser, guestCookieHeader, guestExpiry } from "@/lib/auth/guest";
 import type { Day, Itinerary } from "@/types/itinerary";
 
 // A handful of validation issues stem from the model misreading the prompt
@@ -93,22 +94,36 @@ export async function POST(request: Request) {
 
     // One generation at a time per client; released when the stream ends,
     // whichever way it ends.
-    // Itineraries are owned by whoever generates them, and only the owner can
-    // open them afterwards — so signed-out callers are turned away until guest
-    // identities land (plan/access-control.md PR 3). Checked before any
-    // OpenAI/Google call.
-    const actor = await getActor();
-    if (!actor) {
-      return Response.json({ error: "Sign in required" }, { status: 401 });
-    }
-    const ownerId = actor.userId;
-
     const ip = clientIp(request.headers);
     if (!generateStreamGate.tryAcquire(ip)) {
       return Response.json(
         { error: "A generation is already in progress" },
         { status: 429, headers: { "Retry-After": "30" } },
       );
+    }
+
+    // Itineraries are owned by whoever generates them, and only the owner can
+    // open them afterwards. A signed-out visitor becomes a guest here (after
+    // the gate, so a refused request doesn't leave a stray guest row); guest
+    // itineraries expire unless claimed by signing in
+    // (plan/access-control.md §5, §7).
+    let ownerId: string;
+    let expiresAt: Date | null = null;
+    let setGuestCookie: string | null = null;
+    try {
+      const actor = await getActor();
+      if (actor) {
+        ownerId = actor.userId;
+        if (actor.kind === "guest") expiresAt = guestExpiry();
+      } else {
+        const guest = await createGuestUser();
+        ownerId = guest.id;
+        expiresAt = guestExpiry();
+        setGuestCookie = guestCookieHeader(guest.id);
+      }
+    } catch (error) {
+      generateStreamGate.release(ip);
+      throw error;
     }
 
     const encoder = new TextEncoder();
@@ -168,6 +183,7 @@ export async function POST(request: Request) {
                   const saved = await prisma.itinerary.create({
                     data: {
                       userId: ownerId,
+                      expiresAt,
                       title: dataWithIds.title,
                       days: j(dataWithIds.days),
                       config: j({
@@ -350,6 +366,7 @@ export async function POST(request: Request) {
                 const saved = await prisma.itinerary.create({
                   data: {
                     userId: ownerId,
+                    expiresAt,
                     title: validatedData.title,
                     days: j(dataWithIds.days),
                     config: j({
@@ -410,13 +427,13 @@ export async function POST(request: Request) {
       }),
     });
 
-    return new Response(stream, {
-      headers: {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
-        Connection: "keep-alive",
-      },
+    const headers = new Headers({
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
     });
+    if (setGuestCookie) headers.append("Set-Cookie", setGuestCookie);
+    return new Response(stream, { headers });
   } catch (error) {
     console.error("[Stream Error]", error);
     return new Response("Internal Server Error", { status: 500 });

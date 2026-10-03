@@ -93,6 +93,12 @@ export async function GET(
       },
       config,
       createdAt: itinerary.createdAt,
+      // Set only for guest itineraries; the page shows a "sign in to keep it"
+      // notice. Hours left is computed here so the client render stays pure.
+      expiresAt: itinerary.expiresAt,
+      expiresInHours: itinerary.expiresAt
+        ? Math.max(0, Math.ceil((itinerary.expiresAt.getTime() - Date.now()) / (60 * 60 * 1000)))
+        : null,
     });
   } catch (error) {
     console.error("[Itinerary GET Error]", error);

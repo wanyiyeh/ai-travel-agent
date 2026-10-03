@@ -18,7 +18,8 @@
     "shadow-compare": "tsx scripts/shadow-compare-scheduler.ts",
     "validate-preference-intent": "tsx scripts/validate-preference-intent.ts",
     "batch-test-rule-engine": "tsx scripts/batch-test-rule-engine.ts",
-    "claim-demo-itineraries": "tsx scripts/claim-demo-itineraries.ts"
+    "claim-demo-itineraries": "tsx scripts/claim-demo-itineraries.ts",
+    "cleanup-expired-guests": "tsx scripts/cleanup-expired-guests.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

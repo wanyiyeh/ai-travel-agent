@@ -1,6 +1,23 @@
 import NextAuth from "next-auth";
 import Google from "next-auth/providers/google";
+import { cookies } from "next/headers";
 import { upsertUserByEmail } from "@/lib/auth/users";
+import { GUEST_COOKIE, claimGuestItineraries, verifyGuestCookie } from "@/lib/auth/guest";
+
+// If the visitor generated itineraries as a guest before signing in, they
+// move to the account and stop expiring (plan/access-control.md §5).
+// Best-effort: a failure here must not block the sign-in itself.
+async function claimGuestOnSignIn(userId: string) {
+  try {
+    const jar = await cookies();
+    const guestId = verifyGuestCookie(jar.get(GUEST_COOKIE)?.value);
+    if (!guestId) return;
+    await claimGuestItineraries(guestId, userId);
+    jar.delete(GUEST_COOKIE);
+  } catch (err) {
+    console.error("[auth] claiming guest itineraries failed", err);
+  }
+}
 
 // Google sign-in only (plan/access-control.md §0). Reads AUTH_SECRET,
 // AUTH_GOOGLE_ID and AUTH_GOOGLE_SECRET from the environment.
@@ -24,6 +41,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const user = await upsertUserByEmail(profile.email, profile.name);
         token.userId = user.id;
         token.email = user.email;
+        await claimGuestOnSignIn(user.id);
       }
       return token;
     },

@@ -6,6 +6,7 @@ import EditableItineraryCard from "@/components/EditableItineraryCard";
 import ItineraryMap from "@/components/ItineraryMap";
 import RestructurePanel from "@/components/RestructurePanel";
 import TrashView from "@/components/TrashView";
+import GuestNotice from "@/components/GuestNotice";
 import { calculateDayTotalCost, hasAnyStopCost } from "@/lib/costCalculations";
 import { AIRPORTS } from "@/lib/airports";
 
@@ -320,6 +321,7 @@ export default function ViewContent({ id }: ViewContentProps) {
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 py-16 px-4">
       <div className="max-w-7xl mx-auto">
+        {typeof data?.expiresInHours === "number" && <GuestNotice expiresInHours={data.expiresInHours} />}
         {/* Header */}
         <div className="mb-8 flex items-center justify-between">
           <Link

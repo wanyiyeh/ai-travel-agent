@@ -19,7 +19,14 @@ export function itineraryNotFound() {
 }
 
 export async function findOwnedItinerary(actor: Actor, itineraryId: string) {
-  return prisma.itinerary.findFirst({ where: { id: itineraryId, userId: actor.userId } });
+  return prisma.itinerary.findFirst({
+    where: {
+      id: itineraryId,
+      userId: actor.userId,
+      // An expired guest itinerary reads as gone even before cleanup deletes it.
+      OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+    },
+  });
 }
 
 // Same shape the extended client in db.ts returns (days/config already parsed).
