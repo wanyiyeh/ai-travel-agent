@@ -20,6 +20,7 @@ import { assembleItineraryDays, type AssembledItinerary } from "@/lib/assembleIt
 import { clientIp, generateStreamGate } from "@/lib/rateLimit";
 import { newRequestId } from "@/lib/apiError";
 import { UNTRUSTED_INPUT_RULE, wrapUntrusted } from "@/lib/untrustedInput";
+import { runMetered } from "@/lib/usageMeter";
 import type { Day, Itinerary } from "@/types/itinerary";
 
 const DEMO_USER_ID = "00000000-0000-0000-0000-000000000001";
@@ -115,7 +116,9 @@ export async function POST(request: Request) {
 
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
-      async start(controller) {
+      // Metered so each generation logs its Google/OpenAI call counts
+      // ("[usage] generate-stream ...") — plan/access-control.md §3.
+      start: (controller) => runMetered("generate-stream", async () => {
         try {
           const isMultiCity =
             iataToCity(flightInfo.returnDepartureCity) !== iataToCity(flightInfo.arrivalCity);
@@ -409,7 +412,7 @@ export async function POST(request: Request) {
         } finally {
           generateStreamGate.release(ip);
         }
-      },
+      }),
     });
 
     return new Response(stream, {
