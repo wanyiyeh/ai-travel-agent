@@ -23,6 +23,8 @@ import { UNTRUSTED_INPUT_RULE, wrapUntrusted } from "@/lib/untrustedInput";
 import { runMetered } from "@/lib/usageMeter";
 import { getActor } from "@/lib/auth/actor";
 import { createGuestUser, guestCookieHeader, guestExpiry } from "@/lib/auth/guest";
+import { checkQuota, quotaExceededResponse, recordUsage } from "@/lib/quota";
+import { requestFingerprint } from "@/lib/requestFingerprint";
 import type { Day, Itinerary } from "@/types/itinerary";
 
 // A handful of validation issues stem from the model misreading the prompt
@@ -112,6 +114,16 @@ export async function POST(request: Request) {
     let setGuestCookie: string | null = null;
     try {
       const actor = await getActor();
+
+      // Daily quotas (plan/access-control.md §2–§4), checked before a guest
+      // row is created or anything is billed.
+      const fingerprint = requestFingerprint(request);
+      const decision = await checkQuota(actor, "generate", fingerprint);
+      if (!decision.ok) {
+        generateStreamGate.release(ip);
+        return quotaExceededResponse(decision);
+      }
+
       if (actor) {
         ownerId = actor.userId;
         if (actor.kind === "guest") expiresAt = guestExpiry();
@@ -120,6 +132,13 @@ export async function POST(request: Request) {
         ownerId = guest.id;
         expiresAt = guestExpiry();
         setGuestCookie = guestCookieHeader(guest.id);
+      }
+
+      // Recorded up front: the OpenAI/Google calls cost the same whether or
+      // not the generation ends up succeeding. Admins aren't counted, so
+      // they don't use up the site-wide caps.
+      if (!actor?.isAdmin) {
+        await recordUsage("generate", { userId: ownerId, isGuest: actor?.kind !== "user" }, fingerprint);
       }
     } catch (error) {
       generateStreamGate.release(ip);

@@ -14,6 +14,7 @@ import type { BudgetLevel } from "@/lib/fetchCityRestaurants";
 import { MAX_CITY_DAYS, MAX_NAME_LENGTH, MAX_TEXT_LENGTH, MAX_TRIP_DAYS } from "@/lib/inputLimits";
 import { internalErrorResponse } from "@/lib/apiError";
 import { authorizeItinerary } from "@/lib/auth/ownership";
+import { chargePaidEdit } from "@/lib/quota";
 
 const LockedAttractionSchema = z.object({
   name: z.string().min(1).max(MAX_NAME_LENGTH),
@@ -362,6 +363,9 @@ export async function POST(
     const access = await authorizeItinerary(itineraryId);
     if (!access.ok) return access.response;
     const { itinerary } = access;
+    // Paid edit: counts against the caller's daily quota (plan/access-control.md §2).
+    const charged = await chargePaidEdit(request, access.actor, itineraryId);
+    if (charged) return charged;
 
     const days = itinerary.days as Record<string, unknown>[];
     const config = (itinerary.config ?? {}) as Record<string, unknown>;

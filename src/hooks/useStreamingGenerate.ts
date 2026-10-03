@@ -49,12 +49,15 @@ export function useStreamingGenerate() {
         throw new Error("請先用右上角的「用 Google 登入」，才能生成行程");
       }
       if (response.status === 429) {
-        // Either another generation is still running, or today's quota is used up.
+        // Another generation still running, a usage quota (plan/access-control.md
+        // §2), or the per-IP burst limit.
         const body = await response.json().catch(() => null);
         throw new Error(
-          body?.error === "A generation is already in progress"
-            ? "已有一個行程正在生成，請等它完成後再試"
-            : "今天的生成次數已達上限，請稍後再試",
+          body?.code === "quota_exceeded"
+            ? body.error // already a user-facing message saying which limit was hit
+            : body?.error === "A generation is already in progress"
+              ? "已有一個行程正在生成，請等它完成後再試"
+              : "今天的生成次數已達上限，請稍後再試",
         );
       }
       if (!response.ok) {

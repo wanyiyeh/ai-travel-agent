@@ -8,6 +8,7 @@ import type { TransitRecommendation } from "@/types/itinerary";
 import { getMockMode, mockDelay, MOCK_FIXTURES } from "@/lib/mockAi";
 import { internalErrorResponse } from "@/lib/apiError";
 import { authorizeItinerary } from "@/lib/auth/ownership";
+import { chargePaidEdit } from "@/lib/quota";
 
 const RequestSchema = z.object({
   originIata: z.string().regex(/^[A-Z]{3}$/),
@@ -253,6 +254,11 @@ export async function POST(
         return NextResponse.json({ recommendations: stored.map(fixMisclassifiedType) });
       }
     }
+
+    // Only a cache miss (or an explicit refresh) costs anything, so only that
+    // counts against the quota.
+    const charged = await chargePaidEdit(request, access.actor, itineraryId);
+    if (charged) return charged;
 
     const recommendations = await computeRecommendations(originIata, destinationIata, forceRefresh ?? false);
 

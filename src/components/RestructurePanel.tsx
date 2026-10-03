@@ -373,6 +373,8 @@ export default function RestructurePanel({
     originIata && destinationIata && maxRecommendedInsertions(days.length) > 0 ? "loading" : "empty"
   );
   const [recommendations, setRecommendations] = useState<TransitRecommendation[]>([]);
+  // Server's own message when it has one (e.g. a daily usage limit).
+  const [recErrorMessage, setRecErrorMessage] = useState<string | null>(null);
   const [hourFilterIndex, setHourFilterIndex] = useState(0);
   const dismissedNamesRef = useRef<Set<string>>(new Set());
   const autoRefreshOnEmptyRef = useRef(false);
@@ -442,16 +444,19 @@ export default function RestructurePanel({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ originIata, destinationIata, existingStops, forceRefresh }),
       })
-        .then((res) => {
-          if (!res.ok) throw new Error("推薦失敗");
+        .then(async (res) => {
+          // A quota 429 carries a user-facing message in `error`.
+          if (!res.ok) throw new Error((await res.json().catch(() => null))?.error || "推薦失敗");
           return res.json() as Promise<{ recommendations: TransitRecommendation[] }>;
         })
         .then((data) => {
           if (cancelled) return;
           applyRecommendations(data.recommendations);
         })
-        .catch(() => {
-          if (!cancelled) setRecState("error");
+        .catch((err) => {
+          if (cancelled) return;
+          setRecErrorMessage(err instanceof Error && err.message !== "推薦失敗" ? err.message : null);
+          setRecState("error");
         });
 
       return () => {
@@ -910,7 +915,7 @@ export default function RestructurePanel({
 
                   {recState === "error" && (
                     <div className="text-center py-3">
-                      <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-2">暫時無法取得推薦，稍後再試看看？</p>
+                      <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-2">{recErrorMessage ?? "暫時無法取得推薦，稍後再試看看？"}</p>
                       <button
                         onClick={() => fetchRecommendations(true)}
                         className="text-sm px-3 py-1.5 rounded-lg bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 transition-colors"

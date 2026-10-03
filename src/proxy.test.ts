@@ -68,3 +68,26 @@ describe("proxy rate limit", () => {
     expect(passesThrough(proxy(fromIp("203.0.113.12", "/api/v1/generate-stream")))).toBe(true);
   });
 });
+
+describe("proxy device id", () => {
+  const get = (cookie?: string) =>
+    proxy(new NextRequest("http://test/api/v1/itinerary/x", { headers: cookie ? { cookie, "x-forwarded-for": "203.0.113.50" } : { "x-forwarded-for": "203.0.113.50" } }));
+
+  it("issues an httpOnly device_id to a browser that has none", () => {
+    const res = get();
+    const setCookie = res.headers.get("set-cookie") ?? "";
+    expect(setCookie).toMatch(/device_id=[0-9a-f-]{36}/);
+    expect(setCookie.toLowerCase()).toContain("httponly");
+  });
+
+  it("passes the new id through to this same request, so the route sees it", () => {
+    const res = get();
+    const issued = /device_id=([0-9a-f-]{36})/.exec(res.headers.get("set-cookie") ?? "")![1];
+    expect(res.headers.get("x-middleware-request-cookie") ?? "").toContain(issued);
+  });
+
+  it("keeps an existing valid id and replaces a malformed one", () => {
+    expect(get("device_id=11111111-2222-3333-4444-555555555555").headers.get("set-cookie")).toBeNull();
+    expect(get("device_id=not-a-uuid").headers.get("set-cookie")).toMatch(/device_id=[0-9a-f-]{36}/);
+  });
+});

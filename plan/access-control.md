@@ -191,14 +191,14 @@ model UsageEvent {
 | 1 | `feat/auth-google` | Auth.js v5（`next-auth@5.0.0-beta.32`）+ Google、JWT session、`getActor()`、`ADMIN_EMAILS`、頁面頂端登入／登出列；`generate-stream` 把行程存給已登入的人（沒登入暫時仍存給 demo user，PR 3 換成訪客）；`npm run claim-demo-itineraries` 把 demo user 的行程轉給管理者；CSP `form-action` 允許 `accounts.google.com` | 能登入登出；既有行程出現在自己帳號下。部署時要另外設 `AUTH_TRUST_HOST=true`（非 Vercel 的主機）與正式網域的 OAuth 重新導向 URI |
 | 2 | `security/itinerary-ownership` | ✅ `src/lib/auth/ownership.ts` 的 `authorizeItinerary()` 套到 26 支路由（檢查在任何寫入、OpenAI、Google 呼叫之前，也在 `MOCK_AI` 分支之前；垃圾桶路由先檢查擁有權再查垃圾桶項目）；`/itineraries` 只列自己的、沒登入顯示提示；行程頁區分 401／404 訊息；**生成暫時需要登入**（PR 3 之前，避免沒登入的人生成後打不開）；測試用 `tests/setup/mockAuth.ts` 的 `signInAs()` | `ownership.integration.test.ts`：A 對 B 的行程 10 種操作全部 404 且資料不變、B 正常、沒登入 401；`dev:mock` 實測沒登入時讀／刪／生成都 401 且沒有任何付費呼叫 |
 | 3 | `feat/guest-itineraries` | ✅ schema：`User.email` 可為 null、`User.isGuest`、`Itinerary.expiresAt`；`src/lib/auth/guest.ts`（`guest_id` cookie = `userId.HMAC(AUTH_SECRET)`，httpOnly、SameSite=Lax、3 天）；`getActor()` 回傳 user 或 guest；沒登入生成 → 建立訪客（在併發閘之後，被擋的請求不會留下訪客列）、行程 `expiresAt` = 3 天、回應帶 Set-Cookie；Google 登入的 `jwt` callback 把訪客行程轉到帳號、清掉 `expiresAt`、刪訪客列與 cookie；過期行程讀取與列表都當不存在；行程頁訪客提示 + 登入按鈕；`npm run cleanup-expired-guests` | `guest.test.ts`（簽章、竄改、換 secret）；`guest.integration.test.ts`（訪客能開自己的、別的訪客 404、偽造 cookie 401、過期 404、登入轉移後帳號能開、舊 cookie 失效） |
-| 4 | `feat/usage-quotas` | `UsageEvent`、§2 的額度、§3 的第 1–4、7 層；生成與付費編輯前檢查；額度用完的提示 | 各層上限的單元／整合測試；用完回 429 + 中文提示 |
+| 4 | `feat/usage-quotas` | ✅ `UsageEvent` 表、`User.disabledAt`；`src/lib/quota.ts`（`evaluateQuota` 純函式 + DB 計數，24 小時滾動視窗）；`proxy.ts` 發 `device_id` cookie（httpOnly、一年，當次請求就讀得到）；生成在建立訪客**之前**檢查、通過就先記錄（花費與成敗無關）；6 支付費編輯路由用 `chargePaidEdit()`（`transit-recommendations` 只在快取沒命中時計入、新增景點只算輸入名稱那條路徑）；管理者不計入也不受限；前端顯示伺服器回傳的中文原因；清理腳本刪除 30 天前的使用紀錄。與原計畫的差異：IP 雜湊用 `AUTH_SECRET` 加上用途前綴，不另外新增 `USAGE_HASH_SECRET`；付費編輯多加「每個 IP 每天 60 次」 | `quota.test.ts`（每一層各自觸發）；`quota.integration.test.ts`（24h 視窗、同 IP／同裝置跨帳號共用、訪客 1 次 + 全站訪客上限、管理者不受限、停用帳號、透過真實路由用 MOCK_AI 測付費編輯 429 且被擋的不記錄）；`dev:mock` 實測 device cookie 與「用完額度的訪客在任何付費呼叫前被擋」 |
 | 5 | `feat/turnstile` | 生成前的 Turnstile 驗證（前端 widget + 伺服器驗證 token） | 沒有 token 或 token 無效 → 拒絕；測試環境用 Turnstile 官方的測試 key |
 | 6 | `feat/itinerary-print` | 列印專用 CSS、下載按鈕（訪客顯示引導登入） | 登入者按下載出現列印對話框、版面正常（中文、每天一區塊、不印地圖與按鈕）；訪客看到引導登入 |
 | 7 | `feat/public-examples` | `isPublic`、管理者切換、公開頁唯讀（隱藏編輯控制項、不觸發 enrich）、範例連結 | 未登入能看公開行程；對公開行程呼叫任何寫入 API 都被擋；非公開行程未登入 404 |
 
 預估 4～5 天（PDF 改用瀏覽器列印省下約半天，公開範例多約半天）。**PR 1、2 合併後，「任何人都能刪改別人的行程」就解決了**，之後的 PR 是產品功能與額度。
 
-**需要新增的環境變數**：`AUTH_SECRET`、`AUTH_GOOGLE_ID`、`AUTH_GOOGLE_SECRET`、`ADMIN_EMAILS`、`USAGE_HASH_SECRET`、`TURNSTILE_SITE_KEY`、`TURNSTILE_SECRET_KEY`（`.env.local.example` 要同步更新；`.env*` 都在 `.gitignore`）。
+**需要新增的環境變數**：`AUTH_SECRET`（也用來簽訪客 cookie、雜湊 IP）、`AUTH_GOOGLE_ID`、`AUTH_GOOGLE_SECRET`、`ADMIN_EMAILS`、`TURNSTILE_SITE_KEY`、`TURNSTILE_SECRET_KEY`（`.env.local.example` 要同步更新；`.env*` 都在 `.gitignore`）。
 
 **需要你在外部建立的**：Google Cloud OAuth client（授權的重新導向 URI 先填 `http://localhost:3000/api/auth/callback/google`）、Cloudflare Turnstile site。
 
