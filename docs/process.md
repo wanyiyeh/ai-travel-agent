@@ -739,10 +739,38 @@
   lint 工具的依賴裡，會上線的依賴是 0 個，CI 照樣通過。npm 建議的修法是把
   `eslint-config-next` 降到 14 版，不採用，等上游修正後由 Dependabot 處理。
 
+### 6. 首頁表單的偏好到底有沒有影響行程（`test/form-fidelity` 分支）
+
+- 起因：不確定生成的行程有多符合表單的選擇。盤點後發現既有的檢查
+  （`validateItinerary`、`validateGeography`、`batch-test-rule-engine`）只驗
+  **結構**（天數、移動日、住宿），沒有一個在看「選了緊湊／經濟／美食、寫了
+  不吃海鮮」有沒有反映在行程上。
+- 決定分兩層：先寫免費的接線測試（mock 掉 OpenAI／Google，看每個欄位有沒有
+  傳到該用它的地方），之後再寫付費的評分腳本量 LLM 實際遵守的程度。先做第一層，
+  避免花錢量到的其實是已知的接線 bug。
+- 新增 `assembleItineraryDays.test.ts`、`itineraryCityGen.pace.test.ts`。已知
+  缺口用 `it.fails` 標記：測試寫的是應有行為、目前失敗但整套仍是綠燈，修好後
+  vitest 會提示把它改回 `it`。結果 320 通過、6 個預期失敗。
+- **有作用**：預算（景點、移動日、回程日、餐廳、住宿都有收到）、抵達時間、
+  回程出發時間。
+- **沒作用**（預設的規則引擎路徑）：
+  - `assembleItineraryDays.ts` 寫死 `NEUTRAL_PREFERENCE_INTENT`，所以表單的
+    步調、興趣都到不了每天的排程；`parsePreferenceIntent` 也沒被呼叫，自由文字
+    只影響 `planTrip` 的城市天數分配。
+  - 就算接上，每天景點數也固定是 `STOPS_PER_DAY = 4`：悠閒、緊湊都是 4 個，
+    跟表單寫的「悠閒 ≤3、緊湊 5+」不符；步調只改了景點間的緩衝時間。
+  - `generateMealsAndAccommodation` 沒有飲食限制參數，「不吃海鮮」無從過濾。
+  - 人數整個 `src/` 沒人讀；興趣裡的「美食」「冒險戶外」在
+    `INTEREST_CATEGORY_BOOST` 沒有對應類別。這兩項還沒定義應有行為，先不寫測試。
+  - 中途停留城市只是接在 prompt 文字後面，遵不遵守要靠第二層的付費評分才量得到。
+
 ### 今天的結論
 
 - 資安計畫 Phase 0、1、3、4、5 完成；Phase 2（存取控制）暫停到要部署前。
 - 「CI 通過」不等於「真的能用」：openai 升級的測試全部是 mock，碰到外部服務
   的主版本升級要另外實測。
+- 「行程通過驗證」也不等於「符合使用者的選擇」：表單上的步調、興趣、自由文字
+  在主要生成路徑上目前都沒有作用。下一步是另開 `fix/form-preferences` 修接線，
+  修完再寫付費評分腳本量 LLM 的遵守程度。
 - 剩下的小項目：預算連結 Monitoring email、CSP 改成強制執行、照片路由把 key
   改放 header、openai 7 升級、Phase 5 的呼叫記錄與費用告警。
