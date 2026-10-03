@@ -163,7 +163,7 @@
 - [x] **依賴安全**（2026-10-02）：
   - `npm audit` 原本 11 個漏洞（1 critical、7 high），critical 在 Next.js 本身（含「Windows 上的 server 可被未驗證遠端執行程式碼」—— 開發機就是 Windows，`next dev` 也會開在區網）。`next`、`eslint-config-next` 16.1.6 → 16.3.8（同一個 major），其餘用 `npm audit fix` 在原版本範圍內修掉 → **0 個**。升級後單元／整合測試、`tsc`、lint、`npm run build` 全過，`dev:mock` 實測頁面、安全標頭、rate limit 正常。
   - 新增 `.github/dependabot.yml`：npm 每週一次（minor/patch 合成一個 PR）、GitHub Actions 每月一次。
-  - [ ] GitHub repo **Settings → Code security** 開啟 Dependabot alerts 與 Dependabot security updates（要在網頁上開）。
+  - [x] GitHub repo **Settings → Code security** 開啟 Dependabot alerts 與 Dependabot security updates（2026-10-03 已開）。
   - Next.js 有過多次 middleware 繞過類漏洞，**保持 `next` 在最新 patch 版本**，且不要只靠 middleware（`proxy.ts`）做授權（Phase 2 做登入時，路由內也要檢查）。
   - 附帶：Next 16.3 的 `next dev` 會在 repo 根目錄自動產生 `AGENTS.md`／`CLAUDE.md`，已在 `next.config.ts` 設 `agentRules: false` 關掉。
 - [x] **CodeQL**（2026-10-03）：GitHub Code scanning → CodeQL Default setup；Copilot Autofix 維持開啟（只給建議、不會自動改程式碼），AI Scan for PRs 維持關閉（給 CodeQL 不支援的語言用）。
@@ -171,7 +171,7 @@
 - [x] **Dependabot 第一批 PR**（2026-10-03）：合併 minor/patch 群組與 `actions/checkout`、`actions/setup-node` 4→7；prisma 5→7、typescript 5.9→7、vitest 4→5 用 `@dependabot ignore this major version` 略過（都需要專門遷移）。
   - [ ] openai 6→7（#47）：CI 通過但測試全是 mock；要實際呼叫一次 API，確認 `openai.ts` 自訂 `fetch` + `x-should-retry` 的全站每日上限還有效再合併。
   - 已知：`braces` 的 high 漏洞（2026-10-03 公布）只在 lint 工具的依賴裡，`--omit=dev` 為 0，CI 通過；npm 建議的修法是把 `eslint-config-next` 降到 14 版，不採用，等上游修正。
-- [ ] **祕密掃描**：GitHub **Settings → Code security** 開啟 Secret scanning + Push protection（公開 repo 免費，要在網頁上開）。本地 `gitleaks` pre-commit hook 先不加。
+- [x] **祕密掃描**：GitHub **Settings → Code security** 開啟 Secret scanning + Push protection（2026-10-03 已開）。本地 `gitleaks` pre-commit hook 先不加。
 - [x] **CI**：`.github/workflows/ci.yml` 其實 2026-09-13 就有了（lint、單元測試、整合測試、build）；2026-10-02 加上 `npm audit --omit=dev --audit-level=high`，會出貨的依賴有 high 以上漏洞就讓 CI 失敗；只用在開發的工具交給 Dependabot。
 - [x] **資料庫**：SQLite 在 `prisma/`，不在 `public/`（已確認），也不會被靜態服務；`dev.db`、`mock.db`、`test.db` 都在 `.gitignore`。部署時的備份等 Phase 2／部署時再處理。
 ---
