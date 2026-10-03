@@ -118,6 +118,8 @@ interface EditableItineraryCardProps {
   onUpdate?: () => void;
   onExploreBorder?: () => void;
   hideCostSummary?: boolean;
+  // Printing: render every day expanded, whatever the user collapsed.
+  expandAll?: boolean;
 }
 
 type EditingStop = {
@@ -133,6 +135,7 @@ export default function EditableItineraryCard({
   onUpdate,
   onExploreBorder,
   hideCostSummary = false,
+  expandAll = false,
 }: EditableItineraryCardProps) {
   const [itinerary, setItinerary] = useState(data.data);
   const [editingStop, setEditingStop] = useState<EditingStop | null>(null);
@@ -1151,7 +1154,7 @@ export default function EditableItineraryCard({
                 }
               : null;
 
-          const isCollapsed = collapsedDays.has(day.day);
+          const isCollapsed = !expandAll && collapsedDays.has(day.day);
           const isTransitDay = day.isTransitDay === true;
           const isLocked = day.isLocked === true;
 

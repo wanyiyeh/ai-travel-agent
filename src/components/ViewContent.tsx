@@ -7,6 +7,7 @@ import ItineraryMap from "@/components/ItineraryMap";
 import RestructurePanel from "@/components/RestructurePanel";
 import TrashView from "@/components/TrashView";
 import GuestNotice from "@/components/GuestNotice";
+import { signIn } from "next-auth/react";
 import { calculateDayTotalCost, hasAnyStopCost } from "@/lib/costCalculations";
 import { AIRPORTS } from "@/lib/airports";
 
@@ -30,6 +31,10 @@ export default function ViewContent({ id }: ViewContentProps) {
   const [exchangeRate, setExchangeRate] = useState(35);
   const [showRestructure, setShowRestructure] = useState(false);
   const [showTrash, setShowTrash] = useState(false);
+  // "Download PDF" = the browser's print dialog ("Save as PDF") over a print
+  // layout (globals.css @media print). While printing, the list view is shown
+  // with every day expanded, since collapsed days aren't rendered at all.
+  const [printing, setPrinting] = useState(false);
   const restructurePanelRef = useRef<HTMLDivElement>(null);
 
   const openRestructurePanel = () => {
@@ -37,6 +42,32 @@ export default function ViewContent({ id }: ViewContentProps) {
     requestAnimationFrame(() => {
       restructurePanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
+  };
+
+  const itineraryTitle: string | undefined = data?.data?.title;
+  useEffect(() => {
+    if (!printing) return;
+    // The PDF's default file name comes from the page title.
+    const previousTitle = document.title;
+    if (itineraryTitle) document.title = itineraryTitle;
+    const done = () => {
+      document.title = previousTitle;
+      setPrinting(false);
+    };
+    window.addEventListener("afterprint", done, { once: true });
+    window.print();
+    return () => window.removeEventListener("afterprint", done);
+  }, [printing, itineraryTitle]);
+
+  // Guests' itineraries carry an expiry; downloading is for signed-in users
+  // (plan/access-control.md §2), so a guest is sent to sign in instead.
+  const isGuestItinerary = typeof data?.expiresInHours === "number";
+  const handleDownload = () => {
+    if (isGuestItinerary) {
+      signIn("google", { redirectTo: window.location.pathname });
+      return;
+    }
+    setPrinting(true);
   };
 
   const fetchData = () => {
@@ -323,7 +354,7 @@ export default function ViewContent({ id }: ViewContentProps) {
       <div className="max-w-7xl mx-auto">
         {typeof data?.expiresInHours === "number" && <GuestNotice expiresInHours={data.expiresInHours} />}
         {/* Header */}
-        <div className="mb-8 flex items-center justify-between">
+        <div className="mb-8 flex items-center justify-between" data-print-hidden>
           <Link
             href="/"
             className="text-sm text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 underline underline-offset-4"
@@ -355,6 +386,16 @@ export default function ViewContent({ id }: ViewContentProps) {
                 </button>
               </div>
             )}
+            {data && (
+              <button
+                type="button"
+                onClick={handleDownload}
+                title={isGuestItinerary ? "登入後即可下載 PDF" : "用瀏覽器的「另存為 PDF」下載"}
+                className="text-sm text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 underline underline-offset-4"
+              >
+                {isGuestItinerary ? "登入後下載 PDF" : "下載 PDF"}
+              </button>
+            )}
             <button
               type="button"
               onClick={() => setShowTrash(true)}
@@ -375,15 +416,16 @@ export default function ViewContent({ id }: ViewContentProps) {
           <>
             {renderRouteBreadcrumb()}
 
-            <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-6 items-start">
+            <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-6 items-start print:block">
               {/* Main content */}
               <div>
-                {view === "list" ? (
+                {view === "list" || printing ? (
                   <EditableItineraryCard
                     data={data}
                     onUpdate={fetchData}
                     onExploreBorder={openRestructurePanel}
                     hideCostSummary
+                    expandAll={printing}
                   />
                 ) : (
                   <ItineraryMap
@@ -420,9 +462,9 @@ export default function ViewContent({ id }: ViewContentProps) {
               </div>
 
               {/* Sidebar */}
-              <div className="space-y-4 lg:sticky lg:top-4 max-h-screen lg:overflow-y-auto lg:pb-4">
+              <div className="space-y-4 lg:sticky lg:top-4 max-h-screen lg:overflow-y-auto lg:pb-4 print:static print:max-h-none print:overflow-visible print:mt-6">
                 {renderCostSummary()}
-                {renderRestructurePanel()}
+                <div data-print-hidden>{renderRestructurePanel()}</div>
               </div>
             </div>
           </>
