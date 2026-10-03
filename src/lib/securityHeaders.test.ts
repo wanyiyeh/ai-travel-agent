@@ -51,3 +51,11 @@ describe("CSP and Google sign-in", () => {
     expect(buildContentSecurityPolicy(false)).toMatch(/form-action 'self' https:\/\/accounts\.google\.com/);
   });
 });
+
+describe("CSP and Turnstile", () => {
+  it("allows the Turnstile script and its challenge iframe", () => {
+    const csp = buildContentSecurityPolicy(false);
+    expect(csp).toMatch(/script-src [^;]*https:\/\/challenges\.cloudflare\.com/);
+    expect(csp).toMatch(/frame-src [^;]*https:\/\/challenges\.cloudflare\.com/);
+  });
+});

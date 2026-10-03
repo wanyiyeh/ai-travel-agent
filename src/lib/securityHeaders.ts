@@ -13,19 +13,23 @@ const GOOGLE_MAPS = {
   frame: ["https://*.google.com"],
 };
 
+// Cloudflare Turnstile (bot check on the trip form): its script, the iframe
+// it renders the challenge in, and the calls that iframe's script makes.
+const TURNSTILE = "https://challenges.cloudflare.com";
+
 export function buildContentSecurityPolicy(isDev: boolean): string {
   const directives: Record<string, string[]> = {
     "default-src": ["'self'"],
     // Next.js emits inline bootstrap scripts (no nonce set up), and dev mode
     // needs eval for React Refresh. Maps JS also needs eval and blob: workers.
-    "script-src": ["'self'", "'unsafe-inline'", "'unsafe-eval'", "blob:", ...GOOGLE_MAPS.script],
+    "script-src": ["'self'", "'unsafe-inline'", "'unsafe-eval'", "blob:", ...GOOGLE_MAPS.script, TURNSTILE],
     // Tailwind/React inline style attributes and Maps' injected styles.
     "style-src": ["'self'", "'unsafe-inline'", ...GOOGLE_MAPS.style],
     "img-src": ["'self'", "data:", "blob:", ...GOOGLE_MAPS.img],
     "font-src": ["'self'", "data:", ...GOOGLE_MAPS.font],
     // Dev adds the HMR websocket.
-    "connect-src": ["'self'", "data:", "blob:", ...GOOGLE_MAPS.connect, ...(isDev ? ["ws:", "wss:"] : [])],
-    "frame-src": GOOGLE_MAPS.frame,
+    "connect-src": ["'self'", "data:", "blob:", ...GOOGLE_MAPS.connect, TURNSTILE, ...(isDev ? ["ws:", "wss:"] : [])],
+    "frame-src": [...GOOGLE_MAPS.frame, TURNSTILE],
     "worker-src": ["'self'", "blob:"],
     // Clickjacking: nobody may frame this app.
     "frame-ancestors": ["'none'"],

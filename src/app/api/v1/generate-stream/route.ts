@@ -25,6 +25,7 @@ import { getActor } from "@/lib/auth/actor";
 import { createGuestUser, guestCookieHeader, guestExpiry } from "@/lib/auth/guest";
 import { checkQuota, quotaExceededResponse, recordUsage } from "@/lib/quota";
 import { requestFingerprint } from "@/lib/requestFingerprint";
+import { captchaFailedResponse, verifyTurnstileToken } from "@/lib/turnstile";
 import type { Day, Itinerary } from "@/types/itinerary";
 
 // A handful of validation issues stem from the model misreading the prompt
@@ -114,6 +115,16 @@ export async function POST(request: Request) {
     let setGuestCookie: string | null = null;
     try {
       const actor = await getActor();
+
+      // Bot check before anything else that costs or writes; admins skip it.
+      if (!actor?.isAdmin) {
+        const captcha = await verifyTurnstileToken(parsed.data.turnstileToken, ip);
+        if (!captcha.ok) {
+          console.warn(`[generate-stream] Turnstile rejected: ${captcha.reason}`);
+          generateStreamGate.release(ip);
+          return captchaFailedResponse();
+        }
+      }
 
       // Daily quotas (plan/access-control.md §2–§4), checked before a guest
       // row is created or anything is billed.

@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useStreamingGenerate } from "@/hooks/useStreamingGenerate";
+import TurnstileWidget from "@/components/TurnstileWidget";
 import StreamingPreview from "@/components/StreamingPreview";
 import type { TripPreferences, FlightInfo } from "@/lib/schemas";
 import { MAX_TRIP_DAYS, PROMPT_INPUT_MAX_LENGTH } from "@/lib/inputLimits";
@@ -327,6 +328,11 @@ export default function Home() {
   const { state, partialData, plan, days: liveDays, id, error, retryInfo, generate, reset, isLoading } =
     useStreamingGenerate();
 
+  // Bot check (plan/access-control.md §3). Only required when a site key is
+  // configured; the server enforces it either way.
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  const needsTurnstile = Boolean(process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY);
+
   const days = calcDays(departureDate, returnDate);
 
   function toggleInterest(val: NonNullable<TripPreferences["interests"]>[number]) {
@@ -373,7 +379,8 @@ export default function Home() {
       : "";
     const fullPrompt = [prompt, waypointsNote].filter(Boolean).join("。");
 
-    await generate(fullPrompt, flightInfo, preferences);
+    await generate(fullPrompt, flightInfo, preferences, turnstileToken ?? undefined);
+    setTurnstileToken(null); // single-use; the widget remounts with a fresh one
   }
 
   const isStreaming = state === "streaming" || state === "connecting";
@@ -732,9 +739,11 @@ export default function Home() {
               )}
             </div>
 
+            <TurnstileWidget onToken={setTurnstileToken} />
+
             <button
               type="submit"
-              disabled={isLoading || !isFormValid}
+              disabled={isLoading || !isFormValid || (needsTurnstile && !turnstileToken)}
               className="w-full rounded-lg bg-zinc-900 dark:bg-zinc-50 px-4 py-3 text-sm font-semibold text-white dark:text-zinc-900 hover:bg-zinc-700 dark:hover:bg-zinc-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               生成行程

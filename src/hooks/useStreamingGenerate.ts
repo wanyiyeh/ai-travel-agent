@@ -25,7 +25,7 @@ export function useStreamingGenerate() {
   const [error, setError] = useState<string>("");
   const [retryInfo, setRetryInfo] = useState<{ attempt: number; maxAttempts: number } | null>(null);
 
-  const generate = useCallback(async (prompt: string, flightInfo: FlightInfo, preferences?: TripPreferences) => {
+  const generate = useCallback(async (prompt: string, flightInfo: FlightInfo, preferences?: TripPreferences, turnstileToken?: string) => {
     setState("connecting");
     setPartialData("");
     setPlan(null);
@@ -39,11 +39,15 @@ export function useStreamingGenerate() {
       const response = await fetch("/api/v1/generate-stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt, flightInfo, preferences }),
+        body: JSON.stringify({ prompt, flightInfo, preferences, turnstileToken }),
       });
 
       if (response.status === 400) {
         throw new Error("輸入的行程資料不符合限制，請檢查日期與風格描述");
+      }
+      if (response.status === 403) {
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.error || "人機驗證沒有通過，請重新整理頁面後再試一次。");
       }
       if (response.status === 401) {
         throw new Error("請先用右上角的「用 Google 登入」，才能生成行程");

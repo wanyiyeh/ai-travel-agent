@@ -55,6 +55,9 @@ export const GenerateRequestSchema = z.object({
   prompt: z.string().max(MAX_PROMPT_LENGTH).optional(),
   flightInfo: FlightInfoSchema,
   preferences: TripPreferencesSchema.optional(),
+  // Cloudflare Turnstile token from the form's widget (verified server-side
+  // in generate-stream; plan/access-control.md §3).
+  turnstileToken: z.string().max(4096).optional(),
 });
 
 // Structured intent parsed from the user's free-text preference blurb by
