@@ -9,6 +9,7 @@ import {
 } from "@/lib/fetchCityRestaurants";
 import { resolveDayCoords } from "@/lib/itineraryGen";
 import { estimateMealCost } from "@/lib/priceLevelCost";
+import { isFoodPlace } from "@/lib/foodPlace";
 import { translatePlaceNames } from "@/lib/translatePlaceNames";
 import { isMealType } from "@/types/itinerary";
 import { findDayIndex } from "@/lib/itineraryDays";
@@ -93,11 +94,17 @@ export async function POST(
     const types = getMealPlaceTypes(mealType, budget);
     const priceLevels = getPriceLevels(budget);
 
-    let places = await fetchNearbyPlaceCandidates(coords, googleApiKey, types, 2000, 10, priceLevels);
+    // Pull the full cached pool (same cost as 10 — see NEARBY_FETCH_COUNT) so
+    // dropping non-food places still leaves up to 10 to show.
+    const search = async (levels?: string[]) =>
+      (await fetchNearbyPlaceCandidates(coords, googleApiKey, types, 2000, 20, levels))
+        .filter(isFoodPlace)
+        .slice(0, 10);
+    let places = await search(priceLevels);
     if (places.length === 0 && priceLevels) {
       // Small destinations often don't tag price level on dining listings —
       // retry without the price filter rather than coming back empty.
-      places = await fetchNearbyPlaceCandidates(coords, googleApiKey, types, 2000, 10);
+      places = await search();
     }
 
     const currentPlaceId =
