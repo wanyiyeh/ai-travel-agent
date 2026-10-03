@@ -63,8 +63,12 @@ body {
     box-shadow: none !important;
   }
 
-  button,
-  [data-print-hidden] {
+  /* Buttons are controls, except the few that wrap content (a day's
+     header is its collapse toggle) — those opt back in with data-print-show,
+     minus their chevron icon. */
+  button:not([data-print-show]),
+  [data-print-hidden],
+  [data-print-show] > svg {
     display: none !important;
   }
 
