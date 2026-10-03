@@ -15,6 +15,8 @@ model User {
   email       String?     @unique
   name        String?
   isGuest     Boolean     @default(false) @map("is_guest")
+  // Set to cut off an abusive account from anything that costs money.
+  disabledAt  DateTime?   @map("disabled_at")
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
   itineraries Itinerary[]
@@ -232,4 +234,25 @@ model DistanceCache {
   cacheKey  String   @id
   distance  String   // JSON-encoded DistanceResult
   updatedAt DateTime @updatedAt
+}
+
+// One row per paid action (a trip generation, or an edit that calls OpenAI /
+// Google), so daily quotas survive restarts and can be counted per user, per
+// IP and per device across accounts. plan/access-control.md §2–§4.
+// Pruned after 30 days by scripts/cleanup-expired-guests.ts.
+model UsageEvent {
+  id          String   @id @default(uuid())
+  kind        String   // "generate" | "paid_edit"
+  userId      String?  @map("user_id")
+  isGuest     Boolean  @default(false) @map("is_guest")
+  ipHash      String   @map("ip_hash")   // HMAC of the client IP, never the raw IP
+  deviceId    String?  @map("device_id")
+  itineraryId String?  @map("itinerary_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([kind, createdAt])
+  @@index([userId, kind, createdAt])
+  @@index([ipHash, kind, createdAt])
+  @@index([deviceId, kind, createdAt])
+  @@index([itineraryId, kind])
 }

@@ -22,6 +22,8 @@ export default defineConfig({
       // directory, not the repo root — this lands at prisma/test.db.
       DATABASE_URL: "file:./test.db",
       MOCK_AI: "1",
+      // Signs guest cookies and keys the IP hash in usage quotas.
+      AUTH_SECRET: "integration-test-secret",
     },
     // Prisma writes to one shared SQLite file — parallel files would race
     // on table state (e.g. one test's cleanup deleting another's fixture).

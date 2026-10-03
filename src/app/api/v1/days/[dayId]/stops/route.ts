@@ -12,6 +12,7 @@ import { findDayIndex, getCityHintForDay } from "@/lib/itineraryDays";
 import { internalErrorResponse } from "@/lib/apiError";
 import { UNTRUSTED_INPUT_RULE, wrapUntrusted } from "@/lib/untrustedInput";
 import { authorizeItinerary } from "@/lib/auth/ownership";
+import { chargePaidEdit } from "@/lib/quota";
 
 const RequestSchema = z.object({
   itineraryId: z.string().min(1),
@@ -137,6 +138,10 @@ export async function POST(
     const access = await authorizeItinerary(itineraryId);
     if (!access.ok) return access.response;
     const { itinerary } = access;
+    // Adding a stop by name calls Google + OpenAI (the batch path above
+    // doesn't), so only this path counts as a paid edit.
+    const charged = await chargePaidEdit(request, access.actor, itineraryId);
+    if (charged) return charged;
 
     const days = itinerary.days as Record<string, unknown>[];
     const dayIndex = findDayIndex(days, dayId);

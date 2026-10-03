@@ -17,6 +17,7 @@ import { findDayIndex } from "@/lib/itineraryDays";
 import type { AccommodationCandidate } from "@/types/itinerary";
 import { internalErrorResponse } from "@/lib/apiError";
 import { authorizeItinerary } from "@/lib/auth/ownership";
+import { chargePaidEdit } from "@/lib/quota";
 
 const RequestSchema = z.object({
   itineraryId: z.string().min(1),
@@ -51,6 +52,9 @@ export async function POST(
     const access = await authorizeItinerary(itineraryId);
     if (!access.ok) return access.response;
     const { itinerary } = access;
+    // Paid edit: counts against the caller's daily quota (plan/access-control.md §2).
+    const charged = await chargePaidEdit(request, access.actor, itineraryId);
+    if (charged) return charged;
 
     const mockMode = getMockMode();
     if (mockMode === "error") {
