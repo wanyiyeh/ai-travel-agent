@@ -7,6 +7,7 @@ import { findStopAcrossDays, getCityHintForDay } from "@/lib/itineraryDays";
 import { isRecentEnrichFailure, enrichFailureMarker } from "@/lib/enrichFailure";
 import { MAX_NAME_LENGTH } from "@/lib/inputLimits";
 import { internalErrorResponse } from "@/lib/apiError";
+import { authorizeItinerary } from "@/lib/auth/ownership";
 
 // `context` (the trip's destination city) becomes part of a Google Text
 // Search query and a city-center lookup, so it's capped like any name.
@@ -41,16 +42,9 @@ export async function POST(
     }
     const { itineraryId, context } = parsed.data;
 
-    const itinerary = await prisma.itinerary.findUnique({
-      where: { id: itineraryId },
-    });
-
-    if (!itinerary) {
-      return NextResponse.json(
-        { error: "Itinerary not found" },
-        { status: 404 }
-      );
-    }
+    const access = await authorizeItinerary(itineraryId);
+    if (!access.ok) return access.response;
+    const { itinerary } = access;
 
     const days = itinerary.days as Record<string, unknown>[];
     const location = findStopAcrossDays(days, stopId);

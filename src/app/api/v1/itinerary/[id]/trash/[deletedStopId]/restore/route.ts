@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma, j } from "@/lib/db";
 import type { Stop } from "@/types/itinerary";
+import { authorizeItinerary } from "@/lib/auth/ownership";
 
 export async function POST(
   _request: Request,
@@ -9,14 +10,14 @@ export async function POST(
   try {
     const { id, deletedStopId } = await params;
 
+    // Ownership first, so a non-owner can't tell whether a trash id exists.
+    const access = await authorizeItinerary(id);
+    if (!access.ok) return access.response;
+    const { itinerary } = access;
+
     const entry = await prisma.deletedStop.findUnique({ where: { id: deletedStopId } });
     if (!entry || entry.itineraryId !== id) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
-    }
-
-    const itinerary = await prisma.itinerary.findUnique({ where: { id } });
-    if (!itinerary) {
-      return NextResponse.json({ error: "Itinerary not found" }, { status: 404 });
     }
 
     const days = itinerary.days as Record<string, unknown>[];

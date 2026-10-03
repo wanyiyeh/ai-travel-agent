@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import type { AccommodationCandidate } from "@/types/itinerary";
 import { internalErrorResponse } from "@/lib/apiError";
+import { authorizeItinerary } from "@/lib/auth/ownership";
 
 const PAGE_SIZE = 3;
 
@@ -18,6 +19,9 @@ export async function GET(
     if (!itineraryId) {
       return NextResponse.json({ error: "itineraryId is required" }, { status: 400 });
     }
+
+    const access = await authorizeItinerary(itineraryId);
+    if (!access.ok) return access.response;
 
     const logs = await prisma.accommodationCandidateLog.findMany({
       where: { itineraryId, dayId },

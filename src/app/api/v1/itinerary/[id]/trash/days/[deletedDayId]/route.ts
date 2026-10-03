@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { authorizeItinerary } from "@/lib/auth/ownership";
 
 // Mirrors trash/[deletedStopId]/route.ts — permanently purges a trashed day.
 export async function DELETE(
@@ -8,6 +9,8 @@ export async function DELETE(
 ) {
   try {
     const { id, deletedDayId } = await params;
+    const access = await authorizeItinerary(id);
+    if (!access.ok) return access.response;
 
     const entry = await prisma.deletedDay.findUnique({ where: { id: deletedDayId } });
     if (!entry || entry.itineraryId !== id) {

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma, j } from "@/lib/db";
 import { MAX_NAME_LENGTH, MAX_NAME_LIST_LENGTH } from "@/lib/inputLimits";
+import { authorizeItinerary } from "@/lib/auth/ownership";
 
 const id = z.string().min(1).max(MAX_NAME_LENGTH);
 
@@ -23,16 +24,9 @@ export async function POST(request: Request) {
     }
     const { itineraryId, days: reorderDays } = parsed.data;
 
-    const itinerary = await prisma.itinerary.findUnique({
-      where: { id: itineraryId },
-    });
-
-    if (!itinerary) {
-      return NextResponse.json(
-        { error: "Itinerary not found" },
-        { status: 404 }
-      );
-    }
+    const access = await authorizeItinerary(itineraryId);
+    if (!access.ok) return access.response;
+    const { itinerary } = access;
 
     const days = itinerary.days as Record<string, unknown>[];
 

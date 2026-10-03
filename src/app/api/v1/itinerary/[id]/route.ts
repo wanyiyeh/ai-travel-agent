@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { authorizeItinerary } from "@/lib/auth/ownership";
 
 const IATA_CURRENCY: Record<string, string> = {
   // Japan
@@ -58,6 +59,8 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params;
+    const access = await authorizeItinerary(id);
+    if (!access.ok) return access.response;
     await prisma.itinerary.delete({ where: { id } });
     return NextResponse.json({ success: true });
   } catch (error) {
@@ -73,13 +76,9 @@ export async function GET(
   try {
     const { id } = await params;
 
-    const itinerary = await prisma.itinerary.findUnique({
-      where: { id },
-    });
-
-    if (!itinerary) {
-      return NextResponse.json({ error: "Not found" }, { status: 404 });
-    }
+    const access = await authorizeItinerary(id);
+    if (!access.ok) return access.response;
+    const { itinerary } = access;
 
     const config = (itinerary.config && typeof itinerary.config === "object"
       ? itinerary.config

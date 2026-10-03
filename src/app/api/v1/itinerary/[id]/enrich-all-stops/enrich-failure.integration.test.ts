@@ -1,4 +1,5 @@
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { signInAs } from "@tests/setup/mockAuth";
 import { prisma, j } from "@/lib/db";
 import type { DayWithId } from "@/types/itinerary";
 
@@ -18,12 +19,17 @@ describe("enrich-all-stops remembers failed lookups", () => {
   const cityHint = "Enrich Failure Test City";
   let itineraryId: string;
   const textQueries: string[] = [];
+  let owner: { id: string; email: string };
+
+  // Routes only serve an itinerary to its owner.
+  beforeEach(() => signInAs(owner));
 
   beforeAll(async () => {
     process.env.GOOGLE_PLACES_API_KEY ??= "test-key";
     const user = await prisma.user.create({
       data: { email: `enrich-failure-${Date.now()}@test.local` },
     });
+    owner = { id: user.id, email: user.email! };
     const itinerary = await prisma.itinerary.create({
       data: {
         userId: user.id,

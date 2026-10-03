@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma, j } from "@/lib/db";
+import { authorizeItinerary } from "@/lib/auth/ownership";
 
 const RequestSchema = z.object({
   transitTo: z.string().min(1),
@@ -21,10 +22,9 @@ export async function DELETE(
 
     const { transitTo } = parsed.data;
 
-    const itinerary = await prisma.itinerary.findUnique({ where: { id: itineraryId } });
-    if (!itinerary) {
-      return NextResponse.json({ error: "Itinerary not found" }, { status: 404 });
-    }
+    const access = await authorizeItinerary(itineraryId);
+    if (!access.ok) return access.response;
+    const { itinerary } = access;
 
     const days = itinerary.days as Record<string, unknown>[];
 

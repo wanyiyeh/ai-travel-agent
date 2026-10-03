@@ -24,8 +24,6 @@ import { runMetered } from "@/lib/usageMeter";
 import { getActor } from "@/lib/auth/actor";
 import type { Day, Itinerary } from "@/types/itinerary";
 
-const DEMO_USER_ID = "00000000-0000-0000-0000-000000000001";
-
 // A handful of validation issues stem from the model misreading the prompt
 // (wrong day count, missing transit day, etc.) rather than a structural gap
 // we can repair in place — those are worth one full re-generation rather than
@@ -40,18 +38,6 @@ function hasNonLastDayThinDay(
   // A short last day is expected (it's the return-flight day) — only a thin
   // day earlier in the trip is worth spending a retry attempt on.
   return issues.some((i) => i.code === "DAY_TOO_FEW_STOPS" && i.day !== totalDays);
-}
-
-async function ensureDemoUser() {
-  await prisma.user.upsert({
-    where: { id: DEMO_USER_ID },
-    update: {},
-    create: {
-      id: DEMO_USER_ID,
-      email: "demo@ai-travel-agent.dev",
-      name: "Demo User",
-    },
-  });
 }
 
 function addIdsToItinerary(data: ReturnType<typeof ItinerarySchema.parse>) {
@@ -107,11 +93,15 @@ export async function POST(request: Request) {
 
     // One generation at a time per client; released when the stream ends,
     // whichever way it ends.
-    // Signed-in users own what they generate. Signed-out requests still fall
-    // back to the shared demo user until guest identities land
-    // (plan/access-control.md PR 3).
+    // Itineraries are owned by whoever generates them, and only the owner can
+    // open them afterwards — so signed-out callers are turned away until guest
+    // identities land (plan/access-control.md PR 3). Checked before any
+    // OpenAI/Google call.
     const actor = await getActor();
-    const ownerId = actor?.userId ?? DEMO_USER_ID;
+    if (!actor) {
+      return Response.json({ error: "Sign in required" }, { status: 401 });
+    }
+    const ownerId = actor.userId;
 
     const ip = clientIp(request.headers);
     if (!generateStreamGate.tryAcquire(ip)) {
@@ -175,7 +165,6 @@ export async function POST(request: Request) {
 
                 let savedId: string | null = null;
                 try {
-                  if (!actor) await ensureDemoUser();
                   const saved = await prisma.itinerary.create({
                     data: {
                       userId: ownerId,
@@ -358,7 +347,6 @@ export async function POST(request: Request) {
 
               let savedId: string | null = null;
               try {
-                if (!actor) await ensureDemoUser();
                 const saved = await prisma.itinerary.create({
                   data: {
                     userId: ownerId,

@@ -13,6 +13,7 @@ import type { PreferenceIntent } from "@/lib/schemas";
 import type { BudgetLevel } from "@/lib/fetchCityRestaurants";
 import { MAX_CITY_DAYS, MAX_NAME_LENGTH, MAX_TEXT_LENGTH, MAX_TRIP_DAYS } from "@/lib/inputLimits";
 import { internalErrorResponse } from "@/lib/apiError";
+import { authorizeItinerary } from "@/lib/auth/ownership";
 
 const LockedAttractionSchema = z.object({
   name: z.string().min(1).max(MAX_NAME_LENGTH),
@@ -358,10 +359,9 @@ export async function POST(
     }
     const { cities } = parsed.data;
 
-    const itinerary = await prisma.itinerary.findUnique({ where: { id: itineraryId } });
-    if (!itinerary) {
-      return NextResponse.json({ error: "Itinerary not found" }, { status: 404 });
-    }
+    const access = await authorizeItinerary(itineraryId);
+    if (!access.ok) return access.response;
+    const { itinerary } = access;
 
     const days = itinerary.days as Record<string, unknown>[];
     const config = (itinerary.config ?? {}) as Record<string, unknown>;

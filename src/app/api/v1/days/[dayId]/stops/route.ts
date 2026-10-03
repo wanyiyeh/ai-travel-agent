@@ -11,6 +11,7 @@ import { openai } from "@/lib/openai";
 import { findDayIndex, getCityHintForDay } from "@/lib/itineraryDays";
 import { internalErrorResponse } from "@/lib/apiError";
 import { UNTRUSTED_INPUT_RULE, wrapUntrusted } from "@/lib/untrustedInput";
+import { authorizeItinerary } from "@/lib/auth/ownership";
 
 const RequestSchema = z.object({
   itineraryId: z.string().min(1),
@@ -90,12 +91,9 @@ export async function POST(
 
       const { itineraryId, stops: candidates } = parsedBatch.data;
 
-      const itinerary = await prisma.itinerary.findUnique({
-        where: { id: itineraryId },
-      });
-      if (!itinerary) {
-        return NextResponse.json({ error: "Itinerary not found" }, { status: 404 });
-      }
+      const access = await authorizeItinerary(itineraryId);
+      if (!access.ok) return access.response;
+      const { itinerary } = access;
 
       const days = itinerary.days as Record<string, unknown>[];
       const dayIndex = findDayIndex(days, dayId);
@@ -136,13 +134,9 @@ export async function POST(
 
     const { itineraryId, stopName } = parsed.data;
 
-    const itinerary = await prisma.itinerary.findUnique({
-      where: { id: itineraryId },
-    });
-
-    if (!itinerary) {
-      return NextResponse.json({ error: "Itinerary not found" }, { status: 404 });
-    }
+    const access = await authorizeItinerary(itineraryId);
+    if (!access.ok) return access.response;
+    const { itinerary } = access;
 
     const days = itinerary.days as Record<string, unknown>[];
     const dayIndex = findDayIndex(days, dayId);

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { authorizeItinerary } from "@/lib/auth/ownership";
 
 export async function DELETE(
   _request: Request,
@@ -7,6 +8,8 @@ export async function DELETE(
 ) {
   try {
     const { id, deletedStopId } = await params;
+    const access = await authorizeItinerary(id);
+    if (!access.ok) return access.response;
 
     const entry = await prisma.deletedStop.findUnique({ where: { id: deletedStopId } });
     if (!entry || entry.itineraryId !== id) {

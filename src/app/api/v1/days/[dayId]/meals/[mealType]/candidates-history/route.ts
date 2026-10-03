@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { isMealType } from "@/types/itinerary";
 import type { MealCandidate } from "@/types/itinerary";
 import { internalErrorResponse } from "@/lib/apiError";
+import { authorizeItinerary } from "@/lib/auth/ownership";
 
 const PAGE_SIZE = 3;
 
@@ -23,6 +24,9 @@ export async function GET(
     if (!itineraryId) {
       return NextResponse.json({ error: "itineraryId is required" }, { status: 400 });
     }
+
+    const access = await authorizeItinerary(itineraryId);
+    if (!access.ok) return access.response;
 
     const logs = await prisma.mealCandidateLog.findMany({
       where: { itineraryId, dayId, mealType },

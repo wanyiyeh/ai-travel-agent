@@ -16,6 +16,7 @@ import { translatePlaceNames } from "@/lib/translatePlaceNames";
 import { findDayIndex } from "@/lib/itineraryDays";
 import type { AccommodationCandidate } from "@/types/itinerary";
 import { internalErrorResponse } from "@/lib/apiError";
+import { authorizeItinerary } from "@/lib/auth/ownership";
 
 const RequestSchema = z.object({
   itineraryId: z.string().min(1),
@@ -47,6 +48,10 @@ export async function POST(
 
     const { itineraryId } = parsed.data;
 
+    const access = await authorizeItinerary(itineraryId);
+    if (!access.ok) return access.response;
+    const { itinerary } = access;
+
     const mockMode = getMockMode();
     if (mockMode === "error") {
       return NextResponse.json({ error: "Mock AI error (MOCK_AI=error)" }, { status: 500 });
@@ -54,14 +59,6 @@ export async function POST(
     if (mockMode === "slow" || mockMode === "fixture") {
       await mockDelay(mockMode === "slow" ? 3500 : 0);
       return NextResponse.json({ success: true, candidates: MOCK_FIXTURES.accommodationCandidates });
-    }
-
-    const itinerary = await prisma.itinerary.findUnique({
-      where: { id: itineraryId },
-    });
-
-    if (!itinerary) {
-      return NextResponse.json({ error: "Itinerary not found" }, { status: 404 });
     }
 
     const days = itinerary.days as Record<string, unknown>[];

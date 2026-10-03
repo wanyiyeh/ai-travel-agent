@@ -9,6 +9,7 @@ import { translatePlaceNames } from "@/lib/translatePlaceNames";
 import { getCityHintForDay } from "@/lib/itineraryDays";
 import { isRecentEnrichFailure, enrichFailureMarker } from "@/lib/enrichFailure";
 import { internalErrorResponse } from "@/lib/apiError";
+import { authorizeItinerary } from "@/lib/auth/ownership";
 
 export async function POST(
   _request: Request,
@@ -17,10 +18,9 @@ export async function POST(
   try {
     const { id } = await params;
 
-    const itinerary = await prisma.itinerary.findUnique({ where: { id } });
-    if (!itinerary) {
-      return NextResponse.json({ error: "Itinerary not found" }, { status: 404 });
-    }
+    const access = await authorizeItinerary(id);
+    if (!access.ok) return access.response;
+    const { itinerary } = access;
 
     const apiKey = process.env.GOOGLE_PLACES_API_KEY;
     if (!apiKey) {
