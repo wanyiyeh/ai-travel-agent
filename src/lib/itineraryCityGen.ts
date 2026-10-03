@@ -11,6 +11,7 @@ import { generateSkeletonCopy } from "@/lib/skeletonCopy";
 import { NEUTRAL_PREFERENCE_INTENT, type PreferenceIntent } from "@/lib/schemas";
 import { getDistancesForStopPairs, pickModeForDistance, describeTransport } from "@/lib/distanceMatrix";
 import { estimateAttractionCost } from "@/lib/priceLevelCost";
+import { isFoodPlace } from "@/lib/foodPlace";
 
 // Shared AI-generation helpers for building out a city's worth of itinerary
 // content (transit day, sightseeing days, accommodation + meals). Used by the
@@ -387,16 +388,18 @@ async function fetchMealLodgingPools(cityName: string, budget: BudgetLevel | und
   // Same "empty with the price filter -> retry without it" fallback as the
   // meal/accommodation regenerate routes: small destinations often don't tag
   // price level on dining/lodging listings.
-  const search = async (types: string[]) => {
-    const places = await fetchNearbyPlaceCandidates(coords, apiKey, types, MEAL_LODGING_RADIUS_M, MEAL_LODGING_MAX_COUNT, priceLevels);
+  const search = async (types: string[], keep: (p: PlaceCandidate) => boolean = () => true) => {
+    const places = (
+      await fetchNearbyPlaceCandidates(coords, apiKey, types, MEAL_LODGING_RADIUS_M, MEAL_LODGING_MAX_COUNT, priceLevels)
+    ).filter(keep);
     if (places.length > 0 || !priceLevels) return places;
-    return fetchNearbyPlaceCandidates(coords, apiKey, types, MEAL_LODGING_RADIUS_M, MEAL_LODGING_MAX_COUNT);
+    return (await fetchNearbyPlaceCandidates(coords, apiKey, types, MEAL_LODGING_RADIUS_M, MEAL_LODGING_MAX_COUNT)).filter(keep);
   };
 
   const [breakfast, main, snack, lodging] = await Promise.all([
-    search(getMealPlaceTypes("breakfast", budget)),
-    search(getMealPlaceTypes("lunch", budget)),
-    search(getMealPlaceTypes("snack", budget)),
+    search(getMealPlaceTypes("breakfast", budget), isFoodPlace),
+    search(getMealPlaceTypes("lunch", budget), isFoodPlace),
+    search(getMealPlaceTypes("snack", budget), isFoodPlace),
     search(getLodgingTypes(budget)),
   ]);
   return { breakfast, main, snack, lodging };
