@@ -764,13 +764,80 @@
     `INTEREST_CATEGORY_BOOST` 沒有對應類別。這兩項還沒定義應有行為，先不寫測試。
   - 中途停留城市只是接在 prompt 文字後面，遵不遵守要靠第二層的付費評分才量得到。
 
+### 7. Phase 2 規劃：訪客試用 → 登入下載（PR #54）
+
+- 重新討論 Phase 2 的方向：原本的選項是「整站密碼」或「Google 登入 + 白名單」，
+  最後決定的產品流程是**訪客不用登入就能生成 1 個行程，想下載 PDF 才要用
+  Google 登入**，訪客行程保留 3 天，登入時自動轉到帳號；另外做公開唯讀範例
+  給面試官直接看。PDF 用瀏覽器列印（中文天生正常、不用處理字型）。
+- 開放匿名使用代表任何人都能花錢，所以額度變成重點；「只限制會花錢的編輯」，
+  拖曳、刪除、改文字這類只寫 DB 的操作不限制。
+- 多開帳號沒辦法 100% 防止，目標改成「讓多開不划算，而且被繞過時每天的損失
+  有上限」：全站每日總量、同 IP 共用、同裝置共用、新帳號額度較低、CAPTCHA、
+  只用 Google 登入、可停用帳號。完整計畫在 `plan/access-control.md`。
+
+### 8. 先量測一次生成的成本（PR #55）
+
+- 新增 `src/lib/usageMeter.ts`：用 `AsyncLocalStorage` 在單一請求內計數
+  `googleFetch` 與 OpenAI client 的呼叫，Google 連同 field mask 一起記（mask
+  決定計費等級），mock 模式也計數，所以用 `dev:mock` 就能量、Google 不花錢。
+- 首爾進、釜山出、6 天：快取沒命中時 Google 28 次（Nearby Search 12 次是
+  Enterprise 計費）、OpenAI 10 次；同一個行程第二次 Google 只剩 1 次。換算
+  超過免費額度後約 US$0.55／次，OpenAI 只有約 US$0.003。
+- 這推翻了原本規劃的全站上限（每天 250 次，最壞約 US$137／天），改成上線初期
+  每天合計 20 次。也發現 Nearby Search 跟 9 月的 Text Search 是同一個問題
+  （欄位含 `rating`／`priceLevel`），列為待評估。
+
+### 9. 登入、擁有權、訪客身分（PR #56–#58）
+
+- **Google 登入**（Auth.js v5、JWT session，不需要新增資料表，跟之後的
+  Postgres 遷移互不影響）。原本寫死的 `DEMO_USER_ID` 行程用一次性腳本轉給
+  管理者帳號。
+- **擁有權檢查**：`authorizeItinerary()` 套到 26 支路由。不是自己的、不存在、
+  已過期一律回 404，讓人沒辦法用回應判斷某個 id 存不存在。用腳本稽核每一支
+  路由，確認檢查發生在任何寫入、OpenAI、Google 呼叫之前（也發現 `MOCK_AI`
+  分支排在檢查前面，一起移到後面）。整合測試用真的 SQLite：A 對 B 的行程做
+  10 種操作全部 404 且資料不變。
+- **訪客身分**：沒登入的人生成時建立 `isGuest` 使用者，cookie 值是
+  `userId.HMAC(AUTH_SECRET)`，無法偽造或改成別人的 id。訪客行程 3 天後過期，
+  過期的讀取時直接當作不存在；登入的那一刻把行程轉到帳號並刪掉訪客。
+- 踩到：
+  - `next-auth` 在 vitest 裡載入不了 `next/server`，改成在共用的
+    `tests/setup/mockAuth.ts` mock 掉 `@/auth` 和 `next/headers`，測試用
+    `signInAs()` 決定目前是誰。
+  - 用 `JSON.stringify` 改 `tsconfig.json` 把整個檔案的排版都改掉了，還原後
+    改成只動一行。
+  - CI 的 lint 抓到元件在渲染時呼叫 `Date.now()`（React 的 purity 規則）。
+    本機其實也會報錯，只是檢查時只看了 lint 輸出的最後兩行而漏看；之後一律看
+    結束碼。
+    修法是把「剩幾小時」改由 API 在伺服器端算好。
+
+### 10. 使用額度與 CAPTCHA（PR #59、#60）
+
+- **額度**（`src/lib/quota.ts`）：判斷邏輯是純函式（每一層各自有單元測試），
+  計數從 `UsageEvent` 表讀，24 小時滾動視窗，server 重開也不會歸零。訪客 1 次、
+  註冊每天 5 次（新帳號前 3 天 2 次）、會花錢的編輯另計；同 IP、同裝置
+  （`proxy.ts` 發的 `device_id` cookie）跨帳號共用；全站每天訪客 5 + 註冊 15。
+  IP 只存 HMAC 雜湊。額度在建立訪客、任何付費呼叫之前檢查，只在「真的會花錢」
+  時計入（例如交通推薦命中快取不算）。
+- **CAPTCHA**：Cloudflare Turnstile，生成前在伺服器端驗證；連不上 Cloudflare
+  就拒絕，正式環境沒設 secret 也拒絕（避免忘記設定讓檢查形同虛設）。整合測試
+  確認沒通過驗證時，不會建立訪客、不會記錄使用量、不會呼叫 OpenAI。
+- 在瀏覽器裡用 `npm run dev` 以訪客身分實際生成一次，驗證框、token 傳遞、
+  伺服器驗證、使用量記錄、3 天到期都正常。
+
 ### 今天的結論
 
-- 資安計畫 Phase 0、1、3、4、5 完成；Phase 2（存取控制）暫停到要部署前。
+- 資安計畫 Phase 0–5 的安全與成本部分全部完成：登入、擁有權、訪客、額度、
+  CAPTCHA 都上線了。Phase 2 只剩兩個產品功能：列印成 PDF、公開範例。
+- 「先量測再訂上限」：沒有量測之前寫的全站上限，最壞情況是預算的幾百倍。
 - 「CI 通過」不等於「真的能用」：openai 升級的測試全部是 mock，碰到外部服務
-  的主版本升級要另外實測。
+  的主版本升級要另外實測；登入、CAPTCHA 這類要在瀏覽器裡跑的流程也一樣。
 - 「行程通過驗證」也不等於「符合使用者的選擇」：表單上的步調、興趣、自由文字
   在主要生成路徑上目前都沒有作用。下一步是另開 `fix/form-preferences` 修接線，
   修完再寫付費評分腳本量 LLM 的遵守程度。
 - 剩下的小項目：預算連結 Monitoring email、CSP 改成強制執行、照片路由把 key
-  改放 header、openai 7 升級、Phase 5 的呼叫記錄與費用告警。
+  改放 header、openai 7 升級、Phase 5 的費用告警（呼叫記錄已由 `usageMeter`
+  完成）、Nearby Search 要不要降到 Pro 欄位；部署時要設
+  `AUTH_TRUST_HOST`、正式網域的 OAuth 與 Turnstile hostname、Turnstile 金鑰，
+  並排程跑 `cleanup-expired-guests`。
