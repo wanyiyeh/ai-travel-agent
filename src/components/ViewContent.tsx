@@ -16,6 +16,9 @@ const DEFAULT_EXCHANGE_RATES: Record<string, number> = {
   AUD: 21, USD: 32, EUR: 35, GBP: 41, THB: 0.93, VND: 0.0013,
 };
 
+// How long "Download PDF" waits for lazy-loaded photos before printing anyway.
+const PRINT_IMAGE_WAIT_MS = 5000;
+
 interface ViewContentProps {
   id: string;
 }
@@ -55,8 +58,29 @@ export default function ViewContent({ id }: ViewContentProps) {
       setPrinting(false);
     };
     window.addEventListener("afterprint", done, { once: true });
-    window.print();
-    return () => window.removeEventListener("afterprint", done);
+
+    // Photos are lazy-loaded, so ones further down the page haven't loaded
+    // yet and would print as blanks. Load them all first (capped, so one
+    // slow image can't hold the dialog back indefinitely).
+    let cancelled = false;
+    const images = Array.from(document.querySelectorAll<HTMLImageElement>('img[loading="lazy"]'));
+    images.forEach((img) => (img.loading = "eager"));
+    const pending = images.filter((img) => !img.complete);
+    const allLoaded = Promise.all(
+      pending.map((img) => new Promise<void>((resolve) => {
+        img.addEventListener("load", () => resolve(), { once: true });
+        img.addEventListener("error", () => resolve(), { once: true });
+      })),
+    );
+    const timeout = new Promise<void>((resolve) => setTimeout(resolve, PRINT_IMAGE_WAIT_MS));
+    Promise.race([allLoaded, timeout]).then(() => {
+      if (!cancelled) window.print();
+    });
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener("afterprint", done);
+    };
   }, [printing, itineraryTitle]);
 
   // Guests' itineraries carry an expiry; downloading is for signed-in users

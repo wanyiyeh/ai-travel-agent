@@ -1071,11 +1071,11 @@ export default function EditableItineraryCard({
             {itinerary.title}
           </h2>
           <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1">
-            共 {itinerary.days.length} 天行程・可拖曳排序景點
+            共 {itinerary.days.length} 天行程<span data-print-hidden>・可拖曳排序景點</span>
           </p>
         </div>
 
-        <div className="sticky top-2 z-20 flex items-center gap-2 overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white/90 dark:bg-zinc-900/90 backdrop-blur px-3 py-2 shadow-sm">
+        <div data-print-hidden className="sticky top-2 z-20 flex items-center gap-2 overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white/90 dark:bg-zinc-900/90 backdrop-blur px-3 py-2 shadow-sm">
           <button
             onClick={toggleAll}
             className="shrink-0 rounded-md bg-zinc-100 dark:bg-zinc-800 px-2.5 py-1 text-xs font-medium text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors"
@@ -1325,6 +1325,7 @@ export default function EditableItineraryCard({
                       重算交通
                     </button>
                     <a
+                      data-print-hidden
                       href={buildGoogleMapsUrl(day, overnightOrigin(prevDay?.accommodation))}
                       target="_blank"
                       rel="noopener noreferrer"
@@ -1716,6 +1717,7 @@ export default function EditableItineraryCard({
                           </div>
                           {day.accommodation.placeId && (
                             <a
+                              data-print-hidden
                               href={buildPlaceMapsUrl(day.accommodation.placeId)}
                               target="_blank"
                               rel="noopener noreferrer"
