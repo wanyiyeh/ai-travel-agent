@@ -188,7 +188,7 @@ model UsageEvent {
 | # | 分支 | 內容 | 驗收 |
 |---|---|---|---|
 | 0 | `chore/usage-metrics` | `src/lib/usageMeter.ts`：`googleFetch` 與 OpenAI fetch 計數，`generate-stream` 每次生成印一行 `[usage]`；`dev:mock` 量測 | ✅ 2026-10-03 完成，結果見 §3 |
-| 1 | `feat/auth-google` | Auth.js + Google、JWT session、`getActor()`、`ADMIN_EMAILS`、登入／登出 UI；`DEMO_USER_ID` 的行程轉給管理者帳號 | 能登入登出；既有行程出現在自己帳號下 |
+| 1 | `feat/auth-google` | Auth.js v5（`next-auth@5.0.0-beta.32`）+ Google、JWT session、`getActor()`、`ADMIN_EMAILS`、頁面頂端登入／登出列；`generate-stream` 把行程存給已登入的人（沒登入暫時仍存給 demo user，PR 3 換成訪客）；`npm run claim-demo-itineraries` 把 demo user 的行程轉給管理者；CSP `form-action` 允許 `accounts.google.com` | 能登入登出；既有行程出現在自己帳號下。部署時要另外設 `AUTH_TRUST_HOST=true`（非 Vercel 的主機）與正式網域的 OAuth 重新導向 URI |
 | 2 | `security/itinerary-ownership` | `requireOwnedItinerary()` 套到 26 支路由與頁面；`/itineraries` 只列自己的 | 整合測試：A 存取 B 的行程（讀、改、刪、垃圾桶）全部 404；沒身分呼叫寫入 API 401 |
 | 3 | `feat/guest-itineraries` | 訪客身分 cookie、生成時建立訪客、`expiresAt`、登入時轉移、清理 script、頁面提示 | 訪客生成 → 登入 → 行程在新帳號下且不會過期；過期行程 404 |
 | 4 | `feat/usage-quotas` | `UsageEvent`、§2 的額度、§3 的第 1–4、7 層；生成與付費編輯前檢查；額度用完的提示 | 各層上限的單元／整合測試；用完回 429 + 中文提示 |

@@ -14,6 +14,10 @@ jobs:
       OPENAI_API_KEY: "sk-ci-placeholder"
       GOOGLE_PLACES_API_KEY: "ci-placeholder"
       NEXT_PUBLIC_GOOGLE_MAPS_API_KEY: "ci-placeholder"
+      # Auth.js needs these at runtime; CI never completes a real sign-in.
+      AUTH_SECRET: "ci-placeholder-secret-not-used-for-real-sessions"
+      AUTH_GOOGLE_ID: "ci-placeholder.apps.googleusercontent.com"
+      AUTH_GOOGLE_SECRET: "ci-placeholder"
     steps:
       - uses: actions/checkout@v7
 

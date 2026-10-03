@@ -21,6 +21,7 @@ import { clientIp, generateStreamGate } from "@/lib/rateLimit";
 import { newRequestId } from "@/lib/apiError";
 import { UNTRUSTED_INPUT_RULE, wrapUntrusted } from "@/lib/untrustedInput";
 import { runMetered } from "@/lib/usageMeter";
+import { getActor } from "@/lib/auth/actor";
 import type { Day, Itinerary } from "@/types/itinerary";
 
 const DEMO_USER_ID = "00000000-0000-0000-0000-000000000001";
@@ -106,6 +107,12 @@ export async function POST(request: Request) {
 
     // One generation at a time per client; released when the stream ends,
     // whichever way it ends.
+    // Signed-in users own what they generate. Signed-out requests still fall
+    // back to the shared demo user until guest identities land
+    // (plan/access-control.md PR 3).
+    const actor = await getActor();
+    const ownerId = actor?.userId ?? DEMO_USER_ID;
+
     const ip = clientIp(request.headers);
     if (!generateStreamGate.tryAcquire(ip)) {
       return Response.json(
@@ -168,10 +175,10 @@ export async function POST(request: Request) {
 
                 let savedId: string | null = null;
                 try {
-                  await ensureDemoUser();
+                  if (!actor) await ensureDemoUser();
                   const saved = await prisma.itinerary.create({
                     data: {
-                      userId: DEMO_USER_ID,
+                      userId: ownerId,
                       title: dataWithIds.title,
                       days: j(dataWithIds.days),
                       config: j({
@@ -351,10 +358,10 @@ export async function POST(request: Request) {
 
               let savedId: string | null = null;
               try {
-                await ensureDemoUser();
+                if (!actor) await ensureDemoUser();
                 const saved = await prisma.itinerary.create({
                   data: {
-                    userId: DEMO_USER_ID,
+                    userId: ownerId,
                     title: validatedData.title,
                     days: j(dataWithIds.days),
                     config: j({
