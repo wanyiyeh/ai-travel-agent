@@ -47,7 +47,9 @@ describe("guest itineraries", () => {
     asGuest(ids.guest);
     const res = await get(ids.live);
     expect(res.status).toBe(200);
-    expect((await res.json()).expiresAt).toBeTruthy();
+    const body = await res.json();
+    expect(body.expiresAt).toBeTruthy();
+    expect(body.expiresInHours).toBe(1); // fixture expires in 60s, rounded up
   });
 
   it("another guest gets 404, a forged cookie counts as signed out", async () => {

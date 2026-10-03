@@ -2,12 +2,11 @@
 
 import { signIn } from "next-auth/react";
 
-// Shown on a guest's own itinerary: it's deleted at expiresAt unless they
+// Shown on a guest's own itinerary: it's deleted when it expires unless they
 // sign in, which moves it to their account (plan/access-control.md §7).
-export default function GuestNotice({ expiresAt }: { expiresAt: string }) {
-  const msLeft = new Date(expiresAt).getTime() - Date.now();
-  const hoursLeft = Math.max(0, Math.ceil(msLeft / (60 * 60 * 1000)));
-  const remaining = hoursLeft >= 24 ? `${Math.ceil(hoursLeft / 24)} 天` : `${hoursLeft} 小時`;
+// Hours left come from the API, so rendering never reads the clock.
+export default function GuestNotice({ expiresInHours }: { expiresInHours: number }) {
+  const remaining = expiresInHours >= 24 ? `${Math.ceil(expiresInHours / 24)} 天` : `${expiresInHours} 小時`;
 
   return (
     <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100">

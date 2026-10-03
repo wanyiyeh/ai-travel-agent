@@ -321,7 +321,7 @@ export default function ViewContent({ id }: ViewContentProps) {
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 py-16 px-4">
       <div className="max-w-7xl mx-auto">
-        {data?.expiresAt && <GuestNotice expiresAt={data.expiresAt} />}
+        {typeof data?.expiresInHours === "number" && <GuestNotice expiresInHours={data.expiresInHours} />}
         {/* Header */}
         <div className="mb-8 flex items-center justify-between">
           <Link
