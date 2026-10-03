@@ -10,6 +10,7 @@ import {
 } from "@vis.gl/react-google-maps";
 import type { Day } from "@/types/itinerary";
 import { buildPlaceMapsUrl, buildDirectionsUrl } from "@/lib/googleMapsUrl";
+import { buildDayTimeline } from "@/lib/dayTimeline";
 
 const DAY_COLORS = [
   "#3b82f6",
@@ -127,32 +128,12 @@ function MapContent({
       const sorted = visibleStops
         .filter((s) => s.dayIndex === dayIndex)
         .sort((a, b) => a.stopIndex - b.stopIndex);
-      const meals = visibleMeals.filter((m) => m.dayIndex === dayIndex);
-      const breakfast = meals.find((m) => m.mealType === "breakfast");
-      const lunch = meals.find((m) => m.mealType === "lunch");
-      const snack = meals.find((m) => m.mealType === "snack");
-      const dinner = meals.find((m) => m.mealType === "dinner");
-
-      // Insert lunch right before the first afternoon-tagged stop; if no stop
-      // is tagged, fall back to the midpoint of the day's stops.
-      const withLunch: Array<MapStop | MapMeal> = [];
-      let lunchInserted = false;
-      sorted.forEach((s) => {
-        if (lunch && !lunchInserted && s.timeOfDay === "afternoon") {
-          withLunch.push(lunch);
-          lunchInserted = true;
-        }
-        withLunch.push(s);
-      });
-      if (lunch && !lunchInserted) {
-        withLunch.splice(Math.ceil(withLunch.length / 2), 0, lunch);
-      }
-
-      const ordered: Array<MapStop | MapMeal> = [];
-      if (breakfast) ordered.push(breakfast);
-      ordered.push(...withLunch);
-      if (snack) ordered.push(snack);
-      if (dinner) ordered.push(dinner);
+      const meals = Object.fromEntries(
+        visibleMeals.filter((m) => m.dayIndex === dayIndex).map((m) => [m.mealType, m])
+      ) as Partial<Record<MealType, MapMeal>>;
+      const ordered: Array<MapStop | MapMeal> = buildDayTimeline(sorted, meals, (s) => s.timeOfDay).map((item) =>
+        item.kind === "stop" ? item.stop : item.meal
+      );
 
       if (ordered.length < 2) return;
 
