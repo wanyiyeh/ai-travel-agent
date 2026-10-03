@@ -31,7 +31,9 @@ export function buildContentSecurityPolicy(isDev: boolean): string {
     "frame-ancestors": ["'none'"],
     "object-src": ["'none'"],
     "base-uri": ["'self'"],
-    "form-action": ["'self'"],
+    // The sign-in form posts to our own /api/auth, which redirects to
+    // Google's consent page; browsers apply form-action to that redirect too.
+    "form-action": ["'self'", "https://accounts.google.com"],
   };
   return Object.entries(directives)
     .map(([name, values]) => `${name} ${values.join(" ")}`)

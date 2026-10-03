@@ -46,8 +46,11 @@
 | `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` | 是（地圖功能） | Google Maps JS API 金鑰（前端用） |
 | `NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID` | 否 | Google Maps Map ID（自訂地圖樣式用） |
 | `MOCK_AI` | 否 | `1` 立即回傳假資料、`slow` 模擬 3.5 秒延遲、`error` 模擬失敗，供部分 AI 路由在不打真實 API 的情況下測試 UI（不是全域生效，細節見 [docs/lib.md](docs/lib.md)） |
+| `AUTH_SECRET` | 是（登入） | 簽署登入 session 的密鑰，32 bytes 以上的隨機字串（`node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`） |
+| `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET` | 是（登入） | Google OAuth 用戶端（Google Auth Platform → 用戶端 → 網頁應用程式；重新導向 URI `http://localhost:3000/api/auth/callback/google`） |
+| `ADMIN_EMAILS` | 否 | 管理者 Google email，逗號分隔；不受使用額度限制 |
 
-> 兩組 Google key 可使用同一把，但需在 Google Cloud Console 同時啟用 Maps JavaScript API 和 Places API。
+> 兩組 Google key 請分開：前端的 `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` 會被打包進瀏覽器、人人看得到，只開 Maps JavaScript API 並限制網域；後端的 `GOOGLE_PLACES_API_KEY` 只開 Places API (New) 與 Routes API。細節見 [plan/security-hardening.md](plan/security-hardening.md) Phase 0。
 >
 > Google Places API 有實際費用，開發時建議留意用量（可參考 [plan/google-api-cost-spike-2026-07.md](plan/google-api-cost-spike-2026-07.md) 記錄過的踩雷經驗）。
 

@@ -45,3 +45,9 @@ describe("buildContentSecurityPolicy", () => {
     expect(buildContentSecurityPolicy(false)).not.toMatch(/connect-src [^;]*ws:/);
   });
 });
+
+describe("CSP and Google sign-in", () => {
+  it("lets the sign-in form redirect to Google's consent page", () => {
+    expect(buildContentSecurityPolicy(false)).toMatch(/form-action 'self' https:\/\/accounts\.google\.com/);
+  });
+});
