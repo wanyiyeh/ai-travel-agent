@@ -22,13 +22,16 @@ import { StopDragPreview } from "@/components/StopDragPreview";
 import { DayBulkEditPanel } from "@/components/DayBulkEditPanel";
 import { AccommodationPicker } from "@/components/AccommodationPicker";
 import { MealPicker } from "@/components/MealPicker";
+import { MealTimelineRow, MEAL_META } from "@/components/MealTimelineRow";
 import { StopPicker } from "@/components/StopPicker";
 import { PlacePhotoThumb } from "@/components/PlacePhotoThumb";
 import { haversineKm } from "@/lib/geo";
 import { calculateStopsCost, calculateDayTotalCost } from "@/lib/costCalculations";
 import { buildPlaceMapsUrl, buildDirectionsUrl, buildSearchMapsUrl } from "@/lib/googleMapsUrl";
 import { formatDuration } from "@/types/itinerary";
-import type { Itinerary, Stop, Meal, MealType, Accommodation, StopCandidate } from "@/types/itinerary";
+import { MEAL_TYPES } from "@/types/itinerary";
+import type { Itinerary, Day, Stop, Meal, MealType, Accommodation, StopCandidate } from "@/types/itinerary";
+import { buildDayTimeline, MEAL_TIME_OF_DAY } from "@/lib/dayTimeline";
 
 // A candidate from another day counts as "same city" if it's within this
 // distance of the edited day's own stop centroid — used to build the reuse
@@ -218,8 +221,18 @@ export default function EditableItineraryCard({
   const formatCost = (amount: number, currency?: string) =>
     `${currency ?? ""} ${amount.toLocaleString()}`.trim();
 
-  const buildGoogleMapsUrl = (stops: Stop[], origin?: string) => {
-    const points = [origin, ...stops.map((s) => s.name)].filter((p): p is string => !!p);
+  // Same stop/meal order as the day card's timeline. Meals add their address
+  // since a restaurant name alone is often ambiguous to Google Maps.
+  const buildGoogleMapsUrl = (day: Day, origin?: string) => {
+    const timeline = buildDayTimeline(day.stops, day.meals ?? {}, (s) => s.time_of_day);
+    const points = [
+      origin,
+      ...timeline.map((item) =>
+        item.kind === "stop"
+          ? item.stop.name
+          : [item.meal?.name, item.meal?.address].filter(Boolean).join(", ")
+      ),
+    ].filter((p): p is string => !!p);
     return buildDirectionsUrl(points);
   };
 
@@ -1306,7 +1319,7 @@ export default function EditableItineraryCard({
                       重算交通
                     </button>
                     <a
-                      href={buildGoogleMapsUrl(day.stops, overnightOrigin(prevDay?.accommodation))}
+                      href={buildGoogleMapsUrl(day, overnightOrigin(prevDay?.accommodation))}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="flex items-center gap-1 rounded-md bg-white/20 hover:bg-white/30 transition-colors px-2.5 py-1 text-xs font-medium text-white"
@@ -1342,30 +1355,74 @@ export default function EditableItineraryCard({
 
               {!isCollapsed && (() => {
                 let lastTimeOfDay: string | undefined = undefined;
+                // A day with no meals object (transit days) gets no meal slots;
+                // otherwise every meal type gets a slot, empty ones as null.
+                const dayMeals: Partial<Record<MealType, Meal | null>> = day.meals
+                  ? Object.fromEntries(MEAL_TYPES.map((t) => [t, day.meals?.[t] ?? null]))
+                  : {};
+                const timeline = buildDayTimeline(day.stops, dayMeals, (s) => s.time_of_day);
+                const timeHeader = (timeOfDay: string | undefined) => {
+                  if (timeOfDay === undefined || timeOfDay === lastTimeOfDay) return null;
+                  lastTimeOfDay = timeOfDay;
+                  return (
+                    <div className="flex items-center gap-2 py-2 mb-1">
+                      <span className="text-xs font-semibold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">
+                        {TIME_OF_DAY_LABELS[timeOfDay]}
+                      </span>
+                      <div className="flex-1 h-px bg-zinc-100 dark:bg-zinc-800" />
+                    </div>
+                  );
+                };
                 const stopsList = (
                   <div className="space-y-0">
-                    {day.stops.map((stop, idx) => {
-                      const showTimeHeader =
-                        stop.time_of_day !== undefined &&
-                        stop.time_of_day !== lastTimeOfDay;
-                      if (stop.time_of_day) lastTimeOfDay = stop.time_of_day;
+                    {timeline.map((item, i) => {
+                      if (item.kind === "meal") {
+                        const { mealType, meal } = item;
+                        const isPickingThis =
+                          day.id != null && pickingMeal?.dayId === day.id && pickingMeal.mealType === mealType;
+                        return (
+                          <div key={`meal-${mealType}`} className="py-3">
+                            {timeHeader(MEAL_TIME_OF_DAY[mealType])}
+                            <MealTimelineRow
+                              mealType={mealType}
+                              meal={meal}
+                              currency={itinerary.currency}
+                              editable={day.id != null}
+                              isPicking={isPickingThis}
+                              onPick={() => setPickingMeal({ dayId: day.id!, mealType })}
+                              onSaveCost={(value) => handleUpdateMealCost(day.id!, mealType, value)}
+                            />
+                            {isPickingThis && (
+                              <MealPicker
+                                itineraryId={data.id}
+                                dayId={day.id!}
+                                mealType={mealType}
+                                currency={itinerary.currency}
+                                mealLabel={MEAL_META[mealType].label}
+                                onCancel={() => setPickingMeal(null)}
+                                onSelected={(picked) => {
+                                  updateDayMeal(day.id!, mealType, picked);
+                                  setPickingMeal(null);
+                                }}
+                              />
+                            )}
+                          </div>
+                        );
+                      }
 
+                      const { stop, stopIndex: idx } = item;
                       return (
                         <div key={stop.id || idx}>
-                          {showTimeHeader && (
-                            <div className="flex items-center gap-2 py-2 mb-1">
-                              <span className="text-xs font-semibold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">
-                                {TIME_OF_DAY_LABELS[stop.time_of_day!]}
-                              </span>
-                              <div className="flex-1 h-px bg-zinc-100 dark:bg-zinc-800" />
-                            </div>
-                          )}
+                          {timeHeader(stop.time_of_day)}
                           {stop.transport_from_prev && (
                             <div className="flex items-center gap-2 py-1.5 pl-1 mb-1">
                               <svg className="w-3.5 h-3.5 text-zinc-300 dark:text-zinc-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
                               </svg>
                               <span className="text-xs text-zinc-400 dark:text-zinc-500">
+                                {/* transport_from_prev is computed stop-to-stop, so
+                                    after a meal it isn't the leg from the restaurant. */}
+                                {timeline[i - 1]?.kind === "meal" ? "從上一個景點：" : ""}
                                 {stop.transport_from_prev}
                               </span>
                             </div>
@@ -1698,127 +1755,6 @@ export default function EditableItineraryCard({
                         onSelected={(acc) => {
                           updateDayAccommodation(day.id!, acc);
                           setPickingAccommodationDayId(null);
-                        }}
-                      />
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {!isCollapsed && day.meals && (
-                <div className="px-5 pb-5">
-                  <div className="border-t border-zinc-100 dark:border-zinc-800 pt-4">
-                    <p className="text-xs font-semibold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider mb-3">
-                      餐廳推薦
-                    </p>
-                    <div className="grid grid-cols-4 gap-2">
-                      {(
-                        [
-                          { key: "breakfast", label: "早餐", icon: "🌅" },
-                          { key: "lunch",     label: "午餐", icon: "☀️" },
-                          { key: "snack",     label: "點心", icon: "🍰" },
-                          { key: "dinner",    label: "晚餐", icon: "🌙" },
-                        ] as const
-                      ).map(({ key, label, icon }) => {
-                        const meal = day.meals?.[key];
-                        const isPickingThis =
-                          day.id != null && pickingMeal?.dayId === day.id && pickingMeal.mealType === key;
-                        if (!meal) {
-                          return (
-                            <div
-                              key={key}
-                              className="rounded-lg bg-zinc-50 dark:bg-zinc-900/40 border border-dashed border-zinc-200 dark:border-zinc-700 p-3 flex flex-col items-start justify-between"
-                            >
-                              <p className="text-xs font-medium text-zinc-400 dark:text-zinc-500 mb-1">
-                                {icon} {label}
-                              </p>
-                              {day.id && !isPickingThis && (
-                                <button
-                                  onClick={() => setPickingMeal({ dayId: day.id!, mealType: key })}
-                                  className="text-xs text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 transition-colors"
-                                >
-                                  選擇{label}
-                                </button>
-                              )}
-                            </div>
-                          );
-                        }
-                        return (
-                          <div
-                            key={key}
-                            className="rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-100 dark:border-amber-900/50 p-3"
-                          >
-                            <div className="flex items-center justify-between gap-1 mb-1">
-                              <p className="text-xs font-medium text-amber-600 dark:text-amber-400">
-                                {icon} {label}
-                              </p>
-                              {day.id && !isPickingThis && (
-                                <button
-                                  onClick={() => setPickingMeal({ dayId: day.id!, mealType: key })}
-                                  className="shrink-0 text-[11px] text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 transition-colors"
-                                >
-                                  換一家
-                                </button>
-                              )}
-                            </div>
-                            <div className="flex items-start gap-2">
-                              <PlacePhotoThumb placeId={meal.placeId} photoName={meal.photoName} size={40} />
-                              <div className="min-w-0 flex-1">
-                                <p className="text-sm font-semibold text-zinc-800 dark:text-zinc-200 leading-snug">
-                                  {meal.name}
-                                </p>
-                                {meal.description && (
-                                  <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5 leading-snug">
-                                    {meal.description}
-                                  </p>
-                                )}
-                                {meal.address && (
-                                  <div className="flex items-center gap-1 mt-1">
-                                    <span className="text-[11px] text-zinc-400 dark:text-zinc-500 leading-tight line-clamp-1">
-                                      {meal.address}
-                                    </span>
-                                    {meal.placeId && (
-                                      <a
-                                        href={buildPlaceMapsUrl(meal.placeId)}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="shrink-0 text-[11px] text-blue-400 hover:text-blue-600 dark:text-blue-500 dark:hover:text-blue-300 transition-colors"
-                                        title="在 Google Maps 上導航"
-                                      >
-                                        ↗
-                                      </a>
-                                    )}
-                                  </div>
-                                )}
-                                {day.id && (
-                                  <p className="mt-1">
-                                    <InlinePriceEditor
-                                      value={meal.estimated_cost}
-                                      currency={itinerary.currency}
-                                      onSave={(value) => handleUpdateMealCost(day.id!, key, value)}
-                                    />
-                                  </p>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-
-                    {pickingMeal && day.id === pickingMeal.dayId && (
-                      <MealPicker
-                        itineraryId={data.id}
-                        dayId={pickingMeal.dayId}
-                        mealType={pickingMeal.mealType}
-                        currency={itinerary.currency}
-                        mealLabel={
-                          { breakfast: "早餐", lunch: "午餐", dinner: "晚餐", snack: "點心" }[pickingMeal.mealType]
-                        }
-                        onCancel={() => setPickingMeal(null)}
-                        onSelected={(meal) => {
-                          updateDayMeal(pickingMeal.dayId, pickingMeal.mealType, meal);
-                          setPickingMeal(null);
                         }}
                       />
                     )}
