@@ -247,9 +247,14 @@ async function generateTransitDayStopsViaScheduler(
     if (places.length === 0) return null;
 
     const lockedIds = new Set(lockedPlaceIds);
-    const { candidates, candidateById } = placeCandidatesToStopCandidates(
-      places.filter((p) => !lockedIds.has(p.placeId))
+    const pool = await withSupplementalAttractions(
+      coords,
+      apiKey,
+      places.filter((p) => !lockedIds.has(p.placeId)),
+      lockedIds,
+      capacityFor([])
     );
+    const { candidates, candidateById } = placeCandidatesToStopCandidates(pool);
     if (candidates.length === 0) return null;
 
     const hintById = new Map<string, RestaurantHint>();
@@ -361,9 +366,14 @@ export async function generateDepartureDayStops(
     if (places.length === 0) return [];
 
     const lockedIds = new Set(lockedPlaceIds);
-    const { candidates, candidateById } = placeCandidatesToStopCandidates(
-      places.filter((p) => !lockedIds.has(p.placeId))
+    const pool = await withSupplementalAttractions(
+      coords,
+      apiKey,
+      places.filter((p) => !lockedIds.has(p.placeId)),
+      lockedIds,
+      estimatedCount
     );
+    const { candidates, candidateById } = placeCandidatesToStopCandidates(pool);
     if (candidates.length === 0) return [];
 
     const interestWeights = buildInterestWeights(preferenceIntent.interestBoost);
@@ -662,6 +672,30 @@ function dayStartFor(preferenceIntent: PreferenceIntent): number {
 // opens at 18:00) instead of all finishing before lunch.
 const SIGHTSEEING_DAY_END_MINUTE = 18 * 60;
 
+// A second look at a city once its 20 tourist_attraction results run out —
+// a 14-day Stockholm trip had 1 stop a day from day 8 and an empty return
+// day. Nearby Search has no paging, so this asks for a different mix of
+// types instead (Pro fields, cached like any pool).
+const SUPPLEMENT_ATTRACTION_TYPES = ["museum", "art_gallery", "park", "historical_landmark", "observation_deck"];
+
+/**
+ * `places` (already free of used ones) plus, only when fewer than `needed`
+ * are left, places from SUPPLEMENT_ATTRACTION_TYPES that aren't in the pool
+ * or used yet. Short trips never pay for the extra search.
+ */
+async function withSupplementalAttractions(
+  coords: { lat: number; lng: number },
+  apiKey: string,
+  places: PlaceCandidate[],
+  usedIds: Set<string>,
+  needed: number
+): Promise<PlaceCandidate[]> {
+  if (places.length >= needed) return places;
+  const extra = await fetchNearbyPlaceCandidates(coords, apiKey, SUPPLEMENT_ATTRACTION_TYPES, 10000, 20);
+  const inPool = new Set(places.map((p) => p.placeId));
+  return [...places, ...extra.filter((p) => !inPool.has(p.placeId) && !usedIds.has(p.placeId))];
+}
+
 // estimateStopCapacity only approximates how many stops fit (the lunch-break
 // push can waste more than the hour it budgets for), so drop whatever still
 // ends past the day's end. assignTimeSlots schedules strictly in order, so
@@ -742,9 +776,23 @@ async function generateDayStopsViaScheduler(
     if (places.length === 0) return null;
 
     const lockedIds = new Set(lockedPlaceIds);
-    const { candidates, candidateById } = placeCandidatesToStopCandidates(
-      places.filter((p) => !lockedIds.has(p.placeId))
+    const pace = preferenceIntent.pace ?? "moderate";
+    const dayStartMinute = dayStartFor(preferenceIntent);
+    const dayStarts = Array.from({ length: dayCount }, (_, dayIdx) =>
+      dayIdx === 0 ? (firstDayStartMinute ?? dayStartMinute) : dayStartMinute
     );
+    const capacitiesFor = (pool: PlaceCandidate[]) => {
+      const candidateTypes = placeCandidatesToStopCandidates(pool).candidates.map((c) => c.type);
+      return dayStarts.map((start) =>
+        estimateStopCapacity({ pace, dayStartMinute: start, dayEndMinute: SIGHTSEEING_DAY_END_MINUTE, candidateTypes })
+      );
+    };
+
+    const available = places.filter((p) => !lockedIds.has(p.placeId));
+    const neededStops = capacitiesFor(available).reduce((sum, n) => sum + n, 0);
+    const pool = await withSupplementalAttractions(coords, apiKey, available, lockedIds, neededStops);
+
+    const { candidates, candidateById } = placeCandidatesToStopCandidates(pool);
     if (candidates.length === 0) return null;
 
     const hintById = new Map<string, RestaurantHint>();
@@ -753,15 +801,7 @@ async function generateDayStopsViaScheduler(
     }
 
     const interestWeights = buildInterestWeights(preferenceIntent.interestBoost);
-    const pace = preferenceIntent.pace ?? "moderate";
-    const dayStartMinute = dayStartFor(preferenceIntent);
-    const dayStarts = Array.from({ length: dayCount }, (_, dayIdx) =>
-      dayIdx === 0 ? (firstDayStartMinute ?? dayStartMinute) : dayStartMinute
-    );
-    const candidateTypes = candidates.map((c) => c.type);
-    const capacities = dayStarts.map((start) =>
-      estimateStopCapacity({ pace, dayStartMinute: start, dayEndMinute: SIGHTSEEING_DAY_END_MINUTE, candidateTypes })
-    );
+    const capacities = capacitiesFor(pool);
 
     // rating × preference × distance from where the traveler sleeps (the
     // city center when the lodging isn't known), and each day's route starts

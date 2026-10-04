@@ -119,3 +119,45 @@ describe("stop identity and reuse", () => {
     for (const s of stops) expect(usedEarlier).not.toContain(s.placeId);
   });
 });
+
+describe("long stays — supplemental attraction search", () => {
+  const place = (id: string, type: string): PlaceCandidate => ({
+    name: id,
+    placeId: id,
+    lat: 35.68 + Number(id.replace(/\D/g, "")) * 0.002,
+    lng: 139.76,
+    address: "addr",
+    rating: 4.5,
+    priceLevel: null,
+    types: ["tourist_attraction", type],
+  });
+  const main = Array.from({ length: 6 }, (_, i) => place(`main${i}`, "park"));
+  const extra = Array.from({ length: 10 }, (_, i) => place(`extra${i}`, "museum"));
+  const byTypes = async (_c: unknown, _k: unknown, types: string[]) => (types.includes("tourist_attraction") ? main : extra);
+
+  it("adds other kinds of places once the main pool can't cover the stay", async () => {
+    nearbyMock.mockImplementation(byTypes);
+
+    const days = await generateDayStops("東京", 5, "JPY", [], undefined, NEUTRAL_PREFERENCE_INTENT);
+
+    expect(nearbyMock.mock.calls.some((c) => (c[2] as string[]).includes("museum"))).toBe(true);
+    expect(days.flat().some((s) => String(s.placeId).startsWith("extra"))).toBe(true);
+  });
+
+  it("doesn't pay for the extra search when the main pool is enough", async () => {
+    nearbyMock.mockImplementation(byTypes);
+
+    await generateDayStops("東京", 1, "JPY", [], undefined, NEUTRAL_PREFERENCE_INTENT);
+
+    expect(nearbyMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("never brings back a place the trip already used", async () => {
+    nearbyMock.mockImplementation(byTypes);
+    const used = ["extra0", "extra1"];
+
+    const days = await generateDayStops("東京", 5, "JPY", [...used], undefined, NEUTRAL_PREFERENCE_INTENT);
+
+    for (const s of days.flat()) expect(used).not.toContain(s.placeId);
+  });
+});
