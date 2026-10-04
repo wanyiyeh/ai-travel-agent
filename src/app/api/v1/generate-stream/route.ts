@@ -191,7 +191,10 @@ export async function POST(request: Request) {
             );
 
             if (assembled) {
-              const cityRepairedDays = isMultiCity
+              // A round trip can loop out and back (tripPlan.ts), so it may
+              // have transit days too, not just an open-jaw trip.
+              const hasTransitDays = assembled.days.some((d) => d.isTransitDay === true);
+              const cityRepairedDays = isMultiCity || hasTransitDays
                 ? repairTransitDayDepartureCities(assembled.days as unknown as Day[])
                 : (assembled.days as unknown as Day[]);
               const repairedDays = repairMissingAccommodation(cityRepairedDays);

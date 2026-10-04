@@ -96,20 +96,23 @@ export async function assembleItineraryDays(
     onProgress?.({ type: "day", day: numbered });
   }
 
+  const usedPlaceIdsByCity = new Map<string, Set<string>>();
   for (let cityIdx = 0; cityIdx < plan.cities.length; cityIdx++) {
     const city = plan.cities[cityIdx];
     const isFirst = cityIdx === 0;
     const isLast = cityIdx === plan.cities.length - 1;
 
-    // Places already used elsewhere in this city's own block this request —
-    // without tracking this, the transit-arrival stops, sightseeing days, and
-    // (for the last city) departure stops each independently query the same
-    // small tourist_attraction candidate pool and can suggest the same
-    // top-rated landmark more than once in the same trip (caught in manual
-    // verification: Kyoto's transit-arrival stops and its sightseeing day
-    // both picked 清水寺/伏見稻荷大社; Osaka's transit-arrival and departure
-    // stops were identical).
-    const usedPlaceIds = new Set<string>();
+    // Places already used in this city this request — without tracking this,
+    // the transit-arrival stops, sightseeing days, and (for the last city)
+    // departure stops each independently query the same small
+    // tourist_attraction candidate pool and can suggest the same top-rated
+    // landmark more than once in the same trip (caught in manual verification:
+    // Kyoto's transit-arrival stops and its sightseeing day both picked
+    // 清水寺/伏見稻荷大社; Osaka's transit-arrival and departure stops were
+    // identical). Keyed by city, not by block: a round-trip loop visits the
+    // arrival city twice (札幌 → 富良野 → 札幌).
+    const usedPlaceIds = usedPlaceIdsByCity.get(city.name) ?? new Set<string>();
+    usedPlaceIdsByCity.set(city.name, usedPlaceIds);
 
     const sightseeingCount = city.days - (isFirst ? 0 : 1);
     const nights = sightseeingCount + (isLast ? 1 : 0);

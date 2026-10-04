@@ -95,7 +95,22 @@ describe("validateItinerary — transit day rules", () => {
     expect(result.issues.some((i) => i.code === "TRANSIT_DAY_MISSING")).toBe(true);
   });
 
-  it("flags TRANSIT_DAY_UNEXPECTED for a single-city trip with a transit day", () => {
+  it("accepts a round trip that loops out and back to the arrival city", () => {
+    const itinerary: Itinerary = {
+      title: "t",
+      days: [
+        makeDay(1, { waypointCity: "札幌" }),
+        makeDay(2, { isTransitDay: true, transitTo: "富良野", waypointCity: "札幌" }),
+        makeDay(3, { waypointCity: "富良野" }),
+        makeDay(4, { isTransitDay: true, transitTo: "札幌", waypointCity: "富良野" }),
+        makeDay(5, { accommodation: null, waypointCity: "札幌" }),
+      ],
+    };
+    const result = validateItinerary(itinerary, makeFlightInfo(), "札幌", "札幌");
+    expect(result.issues.some((i) => i.code === "TRANSIT_DAY_UNEXPECTED")).toBe(false);
+  });
+
+  it("flags TRANSIT_DAY_UNEXPECTED for a round trip whose transit days never come back", () => {
     const itinerary: Itinerary = {
       title: "t",
       days: [

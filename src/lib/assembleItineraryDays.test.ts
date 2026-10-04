@@ -154,6 +154,27 @@ describe("assembleItineraryDays — form field wiring", () => {
     expect(dayStopsMock.mock.calls[0][DAY_STOPS_LODGING]).toBeUndefined();
   });
 
+  it("a round-trip loop doesn't revisit places from the first stay in the arrival city", async () => {
+    planTripMock.mockResolvedValue({
+      title: "loop",
+      currency: "JPY",
+      cities: [
+        { name: "東京", days: 2 },
+        { name: "鎌倉", days: 2 },
+        { name: "東京", days: 1 },
+      ],
+    });
+    dayStopsMock.mockImplementation(async (city: string, count: number) =>
+      Array.from({ length: count }, (_, i) => [{ placeId: `${city}-${i}` }])
+    );
+
+    await run(undefined, undefined);
+
+    // calls: 東京 (first stay), 鎌倉 — the final 東京 block is only a transit + departure day
+    const lockedForDeparture = departureStopsMock.mock.calls[0][5] as string[];
+    expect(lockedForDeparture).toEqual(expect.arrayContaining(["東京-0", "東京-1"]));
+  });
+
   it("pace (步調) reaches the per-day scheduler", async () => {
     await run(undefined, { pace: "intensive" });
 

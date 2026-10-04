@@ -136,7 +136,9 @@ async function main() {
         continue;
       }
 
-      const cityRepairedDays = isMultiCity
+      // Same as generate-stream/route.ts: a round-trip loop has transit days too.
+      const hasTransitDays = assembled.days.some((d: Record<string, unknown>) => d.isTransitDay === true);
+      const cityRepairedDays = isMultiCity || hasTransitDays
         ? repairTransitDayDepartureCities(assembled.days as never)
         : assembled.days;
       const repairedDays = repairMissingAccommodation(cityRepairedDays as never);
