@@ -10,6 +10,8 @@ vi.mock("@/lib/openai", () => ({
 vi.mock("@/lib/placesTextSearch", () => ({
   getCityCenter: async () => ({ lat: 35.01, lng: 135.77 }),
 }));
+// Fixed rate so budget ranking is deterministic and nothing hits the network.
+vi.mock("@/lib/exchangeRate", () => ({ getTwdRates: async () => ({ TWD: 1, JPY: 0.2 }) }));
 vi.mock("@/lib/fetchCityRestaurants", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/fetchCityRestaurants")>()),
   fetchNearbyPlaceCandidates: (...args: unknown[]) => nearbyMock(...args),
@@ -69,6 +71,27 @@ describe("generateMealsAndAccommodation", () => {
     // breakfast, main, snack, lodging — one call each (no price-filter retry:
     // Nearby Search never supported that filter). Tier is the 6th argument.
     expect(nearbyMock.mock.calls.map((c) => c[5])).toEqual(["pro", "enterprise", "pro", "pro"]);
+  });
+
+  it("offers only in-budget lunch/dinner places when there are enough of them", async () => {
+    const priced = (name: string, start: number, end: number): PlaceCandidate => ({
+      ...place(name),
+      priceRange: { currency: "JPY", start, end },
+    });
+    // budget cap NT$400 = ¥2,000 at the mocked 0.2 rate
+    nearbyMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([priced("Kaiseki", 15000, 30000), priced("Ramen", 900, 1200), priced("Udon", 600, 900)])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+    mockLlm({ accommodation: {}, meals: [{ lunch: { id: "M1" }, dinner: { id: "M2" } }] });
+
+    const result = await generateMealsAndAccommodation("京都", 1, "JPY", "budget");
+
+    expect(systemPrompt()).not.toContain("Kaiseki");
+    expect(systemPrompt()).toContain("M1: Ramen");
+    // estimated cost comes from Google's range midpoint, not the priceLevel table
+    expect((result.mealsByDay[0].lunch as Record<string, unknown>).estimated_cost).toBe(1050);
   });
 
   it("falls back to the invent-the-names prompt when there are no candidates", async () => {

@@ -13,6 +13,8 @@ import { NEUTRAL_PREFERENCE_INTENT, type PreferenceIntent } from "@/lib/schemas"
 import { getDistancesForStopPairs, pickModeForDistance, describeTransport } from "@/lib/distanceMatrix";
 import { estimateAttractionCost } from "@/lib/priceLevelCost";
 import { isFoodPlace } from "@/lib/foodPlace";
+import { getTwdRates } from "@/lib/exchangeRate";
+import { rankMainMealsByBudget } from "@/lib/mealBudget";
 
 // Shared AI-generation helpers for building out a city's worth of itinerary
 // content (transit day, sightseeing days, accommodation + meals). Used by the
@@ -378,7 +380,12 @@ export async function generateDepartureDayStops(
 const MEAL_LODGING_RADIUS_M = 3000;
 const MEAL_LODGING_MAX_COUNT = 20;
 
-async function fetchMealLodgingPools(cityName: string, budget: BudgetLevel | undefined): Promise<MealLodgingPools | null> {
+async function fetchMealLodgingPools(
+  cityName: string,
+  budget: BudgetLevel | undefined,
+  currency: string,
+  stayDays: number
+): Promise<MealLodgingPools | null> {
   const apiKey = process.env.GOOGLE_PLACES_API_KEY;
   if (!apiKey) return null;
   const coords = await getCityCenter(cityName, apiKey);
@@ -390,13 +397,16 @@ async function fetchMealLodgingPools(cityName: string, budget: BudgetLevel | und
   const search = async (types: string[], tier: FieldTier, keep: (p: PlaceCandidate) => boolean = () => true) =>
     (await fetchNearbyPlaceCandidates(coords, apiKey, types, MEAL_LODGING_RADIUS_M, MEAL_LODGING_MAX_COUNT, tier)).filter(keep);
 
-  const [breakfast, main, snack, lodging] = await Promise.all([
+  const [breakfast, main, snack, lodging, twdPerUnit] = await Promise.all([
     search(getMealPlaceTypes("breakfast", budget), "pro", isFoodPlace),
     search(getMealPlaceTypes("lunch", budget), "enterprise", isFoodPlace),
     search(getMealPlaceTypes("snack", budget), "pro", isFoodPlace),
     search(getLodgingTypes(budget), "pro"),
+    budget ? getTwdRates() : Promise.resolve({}),
   ]);
-  return { breakfast, main, snack, lodging };
+  // Lunch + dinner each day draw from the same pool.
+  const rankedMain = rankMainMealsByBudget(main, budget, currency, twdPerUnit, stayDays * 2);
+  return { breakfast, main: rankedMain, snack, lodging };
 }
 
 export async function generateMealsAndAccommodation(
@@ -411,7 +421,7 @@ export async function generateMealsAndAccommodation(
   // city center) replace one Text Search per meal/hotel during enrich, and
   // the LLM can't invent a name that later comes back "not found". Any
   // failure here just means the old invent-the-names prompt below.
-  const pools = await fetchMealLodgingPools(cityName, budget).catch(() => null);
+  const pools = await fetchMealLodgingPools(cityName, budget, currency, stayDays).catch(() => null);
   const useCandidates = pools !== null && hasAnyCandidates(pools);
 
   const candidateRules = useCandidates

@@ -9,6 +9,11 @@ import {
 import { resolveDayCoords } from "@/lib/itineraryGen";
 import { estimateMealCost } from "@/lib/priceLevelCost";
 import { isFoodPlace } from "@/lib/foodPlace";
+import { getTwdRates } from "@/lib/exchangeRate";
+import { estimateFromPriceRange, rankMainMealsByBudget } from "@/lib/mealBudget";
+
+// How many fresh candidates the picker shows.
+const PICKER_SIZE = 10;
 import { translatePlaceNames } from "@/lib/translatePlaceNames";
 import { isMealType } from "@/types/itinerary";
 import { findDayIndex } from "@/lib/itineraryDays";
@@ -94,13 +99,18 @@ export async function POST(
     const types = getMealPlaceTypes(mealType, budget);
     // Only lunch/dinner needs Enterprise fields (budget ranking reads
     // priceRange); breakfast/snack have no budget cap (plan/form-preference-wiring.md 1c-2).
-    const tier = mealType === "lunch" || mealType === "dinner" ? "enterprise" : "pro";
+    const isMainMeal = mealType === "lunch" || mealType === "dinner";
+    const tier = isMainMeal ? "enterprise" : "pro";
 
     // Pull the full cached pool (same cost as 10 — see NEARBY_FETCH_COUNT) so
     // dropping non-food places still leaves up to 10 to show.
-    const places = (await fetchNearbyPlaceCandidates(coords, googleApiKey, types, 2000, 20, tier))
-      .filter(isFoodPlace)
-      .slice(0, 10);
+    const foodPlaces = (await fetchNearbyPlaceCandidates(coords, googleApiKey, types, 2000, 20, tier)).filter(isFoodPlace);
+    // Lunch/dinner: in-budget restaurants first (plan/form-preference-wiring.md 1.3).
+    const ranked =
+      isMainMeal && budget
+        ? rankMainMealsByBudget(foodPlaces, budget, config.currency, await getTwdRates(), PICKER_SIZE)
+        : foodPlaces;
+    const places = ranked.slice(0, PICKER_SIZE);
 
     const currentPlaceId =
       typeof currentMeal?.placeId === "string" ? currentMeal.placeId : undefined;
@@ -130,7 +140,8 @@ export async function POST(
         lng: p.lng,
         address: p.address,
         rating: p.rating ?? null,
-        estimated_cost: estimateMealCost(config.currency, mealType, p.priceLevel),
+        estimated_cost:
+          estimateFromPriceRange(p.priceRange, config.currency) ?? estimateMealCost(config.currency, mealType, p.priceLevel),
         photoName: p.photoName ?? null,
       }));
 
