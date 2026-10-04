@@ -10,7 +10,13 @@ vi.mock("@/lib/openai", () => ({
   openai: { chat: { completions: { create: (...args: unknown[]) => createMock(...args) } } },
 }));
 
-import { planTrip, rebalanceZeroDayCities } from "@/lib/tripPlan";
+// Loop trips look up each town's center to check it's near the arrival city.
+const cityCenterMock = vi.fn();
+vi.mock("@/lib/placesTextSearch", () => ({
+  getCityCenter: (...args: unknown[]) => cityCenterMock(...args),
+}));
+
+import { closeLoop, planTrip, rebalanceZeroDayCities } from "@/lib/tripPlan";
 
 function mockContent(content: string) {
   createMock.mockResolvedValueOnce({ choices: [{ message: { content } }] });
@@ -39,6 +45,7 @@ const singleCityFlight: FlightInfo = {
 describe("planTrip", () => {
   beforeEach(() => {
     createMock.mockReset();
+    cityCenterMock.mockReset();
   });
 
   it("returns a valid multi-city plan whose days sum matches totalDays - 1", async () => {
@@ -199,5 +206,104 @@ describe("planTrip prompt placement", () => {
     expect(system).not.toContain(blurb);
     expect(system).toContain("<user_input>");
     expect(user).toContain(`<user_input>\n${blurb}\n</user_input>`);
+  });
+});
+
+// Round trips through one airport (東京 = NRT here): 7 days -> 6 to allocate.
+describe("planTrip — round-trip loops", () => {
+  const roundTrip: FlightInfo = { ...singleCityFlight, returnDate: "2026-05-08" };
+  const shortRoundTrip: FlightInfo = { ...singleCityFlight, returnDate: "2026-05-05" }; // 3 to allocate
+  const systemPromptOf = () => createMock.mock.calls[0][0].messages[0].content as string;
+
+  beforeEach(() => {
+    createMock.mockReset();
+    cityCenterMock.mockReset();
+    vi.stubEnv("GOOGLE_PLACES_API_KEY", "key");
+  });
+
+  it("offers a loop when there are enough days, and keeps a short trip to one city", async () => {
+    mockJson({ title: "t", currency: "JPY", cities: [{ name: "東京", days: 6 }] });
+    await planTrip(roundTrip, undefined, undefined, "m");
+    expect(systemPromptOf()).toContain("也可以繞一圈");
+
+    createMock.mockReset();
+    mockJson({ title: "t", currency: "JPY", cities: [{ name: "東京", days: 3 }] });
+    await planTrip(shortRoundTrip, undefined, undefined, "m");
+    expect(systemPromptOf()).toContain("絕對只能有一個城市");
+  });
+
+  it("accepts a loop out to a nearby town and back", async () => {
+    cityCenterMock.mockResolvedValue({ lat: 35.32, lng: 139.55 }); // 鎌倉, ~50km
+    const cities = [{ name: "東京", days: 3 }, { name: "鎌倉", days: 2 }, { name: "東京", days: 1 }];
+    mockJson({ title: "t", currency: "JPY", cities });
+
+    const result = await planTrip(roundTrip, undefined, undefined, "m");
+
+    expect(result?.cities).toEqual(cities);
+    expect(cityCenterMock).toHaveBeenCalledWith("鎌倉", "key");
+  });
+
+  it("closes a loop that forgets to come back, instead of retrying", async () => {
+    // a real Hokkaido run did this on both attempts and fell back to the old flow
+    cityCenterMock.mockResolvedValue({ lat: 35.32, lng: 139.55 });
+    mockJson({
+      title: "t",
+      currency: "JPY",
+      cities: [{ name: "東京", days: 3 }, { name: "鎌倉", days: 2 }, { name: "箱根", days: 1 }],
+    });
+
+    const result = await planTrip(roundTrip, undefined, undefined, "m");
+
+    expect(createMock).toHaveBeenCalledTimes(1);
+    expect(result?.cities).toEqual([
+      { name: "東京", days: 2 },
+      { name: "鎌倉", days: 2 },
+      { name: "箱根", days: 1 },
+      { name: "東京", days: 1 },
+    ]);
+  });
+
+  it("retries a loop that doesn't start in the arrival city", async () => {
+    mockJson({ title: "t", currency: "JPY", cities: [{ name: "鎌倉", days: 3 }, { name: "東京", days: 3 }] });
+    mockJson({ title: "t", currency: "JPY", cities: [{ name: "東京", days: 6 }] });
+
+    const result = await planTrip(roundTrip, undefined, undefined, "m");
+
+    expect(createMock).toHaveBeenCalledTimes(2);
+    expect(result?.cities).toEqual([{ name: "東京", days: 6 }]);
+  });
+
+  it("stays in the arrival city when a loop town is too far away", async () => {
+    cityCenterMock.mockResolvedValue({ lat: 43.06, lng: 141.35 }); // 札幌, ~830km
+    mockJson({
+      title: "t",
+      currency: "JPY",
+      cities: [{ name: "東京", days: 3 }, { name: "札幌", days: 2 }, { name: "東京", days: 1 }],
+    });
+
+    const result = await planTrip(roundTrip, undefined, undefined, "m");
+
+    expect(result?.cities).toEqual([{ name: "東京", days: 6 }]);
+  });
+
+  it("still rejects extra cities on a round trip too short for a loop", async () => {
+    mockJson({ title: "t", currency: "JPY", cities: [{ name: "東京", days: 2 }, { name: "東京", days: 1 }] });
+    mockJson({ title: "t", currency: "JPY", cities: [{ name: "東京", days: 3 }] });
+
+    const result = await planTrip(shortRoundTrip, undefined, undefined, "m");
+
+    expect(createMock).toHaveBeenCalledTimes(2);
+    expect(result?.cities).toEqual([{ name: "東京", days: 3 }]);
+  });
+});
+
+describe("closeLoop", () => {
+  it("leaves a loop that already ends in the arrival city alone", () => {
+    const cities = [{ name: "札幌", days: 3 }, { name: "小樽", days: 2 }, { name: "札幌", days: 1 }];
+    expect(closeLoop(cities, "札幌")).toBe(cities);
+  });
+
+  it("returns null when no stay can spare a day for the way back", () => {
+    expect(closeLoop([{ name: "札幌", days: 1 }, { name: "小樽", days: 1 }], "札幌")).toBeNull();
   });
 });

@@ -65,11 +65,15 @@ export function validateItinerary(
     });
   }
 
-  if (!isMultiCity && transitDays.length > 0) {
+  // A round trip may loop out to nearby towns and come back (planTrip
+  // LOOP_MIN_DAYS), so transit days are fine as long as the trip ends back
+  // in the arrival city to fly home. Without that, they're still an error.
+  const lastDayCity = days[days.length - 1]?.waypointCity;
+  if (!isMultiCity && transitDays.length > 0 && lastDayCity !== returnCityName) {
     issues.push({
       severity: "error",
       code: "TRANSIT_DAY_UNEXPECTED",
-      message: `單城市行程不應有移動日，但找到 ${transitDays.length} 個 isTransitDay: true 的天`,
+      message: `同城市來回的行程有 ${transitDays.length} 個移動日，但最後一天沒有回到「${returnCityName}」`,
     });
   }
 

@@ -154,6 +154,46 @@ describe("assembleItineraryDays — form field wiring", () => {
     expect(dayStopsMock.mock.calls[0][DAY_STOPS_LODGING]).toBeUndefined();
   });
 
+  it("a round-trip loop doesn't revisit places from the first stay in the arrival city", async () => {
+    planTripMock.mockResolvedValue({
+      title: "loop",
+      currency: "JPY",
+      cities: [
+        { name: "東京", days: 2 },
+        { name: "鎌倉", days: 2 },
+        { name: "東京", days: 1 },
+      ],
+    });
+    dayStopsMock.mockImplementation(async (city: string, count: number) =>
+      Array.from({ length: count }, (_, i) => [{ placeId: `${city}-${i}` }])
+    );
+
+    await run(undefined, undefined);
+
+    // calls: 東京 (first stay), 鎌倉 — the final 東京 block is only a transit + departure day
+    const lockedForDeparture = departureStopsMock.mock.calls[0][5] as string[];
+    expect(lockedForDeparture).toEqual(expect.arrayContaining(["東京-0", "東京-1"]));
+    // the transit day arriving back in 東京 mustn't repeat them either
+    const backToTokyo = transitStopsMock.mock.calls.find((c) => c[1] === "東京")!;
+    expect(backToTokyo[5]).toEqual(expect.arrayContaining(["東京-0", "東京-1"]));
+  });
+
+  it("gives transit days the meals after arriving, and keeps every other day's meals aligned", async () => {
+    mealsMock.mockImplementation(async (city: string, mealDays: number) => ({
+      accommodation: { name: `${city} Hotel` },
+      mealsByDay: Array.from({ length: mealDays }, (_, i) => ({ breakfast: `${city}-B${i}`, lunch: `${city}-L${i}` })),
+    }));
+
+    const result = await run(undefined, undefined);
+    const days = result!.days as Array<{ isTransitDay?: boolean; meals?: Record<string, unknown> }>;
+
+    // 東京: 3 sightseeing days. 大阪 (2 days): transit day + 1 sightseeing day + the return day.
+    expect(mealsMock.mock.calls.map((c) => [c[0], c[1]])).toEqual([["東京", 3], ["大阪", 3]]);
+    expect(days.map((d) => d.meals?.lunch)).toEqual(["東京-L0", "東京-L1", "東京-L2", "大阪-L0", "大阪-L1", "大阪-L2"]);
+    const transit = days.find((d) => d.isTransitDay)!;
+    expect(transit.meals).toEqual({ lunch: "大阪-L0" }); // no breakfast: still in 東京 that morning
+  });
+
   it("pace (步調) reaches the per-day scheduler", async () => {
     await run(undefined, { pace: "intensive" });
 

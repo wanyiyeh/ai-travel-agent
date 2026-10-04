@@ -78,8 +78,10 @@ export function buildSystemPrompt(
   // The transit-day example is only shown for multi-city trips — including it
   // unconditionally in the JSON template previously primed the model to emit
   // isTransitDay:true even for single-city trips (e.g. a national-park day
-  // trip), which validateItinerary then hard-rejects (TRANSIT_DAY_UNEXPECTED),
-  // deterministically failing generation every retry.
+  // trip), which validateItinerary then rejected (TRANSIT_DAY_UNEXPECTED),
+  // deterministically failing generation every retry. It still rejects that
+  // unless the trip ends back in the arrival city (round-trip loops,
+  // tripPlan.ts LOOP_MIN_DAYS).
   const transitDayExample = isMultiCity
     ? `,
     {

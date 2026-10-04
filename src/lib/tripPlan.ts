@@ -4,6 +4,18 @@ import type { FlightInfo, TripPreferences } from "@/lib/schemas";
 import { iataToCity } from "@/lib/iataCity";
 import { calcDays, buildFlightTimePrompt, buildPreferencePrompt } from "@/lib/itineraryGen";
 import { UNTRUSTED_INPUT_RULE, wrapUntrusted } from "@/lib/untrustedInput";
+import { getIataCoords } from "@/lib/airports";
+import { getCityCenter } from "@/lib/placesTextSearch";
+import { haversineKm } from "@/lib/geo";
+
+// A round-trip flight (same airport in and out) used to be forced to one
+// city, which kept a 7-day Hokkaido trip within 10km of Sapporo. With enough
+// days it may now loop out to nearby towns and come back (札幌 → 富良野 →
+// 札幌): at least this many days to allocate...
+const LOOP_MIN_DAYS = 4;
+// ...and every stop on the loop within ~3h by ground of the arrival city.
+// Straight-line, so a bit generous: Sapporo–Hakodate is ~250km / 3.5h by train.
+const MAX_LOOP_KM = 250;
 
 // plan/hybrid-rule-engine-scheduling.md Phase 5(a): generate-stream currently
 // has no structured city list at all — how many cities and how many days
@@ -72,6 +84,16 @@ function buildSystemPrompt(
   const returnCityName = iataToCity(flightInfo.returnDepartureCity);
   const isMultiCity = arrivalCityName !== returnCityName;
   const citiesBudget = totalDays - 1;
+  const loopAllowed = !isMultiCity && citiesBudget >= LOOP_MIN_DAYS;
+
+  const loopRules = `\n\n【同一城市來回：可以只待一個城市，也可以繞一圈】航班從「${arrivalCityName}」進、
+也從「${arrivalCityName}」出。天數夠時，可以從 ${arrivalCityName} 出發，到附近城鎮住幾晚再回來
+（例如「${arrivalCityName} 3 → 鄰近城鎮 2 → ${arrivalCityName} 1」），讓旅客不必每天都待在同一個城市。規則：
+- 第一個和最後一個城市都必須是「${arrivalCityName}」，因為要從這裡搭機回程
+- 中途的城鎮必須在 ${arrivalCityName} 地面交通 3 小時以內，不可以加入需要搭飛機或很遠的城市
+- 旅客的風格描述若點名了想去的城鎮，優先安排；沒有的話，就安排 ${arrivalCityName} 周邊最值得過夜的一兩個城鎮
+- 中途每個城鎮建議至少 2 天，城市總數不要超過 4 個（含頭尾的 ${arrivalCityName}）
+- 只待 ${arrivalCityName} 一個城市也可以（cities 長度為 1、days 等於 ${citiesBudget}），例如風格描述說想深度玩 ${arrivalCityName}`;
 
   const singleCityConstraint = `\n\n【重要：這是同一城市來回，絕對只能有一個城市】航班從「${arrivalCityName}」進、
 也從「${arrivalCityName}」出，這不是開口式多城市行程。cities 陣列的長度必須恰好是 1，
@@ -92,7 +114,7 @@ function buildSystemPrompt(
 航班：從 ${arrivalCityName} 進、從 ${returnCityName} 出${isMultiCity ? "（不同城市，開口式行程）" : "（同一城市來回）"}。
 總天數：${totalDays} 天，但最後一天固定是回程日（不計入下面的城市天數分配），
 你只需要分配前 ${citiesBudget} 天。${buildFlightTimePrompt(flightInfo)}${buildPreferencePrompt(preferences)}
-${!isMultiCity ? singleCityConstraint : ""}${daysSumExample}${UNTRUSTED_INPUT_RULE}
+${!isMultiCity ? (loopAllowed ? loopRules : singleCityConstraint) : ""}${daysSumExample}${UNTRUSTED_INPUT_RULE}
 
 回傳嚴格的 JSON 格式（不要其他文字）：
 {
@@ -110,7 +132,9 @@ ${!isMultiCity ? singleCityConstraint : ""}${daysSumExample}${UNTRUSTED_INPUT_RU
 - 第一個城市必須是「${arrivalCityName}」。${
     isMultiCity
       ? `最後一個城市必須是「${returnCityName}」；中途可以有其他城市，依使用者風格描述與地理路線合理性決定`
-      : `只能有這一個城市（因為是同一城市來回），見上方【重要】說明，不可以自己加其他城市`
+      : loopAllowed
+        ? `若繞一圈，最後一個城市也必須是「${arrivalCityName}」，見上方說明`
+        : `只能有這一個城市（因為是同一城市來回），見上方【重要】說明，不可以自己加其他城市`
   }
 - 每個城市的 days 是整數，代表這個城市總共會用掉的天數：第一個城市的 days
   不含移動日（第1天就是航班抵達當天）；其餘城市的 days 包含抵達它的移動日
@@ -130,6 +154,54 @@ ${!isMultiCity ? singleCityConstraint : ""}${daysSumExample}${UNTRUSTED_INPUT_RU
   數量的城市，也不要讓單一城市停留時間過短（例如只待 1 天卻要深度體驗）或
   過長而顯得單調
 - 城市名稱必須是真實存在、且是航線上地理合理的城市`;
+}
+
+/**
+ * Makes a loop end back in the arrival city, where the flight home leaves
+ * from. The LLM reliably plans the loop itself but often forgets the way back
+ * (a Hokkaido run came back ["札幌", "小樽", "登別"] on both attempts, so the
+ * whole plan was rejected), so rather than retrying, take one day from the
+ * longest stay and add the arrival city at the end. Returns the input
+ * unchanged when it already closes, or null when no stay can spare a day.
+ */
+export function closeLoop(cities: TripPlan["cities"], arrivalCityName: string): TripPlan["cities"] | null {
+  if (cities[cities.length - 1].name === arrivalCityName) return cities;
+  const donorIdx = cities.reduce((best, c, i) => (c.days > cities[best].days ? i : best), 0);
+  if (cities[donorIdx].days < 2) return null;
+  return [
+    ...cities.map((c, i) => (i === donorIdx ? { ...c, days: c.days - 1 } : c)),
+    { name: arrivalCityName, days: 1 },
+  ];
+}
+
+/**
+ * A loop trip's towns must really be near the arrival city — the prompt asks
+ * for within 3h by ground, but nothing stops the LLM from adding a city a
+ * flight away. Each town is looked up (getCityCenter: cached, and the
+ * generators look the same cities up anyway) and if any is unknown or farther
+ * than MAX_LOOP_KM, the whole trip falls back to the arrival city alone
+ * rather than half-trusting a bad route. Skipped without an API key.
+ */
+async function keepLoopNearby(
+  plan: TripPlan,
+  arrivalIata: string,
+  arrivalCityName: string,
+  daysToAllocate: number
+): Promise<TripPlan> {
+  const apiKey = process.env.GOOGLE_PLACES_API_KEY;
+  const home = getIataCoords(arrivalIata);
+  if (!apiKey || !home) return plan;
+
+  const towns = [...new Set(plan.cities.map((c) => c.name).filter((name) => name !== arrivalCityName))];
+  const centers = await Promise.all(towns.map((town) => getCityCenter(town, apiKey).catch(() => null)));
+  const tooFar = towns.filter((_town, i) => {
+    const center = centers[i];
+    return !center || haversineKm(home.lat, home.lng, center.lat, center.lng) > MAX_LOOP_KM;
+  });
+  if (tooFar.length === 0) return plan;
+
+  console.warn(`[planTrip] loop towns too far from ${arrivalCityName} or not found, staying put:`, tooFar);
+  return { ...plan, cities: [{ name: arrivalCityName, days: daysToAllocate }] };
 }
 
 /**
@@ -156,6 +228,8 @@ export async function planTrip(
   if (totalDays <= 1) return null;
 
   const systemPrompt = buildSystemPrompt(flightInfo, preferences, totalDays);
+  const arrivalCityName = iataToCity(flightInfo.arrivalCity);
+  const isRoundTrip = arrivalCityName === iataToCity(flightInfo.returnDepartureCity);
   // The style blurb is caller-controlled, so it rides in the user message as
   // tagged data rather than in the system prompt (see untrustedInput.ts).
   const userMessage =
@@ -208,6 +282,21 @@ export async function planTrip(
       if (!parsed.success) {
         console.warn(`[planTrip] attempt ${attempt}: schema validation failed after rebalance`, parsed.error.flatten());
         continue;
+      }
+
+      if (isRoundTrip && parsed.data.cities.length > 1) {
+        const names = parsed.data.cities.map((c) => c.name);
+        const loop = totalDays - 1 >= LOOP_MIN_DAYS && names[0] === arrivalCityName
+          ? closeLoop(parsed.data.cities, arrivalCityName)
+          : null;
+        if (!loop) {
+          console.warn(`[planTrip] attempt ${attempt}: a round trip must stay in or loop back to ${arrivalCityName}`, names);
+          continue;
+        }
+        if (loop !== parsed.data.cities) {
+          console.warn(`[planTrip] attempt ${attempt}: closed the loop back to ${arrivalCityName}`, names, "->", loop.map((c) => c.name));
+        }
+        return await keepLoopNearby({ ...parsed.data, cities: loop }, flightInfo.arrivalCity, arrivalCityName, totalDays - 1);
       }
 
       return parsed.data;
