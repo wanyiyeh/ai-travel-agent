@@ -72,6 +72,9 @@ interface ItineraryMapProps {
   itineraryId: string;
   days: Day[];
   context?: string;
+  // Public example viewed by a non-owner: show what's already geocoded, but
+  // don't call the enrich routes (they write to the itinerary and bill Google).
+  readOnly?: boolean;
 }
 
 // --- Inner component: has access to map instance via useMap ---
@@ -337,6 +340,7 @@ export default function ItineraryMap({
   itineraryId,
   days,
   context,
+  readOnly = false,
 }: ItineraryMapProps) {
   const [mapStops, setMapStops] = useState<MapStop[]>([]);
   const [mapAccommodations, setMapAccommodations] = useState<MapAccommodation[]>([]);
@@ -444,6 +448,8 @@ export default function ItineraryMap({
           });
         }
       });
+
+      if (readOnly) return;
 
       // Enrich accommodations that lack lat/lng
       const needsAccEnrich = days

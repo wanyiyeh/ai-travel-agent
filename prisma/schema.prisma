@@ -33,6 +33,9 @@ model Itinerary {
   // Guest itineraries expire 3 days after creation unless claimed by signing
   // in (then cleared to null); expired ones read as not found.
   expiresAt                   DateTime?                    @map("expires_at")
+  // Admin-marked showcase: anyone can open it read-only, signed in or not
+  // (plan/access-control.md §8). Writes stay owner-only regardless.
+  isPublic                    Boolean                      @default(false) @map("is_public")
   createdAt                   DateTime                     @default(now())
   updatedAt                   DateTime                     @updatedAt
   accommodationCandidateLogs  AccommodationCandidateLog[]

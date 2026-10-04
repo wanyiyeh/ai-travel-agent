@@ -8,6 +8,7 @@ import {
   type DragStartEvent,
   type DragOverEvent,
   type DragEndEvent,
+  useSensors,
 } from "@dnd-kit/core";
 import { useItinerarySensors } from "@/hooks/useItinerarySensors";
 import {
@@ -120,6 +121,9 @@ interface EditableItineraryCardProps {
   hideCostSummary?: boolean;
   // Printing: render every day expanded, whatever the user collapsed.
   expandAll?: boolean;
+  // A public example viewed by a non-owner: no editing, no dragging, and no
+  // automatic enrich calls (those write to the itinerary and bill Google).
+  readOnly?: boolean;
 }
 
 type EditingStop = {
@@ -136,6 +140,7 @@ export default function EditableItineraryCard({
   onExploreBorder,
   hideCostSummary = false,
   expandAll = false,
+  readOnly = false,
 }: EditableItineraryCardProps) {
   const [itinerary, setItinerary] = useState(data.data);
   const [editingStop, setEditingStop] = useState<EditingStop | null>(null);
@@ -213,7 +218,10 @@ export default function EditableItineraryCard({
     return result;
   }, [itinerary.days]);
 
-  const sensors = useItinerarySensors();
+  const editSensors = useItinerarySensors();
+  // No sensors = nothing can start a drag.
+  const noSensors = useSensors();
+  const sensors = readOnly ? noSensors : editSensors;
 
   const calculateDayDuration = (stops: Stop[]) =>
     stops.reduce((total, s) => total + (s.duration_minutes || 0), 0);
@@ -904,6 +912,7 @@ export default function EditableItineraryCard({
   };
 
   useEffect(() => {
+    if (readOnly) return;
     async function enrichAll() {
       // Read from data.data (the just-fetched server copy), not the itinerary
       // state var — after a restructure, ViewContent re-fetches and passes a
@@ -932,6 +941,7 @@ export default function EditableItineraryCard({
   }, [data.data]);
 
   useEffect(() => {
+    if (readOnly) return;
     async function enrichAllStops() {
       try {
         const res = await fetch(`/api/v1/itinerary/${data.id}/enrich-all-stops`, { method: "POST" });
@@ -1024,7 +1034,8 @@ export default function EditableItineraryCard({
       onDragEnd={handleDragEnd}
       onDragCancel={handleDragEnd}
     >
-      <div className="space-y-6">
+      {/* data-readonly: globals.css hides every control except data-print-show / data-readonly-keep. */}
+      <div className="space-y-6" data-readonly={readOnly || undefined}>
         {error && (
           <div className="rounded-lg border border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950 px-4 py-3 text-sm text-red-700 dark:text-red-300">
             {error}
@@ -1077,6 +1088,7 @@ export default function EditableItineraryCard({
 
         <div data-print-hidden className="sticky top-2 z-20 flex items-center gap-2 overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white/90 dark:bg-zinc-900/90 backdrop-blur px-3 py-2 shadow-sm">
           <button
+            data-readonly-keep
             onClick={toggleAll}
             className="shrink-0 rounded-md bg-zinc-100 dark:bg-zinc-800 px-2.5 py-1 text-xs font-medium text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors"
           >
@@ -1086,6 +1098,7 @@ export default function EditableItineraryCard({
           {itinerary.days.map((day) => (
             <button
               key={day.day}
+              data-readonly-keep
               onClick={() => scrollToDay(day.day)}
               className="shrink-0 rounded-md bg-zinc-100 dark:bg-zinc-800 px-2.5 py-1 text-xs text-zinc-600 dark:text-zinc-400 hover:bg-blue-100 dark:hover:bg-blue-900/40 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
             >
