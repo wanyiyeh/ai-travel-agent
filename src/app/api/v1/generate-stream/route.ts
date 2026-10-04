@@ -157,10 +157,34 @@ export async function POST(request: Request) {
     }
 
     const encoder = new TextEncoder();
+    // Set when the browser goes away mid-generation (tab closed, page
+    // reloaded). Writing to the stream after that throws, which used to be
+    // mistaken for a rule-engine failure and set off the paid old-flow
+    // fallback for nobody. Now sends become no-ops, the rule-engine result is
+    // still saved (it shows up in the itinerary list), and no fallback runs.
+    let clientGone = false;
     const stream = new ReadableStream({
+      cancel: () => {
+        clientGone = true;
+      },
       // Metered so each generation logs its Google/OpenAI call counts
       // ("[usage] generate-stream ...") — plan/access-control.md §3.
       start: (controller) => runMetered("generate-stream", async () => {
+        const send = (data: string) => {
+          if (clientGone) return;
+          try {
+            controller.enqueue(encoder.encode(`data: ${data}\n\n`));
+          } catch {
+            clientGone = true;
+          }
+        };
+        const close = () => {
+          try {
+            controller.close();
+          } catch {
+            // already closed by the client
+          }
+        };
         try {
           const isMultiCity =
             iataToCity(flightInfo.returnDepartureCity) !== iataToCity(flightInfo.arrivalCity);
@@ -186,7 +210,7 @@ export async function POST(request: Request) {
               process.env.OPENAI_MODEL ?? "gpt-4o-mini",
               (event) => {
                 newPathEmittedEvents = true;
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+                send(JSON.stringify(event));
               }
             );
 
@@ -242,8 +266,8 @@ export async function POST(request: Request) {
                   id: savedId,
                   warnings: logicResult.issues.filter((i) => i.severity === "warning"),
                 });
-                controller.enqueue(encoder.encode(`data: ${finalData}\n\n`));
-                controller.close();
+                send(finalData);
+                close();
                 return;
               }
               console.warn("[Stream] Rule-engine path failed validation, falling back to LLM flow:", logicResult.issues);
@@ -252,13 +276,19 @@ export async function POST(request: Request) {
             console.warn("[Stream] Rule-engine path threw, falling back to LLM flow:", err);
           }
 
+          if (clientGone) {
+            console.warn("[Stream] client disconnected; skipping the old-flow fallback");
+            close();
+            return;
+          }
+
           if (newPathEmittedEvents) {
             // The rule-engine path got far enough to show the client a partial
             // preview (plan/day events) before failing — reuse the existing
             // "retry" event so it clears that state instead of mixing it with
             // the old flow's own chunk-based streaming below.
             const retryData = JSON.stringify({ type: "retry", attempt: 1, maxAttempts: MAX_GENERATION_ATTEMPTS });
-            controller.enqueue(encoder.encode(`data: ${retryData}\n\n`));
+            send(retryData);
           }
 
           const googleApiKey = process.env.GOOGLE_PLACES_API_KEY;
@@ -291,13 +321,19 @@ export async function POST(request: Request) {
           let lastErrorEvent: Record<string, unknown> | null = null;
 
           for (let attempt = 1; attempt <= MAX_GENERATION_ATTEMPTS; attempt++) {
+            // Don't pay for another attempt nobody will receive.
+            if (clientGone) {
+              console.warn(`[Stream] client disconnected; stopping before attempt ${attempt}`);
+              close();
+              return;
+            }
             if (attempt > 1) {
               const retryData = JSON.stringify({
                 type: "retry",
                 attempt,
                 maxAttempts: MAX_GENERATION_ATTEMPTS,
               });
-              controller.enqueue(encoder.encode(`data: ${retryData}\n\n`));
+              send(retryData);
             }
 
             const completion = await openai.chat.completions.create({
@@ -322,7 +358,7 @@ export async function POST(request: Request) {
                   type: "chunk",
                   content: accumulatedContent,
                 });
-                controller.enqueue(encoder.encode(`data: ${data}\n\n`));
+                send(data);
               }
             }
 
@@ -425,8 +461,8 @@ export async function POST(request: Request) {
                 id: savedId,
                 warnings: logicResult.issues.filter((i) => i.severity === "warning"),
               });
-              controller.enqueue(encoder.encode(`data: ${finalData}\n\n`));
-              controller.close();
+              send(finalData);
+              close();
               return;
             } catch (error) {
               // The raw parse/zod/DB error stays in the server log, keyed by
@@ -442,8 +478,8 @@ export async function POST(request: Request) {
             }
           }
 
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify(lastErrorEvent)}\n\n`));
-          controller.close();
+          send(JSON.stringify(lastErrorEvent));
+          close();
         } catch (error) {
           const requestId = newRequestId();
           console.error(`[Generate Stream] requestId=${requestId}`, error);
@@ -452,8 +488,8 @@ export async function POST(request: Request) {
             error: "生成失敗",
             requestId,
           });
-          controller.enqueue(encoder.encode(`data: ${errorData}\n\n`));
-          controller.close();
+          send(errorData);
+          close();
         } finally {
           generateStreamGate.release(ip);
         }
