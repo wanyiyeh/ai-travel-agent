@@ -44,6 +44,12 @@ function locationOf(accommodation: Record<string, unknown> | undefined): { lat: 
   return typeof lat === "number" && typeof lng === "number" ? { lat, lng } : undefined;
 }
 
+function withoutBreakfast(meals: Record<string, unknown> | undefined): Record<string, unknown> {
+  const rest = { ...(meals ?? {}) };
+  delete rest.breakfast;
+  return rest;
+}
+
 const emptyMealsAndAccommodation = (nights: number) => ({
   accommodation: {} as Record<string, unknown>,
   mealsByDay: Array.from({ length: nights }, () => ({}) as Record<string, unknown>),
@@ -115,7 +121,13 @@ export async function assembleItineraryDays(
     usedPlaceIdsByCity.set(city.name, usedPlaceIds);
 
     const sightseeingCount = city.days - (isFirst ? 0 : 1);
-    const nights = sightseeingCount + (isLast ? 1 : 0);
+    // Days that need meals from this city: its sightseeing days, the return
+    // day for the last city, and — for every city after the first — the
+    // transit day into it (lunch, dinner and snack happen after arriving).
+    // Transit days used to get no meals at all; a round-trip loop has
+    // several, which left half a week without restaurants.
+    const transitMealDays = isFirst ? 0 : 1;
+    const mealDays = transitMealDays + sightseeingCount + (isLast ? 1 : 0);
 
     // Meals/accommodation don't depend on which attractions get picked, so
     // this can run alongside the transit day's generation below rather than
@@ -126,8 +138,8 @@ export async function assembleItineraryDays(
     // assembleItineraryDays, breaking its "never throws except when planTrip
     // fails" contract. restructure/route.ts already wraps every one of its
     // own call sites with this same degrade-to-empty pattern.
-    const mealsAndAccommodationPromise = generateMealsAndAccommodation(city.name, nights, plan.currency, budget, mealPreferences).catch(
-      () => emptyMealsAndAccommodation(nights)
+    const mealsAndAccommodationPromise = generateMealsAndAccommodation(city.name, mealDays, plan.currency, budget, mealPreferences).catch(
+      () => emptyMealsAndAccommodation(mealDays)
     );
 
     if (!isFirst) {
@@ -149,6 +161,9 @@ export async function assembleItineraryDays(
         // The transit day's own night is spent in the destination city —
         // same accommodation as the sightseeing days that follow it.
         accommodation: hasAccommodation ? mealsAndAccommodation.accommodation : undefined,
+        // Breakfast is still in the city being left — usually the transit
+        // plan's own station breakfast — so only the meals after arriving.
+        meals: withoutBreakfast(mealsAndAccommodation.mealsByDay[0]),
       });
     }
 
@@ -181,7 +196,7 @@ export async function assembleItineraryDays(
         waypointCity: city.name,
         stops: sightseeingStops[i],
         accommodation,
-        meals: mealsAndAccommodation.mealsByDay[i] ?? {},
+        meals: mealsAndAccommodation.mealsByDay[transitMealDays + i] ?? {},
       });
     }
 
@@ -203,7 +218,7 @@ export async function assembleItineraryDays(
         // The last day is a departure day — no accommodation, matching the
         // existing big-prompt rule (itineraryGen.ts buildSystemPrompt rule 7).
         accommodation: null,
-        meals: mealsAndAccommodation.mealsByDay[sightseeingCount] ?? {},
+        meals: mealsAndAccommodation.mealsByDay[transitMealDays + sightseeingCount] ?? {},
       });
     }
   }
