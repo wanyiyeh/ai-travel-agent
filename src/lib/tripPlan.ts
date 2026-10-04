@@ -157,6 +157,24 @@ ${!isMultiCity ? (loopAllowed ? loopRules : singleCityConstraint) : ""}${daysSum
 }
 
 /**
+ * Makes a loop end back in the arrival city, where the flight home leaves
+ * from. The LLM reliably plans the loop itself but often forgets the way back
+ * (a Hokkaido run came back ["札幌", "小樽", "登別"] on both attempts, so the
+ * whole plan was rejected), so rather than retrying, take one day from the
+ * longest stay and add the arrival city at the end. Returns the input
+ * unchanged when it already closes, or null when no stay can spare a day.
+ */
+export function closeLoop(cities: TripPlan["cities"], arrivalCityName: string): TripPlan["cities"] | null {
+  if (cities[cities.length - 1].name === arrivalCityName) return cities;
+  const donorIdx = cities.reduce((best, c, i) => (c.days > cities[best].days ? i : best), 0);
+  if (cities[donorIdx].days < 2) return null;
+  return [
+    ...cities.map((c, i) => (i === donorIdx ? { ...c, days: c.days - 1 } : c)),
+    { name: arrivalCityName, days: 1 },
+  ];
+}
+
+/**
  * A loop trip's towns must really be near the arrival city — the prompt asks
  * for within 3h by ground, but nothing stops the LLM from adding a city a
  * flight away. Each town is looked up (getCityCenter: cached, and the
@@ -268,12 +286,17 @@ export async function planTrip(
 
       if (isRoundTrip && parsed.data.cities.length > 1) {
         const names = parsed.data.cities.map((c) => c.name);
-        const closesLoop = names[0] === arrivalCityName && names[names.length - 1] === arrivalCityName;
-        if (totalDays - 1 < LOOP_MIN_DAYS || !closesLoop) {
+        const loop = totalDays - 1 >= LOOP_MIN_DAYS && names[0] === arrivalCityName
+          ? closeLoop(parsed.data.cities, arrivalCityName)
+          : null;
+        if (!loop) {
           console.warn(`[planTrip] attempt ${attempt}: a round trip must stay in or loop back to ${arrivalCityName}`, names);
           continue;
         }
-        return await keepLoopNearby(parsed.data, flightInfo.arrivalCity, arrivalCityName, totalDays - 1);
+        if (loop !== parsed.data.cities) {
+          console.warn(`[planTrip] attempt ${attempt}: closed the loop back to ${arrivalCityName}`, names, "->", loop.map((c) => c.name));
+        }
+        return await keepLoopNearby({ ...parsed.data, cities: loop }, flightInfo.arrivalCity, arrivalCityName, totalDays - 1);
       }
 
       return parsed.data;

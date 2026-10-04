@@ -16,7 +16,7 @@ vi.mock("@/lib/placesTextSearch", () => ({
   getCityCenter: (...args: unknown[]) => cityCenterMock(...args),
 }));
 
-import { planTrip, rebalanceZeroDayCities } from "@/lib/tripPlan";
+import { closeLoop, planTrip, rebalanceZeroDayCities } from "@/lib/tripPlan";
 
 function mockContent(content: string) {
   createMock.mockResolvedValueOnce({ choices: [{ message: { content } }] });
@@ -243,8 +243,28 @@ describe("planTrip — round-trip loops", () => {
     expect(cityCenterMock).toHaveBeenCalledWith("鎌倉", "key");
   });
 
-  it("retries a loop that doesn't come back to the arrival city", async () => {
-    mockJson({ title: "t", currency: "JPY", cities: [{ name: "東京", days: 3 }, { name: "鎌倉", days: 3 }] });
+  it("closes a loop that forgets to come back, instead of retrying", async () => {
+    // a real Hokkaido run did this on both attempts and fell back to the old flow
+    cityCenterMock.mockResolvedValue({ lat: 35.32, lng: 139.55 });
+    mockJson({
+      title: "t",
+      currency: "JPY",
+      cities: [{ name: "東京", days: 3 }, { name: "鎌倉", days: 2 }, { name: "箱根", days: 1 }],
+    });
+
+    const result = await planTrip(roundTrip, undefined, undefined, "m");
+
+    expect(createMock).toHaveBeenCalledTimes(1);
+    expect(result?.cities).toEqual([
+      { name: "東京", days: 2 },
+      { name: "鎌倉", days: 2 },
+      { name: "箱根", days: 1 },
+      { name: "東京", days: 1 },
+    ]);
+  });
+
+  it("retries a loop that doesn't start in the arrival city", async () => {
+    mockJson({ title: "t", currency: "JPY", cities: [{ name: "鎌倉", days: 3 }, { name: "東京", days: 3 }] });
     mockJson({ title: "t", currency: "JPY", cities: [{ name: "東京", days: 6 }] });
 
     const result = await planTrip(roundTrip, undefined, undefined, "m");
@@ -274,5 +294,16 @@ describe("planTrip — round-trip loops", () => {
 
     expect(createMock).toHaveBeenCalledTimes(2);
     expect(result?.cities).toEqual([{ name: "東京", days: 3 }]);
+  });
+});
+
+describe("closeLoop", () => {
+  it("leaves a loop that already ends in the arrival city alone", () => {
+    const cities = [{ name: "札幌", days: 3 }, { name: "小樽", days: 2 }, { name: "札幌", days: 1 }];
+    expect(closeLoop(cities, "札幌")).toBe(cities);
+  });
+
+  it("returns null when no stay can spare a day for the way back", () => {
+    expect(closeLoop([{ name: "札幌", days: 1 }, { name: "小樽", days: 1 }], "札幌")).toBeNull();
   });
 });
