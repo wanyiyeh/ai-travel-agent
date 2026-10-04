@@ -3,9 +3,8 @@ import { z } from "zod";
 import { prisma, j } from "@/lib/db";
 import { getMockMode, mockDelay, MOCK_FIXTURES } from "@/lib/mockAi";
 import {
-  fetchNearbyPlaceCandidates,
+  fetchLodgingCandidates,
   findNearestStation,
-  getLodgingTypes,
 } from "@/lib/fetchCityRestaurants";
 import { resolveDayCoords } from "@/lib/itineraryGen";
 import { cityToIata } from "@/lib/iataCity";
@@ -100,8 +99,8 @@ export async function POST(
       );
     }
 
-    // Pro fields only: lodging tiers by type, not price (plan/form-preference-wiring.md 1c-2).
-    const hotels = await fetchNearbyPlaceCandidates(coords, googleApiKey, getLodgingTypes(budget), 3000, 10);
+    // Pro fields only: lodging tiers by type and brand, not price (plan/form-preference-wiring.md 1.3, 1c-2).
+    const hotels = await fetchLodgingCandidates(coords, googleApiKey, budget, 3000, 10);
 
     const currentPlaceId =
       typeof currentAccommodation?.placeId === "string" ? currentAccommodation.placeId : undefined;

@@ -1,6 +1,6 @@
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/lib/db";
-import { fetchNearbyPlaceCandidates } from "./fetchCityRestaurants";
+import { fetchLodgingCandidates, fetchNearbyPlaceCandidates } from "./fetchCityRestaurants";
 
 // Story: one generation asks for the same city's attractions with different
 // counts (transit day, sightseeing days, departure day). Nearby Search bills
@@ -111,5 +111,63 @@ describe("fetchNearbyPlaceCandidates billing tiers", () => {
     await fetchNearbyPlaceCandidates(coords, "key", ["bakery"], 5000, 10, "enterprise");
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+// Story: a luxury trip should get Hilton/Marriott-tier hotels. Brand matching
+// works on the normal lodging search; only a city with no brand hotel or
+// resort at all is worth one extra "luxury hotel" Text Search.
+describe("fetchLodgingCandidates for the luxury tier", () => {
+  const coords = { lat: 32 + (Date.now() % 100000) / 1e6, lng: 42 };
+  const hotel = (id: string, name: string, types = ["hotel"]) => ({
+    id,
+    displayName: { text: name },
+    location: { latitude: coords.lat, longitude: coords.lng },
+    types,
+  });
+  const urls = (fetchMock: ReturnType<typeof vi.fn>) => fetchMock.mock.calls.map((c) => String((c as unknown[])[0]));
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  afterAll(async () => {
+    await prisma.nearbyPlaceCandidatesCache.deleteMany({
+      where: {
+        OR: [
+          { cacheKey: { startsWith: `${coords.lat.toFixed(4)},` } },
+          { cacheKey: { startsWith: `text:luxury hotel@${coords.lat.toFixed(4)},` } },
+        ],
+      },
+    });
+  });
+
+  it("puts brand hotels first without an extra search when the pool has one", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ places: [hotel("a", "Budget Inn"), hotel("b", "東京希爾頓酒店")] }), { status: 200 })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await fetchLodgingCandidates(coords, "key", "luxury", 3000, 10);
+
+    expect(result.map((p) => p.placeId)).toEqual(["b", "a"]);
+    expect(urls(fetchMock).every((u) => u.includes("searchNearby"))).toBe(true);
+  });
+
+  it("adds a Pro-tier 'luxury hotel' Text Search when the pool has no brand or resort", async () => {
+    const otherCoords = { lat: coords.lat, lng: 43 };
+    const fetchMock = vi.fn(async (url: string) =>
+      url.includes("searchText")
+        ? new Response(JSON.stringify({ places: [hotel("lux", "Grand Local Palace")] }), { status: 200 })
+        : new Response(JSON.stringify({ places: [hotel("a", "Budget Inn")] }), { status: 200 })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await fetchLodgingCandidates(otherCoords, "key", "luxury", 3000, 10);
+
+    expect(result.map((p) => p.placeId)).toEqual(["lux", "a"]);
+    const textCall = fetchMock.mock.calls.find((c) => String(c[0]).includes("searchText")) as unknown as [string, RequestInit];
+    const mask = new Headers(textCall[1].headers).get("X-Goog-FieldMask") ?? "";
+    expect(mask).not.toMatch(/rating|priceLevel|priceRange/);
   });
 });

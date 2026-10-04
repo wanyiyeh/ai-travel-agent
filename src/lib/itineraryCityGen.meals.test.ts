@@ -3,6 +3,7 @@ import type { PlaceCandidate } from "@/lib/fetchCityRestaurants";
 
 const createMock = vi.fn();
 const nearbyMock = vi.fn();
+const lodgingMock = vi.fn();
 
 vi.mock("@/lib/openai", () => ({
   openai: { chat: { completions: { create: (...args: unknown[]) => createMock(...args) } } },
@@ -15,6 +16,7 @@ vi.mock("@/lib/exchangeRate", () => ({ getTwdRates: async () => ({ TWD: 1, JPY: 
 vi.mock("@/lib/fetchCityRestaurants", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/fetchCityRestaurants")>()),
   fetchNearbyPlaceCandidates: (...args: unknown[]) => nearbyMock(...args),
+  fetchLodgingCandidates: (...args: unknown[]) => lodgingMock(...args),
 }));
 
 const { generateMealsAndAccommodation } = await import("./itineraryCityGen");
@@ -35,6 +37,8 @@ beforeEach(() => {
   vi.stubEnv("GOOGLE_PLACES_API_KEY", "key");
   createMock.mockReset();
   nearbyMock.mockReset();
+  lodgingMock.mockReset();
+  lodgingMock.mockResolvedValue([]);
 });
 
 afterEach(() => {
@@ -43,12 +47,12 @@ afterEach(() => {
 
 describe("generateMealsAndAccommodation", () => {
   it("offers real candidates to the model and carries the picked place data through", async () => {
-    // breakfast, main, snack, lodging — in that order
+    // breakfast, main, snack — in that order; lodging has its own fetch
     nearbyMock
       .mockResolvedValueOnce([place("Cafe A")])
       .mockResolvedValueOnce([place("Ramen X"), place("Sushi Y")])
-      .mockResolvedValueOnce([place("Gelato Q")])
-      .mockResolvedValueOnce([place("Hotel H")]);
+      .mockResolvedValueOnce([place("Gelato Q")]);
+    lodgingMock.mockResolvedValueOnce([place("Hotel H")]);
     mockLlm({
       accommodation: { id: "H1", name: "Hotel H", area: "Gion" },
       meals: [{ breakfast: { id: "B1" }, lunch: { id: "M1" }, dinner: { id: "M2" }, snack: { id: "S1" } }],
@@ -56,7 +60,8 @@ describe("generateMealsAndAccommodation", () => {
 
     const result = await generateMealsAndAccommodation("京都", 1, "JPY", "moderate");
 
-    expect(nearbyMock).toHaveBeenCalledTimes(4);
+    expect(nearbyMock).toHaveBeenCalledTimes(3);
+    expect(lodgingMock).toHaveBeenCalledTimes(1);
     expect(systemPrompt()).toContain("M2: Sushi Y");
     expect(result.accommodation.placeId).toBe("pid-Hotel H");
     expect((result.mealsByDay[0].dinner as Record<string, unknown>).placeId).toBe("pid-Sushi Y");
@@ -68,9 +73,11 @@ describe("generateMealsAndAccommodation", () => {
 
     await generateMealsAndAccommodation("小鎮", 1, "JPY", "luxury");
 
-    // breakfast, main, snack, lodging — one call each (no price-filter retry:
-    // Nearby Search never supported that filter). Tier is the 6th argument.
-    expect(nearbyMock.mock.calls.map((c) => c[5])).toEqual(["pro", "enterprise", "pro", "pro"]);
+    // breakfast, main, snack — one call each (no price-filter retry: Nearby
+    // Search never supported that filter). Tier is the 6th argument. Lodging
+    // goes through fetchLodgingCandidates, which is Pro-only.
+    expect(nearbyMock.mock.calls.map((c) => c[5])).toEqual(["pro", "enterprise", "pro"]);
+    expect(lodgingMock.mock.calls[0][2]).toBe("luxury");
   });
 
   it("offers only in-budget lunch/dinner places when there are enough of them", async () => {
@@ -82,7 +89,6 @@ describe("generateMealsAndAccommodation", () => {
     nearbyMock
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([priced("Kaiseki", 15000, 30000), priced("Ramen", 900, 1200), priced("Udon", 600, 900)])
-      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([]);
     mockLlm({ accommodation: {}, meals: [{ lunch: { id: "M1" }, dinner: { id: "M2" } }] });
 
@@ -112,5 +118,6 @@ describe("generateMealsAndAccommodation", () => {
     await generateMealsAndAccommodation("京都", 1, "JPY");
 
     expect(nearbyMock).not.toHaveBeenCalled();
+    expect(lodgingMock).not.toHaveBeenCalled();
   });
 });

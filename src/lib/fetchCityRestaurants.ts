@@ -2,6 +2,7 @@ import { haversineKm } from "@/lib/distanceMatrix";
 import { getIataCoords } from "@/lib/airports";
 import { prisma, j } from "@/lib/db";
 import { googleFetch } from "@/lib/googleFetch";
+import { isLuxuryLodging, rankLodgingByBudget } from "@/lib/lodgingTiers";
 
 const NEARBY_SEARCH_URL = "https://places.googleapis.com/v1/places:searchNearby";
 
@@ -119,9 +120,13 @@ export function getMealPlaceTypes(mealType: "breakfast" | "lunch" | "dinner" | "
 
 // Table A lodging subtypes (see docs/google-places-types.md), picked per budget
 // so a "budget" trip surfaces hostels/guest houses instead of resort hotels.
+// The tier itself (hostels first, brand hotels first) comes from
+// rankLodgingByBudget in fetchLodgingCandidates — these lists only decide
+// what's in the pool. Moderate: B&Bs, guest houses, ~3-star and business
+// hotels (Toyoko Inn-style chains are typed "hotel").
 const LODGING_TYPES_BY_BUDGET: Record<BudgetLevel, string[]> = {
   budget:   ["hostel", "guest_house", "bed_and_breakfast", "motel", "lodging"],
-  moderate: ["hotel", "guest_house", "lodging"],
+  moderate: ["bed_and_breakfast", "guest_house", "hotel", "lodging"],
   luxury:   ["resort_hotel", "hotel", "lodging"],
 };
 
@@ -455,6 +460,96 @@ async function fetchNearbyPlaceCandidatesUncached(
     console.warn(`[Places API Candidates] fetch failed:`, err);
     return [];
   }
+}
+
+const TEXT_SEARCH_URL = "https://places.googleapis.com/v1/places:searchText";
+
+/**
+ * Text Search returning a whole candidate list — placesTextSearch.ts only
+ * ever keeps the single best match. For place kinds Nearby Search has no
+ * type for (e.g. "luxury hotel"). Pro fields only, cached for 30 days in the
+ * same table as Nearby pools under a "text:" key.
+ */
+export async function searchTextCandidates(
+  query: string,
+  coords: { lat: number; lng: number },
+  apiKey: string,
+  radius: number,
+  includedType?: string,
+): Promise<PlaceCandidate[]> {
+  const cacheKey = `text:${query}@${roundCoord(coords.lat)},${roundCoord(coords.lng)}:${radius}:${includedType ?? ""}:pro`;
+  const cached = await readFreshCandidates(cacheKey);
+  if (cached) return cached;
+
+  let candidates: PlaceCandidate[] = [];
+  try {
+    const res = await googleFetch(TEXT_SEARCH_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": apiKey,
+        "X-Goog-FieldMask": PRO_FIELD_MASK,
+      },
+      body: JSON.stringify({
+        textQuery: query,
+        pageSize: NEARBY_FETCH_COUNT,
+        languageCode: "zh-TW",
+        locationBias: { circle: { center: { latitude: coords.lat, longitude: coords.lng }, radius } },
+        ...(includedType ? { includedType } : {}),
+      }),
+    });
+    if (!res.ok) {
+      console.warn(`[Places API Text Candidates] HTTP ${res.status}`);
+      return [];
+    }
+    const data = await res.json();
+    candidates = (data.places ?? [])
+      .map((p: NearbyPlaceResult) => ({
+        name: p.displayName?.text ?? "",
+        placeId: p.id ?? "",
+        lat: p.location?.latitude ?? 0,
+        lng: p.location?.longitude ?? 0,
+        address: p.formattedAddress ?? "",
+        photoName: p.photos?.[0]?.name ?? null,
+        types: p.types,
+      }))
+      .filter((c: PlaceCandidate) => c.name.length > 0 && c.placeId.length > 0);
+  } catch (err) {
+    console.warn(`[Places API Text Candidates] fetch failed:`, err);
+    return [];
+  }
+
+  if (candidates.length > 0) {
+    await prisma.nearbyPlaceCandidatesCache.upsert({
+      where: { cacheKey },
+      create: { cacheKey, candidates: j(candidates) },
+      update: { candidates: j(candidates) },
+    });
+  }
+  return candidates;
+}
+
+/**
+ * Lodging candidates for a budget tier (plan/form-preference-wiring.md 1.3),
+ * shared by itinerary generation and the 換一間 picker. One Pro-tier Nearby
+ * search, ranked locally (rankLodgingByBudget). Luxury only: if the pool has
+ * no brand hotel or resort at all, adds a "luxury hotel" Text Search so a
+ * city without the big chains still gets its high-end options.
+ */
+export async function fetchLodgingCandidates(
+  coords: { lat: number; lng: number },
+  apiKey: string,
+  budget: BudgetLevel | undefined,
+  radius: number,
+  maxCount: number,
+): Promise<PlaceCandidate[]> {
+  let pool = await fetchNearbyPlaceCandidates(coords, apiKey, getLodgingTypes(budget), radius, NEARBY_FETCH_COUNT);
+  if (budget === "luxury" && !pool.some(isLuxuryLodging)) {
+    const extra = await searchTextCandidates("luxury hotel", coords, apiKey, radius, "lodging");
+    const seen = new Set(pool.map((p) => p.placeId));
+    pool = [...extra.filter((p) => !seen.has(p.placeId)), ...pool];
+  }
+  return rankLodgingByBudget(pool, budget).slice(0, maxCount);
 }
 
 export interface NearestStation {

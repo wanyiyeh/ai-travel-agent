@@ -1,6 +1,6 @@
 import { openai } from "@/lib/openai";
 import { getCityCenter } from "@/lib/placesTextSearch";
-import { fetchNearbyPlaceCandidates, getMealPlaceTypes, getLodgingTypes, type RestaurantHint, type BudgetLevel, type PlaceCandidate, type FieldTier } from "@/lib/fetchCityRestaurants";
+import { fetchNearbyPlaceCandidates, fetchLodgingCandidates, getMealPlaceTypes, type RestaurantHint, type BudgetLevel, type PlaceCandidate, type FieldTier } from "@/lib/fetchCityRestaurants";
 import { applyCandidatePicks, formatCandidateLists, hasAnyCandidates, type MealLodgingPools } from "@/lib/mealLodgingPicks";
 import { placeCandidatesToStopCandidates } from "@/lib/scheduler/placeCandidatesToStopCandidates";
 import { distributeStopsPerDay, partitionCandidatesByDay } from "@/lib/scheduler/partitionCandidatesByDay";
@@ -393,7 +393,8 @@ async function fetchMealLodgingPools(
 
   // Only lunch/dinner needs Enterprise fields (its budget ranking reads
   // priceRange, plan/form-preference-wiring.md 1c-2); breakfast/snack have no
-  // budget cap and lodging tiers by type, so those stay on Pro.
+  // budget cap and lodging tiers by type and brand (fetchLodgingCandidates),
+  // so those stay on Pro.
   const search = async (types: string[], tier: FieldTier, keep: (p: PlaceCandidate) => boolean = () => true) =>
     (await fetchNearbyPlaceCandidates(coords, apiKey, types, MEAL_LODGING_RADIUS_M, MEAL_LODGING_MAX_COUNT, tier)).filter(keep);
 
@@ -401,7 +402,7 @@ async function fetchMealLodgingPools(
     search(getMealPlaceTypes("breakfast", budget), "pro", isFoodPlace),
     search(getMealPlaceTypes("lunch", budget), "enterprise", isFoodPlace),
     search(getMealPlaceTypes("snack", budget), "pro", isFoodPlace),
-    search(getLodgingTypes(budget), "pro"),
+    fetchLodgingCandidates(coords, apiKey, budget, MEAL_LODGING_RADIUS_M, MEAL_LODGING_MAX_COUNT),
     budget ? getTwdRates() : Promise.resolve({}),
   ]);
   // Lunch + dinner each day draw from the same pool.
