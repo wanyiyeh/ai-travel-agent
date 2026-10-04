@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { selectAndOrderStops, type StopCandidate } from "@/lib/scheduler/selectAndOrderStops";
+import { distanceFactor, scoreCandidate, selectAndOrderStops, type StopCandidate } from "@/lib/scheduler/selectAndOrderStops";
 
 // All on lat 0, spaced out along lng so nearest-neighbor ordering is
 // unambiguous and easy to reason about by hand.
@@ -53,5 +53,43 @@ describe("selectAndOrderStops", () => {
 
   it("returns an empty array for an empty candidate pool", () => {
     expect(selectAndOrderStops([], { count: 3 })).toEqual([]);
+  });
+});
+
+// ~0.027° of latitude ≈ 3km, the distance at which the score halves.
+const hotel = { lat: 35, lng: 135 };
+const kmNorth = (km: number) => ({ lat: 35 + km / 111.2, lng: 135 });
+
+describe("distanceFactor", () => {
+  it("is 1 at the lodging, 1/2 at 3km and 1/4 at 9km", () => {
+    expect(distanceFactor({ id: "a", ...hotel }, hotel)).toBe(1);
+    expect(distanceFactor({ id: "a", ...kmNorth(3) }, hotel)).toBeCloseTo(0.5, 2);
+    expect(distanceFactor({ id: "a", ...kmNorth(9) }, hotel)).toBeCloseTo(0.25, 2);
+  });
+});
+
+describe("scoreCandidate — rating × preference × distance", () => {
+  it("multiplies all three when an anchor is given", () => {
+    const museum: StopCandidate = { id: "m", ...kmNorth(3), rating: 4, type: "museum" };
+    expect(scoreCandidate(museum, { museum: 1.5 }, hotel)).toBeCloseTo(4 * 1.5 * 0.5, 2);
+  });
+
+  it("ignores distance without an anchor", () => {
+    const museum: StopCandidate = { id: "m", ...kmNorth(30), rating: 4, type: "museum" };
+    expect(scoreCandidate(museum, {})).toBe(4);
+  });
+});
+
+describe("selectAndOrderStops with a lodging anchor", () => {
+  const far: StopCandidate = { id: "famous-far", ...kmNorth(10), rating: 5 };
+  const near: StopCandidate = { id: "plain-near", ...kmNorth(1), rating: 4 };
+
+  it("picks a nearby ordinary place over a far famous one", () => {
+    // far: 5 × 0.23 = 1.15, near: 4 × 0.75 = 3.0
+    expect(selectAndOrderStops([far, near], { count: 1, anchor: hotel }).map((c) => c.id)).toEqual(["plain-near"]);
+  });
+
+  it("still picks the higher-rated place when no anchor is given", () => {
+    expect(selectAndOrderStops([far, near], { count: 1 }).map((c) => c.id)).toEqual(["famous-far"]);
   });
 });

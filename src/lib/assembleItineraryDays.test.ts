@@ -50,6 +50,8 @@ const flight: FlightInfo = {
 const DAY_STOPS_BUDGET = 4;
 const DAY_STOPS_INTENT = 5;
 const DAY_STOPS_FIRST_START = 6;
+const DAY_STOPS_LODGING = 7;
+const DEPARTURE_LODGING = 6;
 const TRANSIT_BUDGET = 3;
 const TRANSIT_INTENT = 4;
 const DEPARTURE_TIME = 2;
@@ -122,6 +124,34 @@ describe("assembleItineraryDays — form field wiring", () => {
     await run(undefined, undefined);
 
     expect(departureStopsMock.mock.calls[0][DEPARTURE_TIME]).toBe("18:30");
+  });
+
+  it("schedules each city's stops around its chosen lodging", async () => {
+    let mealsDone = false;
+    mealsMock.mockImplementation(async (_city: string, nights: number) => {
+      await Promise.resolve();
+      mealsDone = true;
+      return {
+        accommodation: { name: "Hotel", lat: 35.68, lng: 139.77 },
+        mealsByDay: Array.from({ length: nights }, () => ({})),
+      };
+    });
+    dayStopsMock.mockImplementation(async (_city: string, count: number) => {
+      // the lodging has to be known before stops can be scored by distance
+      expect(mealsDone).toBe(true);
+      return Array.from({ length: count }, () => []);
+    });
+
+    await run(undefined, undefined);
+
+    for (const call of dayStopsMock.mock.calls) expect(call[DAY_STOPS_LODGING]).toEqual({ lat: 35.68, lng: 139.77 });
+    expect(departureStopsMock.mock.calls[0][DEPARTURE_LODGING]).toEqual({ lat: 35.68, lng: 139.77 });
+  });
+
+  it("leaves the lodging location unset when the hotel has no coordinates", async () => {
+    await run(undefined, undefined);
+    // default mock accommodation is { name: "Hotel" } — generators fall back to the city center
+    expect(dayStopsMock.mock.calls[0][DAY_STOPS_LODGING]).toBeUndefined();
   });
 
   it("pace (步調) reaches the per-day scheduler", async () => {

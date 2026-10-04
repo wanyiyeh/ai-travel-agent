@@ -68,6 +68,14 @@ describe("partitionCandidatesByDay", () => {
   });
 });
 
+describe("partitionCandidatesByDay with a lodging anchor", () => {
+  it("seeds the first day with the best place near the lodging, not the best overall", () => {
+    const pool = [candidate("famous-far", 0.2, 0, 5), candidate("good-near", 0.005, 0, 4.2), candidate("other", 0.1, 0, 3)];
+    const [day1] = partitionCandidatesByDay(pool, [1], {}, { lat: 0, lng: 0 });
+    expect(day1.map((c) => c.id)).toEqual(["good-near"]);
+  });
+});
+
 describe("distributeStopsPerDay", () => {
   it("gives every day its cap when the pool is big enough", () => {
     expect(distributeStopsPerDay(20, [4, 4, 4])).toEqual([4, 4, 4]);

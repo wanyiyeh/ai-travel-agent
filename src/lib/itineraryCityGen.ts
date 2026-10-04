@@ -261,6 +261,10 @@ async function generateTransitDayStopsViaScheduler(
         dayStartMinute: plan.arrivalMinute,
         dayEndMinute: SIGHTSEEING_DAY_END_MINUTE,
         interestWeights,
+        // The lodging isn't picked yet when the transit day is planned (it
+        // runs alongside meal/lodging generation), so score from the center.
+        anchor: coords,
+        origin: coords,
       }),
       SIGHTSEEING_DAY_END_MINUTE
     );
@@ -318,7 +322,9 @@ export async function generateDepartureDayStops(
   // is the first caller that can generate more than one batch of stops for
   // the same city in one request, so without this the same top-rated
   // landmark can get suggested twice in the same trip.
-  lockedPlaceIds: string[] = []
+  lockedPlaceIds: string[] = [],
+  // Where the traveler stayed; scores and routes from here. Defaults to the city center.
+  lodging?: { lat: number; lng: number }
 ): Promise<Array<Record<string, unknown>>> {
   try {
     const dayStartMinute = dayStartFor(preferenceIntent);
@@ -343,12 +349,15 @@ export async function generateDepartureDayStops(
     if (candidates.length === 0) return [];
 
     const interestWeights = buildInterestWeights(preferenceIntent.interestBoost);
+    const anchor = lodging ?? coords;
     const skeleton = buildDaySkeleton(candidates, {
       count: estimatedCount,
       pace: preferenceIntent.pace ?? undefined,
       dayStartMinute,
       dayEndMinute: cutoffMinute,
       interestWeights,
+      anchor,
+      origin: anchor,
     });
 
     // assignTimeSlots schedules strictly in order, so filtering by cutoff
@@ -696,7 +705,8 @@ async function generateDayStopsViaScheduler(
   lockedPlaceIds: string[],
   budget: BudgetLevel | undefined,
   preferenceIntent: PreferenceIntent,
-  firstDayStartMinute: number | undefined
+  firstDayStartMinute: number | undefined,
+  lodging: { lat: number; lng: number } | undefined
 ): Promise<Array<Array<Record<string, unknown>>> | null> {
   try {
     const apiKey = process.env.GOOGLE_PLACES_API_KEY!;
@@ -732,10 +742,15 @@ async function generateDayStopsViaScheduler(
       estimateStopCapacity({ pace, dayStartMinute: start, dayEndMinute: SIGHTSEEING_DAY_END_MINUTE, candidateTypes })
     );
 
+    // rating × preference × distance from where the traveler sleeps (the
+    // city center when the lodging isn't known), and each day's route starts
+    // there too.
+    const anchor = lodging ?? coords;
     const dayGroups = partitionCandidatesByDay(
       candidates,
       distributeStopsPerDay(candidates.length, capacities),
-      interestWeights
+      interestWeights,
+      anchor
     );
     const skeletonsByDay: SkeletonStop[][] = dayGroups.map((group, dayIdx) =>
       group.length > 0
@@ -746,6 +761,8 @@ async function generateDayStopsViaScheduler(
               dayStartMinute: dayStarts[dayIdx],
               dayEndMinute: SIGHTSEEING_DAY_END_MINUTE,
               interestWeights,
+              anchor,
+              origin: anchor,
             }),
             SIGHTSEEING_DAY_END_MINUTE
           )
@@ -790,7 +807,10 @@ export async function generateDayStops(
   // scheduler/arrivalDayStart.ts and assembleItineraryDays.ts. undefined
   // preserves the existing per-preference/default behavior for every
   // existing caller (restructure/route.ts never passes this).
-  firstDayStartMinute?: number
+  firstDayStartMinute?: number,
+  // Where the traveler stays in this city — stops are scored by distance from
+  // it and each day's route starts there. Defaults to the city center.
+  lodging?: { lat: number; lng: number }
 ): Promise<Array<Array<Record<string, unknown>>>> {
   const scheduled = await generateDayStopsViaScheduler(
     cityName,
@@ -799,7 +819,8 @@ export async function generateDayStops(
     lockedPlaceIds,
     budget,
     preferenceIntent,
-    firstDayStartMinute
+    firstDayStartMinute,
+    lodging
   );
   if (scheduled) return scheduled;
   return generateDayStopsWithLLM(cityName, stayDays, currency);

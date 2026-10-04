@@ -35,6 +35,15 @@ function extractPlaceIds(stops: Array<Record<string, unknown>>): string[] {
     .filter((id): id is string => !!id);
 }
 
+// A lodging picked from real candidates carries coordinates; one the LLM
+// invented (no candidates) doesn't, and the generators then fall back to the
+// city center.
+function locationOf(accommodation: Record<string, unknown> | undefined): { lat: number; lng: number } | undefined {
+  const lat = accommodation?.lat;
+  const lng = accommodation?.lng;
+  return typeof lat === "number" && typeof lng === "number" ? { lat, lng } : undefined;
+}
+
 const emptyMealsAndAccommodation = (nights: number) => ({
   accommodation: {} as Record<string, unknown>,
   mealsByDay: Array.from({ length: nights }, () => ({}) as Record<string, unknown>),
@@ -107,7 +116,8 @@ export async function assembleItineraryDays(
 
     // Meals/accommodation don't depend on which attractions get picked, so
     // this can run alongside the transit day's generation below rather than
-    // waiting on it. Unlike generateDayStops/generateTransitDayStops/
+    // waiting on it. Sightseeing does wait on it: stops are scored by
+    // distance from the chosen lodging. Unlike generateDayStops/generateTransitDayStops/
     // generateDepartureDayStops, this call has no try/catch of its own — an
     // API error or malformed response would otherwise throw straight through
     // assembleItineraryDays, breaking its "never throws except when planTrip
@@ -139,6 +149,11 @@ export async function assembleItineraryDays(
       });
     }
 
+    const mealsAndAccommodation = await mealsAndAccommodationPromise;
+    const hasAccommodation = Object.keys(mealsAndAccommodation.accommodation).length > 0;
+    const accommodation = hasAccommodation ? mealsAndAccommodation.accommodation : undefined;
+    const lodging = locationOf(accommodation);
+
     const sightseeingStops =
       sightseeingCount > 0
         ? await generateDayStops(
@@ -148,16 +163,13 @@ export async function assembleItineraryDays(
             Array.from(usedPlaceIds),
             budget,
             preferenceIntent,
-            isFirst ? arrivalDayStartMinute : undefined
+            isFirst ? arrivalDayStartMinute : undefined,
+            lodging
           )
         : [];
     for (const dayStops of sightseeingStops) {
       for (const placeId of extractPlaceIds(dayStops)) usedPlaceIds.add(placeId);
     }
-
-    const mealsAndAccommodation = await mealsAndAccommodationPromise;
-    const hasAccommodation = Object.keys(mealsAndAccommodation.accommodation).length > 0;
-    const accommodation = hasAccommodation ? mealsAndAccommodation.accommodation : undefined;
 
     for (let i = 0; i < sightseeingStops.length; i++) {
       pushDay({
@@ -177,7 +189,8 @@ export async function assembleItineraryDays(
         flightInfo.returnDepartureTime,
         budget,
         preferenceIntent,
-        Array.from(usedPlaceIds)
+        Array.from(usedPlaceIds),
+        lodging
       );
       pushDay({
         id: crypto.randomUUID(),

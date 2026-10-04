@@ -50,7 +50,8 @@ export function distributeStopsPerDay(poolSize: number, maxPerDay: number[]): nu
 export function partitionCandidatesByDay(
   candidates: StopCandidate[],
   perDayCounts: number[],
-  interestWeights: Record<string, number> = {}
+  interestWeights: Record<string, number> = {},
+  anchor?: { lat: number; lng: number }
 ): StopCandidate[][] {
   const remaining = [...candidates];
   const days: StopCandidate[][] = [];
@@ -61,7 +62,7 @@ export function partitionCandidatesByDay(
       continue;
     }
 
-    remaining.sort((a, b) => scoreCandidate(b, interestWeights) - scoreCandidate(a, interestWeights));
+    remaining.sort((a, b) => scoreCandidate(b, interestWeights, anchor) - scoreCandidate(a, interestWeights, anchor));
     const seed = remaining.shift()!;
 
     remaining.sort(
