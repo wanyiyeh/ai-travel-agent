@@ -6,6 +6,7 @@ import {
   fetchLodgingCandidates,
   findNearestStation,
 } from "@/lib/fetchCityRestaurants";
+import { snapToGrid } from "@/lib/geo";
 import { resolveDayCoords } from "@/lib/itineraryGen";
 import { cityToIata } from "@/lib/iataCity";
 import { getIataCoords } from "@/lib/fetchCityRestaurants";
@@ -28,6 +29,11 @@ function deriveArea(address: string): string {
   const parts = address.split(",").map((p) => p.trim()).filter(Boolean);
   return parts[1] ?? parts[0] ?? address;
 }
+
+// The 換一家 picker's search center is the day's own stops, which differ
+// every day — snapped to a ~1km grid (geo.ts snapToGrid) so nearby days share
+// one cached pool. A 2-3km radius barely changes when the center moves <=~550m.
+const PICKER_SEARCH_GRID_DEG = 0.01;
 
 export async function POST(
   request: Request,
@@ -100,7 +106,7 @@ export async function POST(
     }
 
     // Pro fields only: lodging tiers by type and brand, not price (plan/form-preference-wiring.md 1.3, 1c-2).
-    const hotels = await fetchLodgingCandidates(coords, googleApiKey, budget, 3000, 10);
+    const hotels = await fetchLodgingCandidates(snapToGrid(coords, PICKER_SEARCH_GRID_DEG), googleApiKey, budget, 3000, 10);
 
     const currentPlaceId =
       typeof currentAccommodation?.placeId === "string" ? currentAccommodation.placeId : undefined;

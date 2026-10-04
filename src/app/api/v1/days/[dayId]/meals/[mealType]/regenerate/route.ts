@@ -6,9 +6,11 @@ import {
   fetchNearbyPlaceCandidates,
   getMealPlaceTypes,
 } from "@/lib/fetchCityRestaurants";
+import { snapToGrid } from "@/lib/geo";
 import { resolveDayCoords } from "@/lib/itineraryGen";
 import { estimateMealCost } from "@/lib/priceLevelCost";
 import { isFoodPlace } from "@/lib/foodPlace";
+import { fitsCafeMealSlot } from "@/lib/cafeMealSlots";
 import { getTwdRates } from "@/lib/exchangeRate";
 import { estimateFromPriceRange, rankMainMealsByBudget } from "@/lib/mealBudget";
 
@@ -25,6 +27,11 @@ import { chargePaidEdit } from "@/lib/quota";
 const RequestSchema = z.object({
   itineraryId: z.string().min(1),
 });
+
+// The 換一家 picker's search center is the day's own stops, which differ
+// every day — snapped to a ~1km grid (geo.ts snapToGrid) so nearby days share
+// one cached pool. A 2-3km radius barely changes when the center moves <=~550m.
+const PICKER_SEARCH_GRID_DEG = 0.01;
 
 export async function POST(
   request: Request,
@@ -104,7 +111,10 @@ export async function POST(
 
     // Pull the full cached pool (same cost as 10 — see NEARBY_FETCH_COUNT) so
     // dropping non-food places still leaves up to 10 to show.
-    const foodPlaces = (await fetchNearbyPlaceCandidates(coords, googleApiKey, types, 2000, 20, tier)).filter(isFoodPlace);
+    const foodPlaces = (await fetchNearbyPlaceCandidates(snapToGrid(coords, PICKER_SEARCH_GRID_DEG), googleApiKey, types, 2000, 20, tier))
+      .filter(isFoodPlace)
+      // Breakfast and snack share one café search; keep what suits this slot.
+      .filter((p) => isMainMeal || fitsCafeMealSlot(p, mealType as "breakfast" | "snack"));
     // Lunch/dinner: in-budget restaurants first (plan/form-preference-wiring.md 1.3).
     const ranked =
       isMainMeal && budget

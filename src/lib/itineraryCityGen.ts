@@ -15,6 +15,7 @@ import { estimateAttractionCost } from "@/lib/priceLevelCost";
 import { isFoodPlace } from "@/lib/foodPlace";
 import { getTwdRates } from "@/lib/exchangeRate";
 import { rankMainMealsByBudget } from "@/lib/mealBudget";
+import { splitCafePool } from "@/lib/cafeMealSlots";
 
 // Shared AI-generation helpers for building out a city's worth of itinerary
 // content (transit day, sightseeing days, accommodation + meals). Used by the
@@ -398,13 +399,14 @@ async function fetchMealLodgingPools(
   const search = async (types: string[], tier: FieldTier, keep: (p: PlaceCandidate) => boolean = () => true) =>
     (await fetchNearbyPlaceCandidates(coords, apiKey, types, MEAL_LODGING_RADIUS_M, MEAL_LODGING_MAX_COUNT, tier)).filter(keep);
 
-  const [breakfast, main, snack, lodging, twdPerUnit] = await Promise.all([
+  // Breakfast and snack share one café search, split locally (cafeMealSlots.ts).
+  const [cafes, main, lodging, twdPerUnit] = await Promise.all([
     search(getMealPlaceTypes("breakfast", budget), "pro", isFoodPlace),
     search(getMealPlaceTypes("lunch", budget), "enterprise", isFoodPlace),
-    search(getMealPlaceTypes("snack", budget), "pro", isFoodPlace),
     fetchLodgingCandidates(coords, apiKey, budget, MEAL_LODGING_RADIUS_M, MEAL_LODGING_MAX_COUNT),
     budget ? getTwdRates() : Promise.resolve({}),
   ]);
+  const { breakfast, snack } = splitCafePool(cafes);
   // Lunch + dinner each day draw from the same pool.
   const rankedMain = rankMainMealsByBudget(main, budget, currency, twdPerUnit, stayDays * 2);
   return { breakfast, main: rankedMain, snack, lodging };

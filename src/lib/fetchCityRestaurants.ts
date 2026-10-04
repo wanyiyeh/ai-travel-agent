@@ -3,6 +3,7 @@ import { getIataCoords } from "@/lib/airports";
 import { prisma, j } from "@/lib/db";
 import { googleFetch } from "@/lib/googleFetch";
 import { isLuxuryLodging, rankLodgingByBudget } from "@/lib/lodgingTiers";
+import { CAFE_MEAL_TYPES } from "@/lib/cafeMealSlots";
 
 const NEARBY_SEARCH_URL = "https://places.googleapis.com/v1/places:searchNearby";
 
@@ -111,10 +112,14 @@ function getMainMealTypes(budget?: BudgetLevel): string[] {
   return budget ? MAIN_MEAL_TYPES_BY_BUDGET[budget] : ["restaurant"];
 }
 
-/** Place Types to search for a given meal slot — breakfast uses BREAKFAST_TYPES, snack uses SNACK_TYPES, lunch/dinner use the budget-aware main-meal types. */
+/**
+ * Place Types to search for a given meal slot — breakfast and snack share one
+ * café search (CAFE_MEAL_TYPES, split locally by cafeMealSlots.ts), lunch/
+ * dinner use the budget-aware main-meal types. BREAKFAST_TYPES/SNACK_TYPES
+ * above are only for the old full-LLM flow's prompt hints.
+ */
 export function getMealPlaceTypes(mealType: "breakfast" | "lunch" | "dinner" | "snack", budget?: BudgetLevel): string[] {
-  if (mealType === "breakfast") return BREAKFAST_TYPES;
-  if (mealType === "snack") return SNACK_TYPES;
+  if (mealType === "breakfast" || mealType === "snack") return CAFE_MEAL_TYPES;
   return getMainMealTypes(budget);
 }
 
