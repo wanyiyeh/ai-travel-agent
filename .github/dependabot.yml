@@ -11,6 +11,27 @@ updates:
       # One PR for all minor/patch bumps instead of one per package.
       minor-and-patch:
         update-types: [minor, patch]
+    # Major bumps of core tooling are migrations, not routine updates — do
+    # them deliberately on their own branch. Minor/patch bumps still arrive,
+    # and security updates are a separate mechanism that this doesn't block.
+    ignore:
+      # Upgrade together with the SQLite → Postgres move (plan/docker-and-ci.md).
+      - dependency-name: "prisma"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@prisma/client"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
+      # eslint-config-next has to support the new ESLint major first.
+      - dependency-name: "eslint"
+        update-types: ["version-update:semver-major"]
+      # Must match the Node.js major we actually run (22 locally and in CI),
+      # not the newest one; bumped by hand when the runtime moves.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+      # vitest 5 was tried and broke the suite (PR #46).
+      - dependency-name: "vitest"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: /
