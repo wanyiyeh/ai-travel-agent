@@ -62,11 +62,14 @@ function run(prompt: string | undefined, preferences: TripPreferences | undefine
 }
 
 function intentsPassed(): PreferenceIntent[] {
-  return [
+  const intents = [
     ...dayStopsMock.mock.calls.map((c) => c[DAY_STOPS_INTENT]),
     ...transitStopsMock.mock.calls.map((c) => c[TRANSIT_INTENT]),
     ...departureStopsMock.mock.calls.map((c) => c[DEPARTURE_INTENT]),
   ];
+  // Otherwise a loop over this list passes vacuously if nothing was called.
+  expect(intents.length).toBeGreaterThan(0);
+  return intents;
 }
 
 beforeEach(() => {
@@ -121,18 +124,13 @@ describe("assembleItineraryDays — form field wiring", () => {
     expect(departureStopsMock.mock.calls[0][DEPARTURE_TIME]).toBe("18:30");
   });
 
-  // Gap: the per-day scheduler reads pace from preferenceIntent, but
-  // assembleItineraryDays always passes NEUTRAL_PREFERENCE_INTENT, so the
-  // form's 悠閒/適中/緊湊 choice never reaches it.
-  it.fails("pace (步調) reaches the per-day scheduler", async () => {
+  it("pace (步調) reaches the per-day scheduler", async () => {
     await run(undefined, { pace: "intensive" });
 
     for (const intent of intentsPassed()) expect(intent.pace).toBe("intensive");
   });
 
-  // Gap: same cause — interestBoost stays empty, so selectAndOrderStops never
-  // weights museums/parks/shopping by what the user ticked.
-  it.fails("interests (興趣) reach the scheduler's interest weighting", async () => {
+  it("interests (興趣) reach the scheduler's interest weighting", async () => {
     await run(undefined, { interests: ["culture", "nature"] });
 
     for (const intent of intentsPassed()) {
@@ -140,10 +138,7 @@ describe("assembleItineraryDays — form field wiring", () => {
     }
   });
 
-  // Gap: parsePreferenceIntent exists (Phase 1) but this path never calls it,
-  // so 「早點出門」「不想走太多路」-style free text only influences planTrip's
-  // city/day split, not any individual day.
-  it.fails("free-text prompt is parsed into a PreferenceIntent and used for every day", async () => {
+  it("free-text prompt is parsed into a PreferenceIntent and used for every day", async () => {
     const parsed: PreferenceIntent = {
       ...NEUTRAL_PREFERENCE_INTENT,
       startTimePreference: "early",
@@ -153,7 +148,7 @@ describe("assembleItineraryDays — form field wiring", () => {
 
     await run("早點出門，不想走太多路", undefined);
 
-    expect(parseIntentMock).toHaveBeenCalledWith("早點出門，不想走太多路");
+    expect(parseIntentMock).toHaveBeenCalledWith("早點出門，不想走太多路", "test-model");
     for (const intent of intentsPassed()) {
       expect(intent).toMatchObject({ startTimePreference: "early", avoid: ["long_walks"] });
     }
