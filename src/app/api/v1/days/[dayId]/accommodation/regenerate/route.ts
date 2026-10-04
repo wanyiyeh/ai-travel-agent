@@ -6,7 +6,6 @@ import {
   fetchNearbyPlaceCandidates,
   findNearestStation,
   getLodgingTypes,
-  getPriceLevels,
 } from "@/lib/fetchCityRestaurants";
 import { resolveDayCoords } from "@/lib/itineraryGen";
 import { cityToIata } from "@/lib/iataCity";
@@ -101,15 +100,8 @@ export async function POST(
       );
     }
 
-    const lodgingTypes = getLodgingTypes(budget);
-    const priceLevels = getPriceLevels(budget);
-
-    let hotels = await fetchNearbyPlaceCandidates(coords, googleApiKey, lodgingTypes, 3000, 10, priceLevels);
-    if (hotels.length === 0 && priceLevels) {
-      // Small destinations often don't tag price level on lodging listings —
-      // retry without the price filter rather than coming back empty.
-      hotels = await fetchNearbyPlaceCandidates(coords, googleApiKey, lodgingTypes, 3000, 10);
-    }
+    // Pro fields only: lodging tiers by type, not price (plan/form-preference-wiring.md 1c-2).
+    const hotels = await fetchNearbyPlaceCandidates(coords, googleApiKey, getLodgingTypes(budget), 3000, 10);
 
     const currentPlaceId =
       typeof currentAccommodation?.placeId === "string" ? currentAccommodation.placeId : undefined;

@@ -19,28 +19,48 @@ export type PlaceCandidateToStopCandidateResult = {
  * on PlaceCandidate, so there's no coordinate gap to guard against here. Uses
  * the real placeId as the StopCandidate id (rather than a synthesized one)
  * since it's already a stable, meaningful identifier a final Stop can reuse
- * directly. Guards against a duplicate placeId appearing twice in the input
+ * directly. A place without a rating (Pro-tier search) gets a score from its
+ * popularity rank instead — see popularityScore. Guards against a duplicate
+ * placeId appearing twice in the input
  * (defensive — a single fetchNearbyPlaceCandidates call can't produce one,
  * but a caller combining multiple calls' results could).
  */
+// Score range for popularity rank when a pool has no ratings: Google's most
+// popular result scores like a 5.0 place, its least popular like the
+// scheduler's neutral 3.5 (selectAndOrderStops DEFAULT_RATING).
+const POPULARITY_TOP_SCORE = 5;
+const POPULARITY_BOTTOM_SCORE = 3.5;
+
+/**
+ * Stand-in score from a candidate's position in a Pro-tier Nearby Search
+ * result (rankPreference: POPULARITY, no rating field — plan/form-preference-
+ * wiring.md 1c-2). Needed because the scheduler re-sorts candidates (e.g.
+ * partitionCandidatesByDay sorts by distance between days), so with all
+ * scores tied the original popularity order would be lost.
+ */
+export function popularityScore(index: number, total: number): number {
+  if (total <= 1) return POPULARITY_TOP_SCORE;
+  return POPULARITY_TOP_SCORE - ((POPULARITY_TOP_SCORE - POPULARITY_BOTTOM_SCORE) * index) / (total - 1);
+}
+
 export function placeCandidatesToStopCandidates(
   places: PlaceCandidate[]
 ): PlaceCandidateToStopCandidateResult {
   const candidates: StopCandidate[] = [];
   const candidateById = new Map<string, PlaceCandidate>();
 
-  for (const place of places) {
-    if (candidateById.has(place.placeId)) continue;
+  places.forEach((place, index) => {
+    if (candidateById.has(place.placeId)) return;
 
     candidates.push({
       id: place.placeId,
       lat: place.lat,
       lng: place.lng,
-      rating: place.rating ?? null,
+      rating: place.rating ?? popularityScore(index, places.length),
       type: place.types ? mapPlaceTypeToCategory(place.types) : undefined,
     });
     candidateById.set(place.placeId, place);
-  }
+  });
 
   return { candidates, candidateById };
 }

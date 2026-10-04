@@ -5,7 +5,6 @@ import { getMockMode, mockDelay, MOCK_FIXTURES } from "@/lib/mockAi";
 import {
   fetchNearbyPlaceCandidates,
   getMealPlaceTypes,
-  getPriceLevels,
 } from "@/lib/fetchCityRestaurants";
 import { resolveDayCoords } from "@/lib/itineraryGen";
 import { estimateMealCost } from "@/lib/priceLevelCost";
@@ -93,20 +92,15 @@ export async function POST(
     }
 
     const types = getMealPlaceTypes(mealType, budget);
-    const priceLevels = getPriceLevels(budget);
+    // Only lunch/dinner needs Enterprise fields (budget ranking reads
+    // priceRange); breakfast/snack have no budget cap (plan/form-preference-wiring.md 1c-2).
+    const tier = mealType === "lunch" || mealType === "dinner" ? "enterprise" : "pro";
 
     // Pull the full cached pool (same cost as 10 — see NEARBY_FETCH_COUNT) so
     // dropping non-food places still leaves up to 10 to show.
-    const search = async (levels?: string[]) =>
-      (await fetchNearbyPlaceCandidates(coords, googleApiKey, types, 2000, 20, levels))
-        .filter(isFoodPlace)
-        .slice(0, 10);
-    let places = await search(priceLevels);
-    if (places.length === 0 && priceLevels) {
-      // Small destinations often don't tag price level on dining listings —
-      // retry without the price filter rather than coming back empty.
-      places = await search();
-    }
+    const places = (await fetchNearbyPlaceCandidates(coords, googleApiKey, types, 2000, 20, tier))
+      .filter(isFoodPlace)
+      .slice(0, 10);
 
     const currentPlaceId =
       typeof currentMeal?.placeId === "string" ? currentMeal.placeId : undefined;

@@ -1,6 +1,6 @@
 import { openai } from "@/lib/openai";
 import { getCityCenter } from "@/lib/placesTextSearch";
-import { fetchNearbyPlaceCandidates, getPriceLevels, getMealPlaceTypes, getLodgingTypes, type RestaurantHint, type BudgetLevel, type PlaceCandidate } from "@/lib/fetchCityRestaurants";
+import { fetchNearbyPlaceCandidates, getMealPlaceTypes, getLodgingTypes, type RestaurantHint, type BudgetLevel, type PlaceCandidate, type FieldTier } from "@/lib/fetchCityRestaurants";
 import { applyCandidatePicks, formatCandidateLists, hasAnyCandidates, type MealLodgingPools } from "@/lib/mealLodgingPicks";
 import { placeCandidatesToStopCandidates } from "@/lib/scheduler/placeCandidatesToStopCandidates";
 import { distributeStopsPerDay, partitionCandidatesByDay } from "@/lib/scheduler/partitionCandidatesByDay";
@@ -238,12 +238,7 @@ async function generateTransitDayStopsViaScheduler(
     const coords = await getCityCenter(toCity, apiKey);
     if (!coords) return null;
 
-    const maxCount = 20;
-    const priceLevels = getPriceLevels(budget);
-    let places = await fetchNearbyPlaceCandidates(coords, apiKey, ["tourist_attraction"], 10000, maxCount, priceLevels);
-    if (places.length === 0 && priceLevels) {
-      places = await fetchNearbyPlaceCandidates(coords, apiKey, ["tourist_attraction"], 10000, maxCount);
-    }
+    const places = await fetchNearbyPlaceCandidates(coords, apiKey, ["tourist_attraction"], 10000, 20);
     if (places.length === 0) return null;
 
     const { candidates, candidateById } = placeCandidatesToStopCandidates(places);
@@ -334,11 +329,7 @@ export async function generateDepartureDayStops(
     if (!coords) return [];
 
     const maxCount = Math.min(20, estimatedCount + 4);
-    const priceLevels = getPriceLevels(budget);
-    let places = await fetchNearbyPlaceCandidates(coords, apiKey, ["tourist_attraction"], 10000, maxCount, priceLevels);
-    if (places.length === 0 && priceLevels) {
-      places = await fetchNearbyPlaceCandidates(coords, apiKey, ["tourist_attraction"], 10000, maxCount);
-    }
+    const places = await fetchNearbyPlaceCandidates(coords, apiKey, ["tourist_attraction"], 10000, maxCount);
     if (places.length === 0) return [];
 
     const lockedIds = new Set(lockedPlaceIds);
@@ -393,23 +384,17 @@ async function fetchMealLodgingPools(cityName: string, budget: BudgetLevel | und
   const coords = await getCityCenter(cityName, apiKey);
   if (!coords) return null;
 
-  const priceLevels = getPriceLevels(budget);
-  // Same "empty with the price filter -> retry without it" fallback as the
-  // meal/accommodation regenerate routes: small destinations often don't tag
-  // price level on dining/lodging listings.
-  const search = async (types: string[], keep: (p: PlaceCandidate) => boolean = () => true) => {
-    const places = (
-      await fetchNearbyPlaceCandidates(coords, apiKey, types, MEAL_LODGING_RADIUS_M, MEAL_LODGING_MAX_COUNT, priceLevels)
-    ).filter(keep);
-    if (places.length > 0 || !priceLevels) return places;
-    return (await fetchNearbyPlaceCandidates(coords, apiKey, types, MEAL_LODGING_RADIUS_M, MEAL_LODGING_MAX_COUNT)).filter(keep);
-  };
+  // Only lunch/dinner needs Enterprise fields (its budget ranking reads
+  // priceRange, plan/form-preference-wiring.md 1c-2); breakfast/snack have no
+  // budget cap and lodging tiers by type, so those stay on Pro.
+  const search = async (types: string[], tier: FieldTier, keep: (p: PlaceCandidate) => boolean = () => true) =>
+    (await fetchNearbyPlaceCandidates(coords, apiKey, types, MEAL_LODGING_RADIUS_M, MEAL_LODGING_MAX_COUNT, tier)).filter(keep);
 
   const [breakfast, main, snack, lodging] = await Promise.all([
-    search(getMealPlaceTypes("breakfast", budget), isFoodPlace),
-    search(getMealPlaceTypes("lunch", budget), isFoodPlace),
-    search(getMealPlaceTypes("snack", budget), isFoodPlace),
-    search(getLodgingTypes(budget)),
+    search(getMealPlaceTypes("breakfast", budget), "pro", isFoodPlace),
+    search(getMealPlaceTypes("lunch", budget), "enterprise", isFoodPlace),
+    search(getMealPlaceTypes("snack", budget), "pro", isFoodPlace),
+    search(getLodgingTypes(budget), "pro"),
   ]);
   return { breakfast, main, snack, lodging };
 }
@@ -666,15 +651,7 @@ async function generateDayStopsViaScheduler(
     // Always the full pool: how many stops a day gets now depends on pace and
     // candidate types (estimateStopCapacity), not a fixed count, and the
     // Nearby cache stores 20 regardless, so asking for fewer saves nothing.
-    const maxCount = 20;
-    const priceLevels = getPriceLevels(budget);
-    let places = await fetchNearbyPlaceCandidates(coords, apiKey, ["tourist_attraction"], 10000, maxCount, priceLevels);
-    if (places.length === 0 && priceLevels) {
-      // Small destinations often don't tag price level on attraction listings
-      // — retry without the price filter rather than coming back empty (same
-      // pattern as accommodation/regenerate and meals/[mealType]/regenerate).
-      places = await fetchNearbyPlaceCandidates(coords, apiKey, ["tourist_attraction"], 10000, maxCount);
-    }
+    const places = await fetchNearbyPlaceCandidates(coords, apiKey, ["tourist_attraction"], 10000, 20);
     if (places.length === 0) return null;
 
     const lockedIds = new Set(lockedPlaceIds);

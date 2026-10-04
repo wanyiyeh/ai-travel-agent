@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { placeCandidatesToStopCandidates } from "@/lib/scheduler/placeCandidatesToStopCandidates";
+import { placeCandidatesToStopCandidates, popularityScore } from "@/lib/scheduler/placeCandidatesToStopCandidates";
 import type { PlaceCandidate } from "@/lib/fetchCityRestaurants";
 
 function place(overrides: Partial<PlaceCandidate> = {}): PlaceCandidate {
@@ -47,9 +47,18 @@ describe("placeCandidatesToStopCandidates", () => {
     expect(candidates[0].type).toBeUndefined();
   });
 
-  it("defaults rating to null when absent, matching StopCandidate's contract", () => {
-    const { candidates } = placeCandidatesToStopCandidates([place({ rating: undefined })]);
-    expect(candidates[0].rating).toBeNull();
+  it("keeps a real rating when the place has one", () => {
+    const { candidates } = placeCandidatesToStopCandidates([place({ rating: 4.2 })]);
+    expect(candidates[0].rating).toBe(4.2);
+  });
+
+  it("scores unrated places by popularity rank, so Google's order survives later re-sorts", () => {
+    const { candidates } = placeCandidatesToStopCandidates([
+      place({ placeId: "most-popular" }),
+      place({ placeId: "middle" }),
+      place({ placeId: "least-popular" }),
+    ]);
+    expect(candidates.map((c) => c.rating)).toEqual([5, 4.25, 3.5]);
   });
 
   it("de-duplicates a placeId that appears more than once, keeping the first occurrence", () => {
@@ -68,5 +77,11 @@ describe("placeCandidatesToStopCandidates", () => {
     ];
     const { candidates, candidateById } = placeCandidatesToStopCandidates(places);
     expect(candidates.map((c) => candidateById.get(c.id)?.name)).toEqual(["A", "B"]);
+  });
+});
+
+describe("popularityScore", () => {
+  it("gives a single-place pool the top score", () => {
+    expect(popularityScore(0, 1)).toBe(5);
   });
 });

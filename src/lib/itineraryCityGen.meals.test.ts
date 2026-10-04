@@ -60,14 +60,15 @@ describe("generateMealsAndAccommodation", () => {
     expect((result.mealsByDay[0].dinner as Record<string, unknown>).placeId).toBe("pid-Sushi Y");
   });
 
-  it("retries a pool without the price filter when the filtered search is empty", async () => {
+  it("searches each pool once, and only lunch/dinner on Enterprise fields", async () => {
     nearbyMock.mockResolvedValue([]);
     mockLlm({ accommodation: {}, meals: [] });
 
     await generateMealsAndAccommodation("小鎮", 1, "JPY", "luxury");
 
-    // 4 pools x (filtered + unfiltered retry)
-    expect(nearbyMock).toHaveBeenCalledTimes(8);
+    // breakfast, main, snack, lodging — one call each (no price-filter retry:
+    // Nearby Search never supported that filter). Tier is the 6th argument.
+    expect(nearbyMock.mock.calls.map((c) => c[5])).toEqual(["pro", "enterprise", "pro", "pro"]);
   });
 
   it("falls back to the invent-the-names prompt when there are no candidates", async () => {
