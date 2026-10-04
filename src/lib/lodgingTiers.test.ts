@@ -20,6 +20,11 @@ describe("isLuxuryBrand", () => {
     expect(isLuxuryBrand("四季の宿 旅館")).toBe(false); // 四季 is an ordinary word
     expect(isLuxuryBrand("伊豆半島民宿")).toBe(false);
     expect(isLuxuryBrand("Aman Tokyo")).toBe(true);
+    // a later whole-word occurrence still counts after an in-word one
+    expect(isLuxuryBrand("Yamanote Aman Suites")).toBe(true);
+    // punctuation in a brand name is matched literally, not as a pattern
+    expect(isLuxuryBrand("The St. Regis Osaka")).toBe(true);
+    expect(isLuxuryBrand("St Xregis Inn")).toBe(false);
     expect(isLuxuryBrand("東京四季酒店")).toBe(true);
   });
 });

@@ -20,14 +20,23 @@ const CJK_LUXURY_BRANDS = [
   "凱悅", "君悅", "柏悅", "安達仕", "洲際", "麗晶", "索菲特", "費爾蒙", "萊佛士", "鉑爾曼",
   "四季酒店", "文華東方", "半島酒店", "香格里拉", "悅榕", "安縵", "瑰麗",
 ];
-const LATIN_BRAND_PATTERN = new RegExp(
-  // Brand names only contain letters, spaces, "-" and "." — only "." needs escaping.
-  `(^|[^a-z])(${LATIN_LUXURY_BRANDS.map((b) => b.replace(/\./g, "\\.")).join("|")})($|[^a-z])`
-);
+const isLatinLetter = (ch: string | undefined) => ch !== undefined && ch >= "a" && ch <= "z";
+
+// Whole-word substring match, done by hand rather than by building a RegExp
+// from the brand list, so no brand ever needs escaping.
+function containsWord(text: string, word: string): boolean {
+  for (let i = text.indexOf(word); i !== -1; i = text.indexOf(word, i + 1)) {
+    if (!isLatinLetter(text[i - 1]) && !isLatinLetter(text[i + word.length])) return true;
+  }
+  return false;
+}
 
 export function isLuxuryBrand(name: string): boolean {
   const lower = name.toLowerCase();
-  return LATIN_BRAND_PATTERN.test(lower) || CJK_LUXURY_BRANDS.some((brand) => lower.includes(brand));
+  return (
+    LATIN_LUXURY_BRANDS.some((brand) => containsWord(lower, brand)) ||
+    CJK_LUXURY_BRANDS.some((brand) => lower.includes(brand))
+  );
 }
 
 /** Brand-name match, or Google's own primary type says resort. */
