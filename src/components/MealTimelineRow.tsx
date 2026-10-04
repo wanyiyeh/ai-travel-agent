@@ -21,6 +21,8 @@ interface MealTimelineRowProps {
   isPicking: boolean;
   onPick: () => void;
   onSaveCost: (value: number | undefined) => Promise<void>;
+  /** Shown when this place already came earlier in the trip, e.g. "第 2 次・上次在第 3 天". */
+  repeatNote?: string;
 }
 
 /**
@@ -28,7 +30,16 @@ interface MealTimelineRowProps {
  * where it's placed). Not draggable — meals are positioned by type, not by
  * the user — but can be swapped and repriced like the old meal grid.
  */
-export function MealTimelineRow({ mealType, meal, currency, editable, isPicking, onPick, onSaveCost }: MealTimelineRowProps) {
+export function MealTimelineRow({
+  mealType,
+  meal,
+  currency,
+  editable,
+  isPicking,
+  onPick,
+  onSaveCost,
+  repeatNote,
+}: MealTimelineRowProps) {
   const { label, icon } = MEAL_META[mealType];
 
   return (
@@ -43,7 +54,14 @@ export function MealTimelineRow({ mealType, meal, currency, editable, isPicking,
           <div className="flex-1 min-w-0">
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
-                <p className="text-xs font-medium text-amber-600 dark:text-amber-400">{label}</p>
+                <p className="text-xs font-medium text-amber-600 dark:text-amber-400">
+                  {label}
+                  {repeatNote && (
+                    <span className="ml-1.5 rounded bg-zinc-100 px-1.5 py-0.5 font-normal text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
+                      {repeatNote}
+                    </span>
+                  )}
+                </p>
                 <p className="font-semibold text-zinc-800 dark:text-zinc-200 leading-snug">{meal.name}</p>
               </div>
               {editable && !isPicking && (

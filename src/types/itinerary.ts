@@ -78,6 +78,8 @@ export type DayMeals = {
 
 export type MealCandidate = Meal & {
   isCurrent?: boolean;
+  /** Set when this place is already planned for another meal of the trip, e.g. "第 3 天晚餐已安排". */
+  plannedElsewhere?: string;
 };
 
 export const MEAL_TYPES = ["breakfast", "lunch", "dinner", "snack"] as const;
