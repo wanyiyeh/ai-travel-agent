@@ -309,9 +309,9 @@ function buildCandidatesCacheKey(
 
 // Nearby Search bills per request, not per result, so every call fetches
 // Google's max and slices locally. Callers asking for different counts
-// (e.g. a transit day's arrivalActivityCount + 4 vs a 3-day city's
-// dayCount * STOPS_PER_DAY + 4) then share one cached pool per
-// coords/types/radius/price instead of each paying for its own.
+// (e.g. the departure day's few stops vs a sightseeing block's full pool)
+// then share one cached pool per coords/types/radius/price instead of each
+// paying for its own.
 const NEARBY_FETCH_COUNT = 20;
 
 /**

@@ -37,9 +37,14 @@
 | 停留時間類別（`DurationCategory`） | 緊湊 | 適中 | 悠閒 |
 |---|---|---|---|
 | `museum`（博物館、美術館） | 90 分 | 180 分 | 210 分 |
-| `park`、`shopping` | 60 分 | 120 分 | 180 分 |
-| `viewpoint`、`temple`、`landmark` | 45 分 | 60 分 | 90 分 |
-| 一天大約排得下 | 5～6 個 | 2～3 個 | 約 2 個 |
+| `park`、`shopping` | 60 分 | 150 分 | 180 分 |
+| `viewpoint`、`temple`、`landmark` | 45 分 | 120 分 | 150 分 |
+| 其他類型 | 60 分 | 150 分 | 180 分 |
+| 一天大約排得下 | 最多 6 個（上限） | 2～3 個 | 2～3 個 |
+
+2026-10-04 實作時用 `dev.db` 的 44 個景點池（529 個景點）驗證：地標 38%、寺廟 19%、公園 15%、
+博物館 12%、購物 8%、觀景台 7%。原本的表（地標類在適中只停 60 分）會讓適中一天排到 4～5 個、
+緊湊約 8 個，跟「適中大約 3 小時」的定義不符，所以把地標類也拉長（選項 B），緊湊另外設每天最多 6 個。
 
 表單說明改成描述停留時間，例如「緊湊：每個景點約 1.5 小時內」，不再寫景點數。
 
@@ -293,13 +298,16 @@ Google 沒有「室內或戶外」的欄位，依景點類型判斷，對照表�
 - `restructure/route.ts` 改用同一個合併函式，讀取 `config.preferences`。
 - `TripPreferencesSchema` 新增選填欄位 `startTime`、`dietaryRestrictions`、`companion`。
 
-**1b. 步調依停留時間排**
-- `assignTimeSlots` 的 `DEFAULT_DURATION_BY_TYPE` 改成每種步調一張表（見 1.2）。
-- 移除 `STOPS_PER_DAY`：候選照分數排序，依序放進當天，超過 `dayEndMinute` 的尾端景點裁掉。
-  回程日已經有同樣的裁切邏輯，直接沿用。
-- 交通日改成依抵達後剩下的時間排，不再由 AI 決定 `arrivalActivityCount`。
-- `itineraryCityGen.pace.test.ts` 的期望值改成新定義：緊湊至少 5 個、適中 2～3 個、悠閒最多 2 個。
-- 候選池上限 20 個，跟快取一樣，不會多花錢。
+**1b. 步調依停留時間排**（2026-10-04 完成）
+- `assignTimeSlots` 的停留時間改成每種步調一張表（`DURATION_BY_PACE`，見 1.2）。
+- 移除 `STOPS_PER_DAY`。新增 `scheduler/stopCapacity.ts` 的 `estimateStopCapacity()`：
+  可用時間（扣掉午餐）÷（候選景點的平均停留時間 + 緩衝），上限 6 個。
+  `distributeStopsPerDay` 改成接受每天各自的上限（抵達日的時間比較少）。
+- 排完之後超過 18:00 的尾端景點裁掉（跟回程日相同的做法），因為午餐時段的推移可能浪費超過估算的 1 小時。
+- 交通日不再由 AI 決定 `arrivalActivityCount`，改用 AI 推算的抵達時間算出排得下幾個；抵達太晚就不查 Google。
+- `itineraryCityGen.pace.test.ts` 的期望值改成新定義：緊湊至少 5 個、適中 2～3 個、悠閒 1～2 個。
+- 候選池固定查 20 個，跟快取一樣，不會多花錢。
+- 回程日沒改：它的 `computeDepartureDayBudget` 用固定的 90 分估算，但排完會依截止時間裁切，結果仍然正確。
 
 **1c. 預算**
 - 兩處 Nearby Search 不再送 `priceLevels`，快取鍵值也拿掉它（修掉費用 bug）。

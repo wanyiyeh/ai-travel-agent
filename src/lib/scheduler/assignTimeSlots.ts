@@ -41,21 +41,29 @@ export type AssignTimeSlotsOptions = {
   dayEndMinute?: number;
 };
 
+/** When a day's first stop starts unless the caller says otherwise. */
+export const DEFAULT_DAY_START_MINUTE = 8 * 60;
+
 export type DurationCategory = "museum" | "viewpoint" | "temple" | "park" | "shopping" | "landmark";
 
-// Default stay length by category, minutes — placeholder table per plan
-// section 3.3. Categories match mapPlaceTypeToCategory.ts's output, which
-// derives them from real Google Place `types` (see that file for why these
-// six and not raw Google types).
-const DEFAULT_DURATION_BY_TYPE: Record<DurationCategory, number> = {
-  museum: 90,
-  viewpoint: 30,
-  temple: 45,
-  park: 60,
-  shopping: 60,
-  landmark: 45,
+// Stay length by pace and category, minutes. Pace is defined by how long you
+// stay, not how many stops you get (plan/form-preference-wiring.md 1.2):
+// intensive keeps every stop to 1.5h or less, moderate gives places about
+// 3h. Quick-look categories are stretched too — measured on dev.db's cached
+// pools, landmark/temple/viewpoint are ~64% of candidates, so leaving them at
+// an hour would make moderate days ~5 stops and blur the pace difference.
+// Categories match mapPlaceTypeToCategory.ts's output.
+const DURATION_BY_PACE: Record<Pace, Record<DurationCategory, number>> = {
+  intensive: { museum: 90, park: 60, shopping: 60, viewpoint: 45, temple: 45, landmark: 45 },
+  moderate: { museum: 180, park: 150, shopping: 150, viewpoint: 120, temple: 120, landmark: 120 },
+  relaxed: { museum: 210, park: 180, shopping: 180, viewpoint: 150, temple: 150, landmark: 150 },
 };
-const DEFAULT_DURATION_FALLBACK_MINUTES = 60;
+// Unrecognized type — same as the park/shopping row.
+const FALLBACK_DURATION_BY_PACE: Record<Pace, number> = {
+  intensive: 60,
+  moderate: 150,
+  relaxed: 180,
+};
 const DEFAULT_MEAL_DURATION_MINUTES = 60;
 
 // Fixed meal windows, minutes since midnight — breakfast/lunch/dinner.
@@ -70,18 +78,24 @@ const MEAL_WINDOWS: { startMinute: number; endMinute: number }[] = [
 // leave room for lunch, or four ~1-hour stops from 08:00 all land before noon
 // and every stop comes out "morning" (validateItinerary's STOPS_ALL_SAME_TIME,
 // plan/hybrid-rule-engine-scheduling.md 0.10).
-const LUNCH_BREAK = { startMinute: 12 * 60, endMinute: 13 * 60 };
+export const LUNCH_BREAK = { startMinute: 12 * 60, endMinute: 13 * 60 };
 
 // Cap on the extra gap stretching adds between two stops, so a 2-stop day
 // isn't spread into two stops five hours apart.
 const MAX_STRETCH_MINUTES = 120;
 const STRETCH_STEP_MINUTES = 5;
 
-const BUFFER_MINUTES_BY_PACE: Record<Pace, number> = {
+export const BUFFER_MINUTES_BY_PACE: Record<Pace, number> = {
   relaxed: 30,
   moderate: 15,
   intensive: 5,
 };
+
+/** Default stay for a (possibly unrecognized) category at a pace — shared with stopCapacity.ts. */
+export function typicalStopMinutes(type: string | undefined, pace: Pace): number {
+  const byType = type ? DURATION_BY_PACE[pace][type as DurationCategory] : undefined;
+  return byType ?? FALLBACK_DURATION_BY_PACE[pace];
+}
 
 function classifyTimeOfDay(startMinute: number): TimeOfDay {
   if (startMinute < 12 * 60) return "morning";
@@ -89,27 +103,26 @@ function classifyTimeOfDay(startMinute: number): TimeOfDay {
   return "evening";
 }
 
-function estimateDuration(stop: SchedulableStop): number {
+function estimateDuration(stop: SchedulableStop, pace: Pace): number {
   if (typeof stop.durationMinutes === "number") return stop.durationMinutes;
   if (stop.isMeal) return DEFAULT_MEAL_DURATION_MINUTES;
   // stop.type is a plain string (candidates aren't guaranteed to have run
-  // through mapPlaceTypeToCategory), so a lookup miss is expected and just
-  // falls through to the flat default below rather than being a type error.
-  const byType = stop.type ? DEFAULT_DURATION_BY_TYPE[stop.type as DurationCategory] : undefined;
-  if (byType != null) return byType;
-  return DEFAULT_DURATION_FALLBACK_MINUTES;
+  // through mapPlaceTypeToCategory), so a lookup miss is expected and falls
+  // back to the pace's flat default rather than being a type error.
+  return typicalStopMinutes(stop.type, pace);
 }
 
 function layOut(
   stops: SchedulableStop[],
   dayStartMinute: number,
-  buffer: number
+  buffer: number,
+  pace: Pace
 ): ScheduledStop[] {
   const reserveLunch = !stops.some((s) => s.isMeal);
   let cursor = dayStartMinute;
 
   return stops.map((stop, index) => {
-    const duration = estimateDuration(stop);
+    const duration = estimateDuration(stop, pace);
     // No buffer before the day's first stop — it starts at dayStartMinute.
     let startMinute = index === 0 ? cursor : cursor + buffer;
 
@@ -146,11 +159,11 @@ function layOut(
  * forward to the next fixed meal window that hasn't fully passed yet
  * (falling back to the last window if the clock has run past all of them,
  * rather than waiting indefinitely); a non-meal stop's duration comes from
- * `durationMinutes` when known, else a type -> default-duration lookup.
+ * `durationMinutes` when known, else a pace + type -> duration lookup.
  * When the stops include no meal of their own, a non-meal stop that would
  * run into the 12:00-13:00 lunch break starts after it instead.
- * `pace` sets the buffer inserted between consecutive stops: relaxed spaces
- * stops out more, intensive packs them tighter. With `dayEndMinute`, spare
+ * `pace` sets both each stop's default stay and the buffer between
+ * consecutive stops: relaxed stays longer and spaces stops out more. With `dayEndMinute`, spare
  * time before it is added evenly to every gap (the largest 5-minute step,
  * up to MAX_STRETCH_MINUTES, that still finishes in time). Pure function —
  * selection and ordering of stops happen elsewhere (selectAndOrderStops).
@@ -161,16 +174,16 @@ export function assignTimeSlots(
 ): ScheduledStop[] {
   const pace = options.pace ?? "moderate";
   const buffer = BUFFER_MINUTES_BY_PACE[pace];
-  const dayStartMinute = options.dayStartMinute ?? 8 * 60;
+  const dayStartMinute = options.dayStartMinute ?? DEFAULT_DAY_START_MINUTE;
 
-  let scheduled = layOut(stops, dayStartMinute, buffer);
+  let scheduled = layOut(stops, dayStartMinute, buffer, pace);
   const { dayEndMinute } = options;
   if (dayEndMinute == null || scheduled.length < 2) return scheduled;
 
   // End time only ever grows with the extra gap, so the first step that
   // fits, counting down from the cap, is the largest one.
   for (let extra = MAX_STRETCH_MINUTES; extra > 0; extra -= STRETCH_STEP_MINUTES) {
-    const stretched = layOut(stops, dayStartMinute, buffer + extra);
+    const stretched = layOut(stops, dayStartMinute, buffer + extra, pace);
     if (stretched[stretched.length - 1].endMinute <= dayEndMinute) {
       scheduled = stretched;
       break;

@@ -69,15 +69,25 @@ describe("partitionCandidatesByDay", () => {
 });
 
 describe("distributeStopsPerDay", () => {
-  it("gives every day the max when the pool is big enough", () => {
-    expect(distributeStopsPerDay(20, 3, 4)).toEqual([4, 4, 4]);
+  it("gives every day its cap when the pool is big enough", () => {
+    expect(distributeStopsPerDay(20, [4, 4, 4])).toEqual([4, 4, 4]);
   });
 
   it("spreads a 20-place pool over 9 days instead of leaving the last days empty", () => {
-    expect(distributeStopsPerDay(20, 9, 4)).toEqual([3, 3, 2, 2, 2, 2, 2, 2, 2]);
+    expect(distributeStopsPerDay(20, Array(9).fill(4))).toEqual([3, 3, 2, 2, 2, 2, 2, 2, 2]);
+  });
+
+  it("respects a smaller cap on one day and gives the spare stops to the others", () => {
+    // e.g. an arrival day with time for only one stop
+    expect(distributeStopsPerDay(7, [1, 3, 3])).toEqual([1, 3, 3]);
+    expect(distributeStopsPerDay(5, [1, 3, 3])).toEqual([1, 2, 2]);
+  });
+
+  it("gives nothing to a day with zero capacity", () => {
+    expect(distributeStopsPerDay(6, [0, 3])).toEqual([0, 3]);
   });
 
   it("returns no days for a zero-day block", () => {
-    expect(distributeStopsPerDay(20, 0, 4)).toEqual([]);
+    expect(distributeStopsPerDay(20, [])).toEqual([]);
   });
 });

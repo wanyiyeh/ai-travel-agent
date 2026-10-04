@@ -17,7 +17,7 @@ const pool = [museum, park, restaurant, viewpoint];
 
 describe("buildDaySkeleton", () => {
   it("selects, orders, and schedules candidates in one pass", () => {
-    const result = buildDaySkeleton(pool, { count: 3 });
+    const result = buildDaySkeleton(pool, { count: 3, pace: "intensive" });
 
     // Top 3 by rating are museum/restaurant/park; nearest-neighbor from
     // museum (the highest-scored, so also the default start) visits park
@@ -25,21 +25,21 @@ describe("buildDaySkeleton", () => {
     expect(result.map((s) => s.id)).toEqual(["museum", "park", "restaurant"]);
 
     expect(result[0]).toMatchObject({
-      estimatedDurationMinutes: 90, // museum type default
+      estimatedDurationMinutes: 90, // museum at intensive pace
       startMinute: 480,
       time_of_day: "morning",
       lat: 0,
       lng: 0,
     });
     expect(result[1]).toMatchObject({
-      estimatedDurationMinutes: 60, // park type default
-      startMinute: 585,
+      estimatedDurationMinutes: 60, // park at intensive pace
+      startMinute: 575, // 570 + 5-minute intensive buffer
       time_of_day: "morning",
       lat: 0,
       lng: 0.1,
     });
     // restaurant is a default meal type, so it snaps forward to the lunch
-    // window (12:00) instead of starting right after park at 10:00.
+    // window (12:00) instead of starting right after park at 10:40.
     expect(result[2]).toMatchObject({
       estimatedDurationMinutes: 60,
       startMinute: 12 * 60,
@@ -55,13 +55,13 @@ describe("buildDaySkeleton", () => {
   });
 
   it("only snaps configured meal types to the meal windows", () => {
-    const result = buildDaySkeleton(pool, { count: 3, mealTypes: [] });
+    const result = buildDaySkeleton(pool, { count: 3, mealTypes: [], pace: "intensive" });
     const scheduledRestaurant = result.find((s) => s.id === "restaurant");
 
     // With mealTypes:[] the restaurant is treated as a plain stop, so it
     // continues sequentially right after park instead of snapping to lunch.
     expect(scheduledRestaurant).toMatchObject({
-      startMinute: 660,
+      startMinute: 640, // park ends 635 + 5-minute buffer
       time_of_day: "morning",
     });
   });
