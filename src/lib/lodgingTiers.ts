@@ -44,22 +44,36 @@ export function isLuxuryLodging(place: Pick<PlaceCandidate, "name" | "types">): 
   return isLuxuryBrand(place.name) || place.types?.[0] === "resort_hotel";
 }
 
+// Enough in-tier places that the LLM / picker still has a real choice.
+const MIN_TIER_MATCHES = 3;
+
 /**
- * Orders a lodging pool by how well each place matches the budget tier,
- * keeping Google's popularity order within a tier. Budget: hostels first
- * (by primary type). Luxury: brand/resort matches first. Moderate and no
- * budget: unchanged — their searched types already match the tier.
+ * Narrows a lodging pool to the budget tier. Ordering alone wasn't enough:
+ * a budget trip to Sapporo still got the ANA Crowne Plaza, because the LLM
+ * picks from the whole list regardless of order. So when at least
+ * MIN_TIER_MATCHES places fit the tier, only those are kept:
+ * - budget: hostels (by primary type)
+ * - moderate: anything but luxury brands/resorts (its "hotel" search also
+ *   returns Hiltons)
+ * - luxury: luxury brands/resorts
+ * With fewer matches, the matches go first and the rest follow, so a small
+ * town still gets somewhere to stay. Google's popularity order is kept within
+ * each group. No budget: unchanged.
  */
 export function rankLodgingByBudget<T extends Pick<PlaceCandidate, "name" | "types">>(
   places: T[],
   budget: BudgetLevel | undefined
 ): T[] {
-  const preferred =
+  const fits =
     budget === "budget"
       ? (p: T) => p.types?.[0] === "hostel"
-      : budget === "luxury"
-        ? isLuxuryLodging
-        : null;
-  if (!preferred) return places;
-  return [...places.filter(preferred), ...places.filter((p) => !preferred(p))];
+      : budget === "moderate"
+        ? (p: T) => !isLuxuryLodging(p)
+        : budget === "luxury"
+          ? isLuxuryLodging
+          : null;
+  if (!fits) return places;
+  const matches = places.filter(fits);
+  if (matches.length >= MIN_TIER_MATCHES) return matches;
+  return [...matches, ...places.filter((p) => !fits(p))];
 }

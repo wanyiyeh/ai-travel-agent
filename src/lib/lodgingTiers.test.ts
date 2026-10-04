@@ -37,22 +37,32 @@ describe("isLuxuryLodging", () => {
 });
 
 describe("rankLodgingByBudget", () => {
-  const pool = [
-    { name: "東橫INN", types: ["hotel"] },
-    { name: "Backpackers Hostel", types: ["hostel", "lodging"] },
-    { name: "Park Hyatt", types: ["hotel"] },
-  ];
+  const hostel = (n: number) => ({ name: `Hostel ${n}`, types: ["hostel", "lodging"] });
+  const business = (n: number) => ({ name: `Business Hotel ${n}`, types: ["hotel"] });
+  const lux = (n: number) => ({ name: `Hilton ${n}`, types: ["hotel"] });
 
-  it("budget: hostels first, keeping the rest in popularity order", () => {
-    expect(rankLodgingByBudget(pool, "budget").map((p) => p.name)).toEqual(["Backpackers Hostel", "東橫INN", "Park Hyatt"]);
+  it("budget: keeps only hostels when there are enough of them", () => {
+    const pool = [lux(1), hostel(1), business(1), hostel(2), hostel(3)];
+    expect(rankLodgingByBudget(pool, "budget").map((p) => p.name)).toEqual(["Hostel 1", "Hostel 2", "Hostel 3"]);
   });
 
-  it("luxury: brand hotels first", () => {
-    expect(rankLodgingByBudget(pool, "luxury").map((p) => p.name)).toEqual(["Park Hyatt", "東橫INN", "Backpackers Hostel"]);
+  it("budget: with too few hostels, puts them first but keeps the rest", () => {
+    const pool = [lux(1), hostel(1), business(1)];
+    expect(rankLodgingByBudget(pool, "budget").map((p) => p.name)).toEqual(["Hostel 1", "Hilton 1", "Business Hotel 1"]);
   });
 
-  it("moderate and no budget: unchanged", () => {
-    expect(rankLodgingByBudget(pool, "moderate")).toBe(pool);
+  it("moderate: drops luxury brands that the hotel search also returns", () => {
+    const pool = [lux(1), business(1), business(2), hostel(1)];
+    expect(rankLodgingByBudget(pool, "moderate").map((p) => p.name)).toEqual(["Business Hotel 1", "Business Hotel 2", "Hostel 1"]);
+  });
+
+  it("luxury: keeps only brand hotels when there are enough of them", () => {
+    const pool = [business(1), lux(1), lux(2), lux(3)];
+    expect(rankLodgingByBudget(pool, "luxury").map((p) => p.name)).toEqual(["Hilton 1", "Hilton 2", "Hilton 3"]);
+  });
+
+  it("no budget: unchanged", () => {
+    const pool = [lux(1), hostel(1)];
     expect(rankLodgingByBudget(pool, undefined)).toBe(pool);
   });
 });

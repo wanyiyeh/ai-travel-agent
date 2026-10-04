@@ -125,9 +125,9 @@ export function getMealPlaceTypes(mealType: "breakfast" | "lunch" | "dinner" | "
 
 // Table A lodging subtypes (see docs/google-places-types.md), picked per budget
 // so a "budget" trip surfaces hostels/guest houses instead of resort hotels.
-// The tier itself (hostels first, brand hotels first) comes from
-// rankLodgingByBudget in fetchLodgingCandidates — these lists only decide
-// what's in the pool. Moderate: B&Bs, guest houses, ~3-star and business
+// The tier itself (hostels only, no luxury brands, brand hotels only) comes
+// from rankLodgingByBudget in fetchLodgingCandidates — these lists only
+// decide what's in the pool. Moderate: B&Bs, guest houses, ~3-star and business
 // hotels (Toyoko Inn-style chains are typed "hotel").
 const LODGING_TYPES_BY_BUDGET: Record<BudgetLevel, string[]> = {
   budget:   ["hostel", "guest_house", "bed_and_breakfast", "motel", "lodging"],
@@ -537,7 +537,7 @@ export async function searchTextCandidates(
 /**
  * Lodging candidates for a budget tier (plan/form-preference-wiring.md 1.3),
  * shared by itinerary generation and the 換一間 picker. One Pro-tier Nearby
- * search, ranked locally (rankLodgingByBudget). Luxury only: if the pool has
+ * search, narrowed to the budget tier locally (rankLodgingByBudget). Luxury only: if the pool has
  * no brand hotel or resort at all, adds a "luxury hotel" Text Search so a
  * city without the big chains still gets its high-end options.
  */
