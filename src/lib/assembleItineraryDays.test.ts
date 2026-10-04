@@ -7,9 +7,9 @@ import { computeArrivalDayStartMinute } from "@/lib/scheduler/arrivalDayStart";
 // reach the generator that's supposed to act on it? Every generator is
 // mocked, so these only check plumbing, not LLM output quality.
 //
-// `it.fails` marks a known gap — the test body describes the intended
-// behavior and currently fails, so the suite stays green. Once the gap is
-// fixed vitest reports it as an unexpected pass: flip it to a plain `it`.
+// These started as `it.fails` known gaps (docs/process.md 2026-10-03 §6) and
+// were flipped to plain `it` as plan/form-preference-wiring.md phase 1 fixed
+// each one.
 
 const planTripMock = vi.fn();
 const dayStopsMock = vi.fn();
@@ -154,13 +154,12 @@ describe("assembleItineraryDays — form field wiring", () => {
     }
   });
 
-  // Gap: even with the intent parsed, generateMealsAndAccommodation has no
-  // parameter for dietary restrictions, so 「不吃海鮮」 can't filter restaurants.
-  it.fails("dietary restrictions from free text reach the meal generator", async () => {
+  it("dietary restrictions from free text reach the meal generator", async () => {
     parseIntentMock.mockResolvedValue({ ...NEUTRAL_PREFERENCE_INTENT, dietaryRestrictions: ["no_seafood"] });
 
     await run("不吃海鮮", undefined);
 
+    expect(mealsMock).toHaveBeenCalled();
     for (const call of mealsMock.mock.calls) {
       expect(call).toContainEqual(expect.objectContaining({ dietaryRestrictions: ["no_seafood"] }));
     }

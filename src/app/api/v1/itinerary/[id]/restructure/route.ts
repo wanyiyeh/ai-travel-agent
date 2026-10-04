@@ -7,6 +7,7 @@ import {
   generateTransitDayStops,
   generateMealsAndAccommodation,
   generateDayStops,
+  mealPreferencesOf,
 } from "@/lib/itineraryCityGen";
 import { parsePreferenceIntent } from "@/lib/preferenceIntent";
 import { mergePreferenceIntent } from "@/lib/mergePreferenceIntent";
@@ -219,7 +220,7 @@ async function buildCityBlock(
           })
         : Promise.resolve([]),
       newDaysNeeded > 0
-        ? generateMealsAndAccommodation(city.name, newDaysNeeded, currency, budget).catch(() => ({
+        ? generateMealsAndAccommodation(city.name, newDaysNeeded, currency, budget, mealPreferencesOf(preferenceIntent)).catch(() => ({
             accommodation: {},
             mealsByDay: Array.from({ length: newDaysNeeded }, () => ({})),
           }))
@@ -289,7 +290,7 @@ async function buildCityBlock(
           return Array.from({ length: aiDayCount }, () => []);
         })
       : Promise.resolve([]),
-    generateMealsAndAccommodation(city.name, nights, currency, budget).catch(() => ({
+    generateMealsAndAccommodation(city.name, nights, currency, budget, mealPreferencesOf(preferenceIntent)).catch(() => ({
       accommodation: {},
       mealsByDay: Array.from({ length: nights }, () => ({})),
     })),

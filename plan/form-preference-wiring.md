@@ -356,11 +356,18 @@ Google 依請求裡最貴的欄位計費（Pro：每月免費 5,000 次；Enterp
   - 品牌比對：英文品牌只比對完整單字，「四季」「半島」要加「酒店」，W Hotels 不比對，避免一般旅館被誤判成高端。
 - 做不到的：快取不能超過 30 天，Google 使用條款規定除了 place ID，地點資料最多只能快取 30 天。
 
-**1d. 飲食限制、出門時間**
-- `generateMealsAndAccommodation` 新增選填參數 `dietaryRestrictions`，限制寫進挑餐廳的 prompt。
-- 素食、純素另外查 `vegetarian_restaurant`、`vegan_restaurant` 類型（開工前到官方類型表確認類型名稱），
-  這樣是真的過濾。其他限制只能靠 prompt，效果是降低踩雷的機率。
-- 出門時間接到 `startTimePreference`；`START_TIME_MINUTE` 改成早起 07:30、晚起 11:00，預設的出門時間從 08:00 改成 09:00。
+**1d. 飲食限制、出門時間**（2026-10-04 完成）
+- `generateMealsAndAccommodation` 新增選填參數 `MealPreferences`（飲食限制、出門時間）。生成行程、重新規劃行程都會傳入；
+  「換一家」讀取存在行程設定裡的表單飲食限制（自由文字解析的結果沒有存，所以不包含）。
+- 新增 `src/lib/dietaryFilter.ts`，查官方類型表後比計畫原本寫的多做了一些：
+  - 素食、純素、**清真**：另外查 `vegetarian_restaurant`／`vegan_restaurant`／`halal_restaurant`，排在最前面（真的過濾）。
+  - 不吃海鮮、不吃牛、素食、純素：剔除主要類型是 `seafood_restaurant`／`sushi_restaurant`／`steak_house` 的店
+    （只抓得到以這些為主的店）。
+  - 所有限制都寫進挑餐廳的 prompt。自由文字解析出的標籤只接受 snake_case 單字，避免夾帶指令進 system prompt。
+- 出門時間：`START_TIME_MINUTE` 改成早起 07:30、一般 09:00、晚起 11:00，沒選時用一般。回程日也改從出門時間開始排。
+  排程核心（`assignTimeSlots`）本身的預設值維持 08:00，行程這一層一律傳入自己的出門時間，避免改動大量既有測試。
+- 晚起時，早餐清單把早午餐店排前面，prompt 也註明「早餐請選早午餐」。
+- 2026-10-03 釘下的 `it.fails` 全部改回一般測試，沒有剩下的已知缺口。
 
 **1e. 表單 UI**
 - 步調、預算移到外層，說明文字改寫。

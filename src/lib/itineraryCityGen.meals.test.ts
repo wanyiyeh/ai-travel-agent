@@ -101,6 +101,36 @@ describe("generateMealsAndAccommodation", () => {
     expect((result.mealsByDay[0].lunch as Record<string, unknown>).estimated_cost).toBe(1050);
   });
 
+  it("vegetarian: searches vegetarian restaurants first and drops steak/seafood places", async () => {
+    const typed = (name: string, primary: string): PlaceCandidate => ({ ...place(name), types: [primary, "restaurant"] });
+    nearbyMock
+      .mockResolvedValueOnce([]) // cafés
+      .mockResolvedValueOnce([typed("Steak House", "steak_house"), typed("Noodles", "ramen_restaurant")]) // main
+      .mockResolvedValueOnce([typed("Green Table", "vegetarian_restaurant")]); // vegetarian search
+    mockLlm({ accommodation: {}, meals: [] });
+
+    await generateMealsAndAccommodation("京都", 1, "JPY", undefined, { dietaryRestrictions: ["vegetarian"] });
+
+    expect(nearbyMock.mock.calls[2][2]).toEqual(["vegetarian_restaurant", "vegan_restaurant"]);
+    expect(systemPrompt()).toContain("M1: Green Table");
+    expect(systemPrompt()).toContain("M2: Noodles");
+    expect(systemPrompt()).not.toContain("Steak House");
+    expect(systemPrompt()).toContain("旅客飲食限制：素食");
+  });
+
+  it("late riser: brunch places lead the breakfast list and the prompt says so", async () => {
+    const typed = (name: string, primary: string): PlaceCandidate => ({ ...place(name), types: [primary] });
+    nearbyMock
+      .mockResolvedValueOnce([typed("Cafe", "cafe"), typed("Gelato", "ice_cream_shop"), typed("Brunch Spot", "brunch_restaurant")])
+      .mockResolvedValueOnce([]);
+    mockLlm({ accommodation: {}, meals: [] });
+
+    await generateMealsAndAccommodation("京都", 1, "JPY", undefined, { startTimePreference: "late" });
+
+    expect(systemPrompt()).toContain("B1: Brunch Spot");
+    expect(systemPrompt()).toContain("早餐請選早午餐");
+  });
+
   it("falls back to the invent-the-names prompt when there are no candidates", async () => {
     nearbyMock.mockResolvedValue([]);
     mockLlm({ accommodation: { name: "Some Hotel", area: "X" }, meals: [{ lunch: { name: "Some Place" } }] });

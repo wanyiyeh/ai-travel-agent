@@ -6,6 +6,7 @@ import {
   generateTransitDayStops,
   generateDepartureDayStops,
   generateMealsAndAccommodation,
+  mealPreferencesOf,
   parseTimeString,
 } from "@/lib/itineraryCityGen";
 import { parsePreferenceIntent } from "@/lib/preferenceIntent";
@@ -71,6 +72,7 @@ export async function assembleItineraryDays(
 
   const budget = preferences?.budget as BudgetLevel | undefined;
   const preferenceIntent = mergePreferenceIntent(preferences, parsedIntent);
+  const mealPreferences = mealPreferencesOf(preferenceIntent);
 
   const arrivalMinute = flightInfo.arrivalTime
     ? parseTimeString(flightInfo.arrivalTime, DEFAULT_ARRIVAL_MINUTE_FALLBACK)
@@ -111,7 +113,7 @@ export async function assembleItineraryDays(
     // assembleItineraryDays, breaking its "never throws except when planTrip
     // fails" contract. restructure/route.ts already wraps every one of its
     // own call sites with this same degrade-to-empty pattern.
-    const mealsAndAccommodationPromise = generateMealsAndAccommodation(city.name, nights, plan.currency, budget).catch(
+    const mealsAndAccommodationPromise = generateMealsAndAccommodation(city.name, nights, plan.currency, budget, mealPreferences).catch(
       () => emptyMealsAndAccommodation(nights)
     );
 

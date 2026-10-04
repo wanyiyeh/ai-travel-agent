@@ -41,8 +41,8 @@ export type AssignTimeSlotsOptions = {
   dayEndMinute?: number;
 };
 
-/** When a day's first stop starts unless the caller says otherwise. */
-export const DEFAULT_DAY_START_MINUTE = 8 * 60;
+/** When a day's first stop starts unless the caller says otherwise. Trip days pass their own (itineraryCityGen START_TIME_MINUTE). */
+const DEFAULT_DAY_START_MINUTE = 8 * 60;
 
 export type DurationCategory = "museum" | "viewpoint" | "temple" | "park" | "shopping" | "landmark";
 

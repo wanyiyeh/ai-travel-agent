@@ -6,7 +6,7 @@ import { placeCandidatesToStopCandidates } from "@/lib/scheduler/placeCandidates
 import { distributeStopsPerDay, partitionCandidatesByDay } from "@/lib/scheduler/partitionCandidatesByDay";
 import { buildDaySkeleton, type SkeletonStop } from "@/lib/scheduler/buildDaySkeleton";
 import { computeDepartureDayBudget } from "@/lib/scheduler/departureDayBudget";
-import { DEFAULT_DAY_START_MINUTE, type DurationCategory } from "@/lib/scheduler/assignTimeSlots";
+import { type DurationCategory } from "@/lib/scheduler/assignTimeSlots";
 import { estimateStopCapacity } from "@/lib/scheduler/stopCapacity";
 import { generateSkeletonCopy } from "@/lib/skeletonCopy";
 import { NEUTRAL_PREFERENCE_INTENT, type PreferenceIntent } from "@/lib/schemas";
@@ -16,6 +16,7 @@ import { isFoodPlace } from "@/lib/foodPlace";
 import { getTwdRates } from "@/lib/exchangeRate";
 import { rankMainMealsByBudget } from "@/lib/mealBudget";
 import { splitCafePool } from "@/lib/cafeMealSlots";
+import { dietPromptLine, dietRequiredTypes, excludeByDiet } from "@/lib/dietaryFilter";
 
 // Shared AI-generation helpers for building out a city's worth of itinerary
 // content (transit day, sightseeing days, accommodation + meals). Used by the
@@ -320,7 +321,7 @@ export async function generateDepartureDayStops(
   lockedPlaceIds: string[] = []
 ): Promise<Array<Record<string, unknown>>> {
   try {
-    const dayStartMinute = 8 * 60;
+    const dayStartMinute = dayStartFor(preferenceIntent);
     const returnDepartureMinute = returnDepartureTime
       ? parseTimeString(returnDepartureTime, DEFAULT_ARRIVAL_MINUTE)
       : undefined;
@@ -381,11 +382,24 @@ export async function generateDepartureDayStops(
 const MEAL_LODGING_RADIUS_M = 3000;
 const MEAL_LODGING_MAX_COUNT = 20;
 
+const isBrunchPlace = (p: PlaceCandidate) => p.types?.[0] === "brunch_restaurant";
+
+/** Traveler preferences that change which places meals come from (plan/form-preference-wiring.md 1d). */
+export type MealPreferences = {
+  dietaryRestrictions?: string[];
+  startTimePreference?: PreferenceIntent["startTimePreference"];
+};
+
+export function mealPreferencesOf(intent: PreferenceIntent): MealPreferences {
+  return { dietaryRestrictions: intent.dietaryRestrictions, startTimePreference: intent.startTimePreference };
+}
+
 async function fetchMealLodgingPools(
   cityName: string,
   budget: BudgetLevel | undefined,
   currency: string,
-  stayDays: number
+  stayDays: number,
+  { dietaryRestrictions = [], startTimePreference }: MealPreferences
 ): Promise<MealLodgingPools | null> {
   const apiKey = process.env.GOOGLE_PLACES_API_KEY;
   if (!apiKey) return null;
@@ -399,17 +413,30 @@ async function fetchMealLodgingPools(
   const search = async (types: string[], tier: FieldTier, keep: (p: PlaceCandidate) => boolean = () => true) =>
     (await fetchNearbyPlaceCandidates(coords, apiKey, types, MEAL_LODGING_RADIUS_M, MEAL_LODGING_MAX_COUNT, tier)).filter(keep);
 
+  // A vegetarian/vegan/halal traveler gets one extra search for restaurants
+  // of exactly that type, put first — a real filter, not just a prompt hint.
+  const dietTypes = dietRequiredTypes(dietaryRestrictions);
+
   // Breakfast and snack share one café search, split locally (cafeMealSlots.ts).
-  const [cafes, main, lodging, twdPerUnit] = await Promise.all([
+  const [cafes, main, dietMain, lodging, twdPerUnit] = await Promise.all([
     search(getMealPlaceTypes("breakfast", budget), "pro", isFoodPlace),
     search(getMealPlaceTypes("lunch", budget), "enterprise", isFoodPlace),
+    dietTypes.length > 0 ? search(dietTypes, "enterprise", isFoodPlace) : Promise.resolve([]),
     fetchLodgingCandidates(coords, apiKey, budget, MEAL_LODGING_RADIUS_M, MEAL_LODGING_MAX_COUNT),
     budget ? getTwdRates() : Promise.resolve({}),
   ]);
-  const { breakfast, snack } = splitCafePool(cafes);
+  const split = splitCafePool(excludeByDiet(cafes, dietaryRestrictions));
+  // Getting up late means brunch, so brunch places lead the breakfast list.
+  const breakfast =
+    startTimePreference === "late"
+      ? [...split.breakfast.filter(isBrunchPlace), ...split.breakfast.filter((p) => !isBrunchPlace(p))]
+      : split.breakfast;
+
+  const dietIds = new Set(dietMain.map((p) => p.placeId));
+  const allMain = excludeByDiet([...dietMain, ...main.filter((p) => !dietIds.has(p.placeId))], dietaryRestrictions);
   // Lunch + dinner each day draw from the same pool.
-  const rankedMain = rankMainMealsByBudget(main, budget, currency, twdPerUnit, stayDays * 2);
-  return { breakfast, main: rankedMain, snack, lodging };
+  const rankedMain = rankMainMealsByBudget(allMain, budget, currency, twdPerUnit, stayDays * 2);
+  return { breakfast, main: rankedMain, snack: split.snack, lodging };
 }
 
 export async function generateMealsAndAccommodation(
@@ -417,6 +444,7 @@ export async function generateMealsAndAccommodation(
   stayDays: number,
   currency: string,
   budget?: BudgetLevel,
+  preferences: MealPreferences = {},
 ): Promise<{ accommodation: Record<string, unknown>; mealsByDay: Array<Record<string, unknown>> }> {
   const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
 
@@ -424,7 +452,7 @@ export async function generateMealsAndAccommodation(
   // city center) replace one Text Search per meal/hotel during enrich, and
   // the LLM can't invent a name that later comes back "not found". Any
   // failure here just means the old invent-the-names prompt below.
-  const pools = await fetchMealLodgingPools(cityName, budget, currency, stayDays).catch(() => null);
+  const pools = await fetchMealLodgingPools(cityName, budget, currency, stayDays, preferences).catch(() => null);
   const useCandidates = pools !== null && hasAnyCandidates(pools);
 
   const candidateRules = useCandidates
@@ -439,6 +467,9 @@ export async function generateMealsAndAccommodation(
 ${formatCandidateLists(pools)}`
     : "";
   const idField = useCandidates ? `"id": "候選編號或 null", ` : "";
+  const lateRiserRule =
+    preferences.startTimePreference === "late" ? "\n- 旅客晚起（約 11:00 出門），早餐請選早午餐" : "";
+  const preferenceRules = dietPromptLine(preferences.dietaryRestrictions ?? []) + lateRiserRule;
 
   const completion = await openai.chat.completions.create({
     model,
@@ -464,7 +495,7 @@ ${formatCandidateLists(pools)}`
 - accommodation 為整個在 ${cityName} 停留期間的住宿，必須是真實存在且可在 Booking.com 找到的飯店
 - meals 陣列共 ${stayDays} 個元素，每天推薦不同的餐廳
 - 所有餐廳必須是 ${cityName} 真實存在的知名店家；snack 須為咖啡館、甜點店或冰淇淋店，不可填正餐型餐廳
-- estimated_cost 為 ${currency} 整數，代表每人平均消費${candidateRules}`,
+- estimated_cost 為 ${currency} 整數，代表每人平均消費${preferenceRules}${candidateRules}`,
       },
       {
         role: "user",
@@ -586,7 +617,18 @@ function buildInterestWeights(interestBoost: string[]): Record<string, number> {
   return weights;
 }
 
-const START_TIME_MINUTE: Record<string, number> = { early: 7 * 60, late: 10 * 60 };
+// When a sightseeing day starts, by the form's 出門時間 (plan/form-preference-
+// wiring.md 1.6): early = out before 8:00, normal = 9:00, late = after 11:00.
+// "normal" is also the default when nothing was chosen.
+const START_TIME_MINUTE: Record<NonNullable<PreferenceIntent["startTimePreference"]>, number> = {
+  early: 7 * 60 + 30,
+  normal: 9 * 60,
+  late: 11 * 60,
+};
+
+function dayStartFor(preferenceIntent: PreferenceIntent): number {
+  return START_TIME_MINUTE[preferenceIntent.startTimePreference ?? "normal"];
+}
 
 // Sightseeing stops spread out until dinner (assignTimeSlots' dinner window
 // opens at 18:00) instead of all finishing before lunch.
@@ -680,10 +722,7 @@ async function generateDayStopsViaScheduler(
 
     const interestWeights = buildInterestWeights(preferenceIntent.interestBoost);
     const pace = preferenceIntent.pace ?? "moderate";
-    // "normal" (or unset) has no entry — it's the default start.
-    const dayStartMinute =
-      (preferenceIntent.startTimePreference && START_TIME_MINUTE[preferenceIntent.startTimePreference]) ||
-      DEFAULT_DAY_START_MINUTE;
+    const dayStartMinute = dayStartFor(preferenceIntent);
     const dayStarts = Array.from({ length: dayCount }, (_, dayIdx) =>
       dayIdx === 0 ? (firstDayStartMinute ?? dayStartMinute) : dayStartMinute
     );

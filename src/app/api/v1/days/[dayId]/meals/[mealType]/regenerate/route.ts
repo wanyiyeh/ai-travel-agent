@@ -11,6 +11,8 @@ import { resolveDayCoords } from "@/lib/itineraryGen";
 import { estimateMealCost } from "@/lib/priceLevelCost";
 import { isFoodPlace } from "@/lib/foodPlace";
 import { fitsCafeMealSlot } from "@/lib/cafeMealSlots";
+import { dietRequiredTypes, excludeByDiet } from "@/lib/dietaryFilter";
+import { TripPreferencesSchema } from "@/lib/schemas";
 import { getTwdRates } from "@/lib/exchangeRate";
 import { estimateFromPriceRange, rankMainMealsByBudget } from "@/lib/mealBudget";
 
@@ -109,9 +111,23 @@ export async function POST(
     const isMainMeal = mealType === "lunch" || mealType === "dinner";
     const tier = isMainMeal ? "enterprise" : "pro";
 
+    // Form-chosen restrictions only — the free-text parse isn't stored with
+    // the itinerary (plan/form-preference-wiring.md 1d).
+    const diet = TripPreferencesSchema.shape.dietaryRestrictions.safeParse(
+      (config.preferences as { dietaryRestrictions?: unknown } | undefined)?.dietaryRestrictions
+    ).data ?? [];
+    // Vegetarian/vegan/halal lunch & dinner: restaurants of exactly that type first.
+    const dietTypes = isMainMeal ? dietRequiredTypes(diet) : [];
+    const center = snapToGrid(coords, PICKER_SEARCH_GRID_DEG);
+
     // Pull the full cached pool (same cost as 10 — see NEARBY_FETCH_COUNT) so
     // dropping non-food places still leaves up to 10 to show.
-    const foodPlaces = (await fetchNearbyPlaceCandidates(snapToGrid(coords, PICKER_SEARCH_GRID_DEG), googleApiKey, types, 2000, 20, tier))
+    const [pool, dietPool] = await Promise.all([
+      fetchNearbyPlaceCandidates(center, googleApiKey, types, 2000, 20, tier),
+      dietTypes.length > 0 ? fetchNearbyPlaceCandidates(center, googleApiKey, dietTypes, 2000, 20, tier) : Promise.resolve([]),
+    ]);
+    const dietIds = new Set(dietPool.map((p) => p.placeId));
+    const foodPlaces = excludeByDiet([...dietPool, ...pool.filter((p) => !dietIds.has(p.placeId))], diet)
       .filter(isFoodPlace)
       // Breakfast and snack share one café search; keep what suits this slot.
       .filter((p) => isMainMeal || fitsCafeMealSlot(p, mealType as "breakfast" | "snack"));

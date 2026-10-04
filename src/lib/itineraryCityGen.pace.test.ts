@@ -80,3 +80,20 @@ describe("generateDayStops — pace vs stops per day", () => {
     }
   });
 });
+
+describe("generateDayStops — 出門時間 (start time)", () => {
+  async function stopsWithStart(startTimePreference: PreferenceIntent["startTimePreference"]): Promise<number[]> {
+    const days = await generateDayStops("東京", 2, "JPY", [], undefined, {
+      ...NEUTRAL_PREFERENCE_INTENT,
+      pace: "intensive",
+      startTimePreference,
+    });
+    return days.map((d) => d.length);
+  }
+
+  it("a late start (11:00) leaves room for fewer stops than an early one (07:30)", async () => {
+    const early = await stopsWithStart("early");
+    const late = await stopsWithStart("late");
+    for (let i = 0; i < early.length; i++) expect(late[i]).toBeLessThan(early[i]);
+  });
+});
