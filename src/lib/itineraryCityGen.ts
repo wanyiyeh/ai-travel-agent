@@ -1,7 +1,15 @@
 import { openai } from "@/lib/openai";
 import { getCityCenter } from "@/lib/placesTextSearch";
 import { fetchNearbyPlaceCandidates, fetchLodgingCandidates, getMealPlaceTypes, type RestaurantHint, type BudgetLevel, type PlaceCandidate, type FieldTier } from "@/lib/fetchCityRestaurants";
-import { applyCandidatePicks, formatCandidateLists, hasAnyCandidates, type MealLodgingPools } from "@/lib/mealLodgingPicks";
+import {
+  applyAccommodationPick,
+  applyMealPicks,
+  formatCandidateLists,
+  hasAnyCandidates,
+  newPickHistory,
+  unusedFirst,
+  type MealLodgingPools,
+} from "@/lib/mealLodgingPicks";
 import { placeCandidatesToStopCandidates } from "@/lib/scheduler/placeCandidatesToStopCandidates";
 import { distributeStopsPerDay, partitionCandidatesByDay } from "@/lib/scheduler/partitionCandidatesByDay";
 import { buildDaySkeleton, type SkeletonStop } from "@/lib/scheduler/buildDaySkeleton";
@@ -493,21 +501,76 @@ export async function generateMealsAndAccommodation(
   const pools = await fetchMealLodgingPools(cityName, budget, currency, stayDays, preferences).catch(() => null);
   const useCandidates = pools !== null && hasAnyCandidates(pools);
 
-  const candidateRules = useCandidates
-    ? `
-
-以下是 ${cityName} 真實存在的店家候選（Google 地圖資料）。每個欄位都要從對應清單中選一個，並在 "id" 填入它的編號（例如 "M3"），"name" 照抄清單上的名稱：
-- 住宿從「住宿候選」選一個
-- 早餐從「早餐候選」選，午餐和晚餐都從「午餐／晚餐候選」選，點心從「點心候選」選
-- 同一家店在整段停留期間只能出現一次（午餐和晚餐也不能選同一家）
-- 某個清單的候選不夠用時，才自行推薦真實店家，id 填 null
-
-${formatCandidateLists(pools)}`
-    : "";
-  const idField = useCandidates ? `"id": "候選編號或 null", ` : "";
   const lateRiserRule =
     preferences.startTimePreference === "late" ? "\n- 旅客晚起（約 11:00 出門），早餐請選早午餐" : "";
   const preferenceRules = dietPromptLine(preferences.dietaryRestrictions ?? []) + lateRiserRule;
+
+  if (!useCandidates) {
+    const parsed = await askMealsAndLodging(model, cityName, stayDays, currency, preferenceRules, null, true);
+    return {
+      accommodation: parsed.accommodation ?? {},
+      mealsByDay: Array.from({ length: stayDays }, (_, i) => parsed.meals?.[i] ?? {}),
+    };
+  }
+
+  // A long stay is asked for in chunks: one reply covering 14 days came back
+  // truncated, leaving the last days without meals. Each chunk lists unused
+  // candidates first, and applyMealPicks fills anything left empty with a
+  // real candidate, repeating one only after the pool is used up.
+  const history = newPickHistory();
+  let accommodation: Record<string, unknown> = {};
+  const mealsByDay: Array<Record<string, unknown>> = [];
+  for (let start = 0; start < stayDays; start += MEAL_CHUNK_DAYS) {
+    const days = Math.min(MEAL_CHUNK_DAYS, stayDays - start);
+    const isFirst = start === 0;
+    const chunkPools = isFirst ? pools : unusedFirst(pools, history);
+    // A failed chunk still gets meals: every slot is filled from candidates.
+    const parsed = await askMealsAndLodging(model, cityName, days, currency, preferenceRules, chunkPools, isFirst).catch(
+      (err) => {
+        console.warn(`[generateMealsAndAccommodation] chunk from day ${start} failed, filling from candidates:`, err);
+        return {} as ParsedMealsReply;
+      }
+    );
+    if (isFirst) accommodation = applyAccommodationPick(parsed.accommodation, chunkPools, currency);
+    mealsByDay.push(...applyMealPicks(parsed.meals, chunkPools, days, currency, history, start));
+  }
+  return { accommodation, mealsByDay };
+}
+
+// Days of meals asked for per LLM call — see generateMealsAndAccommodation.
+const MEAL_CHUNK_DAYS = 5;
+
+type ParsedMealsReply = {
+  accommodation?: Record<string, unknown>;
+  meals?: Array<Record<string, unknown>>;
+};
+
+/**
+ * One meal (and, for the first chunk, lodging) picking call. With `pools`
+ * the LLM picks from real candidates by id; without, it names places itself
+ * (the pre-candidate fallback).
+ */
+async function askMealsAndLodging(
+  model: string,
+  cityName: string,
+  stayDays: number,
+  currency: string,
+  preferenceRules: string,
+  pools: MealLodgingPools | null,
+  askLodging: boolean,
+): Promise<ParsedMealsReply> {
+  const candidateRules = pools
+    ? `
+
+以下是 ${cityName} 真實存在的店家候選（Google 地圖資料）。每個欄位都要從對應清單中選一個，並在 "id" 填入它的編號（例如 "M3"），"name" 照抄清單上的名稱：
+- ${askLodging ? "住宿從「住宿候選」選一個" : "住宿已經決定，accommodation 回傳空物件 {} 即可"}
+- 早餐從「早餐候選」選，午餐和晚餐都從「午餐／晚餐候選」選，點心從「點心候選」選
+- 清單越前面的店越優先；同一家店不要在同一天出現兩次（午餐和晚餐也不能選同一家），也不要在相鄰兩天重複
+- 某個清單完全沒有候選時，才自行推薦真實店家，id 填 null
+
+${formatCandidateLists(pools)}`
+    : "";
+  const idField = pools ? `"id": "候選編號或 null", ` : "";
 
   const completion = await openai.chat.completions.create({
     model,
@@ -545,17 +608,8 @@ ${formatCandidateLists(pools)}`
   });
 
   const content = completion.choices[0].message.content;
-  if (!content) return { accommodation: {}, mealsByDay: Array.from({ length: stayDays }, () => ({})) };
-
-  const parsed = JSON.parse(content) as {
-    accommodation?: Record<string, unknown>;
-    meals?: Array<Record<string, unknown>>;
-  };
-  if (useCandidates) return applyCandidatePicks(parsed, pools, stayDays, currency);
-  return {
-    accommodation: parsed.accommodation ?? {},
-    mealsByDay: Array.from({ length: stayDays }, (_, i) => parsed.meals?.[i] ?? {}),
-  };
+  if (!content) return {};
+  return JSON.parse(content) as ParsedMealsReply;
 }
 
 // Falls back to this pure-LLM implementation whenever the rule-engine path

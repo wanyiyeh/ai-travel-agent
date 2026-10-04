@@ -56,65 +56,129 @@ export function formatCandidateLists(pools: MealLodgingPools): string {
 
 type RawPick = Record<string, unknown>;
 
-// Replaces each LLM pick that names a valid, not-yet-used candidate id with
-// that candidate's real data. Anything else (no id, unknown id, a candidate
-// already picked for another slot) keeps the LLM's own name/description, same
-// as before this change — enrich then resolves it the old way.
-export function applyCandidatePicks(
-  parsed: { accommodation?: RawPick; meals?: RawPick[] },
+// A place may come back on a later day once a stay has used every
+// candidate (a 14-day stay needs 28 lunches/dinners from a 20-place pool),
+// but never the same day or the next — see pickForSlot.
+const MIN_REPEAT_GAP_DAYS = 2;
+
+/**
+ * Which candidate was last used on which day of the stay (0-based), and the
+ * description the LLM wrote for it — carried across chunks so a later chunk
+ * knows what's been used and a repeat can reuse the original description.
+ * Keyed by object: breakfast and snack lists hold the same café objects, so
+ * one café can't be both on the same day.
+ */
+export type PickHistory = { lastDay: Map<PlaceCandidate, number>; description: Map<PlaceCandidate, unknown> };
+
+export function newPickHistory(): PickHistory {
+  return { lastDay: new Map(), description: new Map() };
+}
+
+/** The same pools with never-used candidates first, for a later chunk's prompt. */
+export function unusedFirst(pools: MealLodgingPools, history: PickHistory): MealLodgingPools {
+  const reorder = (pool: PlaceCandidate[]) => [
+    ...pool.filter((c) => !history.lastDay.has(c)),
+    ...pool.filter((c) => history.lastDay.has(c)),
+  ];
+  return { breakfast: reorder(pools.breakfast), main: reorder(pools.main), snack: reorder(pools.snack), lodging: pools.lodging };
+}
+
+const stripId = (raw: RawPick) => {
+  const rest = { ...raw };
+  delete rest.id;
+  return rest;
+};
+
+/** The LLM's lodging pick filled with the candidate's real place data, or its own entry when it named no valid candidate. */
+export function applyAccommodationPick(
+  rawAcc: RawPick | undefined,
   pools: MealLodgingPools,
-  stayDays: number,
   currency: string,
-): { accommodation: Record<string, unknown>; mealsByDay: Array<Record<string, unknown>> } {
-  const used = new Set<PlaceCandidate>();
-
-  const stripId = (raw: RawPick) => {
-    const rest = { ...raw };
-    delete rest.id;
-    return rest;
+): Record<string, unknown> {
+  const raw = rawAcc ?? {};
+  const hotel = findCandidate(pools, "lodging", raw.id);
+  if (!hotel) return stripId(raw);
+  const range = estimateLodgingCostRange(currency, hotel.priceLevel);
+  const perNight = estimateLodgingCostPerNight(currency, hotel.priceLevel);
+  return {
+    name: hotel.name,
+    area: typeof raw.area === "string" && raw.area ? raw.area : hotel.address,
+    placeId: hotel.placeId,
+    lat: hotel.lat,
+    lng: hotel.lng,
+    address: hotel.address,
+    rating: hotel.rating ?? null,
+    priceLevel: hotel.priceLevel ?? null,
+    photoName: hotel.photoName ?? null,
+    ...(perNight !== undefined ? { estimated_cost: perNight } : {}),
+    ...(range ? { estimated_cost_low: range[0], estimated_cost_high: range[1] } : {}),
   };
+}
 
-  const rawAcc = parsed.accommodation ?? {};
-  const hotel = findCandidate(pools, "lodging", rawAcc.id);
-  let accommodation: Record<string, unknown> = stripId(rawAcc);
-  if (hotel) {
-    used.add(hotel);
-    const range = estimateLodgingCostRange(currency, hotel.priceLevel);
-    const perNight = estimateLodgingCostPerNight(currency, hotel.priceLevel);
-    accommodation = {
-      name: hotel.name,
-      area: typeof rawAcc.area === "string" && rawAcc.area ? rawAcc.area : hotel.address,
-      placeId: hotel.placeId,
-      lat: hotel.lat,
-      lng: hotel.lng,
-      address: hotel.address,
-      rating: hotel.rating ?? null,
-      priceLevel: hotel.priceLevel ?? null,
-      photoName: hotel.photoName ?? null,
-      ...(perNight !== undefined ? { estimated_cost: perNight } : {}),
-      ...(range ? { estimated_cost_low: range[0], estimated_cost_high: range[1] } : {}),
-    };
-  }
+/**
+ * Which real candidate serves a meal slot on `day`. The LLM's own pick when
+ * it's a candidate not used yet; otherwise a candidate not used yet (keeping
+ * pool order); once every candidate has been used, the LLM's pick or else
+ * the longest-unused candidate, either only if it wasn't used in the last
+ * MIN_REPEAT_GAP_DAYS - 1 days. Undefined when nothing qualifies.
+ */
+function pickForSlot(
+  pool: PlaceCandidate[],
+  llmPick: PlaceCandidate | undefined,
+  day: number,
+  history: PickHistory,
+): PlaceCandidate | undefined {
+  if (llmPick && !history.lastDay.has(llmPick)) return llmPick;
+  const unused = pool.find((c) => !history.lastDay.has(c));
+  if (unused) return unused;
+  const spaced = (c: PlaceCandidate) => day - (history.lastDay.get(c) ?? -Infinity) >= MIN_REPEAT_GAP_DAYS;
+  if (llmPick && spaced(llmPick)) return llmPick;
+  return [...pool].filter(spaced).sort((a, b) => history.lastDay.get(a)! - history.lastDay.get(b)!)[0];
+}
 
-  const mealsByDay = Array.from({ length: stayDays }, (_, dayIdx) => {
-    const rawDay = parsed.meals?.[dayIdx] ?? {};
-    const day: Record<string, unknown> = {};
+/**
+ * Turns the LLM's meal picks for `days` days (starting at day `dayOffset` of
+ * the stay) into meals carrying real place data. Any slot the LLM left
+ * empty, got wrong, or picked a used place for — including whole days a
+ * truncated reply never reached — is filled with a real candidate by
+ * pickForSlot instead of keeping an invented name; only with no candidate at
+ * all does the LLM's own entry stay.
+ */
+export function applyMealPicks(
+  rawMeals: RawPick[] | undefined,
+  pools: MealLodgingPools,
+  days: number,
+  currency: string,
+  history: PickHistory,
+  dayOffset = 0,
+): Array<Record<string, unknown>> {
+  return Array.from({ length: days }, (_, i) => {
+    const dayOfStay = dayOffset + i;
+    const rawDay = rawMeals?.[i] ?? {};
+    const meals: Record<string, unknown> = {};
     for (const mealKey of MEAL_KEYS) {
-      const raw = rawDay[mealKey] as RawPick | undefined;
-      if (!raw || typeof raw !== "object") continue;
-      const place = findCandidate(pools, POOL_FOR_MEAL[mealKey], raw.id);
-      if (!place || used.has(place)) {
-        day[mealKey] = stripId(raw);
+      const rawValue = rawDay[mealKey];
+      const raw = rawValue && typeof rawValue === "object" ? (rawValue as RawPick) : undefined;
+      const pool = pools[POOL_FOR_MEAL[mealKey]];
+      const llmPick = raw ? findCandidate(pools, POOL_FOR_MEAL[mealKey], raw.id) : undefined;
+      const place = pickForSlot(pool, llmPick, dayOfStay, history);
+      if (!place) {
+        if (raw) meals[mealKey] = stripId(raw);
         continue;
       }
-      used.add(place);
+
+      history.lastDay.set(place, dayOfStay);
+      const ownPick = place === llmPick;
+      if (ownPick && raw?.description !== undefined && !history.description.has(place)) {
+        history.description.set(place, raw.description);
+      }
       // Google's real per-person range beats the priceLevel lookup table.
       const estimated =
         estimateFromPriceRange(place.priceRange, currency) ?? estimateMealCost(currency, mealKey, place.priceLevel);
-      day[mealKey] = {
+      meals[mealKey] = {
         name: place.name,
-        description: raw.description,
-        estimated_cost: estimated ?? raw.estimated_cost,
+        description: ownPick ? raw?.description : history.description.get(place),
+        estimated_cost: estimated ?? (ownPick ? raw?.estimated_cost : undefined),
         placeId: place.placeId,
         lat: place.lat,
         lng: place.lng,
@@ -123,8 +187,19 @@ export function applyCandidatePicks(
         photoName: place.photoName ?? null,
       };
     }
-    return day;
+    return meals;
   });
+}
 
-  return { accommodation, mealsByDay };
+/** Lodging + meals for a stay picked in one LLM call (no chunking). */
+export function applyCandidatePicks(
+  parsed: { accommodation?: RawPick; meals?: RawPick[] },
+  pools: MealLodgingPools,
+  stayDays: number,
+  currency: string,
+): { accommodation: Record<string, unknown>; mealsByDay: Array<Record<string, unknown>> } {
+  return {
+    accommodation: applyAccommodationPick(parsed.accommodation, pools, currency),
+    mealsByDay: applyMealPicks(parsed.meals, pools, stayDays, currency, newPickHistory()),
+  };
 }
