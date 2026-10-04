@@ -7,6 +7,8 @@ export type BuildDaySkeletonOptions = {
   pace?: Pace;
   /** Starting point for nearest-neighbor ordering, e.g. the day's accommodation. */
   origin?: { lat: number; lng: number };
+  /** Lodging location for distance scoring — see selectAndOrderStops scoreCandidate. */
+  anchor?: { lat: number; lng: number };
   /** Multiplier applied to a candidate's score by its `type` — see selectAndOrderStops. */
   interestWeights?: Record<string, number>;
   /** Minutes since midnight the day's first stop can start at. Default 08:00. */
@@ -37,13 +39,14 @@ export function buildDaySkeleton(
     count,
     pace,
     origin,
+    anchor,
     interestWeights,
     dayStartMinute,
     dayEndMinute,
     mealTypes = DEFAULT_MEAL_TYPES,
   } = options;
 
-  const ordered = selectAndOrderStops(candidates, { count, origin, interestWeights });
+  const ordered = selectAndOrderStops(candidates, { count, origin, interestWeights, anchor });
 
   const scheduled = assignTimeSlots(
     ordered.map((c) => ({
