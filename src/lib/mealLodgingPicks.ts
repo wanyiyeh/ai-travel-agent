@@ -122,12 +122,13 @@ export function applyAccommodationPick(
 /**
  * Which real candidate serves a meal slot on `day`. The LLM's own pick when
  * it's a candidate not used yet; otherwise a candidate not used yet (keeping
- * pool order). Once every candidate has been used: the LLM's pick, or else
- * one of the least-visited places, either only if it wasn't used in the
- * last MIN_REPEAT_GAP_DAYS - 1 days. Which least-visited place rotates with
- * the day and slot — always taking the longest-unused one made a whole day's
- * meals copy day 1's (an Okinawa trip's day 11 matched day 1 exactly).
- * Undefined when nothing qualifies.
+ * pool order). Once every candidate has been used: one of the
+ * least-visited places not used in the last MIN_REPEAT_GAP_DAYS - 1 days,
+ * rotating with the day and slot. Always taking the longest-unused one made
+ * a whole day copy day 1's; and the LLM's own repeat choice isn't taken
+ * either — later chunks list used places in their original order, so it
+ * kept picking day 1's places and the same favourite (one izakaya came up
+ * four times in 14 days). Undefined when nothing qualifies.
  */
 function pickForSlot(
   pool: PlaceCandidate[],
@@ -140,7 +141,6 @@ function pickForSlot(
   const unused = pool.find((c) => !history.lastDay.has(c));
   if (unused) return unused;
   const spaced = (c: PlaceCandidate) => day - (history.lastDay.get(c) ?? -Infinity) >= MIN_REPEAT_GAP_DAYS;
-  if (llmPick && spaced(llmPick)) return llmPick;
   const eligible = pool.filter(spaced);
   if (eligible.length === 0) return undefined;
   const fewest = Math.min(...eligible.map((c) => history.visits.get(c) ?? 0));

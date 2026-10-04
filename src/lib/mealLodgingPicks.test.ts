@@ -180,3 +180,19 @@ describe("repeats once the pool is used up", () => {
     }
   });
 });
+
+describe("the LLM's own repeat choice", () => {
+  it("is overridden by the least-visited place, so one favourite doesn't keep coming back", () => {
+    const history = newPickHistory();
+    // days 1-2 use all three places; Ramen X a second time on day 3
+    applyMealPicks([], pools, 2, "JPY", history, 0);
+    const [ramen, sushi] = pools.main;
+    history.visits.set(ramen, 2);
+    history.lastDay.set(ramen, 0);
+    history.lastDay.set(sushi, 0);
+
+    // day 4: the LLM asks for Ramen X again (M1), but the others have fewer visits
+    const [day4] = applyMealPicks([{ lunch: { id: "M1" } }], pools, 1, "JPY", history, 3);
+    expect(["Sushi Y", "Izakaya Z"]).toContain((day4.lunch as Record<string, unknown>).name);
+  });
+});
