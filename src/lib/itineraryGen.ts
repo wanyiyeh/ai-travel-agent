@@ -8,10 +8,12 @@ export const paceMap: Record<string, string> = {
   intensive: "緊湊，每天安排 5 個以上景點，行程滿檔",
 };
 
+// Must only describe what the budget actually changes (plan/form-preference-
+// wiring.md 1.3) — lodging tier and the per-person lunch/dinner range.
 export const budgetMap: Record<string, string> = {
-  budget: "經濟實惠，偏好免費或低消費景點、平價餐廳",
-  moderate: "中等消費，一般觀光景點與餐廳",
-  luxury: "高端奢華，頂級餐廳、精品購物、私人導覽",
+  budget: "經濟實惠，住青年旅館，午晚餐以每人約 NT$400 以下的平價小館或外帶為主",
+  moderate: "中等消費，住民宿、三星級或商務旅館，午晚餐以每人約 NT$1,000 以下為主",
+  luxury: "高端奢華，住希爾頓、萬豪等級的國際品牌飯店，午晚餐以每人約 NT$1,000～2,000 為主",
 };
 
 export const interestMap: Record<string, string> = {

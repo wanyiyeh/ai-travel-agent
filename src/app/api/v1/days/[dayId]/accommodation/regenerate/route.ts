@@ -3,11 +3,10 @@ import { z } from "zod";
 import { prisma, j } from "@/lib/db";
 import { getMockMode, mockDelay, MOCK_FIXTURES } from "@/lib/mockAi";
 import {
-  fetchNearbyPlaceCandidates,
+  fetchLodgingCandidates,
   findNearestStation,
-  getLodgingTypes,
-  getPriceLevels,
 } from "@/lib/fetchCityRestaurants";
+import { snapToGrid } from "@/lib/geo";
 import { resolveDayCoords } from "@/lib/itineraryGen";
 import { cityToIata } from "@/lib/iataCity";
 import { getIataCoords } from "@/lib/fetchCityRestaurants";
@@ -30,6 +29,11 @@ function deriveArea(address: string): string {
   const parts = address.split(",").map((p) => p.trim()).filter(Boolean);
   return parts[1] ?? parts[0] ?? address;
 }
+
+// The 換一家 picker's search center is the day's own stops, which differ
+// every day — snapped to a ~1km grid (geo.ts snapToGrid) so nearby days share
+// one cached pool. A 2-3km radius barely changes when the center moves <=~550m.
+const PICKER_SEARCH_GRID_DEG = 0.01;
 
 export async function POST(
   request: Request,
@@ -101,15 +105,8 @@ export async function POST(
       );
     }
 
-    const lodgingTypes = getLodgingTypes(budget);
-    const priceLevels = getPriceLevels(budget);
-
-    let hotels = await fetchNearbyPlaceCandidates(coords, googleApiKey, lodgingTypes, 3000, 10, priceLevels);
-    if (hotels.length === 0 && priceLevels) {
-      // Small destinations often don't tag price level on lodging listings —
-      // retry without the price filter rather than coming back empty.
-      hotels = await fetchNearbyPlaceCandidates(coords, googleApiKey, lodgingTypes, 3000, 10);
-    }
+    // Pro fields only: lodging tiers by type and brand, not price (plan/form-preference-wiring.md 1.3, 1c-2).
+    const hotels = await fetchLodgingCandidates(snapToGrid(coords, PICKER_SEARCH_GRID_DEG), googleApiKey, budget, 3000, 10);
 
     const currentPlaceId =
       typeof currentAccommodation?.placeId === "string" ? currentAccommodation.placeId : undefined;

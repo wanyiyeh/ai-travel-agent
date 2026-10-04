@@ -109,7 +109,6 @@ function mockNearbySearch(body: {
   includedTypes?: string[];
   maxResultCount?: number;
   locationRestriction?: { circle?: Circle };
-  priceLevels?: string[];
 }) {
   const circle = body.locationRestriction?.circle;
   if (!circle) return { places: [] };
@@ -123,7 +122,7 @@ function mockNearbySearch(body: {
       const seed = `${key}#${i}`;
       return fakePlace(seed, `Mock ${types[0]} ${i + 1}`, offsetFrom(center, seed, maxKm), {
         types: [types[0]],
-        priceLevel: body.priceLevels?.[0] ?? "PRICE_LEVEL_MODERATE",
+        priceLevel: MOCK_PRICE_LEVELS[hash(seed + ":p") % MOCK_PRICE_LEVELS.length],
       });
     }),
   };
@@ -147,12 +146,29 @@ function mockRouteMatrix(body: { origins: Waypoint[]; destinations: Waypoint[]; 
   return [{ originIndex: 0, destinationIndex: 0, distanceMeters: meters, duration: `${seconds}s`, condition: "ROUTE_EXISTS" }];
 }
 
+const MOCK_PRICE_LEVELS = ["PRICE_LEVEL_INEXPENSIVE", "PRICE_LEVEL_MODERATE", "PRICE_LEVEL_EXPENSIVE"];
+
+function fieldMaskOf(init?: RequestInit): string[] | null {
+  const headers = new Headers(init?.headers);
+  const mask = headers.get("X-Goog-FieldMask");
+  return mask ? mask.split(",").map((f) => f.trim()) : null;
+}
+
+// Real Places responses only carry the fields the request's field mask asked
+// for (and bill accordingly) — mirror that so a Pro-tier search in mock mode
+// comes back without rating/price, same as production.
+function applyFieldMask(data: { places: Record<string, unknown>[] }, mask: string[] | null) {
+  if (!mask || mask.includes("*")) return data;
+  const keep = new Set(mask.filter((f) => f.startsWith("places.")).map((f) => f.slice("places.".length)));
+  return { places: data.places.map((p) => Object.fromEntries(Object.entries(p).filter(([k]) => keep.has(k)))) };
+}
+
 // Fake response for a Google API request, shaped like the real one.
 export function mockGoogleResponse(url: string, init?: RequestInit): Response {
   const body = init?.body ? JSON.parse(String(init.body)) : {};
   let data: unknown;
-  if (url.includes("places:searchText")) data = mockTextSearch(body);
-  else if (url.includes("places:searchNearby")) data = mockNearbySearch(body);
+  if (url.includes("places:searchText")) data = applyFieldMask(mockTextSearch(body), fieldMaskOf(init));
+  else if (url.includes("places:searchNearby")) data = applyFieldMask(mockNearbySearch(body), fieldMaskOf(init));
   else if (url.includes("computeRouteMatrix")) data = mockRouteMatrix(body);
   else return new Response(JSON.stringify({ error: `MOCK_PLACES: unhandled URL ${url}` }), { status: 501 });
   return new Response(JSON.stringify(data), { status: 200, headers: { "Content-Type": "application/json" } });

@@ -3,10 +3,10 @@ import type { PlaceCandidate } from "@/lib/fetchCityRestaurants";
 import { NEUTRAL_PREFERENCE_INTENT, type PreferenceIntent } from "@/lib/schemas";
 
 // Does the pace choice change how many attractions a sightseeing day gets?
-// The home-page form promises 悠閒 ≤3 / 適中 3-4 / 緊湊 5+ per day (PACE_OPTIONS
-// in src/app/page.tsx). Google, distances and the copy LLM are all mocked;
-// only the real scheduler modules run. `it.fails` = known gap, see
-// assembleItineraryDays.test.ts.
+// Pace is defined by how long each stop lasts (plan/form-preference-wiring.md
+// 1.2), and the stop count follows from what fits before 18:00: roughly
+// 緊湊 5-6 / 適中 2-3 / 悠閒 about 2 on a museum/park pool. Google, distances
+// and the copy LLM are all mocked; only the real scheduler modules run.
 
 const createMock = vi.fn();
 const nearbyMock = vi.fn();
@@ -62,20 +62,38 @@ beforeEach(() => {
 });
 
 describe("generateDayStops — pace vs stops per day", () => {
-  it("適中 (moderate) gives 3-4 stops a day", async () => {
+  it("緊湊 (intensive) gives at least 5 stops a day", async () => {
+    for (const n of await stopsPerDay("intensive")) expect(n).toBeGreaterThanOrEqual(5);
+  });
+
+  it("適中 (moderate) gives 2-3 stops a day", async () => {
     for (const n of await stopsPerDay("moderate")) {
-      expect(n).toBeGreaterThanOrEqual(3);
-      expect(n).toBeLessThanOrEqual(4);
+      expect(n).toBeGreaterThanOrEqual(2);
+      expect(n).toBeLessThanOrEqual(3);
     }
   });
 
-  // Gap: STOPS_PER_DAY is a fixed 4 in itineraryCityGen.ts; pace only changes
-  // the buffer between stops (assignTimeSlots), never how many are picked.
-  it.fails("悠閒 (relaxed) gives at most 3 stops a day", async () => {
-    for (const n of await stopsPerDay("relaxed")) expect(n).toBeLessThanOrEqual(3);
+  it("悠閒 (relaxed) gives at most 2 stops a day", async () => {
+    for (const n of await stopsPerDay("relaxed")) {
+      expect(n).toBeGreaterThanOrEqual(1);
+      expect(n).toBeLessThanOrEqual(2);
+    }
   });
+});
 
-  it.fails("緊湊 (intensive) gives at least 5 stops a day", async () => {
-    for (const n of await stopsPerDay("intensive")) expect(n).toBeGreaterThanOrEqual(5);
+describe("generateDayStops — 出門時間 (start time)", () => {
+  async function stopsWithStart(startTimePreference: PreferenceIntent["startTimePreference"]): Promise<number[]> {
+    const days = await generateDayStops("東京", 2, "JPY", [], undefined, {
+      ...NEUTRAL_PREFERENCE_INTENT,
+      pace: "intensive",
+      startTimePreference,
+    });
+    return days.map((d) => d.length);
+  }
+
+  it("a late start (11:00) leaves room for fewer stops than an early one (07:30)", async () => {
+    const early = await stopsWithStart("early");
+    const late = await stopsWithStart("late");
+    for (let i = 0; i < early.length; i++) expect(late[i]).toBeLessThan(early[i]);
   });
 });

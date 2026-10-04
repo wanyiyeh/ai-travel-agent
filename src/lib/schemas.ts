@@ -46,7 +46,15 @@ export const TripPreferencesSchema = z.object({
     .array(z.enum(["food", "culture", "nature", "shopping", "adventure"]))
     .max(5)
     .optional(),
+  // No longer on the form (plan/form-preference-wiring.md 1.1) — kept so
+  // older itineraries' stored config still parses.
   travelers: z.number().int().min(1).max(20).optional(),
+  startTime: z.enum(["early", "normal", "late"]).optional(),
+  // Same tags parsePreferenceIntent() emits, so the two sources merge cleanly.
+  dietaryRestrictions: z
+    .array(z.enum(["vegetarian", "vegan", "no_seafood", "no_beef", "halal", "no_spicy"]))
+    .max(6)
+    .optional(),
 });
 
 export type TripPreferences = z.infer<typeof TripPreferencesSchema>;

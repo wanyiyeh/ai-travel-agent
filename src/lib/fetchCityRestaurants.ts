@@ -2,8 +2,24 @@ import { haversineKm } from "@/lib/distanceMatrix";
 import { getIataCoords } from "@/lib/airports";
 import { prisma, j } from "@/lib/db";
 import { googleFetch } from "@/lib/googleFetch";
+import { isLuxuryLodging, rankLodgingByBudget } from "@/lib/lodgingTiers";
+import { CAFE_MEAL_TYPES } from "@/lib/cafeMealSlots";
 
 const NEARBY_SEARCH_URL = "https://places.googleapis.com/v1/places:searchNearby";
+
+// Google bills a Places request at the tier of its most expensive field
+// (plan/form-preference-wiring.md 1c-2; same lesson as September's Text
+// Search overspend). Pro: 5,000 free calls/month. Enterprise: 1,000.
+// Only lunch/dinner needs Enterprise — its budget ranking reads priceRange.
+// Nearby Search has no priceLevels filter (only Text Search does): it was
+// silently ignored while still splitting the cache per budget.
+export const PRO_FIELD_MASK =
+  "places.id,places.displayName,places.location,places.formattedAddress,places.photos,places.types";
+export const ENTERPRISE_FIELD_MASK = `${PRO_FIELD_MASK},places.rating,places.priceLevel,places.priceRange`;
+const HINTS_FIELD_MASK = "places.displayName,places.location,places.types";
+
+/** Which field set a candidate search asks for — see PRO_FIELD_MASK. */
+export type FieldTier = "pro" | "enterprise";
 
 // Shared TTL for every Nearby Search cache in this file (city hint lists,
 // candidate pools, nearest-station lookups) — Places results change slowly,
@@ -63,12 +79,6 @@ export interface RestaurantHint {
   types?: string[];
 }
 
-const BUDGET_TO_PRICE_LEVELS: Record<BudgetLevel, string[]> = {
-  budget:   ["PRICE_LEVEL_INEXPENSIVE", "PRICE_LEVEL_MODERATE"],
-  moderate: ["PRICE_LEVEL_MODERATE", "PRICE_LEVEL_EXPENSIVE"],
-  luxury:   ["PRICE_LEVEL_EXPENSIVE", "PRICE_LEVEL_VERY_EXPENSIVE"],
-};
-
 const BUDGET_LABEL: Record<BudgetLevel, string> = {
   budget:   "平價",
   moderate: "中等",
@@ -102,18 +112,26 @@ function getMainMealTypes(budget?: BudgetLevel): string[] {
   return budget ? MAIN_MEAL_TYPES_BY_BUDGET[budget] : ["restaurant"];
 }
 
-/** Place Types to search for a given meal slot — breakfast uses BREAKFAST_TYPES, snack uses SNACK_TYPES, lunch/dinner use the budget-aware main-meal types. */
+/**
+ * Place Types to search for a given meal slot — breakfast and snack share one
+ * café search (CAFE_MEAL_TYPES, split locally by cafeMealSlots.ts), lunch/
+ * dinner use the budget-aware main-meal types. BREAKFAST_TYPES/SNACK_TYPES
+ * above are only for the old full-LLM flow's prompt hints.
+ */
 export function getMealPlaceTypes(mealType: "breakfast" | "lunch" | "dinner" | "snack", budget?: BudgetLevel): string[] {
-  if (mealType === "breakfast") return BREAKFAST_TYPES;
-  if (mealType === "snack") return SNACK_TYPES;
+  if (mealType === "breakfast" || mealType === "snack") return CAFE_MEAL_TYPES;
   return getMainMealTypes(budget);
 }
 
 // Table A lodging subtypes (see docs/google-places-types.md), picked per budget
 // so a "budget" trip surfaces hostels/guest houses instead of resort hotels.
+// The tier itself (hostels first, brand hotels first) comes from
+// rankLodgingByBudget in fetchLodgingCandidates — these lists only decide
+// what's in the pool. Moderate: B&Bs, guest houses, ~3-star and business
+// hotels (Toyoko Inn-style chains are typed "hotel").
 const LODGING_TYPES_BY_BUDGET: Record<BudgetLevel, string[]> = {
   budget:   ["hostel", "guest_house", "bed_and_breakfast", "motel", "lodging"],
-  moderate: ["hotel", "guest_house", "lodging"],
+  moderate: ["bed_and_breakfast", "guest_house", "hotel", "lodging"],
   luxury:   ["resort_hotel", "hotel", "lodging"],
 };
 
@@ -121,15 +139,13 @@ export function getLodgingTypes(budget?: BudgetLevel): string[] {
   return budget ? LODGING_TYPES_BY_BUDGET[budget] : ["hotel", "resort_hotel", "guest_house", "lodging"];
 }
 
-export function getPriceLevels(budget?: BudgetLevel): string[] | undefined {
-  return budget ? BUDGET_TO_PRICE_LEVELS[budget] : undefined;
-}
 
 /**
  * Nearby Search restricted to a set of Table A place types, returning just
- * name/rating hints. Shared by the restaurant/breakfast/attraction fetchers
- * below — they differ only in which types, radius and price levels they pass.
- * Returns empty array on any error so callers can gracefully degrade.
+ * name hints. Shared by the restaurant/breakfast/attraction fetchers below —
+ * they differ only in which types and radius they pass. Pro fields only (no
+ * rating), so it bills at the Pro tier — see PRO_FIELD_MASK. Returns empty
+ * array on any error so callers can gracefully degrade.
  */
 async function searchNearbyHints(
   coords: { lat: number; lng: number },
@@ -137,7 +153,6 @@ async function searchNearbyHints(
   includedTypes: string[],
   radius: number,
   maxCount: number,
-  priceLevels?: string[],
 ): Promise<RestaurantHint[]> {
   try {
     const res = await googleFetch(NEARBY_SEARCH_URL, {
@@ -145,7 +160,7 @@ async function searchNearbyHints(
       headers: {
         "Content-Type": "application/json",
         "X-Goog-Api-Key": apiKey,
-        "X-Goog-FieldMask": "places.displayName,places.rating,places.location,places.types",
+        "X-Goog-FieldMask": HINTS_FIELD_MASK,
       },
       body: JSON.stringify({
         includedTypes,
@@ -158,7 +173,6 @@ async function searchNearbyHints(
           },
         },
         rankPreference: "POPULARITY",
-        ...(priceLevels ? { priceLevels } : {}),
       }),
     });
 
@@ -197,7 +211,7 @@ export async function fetchCityRestaurants(
   if (!coords) return [];
 
   return getCachedOrFetchHints(iataCode, "mainMeal", budget ?? "", () =>
-    searchNearbyHints(coords, apiKey, getMainMealTypes(budget), 8000, maxCount, getPriceLevels(budget))
+    searchNearbyHints(coords, apiKey, getMainMealTypes(budget), 8000, maxCount)
   );
 }
 
@@ -273,8 +287,15 @@ export function buildAttractionHintsPrompt(
 
 export interface PlaceCandidate {
   name: string;
+  /** Enterprise-tier field — absent on Pro searches. */
   rating?: number;
+  /** Enterprise-tier field — absent on Pro searches. */
   priceLevel?: number | null;
+  /**
+   * Per-person price range in local currency (Google Maps' "$1-200"), from
+   * Enterprise searches only. `end` unset means open-ended ("$2,000+").
+   */
+  priceRange?: PriceRange | null;
   placeId: string;
   lat: number;
   lng: number;
@@ -289,35 +310,61 @@ export interface PlaceCandidate {
   types?: string[];
 }
 
+export type PriceRange = { currency: string; start?: number; end?: number };
+
+type GoogleMoney = { currencyCode?: string; units?: string; nanos?: number };
+
+function moneyAmount(m: GoogleMoney | undefined): number | undefined {
+  if (!m || m.units == null) return undefined;
+  return Number(m.units) + (m.nanos ?? 0) / 1e9;
+}
+
+function parsePriceRange(raw: { startPrice?: GoogleMoney; endPrice?: GoogleMoney } | undefined): PriceRange | null {
+  const currency = raw?.startPrice?.currencyCode ?? raw?.endPrice?.currencyCode;
+  if (!raw || !currency) return null;
+  return { currency, start: moneyAmount(raw.startPrice), end: moneyAmount(raw.endPrice) };
+}
+
 // ~11m precision — coarse enough that a stop's stored lat/lng always rounds
 // the same way across requests, without collapsing genuinely distinct anchors.
 function roundCoord(n: number): string {
   return n.toFixed(4);
 }
 
+// The trailing empty slot used to hold the request's priceLevels; it's kept
+// empty (rather than dropped) so pools cached before the filter was removed
+// still match. Pro pools add a ":pro" suffix since they lack Enterprise
+// fields an Enterprise caller would need.
 function buildCandidatesCacheKey(
   coords: { lat: number; lng: number },
   types: string[],
   radius: number,
   maxCount: number,
-  priceLevels?: string[],
+  tier: FieldTier,
 ): string {
   const sortedTypes = [...types].sort().join(",");
-  const sortedPriceLevels = priceLevels ? [...priceLevels].sort().join(",") : "";
-  return `${roundCoord(coords.lat)},${roundCoord(coords.lng)}:${radius}:${maxCount}:${sortedTypes}:${sortedPriceLevels}`;
+  const base = `${roundCoord(coords.lat)},${roundCoord(coords.lng)}:${radius}:${maxCount}:${sortedTypes}:`;
+  return tier === "pro" ? `${base}:pro` : base;
 }
 
 // Nearby Search bills per request, not per result, so every call fetches
 // Google's max and slices locally. Callers asking for different counts
-// (e.g. a transit day's arrivalActivityCount + 4 vs a 3-day city's
-// dayCount * STOPS_PER_DAY + 4) then share one cached pool per
-// coords/types/radius/price instead of each paying for its own.
+// (e.g. the departure day's few stops vs a sightseeing block's full pool)
+// then share one cached pool per coords/types/radius instead of each
+// paying for its own.
 const NEARBY_FETCH_COUNT = 20;
+
+async function readFreshCandidates(cacheKey: string): Promise<PlaceCandidate[] | null> {
+  const cached = await prisma.nearbyPlaceCandidatesCache.findUnique({ where: { cacheKey } });
+  if (!cached || Date.now() - cached.updatedAt.getTime() >= NEARBY_CACHE_TTL_MS) return null;
+  return JSON.parse(cached.candidates) as PlaceCandidate[];
+}
 
 /**
  * Nearby place search that keeps real geo data (placeId/lat/lng/address).
  * Used to build real, pickable candidate lists (e.g. day stop suggestions,
- * accommodation candidates).
+ * accommodation candidates). `tier` picks the field set and so the billing
+ * tier — "pro" unless the caller genuinely needs rating/price data.
  */
 export async function fetchNearbyPlaceCandidates(
   coords: { lat: number; lng: number },
@@ -325,17 +372,21 @@ export async function fetchNearbyPlaceCandidates(
   types: string[],
   radius: number,
   maxCount = 8,
-  priceLevels?: string[],
+  tier: FieldTier = "pro",
 ): Promise<PlaceCandidate[]> {
   // Key keeps the maxCount slot (fixed at NEARBY_FETCH_COUNT) so rows
   // already cached by maxCount=20 callers stay valid.
-  const cacheKey = buildCandidatesCacheKey(coords, types, radius, NEARBY_FETCH_COUNT, priceLevels);
-  const cached = await prisma.nearbyPlaceCandidatesCache.findUnique({ where: { cacheKey } });
-  if (cached && Date.now() - cached.updatedAt.getTime() < NEARBY_CACHE_TTL_MS) {
-    return (JSON.parse(cached.candidates) as PlaceCandidate[]).slice(0, maxCount);
-  }
+  const cacheKey = buildCandidatesCacheKey(coords, types, radius, NEARBY_FETCH_COUNT, tier);
+  // An Enterprise pool has every Pro field too, so a Pro caller can reuse one
+  // rather than paying again for the same places.
+  const cached =
+    (await readFreshCandidates(cacheKey)) ??
+    (tier === "pro"
+      ? await readFreshCandidates(buildCandidatesCacheKey(coords, types, radius, NEARBY_FETCH_COUNT, "enterprise"))
+      : null);
+  if (cached) return cached.slice(0, maxCount);
 
-  const candidates = await fetchNearbyPlaceCandidatesUncached(coords, apiKey, types, radius, NEARBY_FETCH_COUNT, priceLevels);
+  const candidates = await fetchNearbyPlaceCandidatesUncached(coords, apiKey, types, radius, NEARBY_FETCH_COUNT, tier);
   // Don't cache an empty pool — could be a transient API failure rather than
   // a genuinely sparse area, so let the next call retry instead of pinning it.
   if (candidates.length > 0) {
@@ -348,13 +399,25 @@ export async function fetchNearbyPlaceCandidates(
   return candidates.slice(0, maxCount);
 }
 
+type NearbyPlaceResult = {
+  id?: string;
+  displayName?: { text?: string };
+  rating?: number;
+  priceLevel?: string;
+  priceRange?: { startPrice?: GoogleMoney; endPrice?: GoogleMoney };
+  location?: { latitude?: number; longitude?: number };
+  formattedAddress?: string;
+  photos?: { name: string }[];
+  types?: string[];
+};
+
 async function fetchNearbyPlaceCandidatesUncached(
   coords: { lat: number; lng: number },
   apiKey: string,
   types: string[],
   radius: number,
   maxCount: number,
-  priceLevels?: string[],
+  tier: FieldTier,
 ): Promise<PlaceCandidate[]> {
   try {
     const res = await googleFetch(NEARBY_SEARCH_URL, {
@@ -362,7 +425,7 @@ async function fetchNearbyPlaceCandidatesUncached(
       headers: {
         "Content-Type": "application/json",
         "X-Goog-Api-Key": apiKey,
-        "X-Goog-FieldMask": "places.id,places.displayName,places.rating,places.location,places.formattedAddress,places.priceLevel,places.photos,places.types",
+        "X-Goog-FieldMask": tier === "enterprise" ? ENTERPRISE_FIELD_MASK : PRO_FIELD_MASK,
       },
       body: JSON.stringify({
         includedTypes: types,
@@ -375,7 +438,6 @@ async function fetchNearbyPlaceCandidatesUncached(
           },
         },
         rankPreference: "POPULARITY",
-        ...(priceLevels ? { priceLevels } : {}),
       }),
     });
 
@@ -386,10 +448,11 @@ async function fetchNearbyPlaceCandidatesUncached(
 
     const data = await res.json();
     return (data.places ?? [])
-      .map((p: { id?: string; displayName?: { text?: string }; rating?: number; priceLevel?: string; location?: { latitude?: number; longitude?: number }; formattedAddress?: string; photos?: { name: string }[]; types?: string[] }) => ({
+      .map((p: NearbyPlaceResult) => ({
         name: p.displayName?.text ?? "",
         rating: p.rating,
         priceLevel: p.priceLevel ? (PRICE_LEVEL_MAP[p.priceLevel] ?? null) : null,
+        priceRange: parsePriceRange(p.priceRange),
         placeId: p.id ?? "",
         lat: p.location?.latitude ?? 0,
         lng: p.location?.longitude ?? 0,
@@ -402,6 +465,96 @@ async function fetchNearbyPlaceCandidatesUncached(
     console.warn(`[Places API Candidates] fetch failed:`, err);
     return [];
   }
+}
+
+const TEXT_SEARCH_URL = "https://places.googleapis.com/v1/places:searchText";
+
+/**
+ * Text Search returning a whole candidate list — placesTextSearch.ts only
+ * ever keeps the single best match. For place kinds Nearby Search has no
+ * type for (e.g. "luxury hotel"). Pro fields only, cached for 30 days in the
+ * same table as Nearby pools under a "text:" key.
+ */
+export async function searchTextCandidates(
+  query: string,
+  coords: { lat: number; lng: number },
+  apiKey: string,
+  radius: number,
+  includedType?: string,
+): Promise<PlaceCandidate[]> {
+  const cacheKey = `text:${query}@${roundCoord(coords.lat)},${roundCoord(coords.lng)}:${radius}:${includedType ?? ""}:pro`;
+  const cached = await readFreshCandidates(cacheKey);
+  if (cached) return cached;
+
+  let candidates: PlaceCandidate[] = [];
+  try {
+    const res = await googleFetch(TEXT_SEARCH_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": apiKey,
+        "X-Goog-FieldMask": PRO_FIELD_MASK,
+      },
+      body: JSON.stringify({
+        textQuery: query,
+        pageSize: NEARBY_FETCH_COUNT,
+        languageCode: "zh-TW",
+        locationBias: { circle: { center: { latitude: coords.lat, longitude: coords.lng }, radius } },
+        ...(includedType ? { includedType } : {}),
+      }),
+    });
+    if (!res.ok) {
+      console.warn(`[Places API Text Candidates] HTTP ${res.status}`);
+      return [];
+    }
+    const data = await res.json();
+    candidates = (data.places ?? [])
+      .map((p: NearbyPlaceResult) => ({
+        name: p.displayName?.text ?? "",
+        placeId: p.id ?? "",
+        lat: p.location?.latitude ?? 0,
+        lng: p.location?.longitude ?? 0,
+        address: p.formattedAddress ?? "",
+        photoName: p.photos?.[0]?.name ?? null,
+        types: p.types,
+      }))
+      .filter((c: PlaceCandidate) => c.name.length > 0 && c.placeId.length > 0);
+  } catch (err) {
+    console.warn(`[Places API Text Candidates] fetch failed:`, err);
+    return [];
+  }
+
+  if (candidates.length > 0) {
+    await prisma.nearbyPlaceCandidatesCache.upsert({
+      where: { cacheKey },
+      create: { cacheKey, candidates: j(candidates) },
+      update: { candidates: j(candidates) },
+    });
+  }
+  return candidates;
+}
+
+/**
+ * Lodging candidates for a budget tier (plan/form-preference-wiring.md 1.3),
+ * shared by itinerary generation and the 換一間 picker. One Pro-tier Nearby
+ * search, ranked locally (rankLodgingByBudget). Luxury only: if the pool has
+ * no brand hotel or resort at all, adds a "luxury hotel" Text Search so a
+ * city without the big chains still gets its high-end options.
+ */
+export async function fetchLodgingCandidates(
+  coords: { lat: number; lng: number },
+  apiKey: string,
+  budget: BudgetLevel | undefined,
+  radius: number,
+  maxCount: number,
+): Promise<PlaceCandidate[]> {
+  let pool = await fetchNearbyPlaceCandidates(coords, apiKey, getLodgingTypes(budget), radius, NEARBY_FETCH_COUNT);
+  if (budget === "luxury" && !pool.some(isLuxuryLodging)) {
+    const extra = await searchTextCandidates("luxury hotel", coords, apiKey, radius, "lodging");
+    const seen = new Set(pool.map((p) => p.placeId));
+    pool = [...extra.filter((p) => !seen.has(p.placeId)), ...pool];
+  }
+  return rankLodgingByBudget(pool, budget).slice(0, maxCount);
 }
 
 export interface NearestStation {

@@ -6,9 +6,11 @@ import {
   generateTransitDayStops,
   generateDepartureDayStops,
   generateMealsAndAccommodation,
+  mealPreferencesOf,
   parseTimeString,
 } from "@/lib/itineraryCityGen";
-import { NEUTRAL_PREFERENCE_INTENT } from "@/lib/schemas";
+import { parsePreferenceIntent } from "@/lib/preferenceIntent";
+import { mergePreferenceIntent } from "@/lib/mergePreferenceIntent";
 import { computeArrivalDayStartMinute } from "@/lib/scheduler/arrivalDayStart";
 
 const DEFAULT_ARRIVAL_MINUTE_FALLBACK = 14 * 60;
@@ -58,12 +60,19 @@ export async function assembleItineraryDays(
   model: string,
   onProgress?: (event: AssembleProgressEvent) => void
 ): Promise<AssembledItinerary | null> {
-  const plan = await planTrip(flightInfo, prompt, preferences, model);
+  // The free-text parse only feeds per-day scheduling, not planTrip, so it
+  // runs alongside it instead of adding a round trip. It never throws (falls
+  // back to a neutral intent), so it can't fail the whole plan.
+  const [plan, parsedIntent] = await Promise.all([
+    planTrip(flightInfo, prompt, preferences, model),
+    parsePreferenceIntent(prompt ?? "", model),
+  ]);
   if (!plan) return null;
   onProgress?.({ type: "plan", title: plan.title, currency: plan.currency, cities: plan.cities });
 
   const budget = preferences?.budget as BudgetLevel | undefined;
-  const preferenceIntent = NEUTRAL_PREFERENCE_INTENT;
+  const preferenceIntent = mergePreferenceIntent(preferences, parsedIntent);
+  const mealPreferences = mealPreferencesOf(preferenceIntent);
 
   const arrivalMinute = flightInfo.arrivalTime
     ? parseTimeString(flightInfo.arrivalTime, DEFAULT_ARRIVAL_MINUTE_FALLBACK)
@@ -104,7 +113,7 @@ export async function assembleItineraryDays(
     // assembleItineraryDays, breaking its "never throws except when planTrip
     // fails" contract. restructure/route.ts already wraps every one of its
     // own call sites with this same degrade-to-empty pattern.
-    const mealsAndAccommodationPromise = generateMealsAndAccommodation(city.name, nights, plan.currency, budget).catch(
+    const mealsAndAccommodationPromise = generateMealsAndAccommodation(city.name, nights, plan.currency, budget, mealPreferences).catch(
       () => emptyMealsAndAccommodation(nights)
     );
 

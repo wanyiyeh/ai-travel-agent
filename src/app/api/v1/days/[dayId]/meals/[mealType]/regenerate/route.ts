@@ -5,11 +5,19 @@ import { getMockMode, mockDelay, MOCK_FIXTURES } from "@/lib/mockAi";
 import {
   fetchNearbyPlaceCandidates,
   getMealPlaceTypes,
-  getPriceLevels,
 } from "@/lib/fetchCityRestaurants";
+import { snapToGrid } from "@/lib/geo";
 import { resolveDayCoords } from "@/lib/itineraryGen";
 import { estimateMealCost } from "@/lib/priceLevelCost";
 import { isFoodPlace } from "@/lib/foodPlace";
+import { fitsCafeMealSlot } from "@/lib/cafeMealSlots";
+import { dietRequiredTypes, excludeByDiet } from "@/lib/dietaryFilter";
+import { TripPreferencesSchema } from "@/lib/schemas";
+import { getTwdRates } from "@/lib/exchangeRate";
+import { estimateFromPriceRange, rankMainMealsByBudget } from "@/lib/mealBudget";
+
+// How many fresh candidates the picker shows.
+const PICKER_SIZE = 10;
 import { translatePlaceNames } from "@/lib/translatePlaceNames";
 import { isMealType } from "@/types/itinerary";
 import { findDayIndex } from "@/lib/itineraryDays";
@@ -21,6 +29,11 @@ import { chargePaidEdit } from "@/lib/quota";
 const RequestSchema = z.object({
   itineraryId: z.string().min(1),
 });
+
+// The 換一家 picker's search center is the day's own stops, which differ
+// every day — snapped to a ~1km grid (geo.ts snapToGrid) so nearby days share
+// one cached pool. A 2-3km radius barely changes when the center moves <=~550m.
+const PICKER_SEARCH_GRID_DEG = 0.01;
 
 export async function POST(
   request: Request,
@@ -93,20 +106,37 @@ export async function POST(
     }
 
     const types = getMealPlaceTypes(mealType, budget);
-    const priceLevels = getPriceLevels(budget);
+    // Only lunch/dinner needs Enterprise fields (budget ranking reads
+    // priceRange); breakfast/snack have no budget cap (plan/form-preference-wiring.md 1c-2).
+    const isMainMeal = mealType === "lunch" || mealType === "dinner";
+    const tier = isMainMeal ? "enterprise" : "pro";
+
+    // Form-chosen restrictions only — the free-text parse isn't stored with
+    // the itinerary (plan/form-preference-wiring.md 1d).
+    const diet = TripPreferencesSchema.shape.dietaryRestrictions.safeParse(
+      (config.preferences as { dietaryRestrictions?: unknown } | undefined)?.dietaryRestrictions
+    ).data ?? [];
+    // Vegetarian/vegan/halal lunch & dinner: restaurants of exactly that type first.
+    const dietTypes = isMainMeal ? dietRequiredTypes(diet) : [];
+    const center = snapToGrid(coords, PICKER_SEARCH_GRID_DEG);
 
     // Pull the full cached pool (same cost as 10 — see NEARBY_FETCH_COUNT) so
     // dropping non-food places still leaves up to 10 to show.
-    const search = async (levels?: string[]) =>
-      (await fetchNearbyPlaceCandidates(coords, googleApiKey, types, 2000, 20, levels))
-        .filter(isFoodPlace)
-        .slice(0, 10);
-    let places = await search(priceLevels);
-    if (places.length === 0 && priceLevels) {
-      // Small destinations often don't tag price level on dining listings —
-      // retry without the price filter rather than coming back empty.
-      places = await search();
-    }
+    const [pool, dietPool] = await Promise.all([
+      fetchNearbyPlaceCandidates(center, googleApiKey, types, 2000, 20, tier),
+      dietTypes.length > 0 ? fetchNearbyPlaceCandidates(center, googleApiKey, dietTypes, 2000, 20, tier) : Promise.resolve([]),
+    ]);
+    const dietIds = new Set(dietPool.map((p) => p.placeId));
+    const foodPlaces = excludeByDiet([...dietPool, ...pool.filter((p) => !dietIds.has(p.placeId))], diet)
+      .filter(isFoodPlace)
+      // Breakfast and snack share one café search; keep what suits this slot.
+      .filter((p) => isMainMeal || fitsCafeMealSlot(p, mealType as "breakfast" | "snack"));
+    // Lunch/dinner: in-budget restaurants first (plan/form-preference-wiring.md 1.3).
+    const ranked =
+      isMainMeal && budget
+        ? rankMainMealsByBudget(foodPlaces, budget, config.currency, await getTwdRates(), PICKER_SIZE)
+        : foodPlaces;
+    const places = ranked.slice(0, PICKER_SIZE);
 
     const currentPlaceId =
       typeof currentMeal?.placeId === "string" ? currentMeal.placeId : undefined;
@@ -136,7 +166,8 @@ export async function POST(
         lng: p.lng,
         address: p.address,
         rating: p.rating ?? null,
-        estimated_cost: estimateMealCost(config.currency, mealType, p.priceLevel),
+        estimated_cost:
+          estimateFromPriceRange(p.priceRange, config.currency) ?? estimateMealCost(config.currency, mealType, p.priceLevel),
         photoName: p.photoName ?? null,
       }));
 

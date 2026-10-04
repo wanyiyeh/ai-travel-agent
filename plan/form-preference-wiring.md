@@ -37,9 +37,14 @@
 | 停留時間類別（`DurationCategory`） | 緊湊 | 適中 | 悠閒 |
 |---|---|---|---|
 | `museum`（博物館、美術館） | 90 分 | 180 分 | 210 分 |
-| `park`、`shopping` | 60 分 | 120 分 | 180 分 |
-| `viewpoint`、`temple`、`landmark` | 45 分 | 60 分 | 90 分 |
-| 一天大約排得下 | 5～6 個 | 2～3 個 | 約 2 個 |
+| `park`、`shopping` | 60 分 | 150 分 | 180 分 |
+| `viewpoint`、`temple`、`landmark` | 45 分 | 120 分 | 150 分 |
+| 其他類型 | 60 分 | 150 分 | 180 分 |
+| 一天大約排得下 | 最多 6 個（上限） | 2～3 個 | 2～3 個 |
+
+2026-10-04 實作時用 `dev.db` 的 44 個景點池（529 個景點）驗證：地標 38%、寺廟 19%、公園 15%、
+博物館 12%、購物 8%、觀景台 7%。原本的表（地標類在適中只停 60 分）會讓適中一天排到 4～5 個、
+緊湊約 8 個，跟「適中大約 3 小時」的定義不符，所以把地標類也拉長（選項 B），緊湊另外設每天最多 6 個。
 
 表單說明改成描述停留時間，例如「緊湊：每個景點約 1.5 小時內」，不再寫景點數。
 
@@ -293,15 +298,18 @@ Google 沒有「室內或戶外」的欄位，依景點類型判斷，對照表�
 - `restructure/route.ts` 改用同一個合併函式，讀取 `config.preferences`。
 - `TripPreferencesSchema` 新增選填欄位 `startTime`、`dietaryRestrictions`、`companion`。
 
-**1b. 步調依停留時間排**
-- `assignTimeSlots` 的 `DEFAULT_DURATION_BY_TYPE` 改成每種步調一張表（見 1.2）。
-- 移除 `STOPS_PER_DAY`：候選照分數排序，依序放進當天，超過 `dayEndMinute` 的尾端景點裁掉。
-  回程日已經有同樣的裁切邏輯，直接沿用。
-- 交通日改成依抵達後剩下的時間排，不再由 AI 決定 `arrivalActivityCount`。
-- `itineraryCityGen.pace.test.ts` 的期望值改成新定義：緊湊至少 5 個、適中 2～3 個、悠閒最多 2 個。
-- 候選池上限 20 個，跟快取一樣，不會多花錢。
+**1b. 步調依停留時間排**（2026-10-04 完成）
+- `assignTimeSlots` 的停留時間改成每種步調一張表（`DURATION_BY_PACE`，見 1.2）。
+- 移除 `STOPS_PER_DAY`。新增 `scheduler/stopCapacity.ts` 的 `estimateStopCapacity()`：
+  可用時間（扣掉午餐）÷（候選景點的平均停留時間 + 緩衝），上限 6 個。
+  `distributeStopsPerDay` 改成接受每天各自的上限（抵達日的時間比較少）。
+- 排完之後超過 18:00 的尾端景點裁掉（跟回程日相同的做法），因為午餐時段的推移可能浪費超過估算的 1 小時。
+- 交通日不再由 AI 決定 `arrivalActivityCount`，改用 AI 推算的抵達時間算出排得下幾個；抵達太晚就不查 Google。
+- `itineraryCityGen.pace.test.ts` 的期望值改成新定義：緊湊至少 5 個、適中 2～3 個、悠閒 1～2 個。
+- 候選池固定查 20 個，跟快取一樣，不會多花錢。
+- 回程日沒改：它的 `computeDepartureDayBudget` 用固定的 90 分估算，但排完會依截止時間裁切，結果仍然正確。
 
-**1c. 預算**
+**1c. 預算**（2026-10-04 完成）
 - 兩處 Nearby Search 不再送 `priceLevels`，快取鍵值也拿掉它（修掉費用 bug）。
 - 午餐、晚餐改成在本機排序：
   - field mask 加上 `places.priceRange`，優先用價格區間判斷，沒有區間才用 `priceLevel`。
@@ -318,7 +326,7 @@ Google 沒有「室內或戶外」的欄位，依景點類型判斷，對照表�
     沒有品牌飯店的城市，用 Text Search「luxury hotel」補足。
 - `budgetMap` 刪掉「精品購物、私人導覽」這類做不到的描述。
 
-**1c-2. 依用途分開計費級距（省錢，2026-10-04 定案）**
+**1c-2. 依用途分開計費級距（省錢，2026-10-04 定案並完成）**
 
 Google 依請求裡最貴的欄位計費（Pro：每月免費 5,000 次；Enterprise：每月免費 1,000 次）。
 目前所有 Nearby Search 都帶 `rating`／`priceLevel`，全部按 Enterprise 收費。改成只有真的需要價格的查詢才用 Enterprise：
@@ -341,18 +349,33 @@ Google 依請求裡最貴的欄位計費（Pro：每月免費 5,000 次；Enterp
   避免之後不小心加回 `rating`。
 - **之後如果午晚餐還是超過免費額度**：可以改用 Text Search 的 `priceLevels`（伺服器端過濾，維持 Pro 計費），
   代價是只剩 4 個粗略價位等級、沒有標價位的店會被排除。目前不做。
+- 實作時的調整：
+  - 「換一家」的快取對齊改用既有的 `geo.ts` `snapToGrid`（0.01 度），跟景點建議的做法一致。
+  - 早餐、點心分配候選時，兩邊都適合的店（咖啡廳、麵包店）輪流分給早餐和點心，不會同一家同時出現在兩個清單。
+  - 高端住宿沒有品牌飯店時的補充搜尋，用的是新的多筆版 Text Search（`searchTextCandidates`），階段 2 的咖啡、抹茶也會用到。
+  - 品牌比對：英文品牌只比對完整單字，「四季」「半島」要加「酒店」，W Hotels 不比對，避免一般旅館被誤判成高端。
 - 做不到的：快取不能超過 30 天，Google 使用條款規定除了 place ID，地點資料最多只能快取 30 天。
 
-**1d. 飲食限制、出門時間**
-- `generateMealsAndAccommodation` 新增選填參數 `dietaryRestrictions`，限制寫進挑餐廳的 prompt。
-- 素食、純素另外查 `vegetarian_restaurant`、`vegan_restaurant` 類型（開工前到官方類型表確認類型名稱），
-  這樣是真的過濾。其他限制只能靠 prompt，效果是降低踩雷的機率。
-- 出門時間接到 `startTimePreference`；`START_TIME_MINUTE` 改成早起 07:30、晚起 11:00，預設的出門時間從 08:00 改成 09:00。
+**1d. 飲食限制、出門時間**（2026-10-04 完成）
+- `generateMealsAndAccommodation` 新增選填參數 `MealPreferences`（飲食限制、出門時間）。生成行程、重新規劃行程都會傳入；
+  「換一家」讀取存在行程設定裡的表單飲食限制（自由文字解析的結果沒有存，所以不包含）。
+- 新增 `src/lib/dietaryFilter.ts`，查官方類型表後比計畫原本寫的多做了一些：
+  - 素食、純素、**清真**：另外查 `vegetarian_restaurant`／`vegan_restaurant`／`halal_restaurant`，排在最前面（真的過濾）。
+  - 不吃海鮮、不吃牛、素食、純素：剔除主要類型是 `seafood_restaurant`／`sushi_restaurant`／`steak_house` 的店
+    （只抓得到以這些為主的店）。
+  - 所有限制都寫進挑餐廳的 prompt。自由文字解析出的標籤只接受 snake_case 單字，避免夾帶指令進 system prompt。
+- 出門時間：`START_TIME_MINUTE` 改成早起 07:30、一般 09:00、晚起 11:00，沒選時用一般。回程日也改從出門時間開始排。
+  排程核心（`assignTimeSlots`）本身的預設值維持 08:00，行程這一層一律傳入自己的出門時間，避免改動大量既有測試。
+- 晚起時，早餐清單把早午餐店排前面，prompt 也註明「早餐請選早午餐」。
+- 2026-10-03 釘下的 `it.fails` 全部改回一般測試，沒有剩下的已知缺口。
 
-**1e. 表單 UI**
-- 步調、預算移到外層，說明文字改寫。
-- 新增出門時間、飲食限制；移除人數。
-- 自由文字改成 textarea，換新的 placeholder。
+**1e. 表單 UI**（2026-10-04 完成）
+- 步調、預算移到外層（不收合）。按鈕只放名稱，下方一行說明：選了顯示該選項的意思（停留時間、住宿等級、每餐 NT$ 範圍），
+  沒選時顯示預設行為（例如「未選擇時以「適中」安排」）。第一版每個按鈕都塞兩行說明，實際看起來太擠，才改成這樣。
+- 「更多選項」改成：航班時間、出門時間、飲食限制、偏好。人數移除。
+- 旅遊風格描述改成 3 行的 textarea，placeholder 引導寫按鈕表達不了的事。
+- 新增共用的 `ChoiceRow`（單選、一行說明、再點一次取消）、`ChipRow`（複選），取代原本重複的按鈕標記。
+- 偏好維持原本 5 個，階段 2 才換成新的 7 個（避免先放還沒有作用的選項）。
 
 ### 階段 2：每天一個主題、市區偏好、飲品、室內行程、固定行程（`feat/themed-days`）
 

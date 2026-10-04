@@ -59,6 +59,19 @@ NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID=...  # 地圖樣式 ID
 
 **用途：** 根據經緯度搜尋附近餐廳，作為 AI 餐廳推薦的參考資料
 
+**計費級距（2026-10-04 起）：** Google 依請求裡最貴的欄位計費。`fetchNearbyPlaceCandidates()` 的
+`tier` 參數決定要哪一組欄位：
+
+| `tier` | 欄位 | 級距 | 每月免費 | 用在哪 |
+|---|---|---|---|---|
+| `"pro"`（預設） | id、名稱、座標、地址、照片、類型 | Pro | 5,000 次 | 景點、早餐點心、住宿、景點建議 |
+| `"enterprise"` | 上面全部 + `rating`、`priceLevel`、`priceRange` | Enterprise | 1,000 次 | 只有午餐、晚餐（預算排序要用價格區間） |
+
+- Nearby Search **不支援** `priceLevels` 篩選（只有 Text Search 有），送了也會被忽略。
+- Pro 查詢會先沿用同地點的 Enterprise 快取（欄位是超集），不會重複付費。
+- 新增查詢時用預設的 `"pro"`；真的需要評分或價格才用 `"enterprise"`。整合測試會檢查 Pro 查詢沒有帶到 Enterprise 欄位。
+- 詳見 `plan/form-preference-wiring.md` 1c-2。
+
 **需在 Google Cloud Console 啟用：** **Places API (New)**（同上）
 
 ---

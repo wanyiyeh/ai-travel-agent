@@ -11,16 +11,34 @@ import { MAX_TRIP_DAYS, PROMPT_INPUT_MAX_LENGTH } from "@/lib/inputLimits";
 import { AIRPORTS, iataToCity } from "@/lib/airports";
 import { IATA_COUNTRY_ZH } from "@/lib/iataCountry";
 
-const PACE_OPTIONS: { value: TripPreferences["pace"]; label: string; desc: string }[] = [
-  { value: "relaxed", label: "悠閒", desc: "每天 ≤3 個景點" },
-  { value: "moderate", label: "適中", desc: "每天 3-4 個景點" },
-  { value: "intensive", label: "緊湊", desc: "每天 5+ 個景點" },
+// Descriptions say what each choice actually changes (plan/form-preference-
+// wiring.md 1.2/1.3) — pace is how long you stay, not a stop count.
+const PACE_OPTIONS: { value: NonNullable<TripPreferences["pace"]>; label: string; desc: string }[] = [
+  { value: "relaxed", label: "悠閒", desc: "每個景點約 2.5 小時以上" },
+  { value: "moderate", label: "適中", desc: "每個景點約 2～3 小時" },
+  { value: "intensive", label: "緊湊", desc: "每個景點約 1.5 小時內" },
 ];
 
-const BUDGET_OPTIONS: { value: TripPreferences["budget"]; label: string; desc: string }[] = [
-  { value: "budget", label: "經濟實惠", desc: "平價為主" },
-  { value: "moderate", label: "中等消費", desc: "一般觀光" },
-  { value: "luxury", label: "高端奢華", desc: "頂級體驗" },
+const BUDGET_OPTIONS: { value: NonNullable<TripPreferences["budget"]>; label: string; desc: string }[] = [
+  { value: "budget", label: "經濟實惠", desc: "青旅・每餐約 NT$400 內" },
+  { value: "moderate", label: "中等消費", desc: "民宿、商務旅館・每餐約 NT$1,000 內" },
+  { value: "luxury", label: "高端奢華", desc: "國際品牌飯店・每餐約 NT$1,000～2,000" },
+];
+
+const START_TIME_OPTIONS: { value: NonNullable<TripPreferences["startTime"]>; label: string; desc: string }[] = [
+  { value: "early", label: "早起", desc: "8:00 前出門" },
+  { value: "normal", label: "一般", desc: "9:00 出門" },
+  { value: "late", label: "晚起", desc: "11:00 後出門" },
+];
+
+type DietTag = NonNullable<TripPreferences["dietaryRestrictions"]>[number];
+const DIET_OPTIONS: { value: DietTag; label: string }[] = [
+  { value: "vegetarian", label: "素食" },
+  { value: "vegan", label: "純素" },
+  { value: "no_seafood", label: "不吃海鮮" },
+  { value: "no_beef", label: "不吃牛" },
+  { value: "halal", label: "清真" },
+  { value: "no_spicy", label: "不吃辣" },
 ];
 
 const INTEREST_OPTIONS: { value: NonNullable<TripPreferences["interests"]>[number]; label: string }[] = [
@@ -299,6 +317,90 @@ function CityCombobox({
   );
 }
 
+const SELECTED_OPTION_CLASS =
+  "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-900";
+const UNSELECTED_OPTION_CLASS =
+  "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300";
+
+// Single-choice row: compact label-only buttons, with one line underneath
+// explaining the chosen option — or, before choosing, what happens if you
+// don't. Clicking the selected one again clears it (every preference is optional).
+function ChoiceRow<T extends string>({
+  label,
+  options,
+  value,
+  onChange,
+  emptyHint,
+}: {
+  label: string;
+  options: { value: T; label: string; desc: string }[];
+  value: T | undefined;
+  onChange: (value: T | undefined) => void;
+  emptyHint: string;
+}) {
+  const selected = options.find((opt) => opt.value === value);
+  return (
+    <div className="flex items-start gap-2.5" role="group" aria-label={label}>
+      <span className="w-14 shrink-0 text-xs text-zinc-500 dark:text-zinc-400 mt-1.5">{label}</span>
+      <div className="flex-1">
+        <div className="flex gap-1.5">
+          {options.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              title={opt.desc}
+              aria-pressed={value === opt.value}
+              onClick={() => onChange(value === opt.value ? undefined : opt.value)}
+              className={`flex-1 rounded-lg border px-2 py-1.5 text-xs transition-colors ${
+                value === opt.value ? SELECTED_OPTION_CLASS : UNSELECTED_OPTION_CLASS
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+        <p className="mt-1 text-[11px] text-zinc-400" aria-live="polite">
+          {selected ? selected.desc : emptyHint}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// Multi-choice row of chips.
+function ChipRow<T extends string>({
+  label,
+  options,
+  selected,
+  onToggle,
+}: {
+  label: string;
+  options: { value: T; label: string }[];
+  selected: T[];
+  onToggle: (value: T) => void;
+}) {
+  return (
+    <div className="flex items-start gap-2.5" role="group" aria-label={label}>
+      <span className="w-14 shrink-0 text-xs text-zinc-500 dark:text-zinc-400 mt-1.5">{label}</span>
+      <div className="flex flex-wrap gap-1.5 flex-1">
+        {options.map((opt) => (
+          <button
+            key={opt.value}
+            type="button"
+            aria-pressed={selected.includes(opt.value)}
+            onClick={() => onToggle(opt.value)}
+            className={`rounded-full border px-3 py-1 text-xs transition-colors ${
+              selected.includes(opt.value) ? SELECTED_OPTION_CLASS : UNSELECTED_OPTION_CLASS
+            }`}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function Home() {
   const router = useRouter();
 
@@ -318,7 +420,8 @@ export default function Home() {
   const [pace, setPace] = useState<TripPreferences["pace"]>(undefined);
   const [budget, setBudget] = useState<TripPreferences["budget"]>(undefined);
   const [interests, setInterests] = useState<NonNullable<TripPreferences["interests"]>>([]);
-  const [travelers, setTravelers] = useState(2);
+  const [startTime, setStartTime] = useState<TripPreferences["startTime"]>(undefined);
+  const [diet, setDiet] = useState<DietTag[]>([]);
   const [selectedWaypoints, setSelectedWaypoints] = useState<string[]>([]);
 
   // 進階選項的展開狀態
@@ -339,6 +442,10 @@ export default function Home() {
     setInterests((prev) =>
       prev.includes(val) ? prev.filter((i) => i !== val) : [...prev, val]
     );
+  }
+
+  function toggleDiet(val: DietTag) {
+    setDiet((prev) => (prev.includes(val) ? prev.filter((d) => d !== val) : [...prev, val]));
   }
 
   function toggleWaypoint(name: string) {
@@ -371,7 +478,8 @@ export default function Home() {
       pace,
       budget,
       interests: interests.length ? interests : undefined,
-      travelers,
+      startTime,
+      dietaryRestrictions: diet.length ? diet : undefined,
     };
 
     const waypointsNote = selectedWaypoints.length > 0
@@ -542,7 +650,13 @@ export default function Home() {
               );
             })()}
 
-            {/* 旅遊描述 */}
+            {/* 步調與預算 — 對行程影響最大，不收合 */}
+            <div className="space-y-3">
+              <ChoiceRow label="步調" options={PACE_OPTIONS} value={pace} onChange={setPace} emptyHint="未選擇時以「適中」安排" />
+              <ChoiceRow label="預算" options={BUDGET_OPTIONS} value={budget} onChange={setBudget} emptyHint="未選擇時不限預算" />
+            </div>
+
+            {/* 旅遊描述 — 寫按鈕表達不了的事 */}
             <div>
               <label
                 htmlFor="prompt"
@@ -550,14 +664,14 @@ export default function Home() {
               >
                 旅遊風格描述 <span className="font-normal text-zinc-400">（選填）</span>
               </label>
-              <input
+              <textarea
                 id="prompt"
-                type="text"
+                rows={3}
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
                 maxLength={PROMPT_INPUT_MAX_LENGTH}
-                placeholder="例：以文化美食為主、想體驗當地生活"
-                className="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-4 py-3 text-zinc-900 dark:text-zinc-50 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-100"
+                placeholder="寫上面選項表達不了的事，例：一定要去清水寺、不想排太多購物、想看夜景"
+                className="w-full resize-y rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-4 py-3 text-zinc-900 dark:text-zinc-50 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-100"
               />
             </div>
 
@@ -570,7 +684,7 @@ export default function Home() {
               >
                 <div className="flex flex-col gap-0.5">
                   <span className="text-sm font-medium text-zinc-900 dark:text-zinc-50">更多選項</span>
-                  <span className="text-xs text-zinc-400">航班時間、旅遊偏好、人數</span>
+                  <span className="text-xs text-zinc-400">航班時間、出門時間、飲食限制、旅遊偏好</span>
                 </div>
                 <ChevronIcon direction={moreOpen ? "up" : "down"} />
               </button>
@@ -643,97 +757,20 @@ export default function Home() {
 
                   <div className="h-px bg-zinc-100 dark:bg-zinc-800" />
 
-                  {/* 旅遊偏好：合併成一區 */}
-                  <div className="space-y-3">
+                  {/* 行程偏好 */}
+                  <div className="space-y-4">
                     <span className="block text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
-                      旅遊偏好
+                      行程偏好
                     </span>
-
-                    <div className="flex items-center gap-2.5">
-                      <span className="w-11 shrink-0 text-xs text-zinc-500 dark:text-zinc-400">步調</span>
-                      <div className="flex gap-1.5 flex-1">
-                        {PACE_OPTIONS.map((opt) => (
-                          <button
-                            key={opt.value}
-                            type="button"
-                            title={opt.desc}
-                            onClick={() => setPace(pace === opt.value ? undefined : opt.value)}
-                            className={`flex-1 rounded-lg border px-2 py-1.5 text-xs transition-colors ${
-                              pace === opt.value
-                                ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-900"
-                                : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
-                            }`}
-                          >
-                            {opt.label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2.5">
-                      <span className="w-11 shrink-0 text-xs text-zinc-500 dark:text-zinc-400">預算</span>
-                      <div className="flex gap-1.5 flex-1">
-                        {BUDGET_OPTIONS.map((opt) => (
-                          <button
-                            key={opt.value}
-                            type="button"
-                            title={opt.desc}
-                            onClick={() => setBudget(budget === opt.value ? undefined : opt.value)}
-                            className={`flex-1 rounded-lg border px-2 py-1.5 text-xs transition-colors ${
-                              budget === opt.value
-                                ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-900"
-                                : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
-                            }`}
-                          >
-                            {opt.label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="flex items-start gap-2.5">
-                      <span className="w-11 shrink-0 text-xs text-zinc-500 dark:text-zinc-400 mt-1.5">偏好</span>
-                      <div className="flex flex-wrap gap-1.5 flex-1">
-                        {INTEREST_OPTIONS.map((opt) => (
-                          <button
-                            key={opt.value}
-                            type="button"
-                            onClick={() => toggleInterest(opt.value)}
-                            className={`rounded-full border px-3 py-1 text-xs transition-colors ${
-                              interests.includes(opt.value)
-                                ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-900"
-                                : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
-                            }`}
-                          >
-                            {opt.label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2.5">
-                      <span className="w-11 shrink-0 text-xs text-zinc-500 dark:text-zinc-400">人數</span>
-                      <div className="flex items-center gap-3">
-                        <button
-                          type="button"
-                          onClick={() => setTravelers((n) => Math.max(1, n - 1))}
-                          className="w-7 h-7 rounded-full border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors flex items-center justify-center font-medium text-sm"
-                        >
-                          −
-                        </button>
-                        <span className="w-6 text-center text-sm font-semibold text-zinc-900 dark:text-zinc-50">
-                          {travelers}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => setTravelers((n) => Math.min(20, n + 1))}
-                          className="w-7 h-7 rounded-full border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors flex items-center justify-center font-medium text-sm"
-                        >
-                          +
-                        </button>
-                        <span className="text-xs text-zinc-400">人</span>
-                      </div>
-                    </div>
+                    <ChoiceRow
+                      label="出門時間"
+                      options={START_TIME_OPTIONS}
+                      value={startTime}
+                      onChange={setStartTime}
+                      emptyHint="未選擇時 9:00 出門"
+                    />
+                    <ChipRow label="飲食限制" options={DIET_OPTIONS} selected={diet} onToggle={toggleDiet} />
+                    <ChipRow label="偏好" options={INTEREST_OPTIONS} selected={interests} onToggle={toggleInterest} />
                   </div>
                 </div>
               )}

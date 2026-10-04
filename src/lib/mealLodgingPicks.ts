@@ -1,6 +1,7 @@
 import type { PlaceCandidate } from "@/lib/fetchCityRestaurants";
 import type { MealType } from "@/types/itinerary";
 import { estimateMealCost, estimateLodgingCostPerNight, estimateLodgingCostRange } from "@/lib/priceLevelCost";
+import { estimateFromPriceRange } from "@/lib/mealBudget";
 
 // Real Nearby Search candidates for one city's meals and accommodation, handed
 // to the LLM as numbered lists so it picks real places instead of inventing
@@ -107,7 +108,9 @@ export function applyCandidatePicks(
         continue;
       }
       used.add(place);
-      const estimated = estimateMealCost(currency, mealKey, place.priceLevel);
+      // Google's real per-person range beats the priceLevel lookup table.
+      const estimated =
+        estimateFromPriceRange(place.priceRange, currency) ?? estimateMealCost(currency, mealKey, place.priceLevel);
       day[mealKey] = {
         name: place.name,
         description: raw.description,

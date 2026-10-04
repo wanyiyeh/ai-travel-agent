@@ -29,10 +29,13 @@ describe("assignTimeOfDay", () => {
 
 describe("assignTimeSlots", () => {
   it("accumulates duration + buffer across non-meal stops using type defaults", () => {
-    const result = assignTimeSlots([
-      { id: "a", type: "museum" },
-      { id: "b", type: "viewpoint" },
-    ]);
+    const result = assignTimeSlots(
+      [
+        { id: "a", type: "museum" },
+        { id: "b", type: "viewpoint" },
+      ],
+      { pace: "intensive" }
+    );
 
     expect(result[0]).toMatchObject({
       estimatedDurationMinutes: 90,
@@ -40,13 +43,24 @@ describe("assignTimeSlots", () => {
       endMinute: 570,
       time_of_day: "morning",
     });
-    // moderate (default) pace buffer is 15 minutes: 570 + 15 = 585
+    // intensive pace buffer is 5 minutes: 570 + 5 = 575
     expect(result[1]).toMatchObject({
-      estimatedDurationMinutes: 30,
-      startMinute: 585,
-      endMinute: 615,
+      estimatedDurationMinutes: 45,
+      startMinute: 575,
+      endMinute: 620,
       time_of_day: "morning",
     });
+  });
+
+  it("sets each stop's default stay by pace — pace is defined by how long you stay", () => {
+    const stay = (pace: "intensive" | "moderate" | "relaxed", type: string) =>
+      assignTimeSlots([{ id: "a", type }], { pace })[0].estimatedDurationMinutes;
+
+    // plan/form-preference-wiring.md 1.2: intensive keeps every stop to 1.5h
+    // or less, moderate gives places about 3h, relaxed longer still.
+    expect([stay("intensive", "museum"), stay("moderate", "museum"), stay("relaxed", "museum")]).toEqual([90, 180, 210]);
+    expect([stay("intensive", "park"), stay("moderate", "park"), stay("relaxed", "park")]).toEqual([60, 150, 180]);
+    expect([stay("intensive", "landmark"), stay("moderate", "landmark"), stay("relaxed", "landmark")]).toEqual([45, 120, 150]);
   });
 
   it("prefers an explicit durationMinutes over the type lookup table", () => {
@@ -54,9 +68,11 @@ describe("assignTimeSlots", () => {
     expect(result.estimatedDurationMinutes).toBe(20);
   });
 
-  it("falls back to the default duration for an unknown type", () => {
-    const [result] = assignTimeSlots([{ id: "a", type: "some_unlisted_type" }]);
-    expect(result.estimatedDurationMinutes).toBe(60);
+  it("falls back to the pace's default duration for an unknown type", () => {
+    const [moderate] = assignTimeSlots([{ id: "a", type: "some_unlisted_type" }]);
+    const [intensive] = assignTimeSlots([{ id: "a", type: "some_unlisted_type" }], { pace: "intensive" });
+    expect(moderate.estimatedDurationMinutes).toBe(150);
+    expect(intensive.estimatedDurationMinutes).toBe(60);
   });
 
   it("snaps a meal stop forward to the next meal window instead of starting immediately", () => {
@@ -127,8 +143,9 @@ describe("assignTimeSlots", () => {
       { id: "c", type: "landmark" },
       { id: "d", type: "park" },
     ];
-    const packed = assignTimeSlots(stops);
-    const spread = assignTimeSlots(stops, { dayEndMinute: 18 * 60 });
+    // Intensive: short enough stays that the packed schedule ends by noon.
+    const packed = assignTimeSlots(stops, { pace: "intensive" });
+    const spread = assignTimeSlots(stops, { pace: "intensive", dayEndMinute: 18 * 60 });
 
     expect(new Set(packed.map((s) => s.time_of_day))).toEqual(new Set(["morning"]));
     expect(new Set(spread.map((s) => s.time_of_day))).toEqual(new Set(["morning", "afternoon"]));

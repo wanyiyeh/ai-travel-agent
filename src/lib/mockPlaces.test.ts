@@ -75,6 +75,25 @@ describe("MOCK_PLACES", () => {
     }
   });
 
+  it("returns only the fields the request's field mask asked for, like the real API", async () => {
+    const search = (mask: string) =>
+      mockGoogleResponse("https://places.googleapis.com/v1/places:searchNearby", {
+        method: "POST",
+        headers: { "X-Goog-FieldMask": mask },
+        body: JSON.stringify({
+          includedTypes: ["cafe"],
+          maxResultCount: 1,
+          locationRestriction: { circle: { center: { latitude: PRAGUE.lat, longitude: PRAGUE.lng }, radius: 2000 } },
+        }),
+      }).json();
+
+    const [pro] = (await search("places.id,places.displayName")).places;
+    expect(Object.keys(pro).sort()).toEqual(["displayName", "id"]);
+    const [enterprise] = (await search("places.id,places.rating,places.priceLevel")).places;
+    expect(enterprise).toHaveProperty("rating");
+    expect(enterprise).toHaveProperty("priceLevel");
+  });
+
   it("route matrix returns a route whose duration scales with travel mode", async () => {
     const leg = (travelMode: string) =>
       mockGoogleResponse(

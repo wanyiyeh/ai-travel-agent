@@ -3,17 +3,28 @@ import { scoreCandidate, type StopCandidate } from "@/lib/scheduler/selectAndOrd
 
 /**
  * Per-day stop counts for partitionCandidatesByDay when the pool is too small
- * to give every day `maxPerDay`. Nearby Search returns at most 20 places, so
- * a flat `Array(dayCount).fill(4)` for a 9-day city block let days 1-5 take
+ * to give every day its full capacity. Nearby Search returns at most 20
+ * places, so filling days in order let days 1-5 of a 9-day city block take
  * all 20 and left days 6-9 empty (validateItinerary's DAY_TOO_FEW_STOPS,
- * plan/hybrid-rule-engine-scheduling.md 0.10). Spreads the pool evenly
- * instead, earlier days getting the remainder, never more than `maxPerDay`.
+ * plan/hybrid-rule-engine-scheduling.md 0.10). Deals the pool out one stop
+ * per day in turn instead, skipping days already at their own cap
+ * (`maxPerDay[i]` — the trip's arrival day has less time than the rest).
  */
-export function distributeStopsPerDay(poolSize: number, dayCount: number, maxPerDay: number): number[] {
-  if (dayCount <= 0) return [];
-  const base = Math.floor(poolSize / dayCount);
-  const remainder = poolSize % dayCount;
-  return Array.from({ length: dayCount }, (_, i) => Math.min(maxPerDay, base + (i < remainder ? 1 : 0)));
+export function distributeStopsPerDay(poolSize: number, maxPerDay: number[]): number[] {
+  const counts = maxPerDay.map(() => 0);
+  let remaining = poolSize;
+  let dealt = true;
+  while (remaining > 0 && dealt) {
+    dealt = false;
+    for (let i = 0; i < counts.length && remaining > 0; i++) {
+      if (counts[i] < maxPerDay[i]) {
+        counts[i]++;
+        remaining--;
+        dealt = true;
+      }
+    }
+  }
+  return counts;
 }
 
 /**

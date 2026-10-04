@@ -7,9 +7,11 @@ import {
   generateTransitDayStops,
   generateMealsAndAccommodation,
   generateDayStops,
+  mealPreferencesOf,
 } from "@/lib/itineraryCityGen";
 import { parsePreferenceIntent } from "@/lib/preferenceIntent";
-import type { PreferenceIntent } from "@/lib/schemas";
+import { mergePreferenceIntent } from "@/lib/mergePreferenceIntent";
+import { TripPreferencesSchema, type PreferenceIntent } from "@/lib/schemas";
 import type { BudgetLevel } from "@/lib/fetchCityRestaurants";
 import { MAX_CITY_DAYS, MAX_NAME_LENGTH, MAX_TEXT_LENGTH, MAX_TRIP_DAYS } from "@/lib/inputLimits";
 import { internalErrorResponse } from "@/lib/apiError";
@@ -218,7 +220,7 @@ async function buildCityBlock(
           })
         : Promise.resolve([]),
       newDaysNeeded > 0
-        ? generateMealsAndAccommodation(city.name, newDaysNeeded, currency, budget).catch(() => ({
+        ? generateMealsAndAccommodation(city.name, newDaysNeeded, currency, budget, mealPreferencesOf(preferenceIntent)).catch(() => ({
             accommodation: {},
             mealsByDay: Array.from({ length: newDaysNeeded }, () => ({})),
           }))
@@ -288,7 +290,7 @@ async function buildCityBlock(
           return Array.from({ length: aiDayCount }, () => []);
         })
       : Promise.resolve([]),
-    generateMealsAndAccommodation(city.name, nights, currency, budget).catch(() => ({
+    generateMealsAndAccommodation(city.name, nights, currency, budget, mealPreferencesOf(preferenceIntent)).catch(() => ({
       accommodation: {},
       mealsByDay: Array.from({ length: nights }, () => ({})),
     })),
@@ -370,10 +372,14 @@ export async function POST(
     const days = itinerary.days as Record<string, unknown>[];
     const config = (itinerary.config ?? {}) as Record<string, unknown>;
     const currency = (config.currency as string) ?? "EUR";
-    const budget = (config.preferences as { budget?: BudgetLevel } | undefined)?.budget;
+    // Stored config can predate a schema change — an unparseable value just
+    // means "no form preferences", same as a trip generated without them.
+    const storedPreferences = TripPreferencesSchema.safeParse(config.preferences);
+    const preferences = storedPreferences.success ? storedPreferences.data : undefined;
+    const budget = preferences?.budget as BudgetLevel | undefined;
     const freeText = (config.generatedWith as string) ?? "";
     const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
-    const preferenceIntent = await parsePreferenceIntent(freeText, model);
+    const preferenceIntent = mergePreferenceIntent(preferences, await parsePreferenceIntent(freeText, model));
 
     const daysById = new Map(days.map((d) => [d.id as string, d]));
     const keptIds = new Set(cities.flatMap((c) => c.keepDayIds));
