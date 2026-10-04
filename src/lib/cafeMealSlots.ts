@@ -18,12 +18,20 @@ export function fitsCafeMealSlot(place: Pick<PlaceCandidate, "types">, slot: "br
 }
 
 /**
- * Splits one shared café pool into breakfast and snack lists with no place in
- * both: slot-specific places go to their slot, and places that suit either
- * (a café, a bakery) alternate between the two, so the LLM isn't offered the
- * same store for both meals. Google's popularity order is kept within each list.
+ * Splits one shared café pool into breakfast and snack lists. When the pool
+ * is big enough that each list still covers `neededPerSlot` meals, no place
+ * appears in both: slot-specific places go to their slot and places that
+ * suit either (a café, a bakery) alternate between the two, so the LLM isn't
+ * offered the same store for both meals. A long stay can't afford that — a
+ * 13-day Stockholm trip ran out at ~10 per slot and the LLM started inventing
+ * repeats — so then both lists keep every place that suits them (the
+ * one-pick-per-place rule in applyCandidatePicks still prevents a store
+ * being used twice). Google's popularity order is kept within each list.
  */
-export function splitCafePool<T extends Pick<PlaceCandidate, "types">>(pool: T[]): { breakfast: T[]; snack: T[] } {
+export function splitCafePool<T extends Pick<PlaceCandidate, "types">>(
+  pool: T[],
+  neededPerSlot: number
+): { breakfast: T[]; snack: T[] } {
   const breakfast: T[] = [];
   const snack: T[] = [];
   let nextShared: "breakfast" | "snack" = "breakfast";
@@ -39,5 +47,9 @@ export function splitCafePool<T extends Pick<PlaceCandidate, "types">>(pool: T[]
       snack.push(place);
     }
   }
-  return { breakfast, snack };
+  if (breakfast.length >= neededPerSlot && snack.length >= neededPerSlot) return { breakfast, snack };
+  return {
+    breakfast: pool.filter((p) => fitsCafeMealSlot(p, "breakfast")),
+    snack: pool.filter((p) => fitsCafeMealSlot(p, "snack")),
+  };
 }

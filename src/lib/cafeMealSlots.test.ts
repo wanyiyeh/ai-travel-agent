@@ -20,9 +20,18 @@ describe("fitsCafeMealSlot", () => {
 describe("splitCafePool", () => {
   it("never offers the same place for both meals, alternating the shared ones", () => {
     const pool = [at("Cafe 1", "cafe"), at("Gelato", "ice_cream_shop"), at("Cafe 2", "cafe"), at("Brunch", "brunch_restaurant"), at("Bakery", "bakery")];
-    const { breakfast, snack } = splitCafePool(pool);
+    const { breakfast, snack } = splitCafePool(pool, 2);
 
     expect(breakfast.map((p) => p.name)).toEqual(["Cafe 1", "Brunch", "Bakery"]);
     expect(snack.map((p) => p.name)).toEqual(["Gelato", "Cafe 2"]);
+  });
+
+  it("lets both meals share the suitable places when splitting would run a long stay short", () => {
+    const pool = [at("Cafe 1", "cafe"), at("Gelato", "ice_cream_shop"), at("Cafe 2", "cafe"), at("Brunch", "brunch_restaurant")];
+    // 3 days need 3 snacks; a split would leave only Gelato + one café
+    const { breakfast, snack } = splitCafePool(pool, 3);
+
+    expect(breakfast.map((p) => p.name)).toEqual(["Cafe 1", "Cafe 2", "Brunch"]);
+    expect(snack.map((p) => p.name)).toEqual(["Cafe 1", "Gelato", "Cafe 2"]);
   });
 });

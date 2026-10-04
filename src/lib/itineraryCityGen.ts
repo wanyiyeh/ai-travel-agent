@@ -425,7 +425,8 @@ async function fetchMealLodgingPools(
     fetchLodgingCandidates(coords, apiKey, budget, MEAL_LODGING_RADIUS_M, MEAL_LODGING_MAX_COUNT),
     budget ? getTwdRates() : Promise.resolve({}),
   ]);
-  const split = splitCafePool(excludeByDiet(cafes, dietaryRestrictions));
+  // One breakfast and one snack per day of the stay.
+  const split = splitCafePool(excludeByDiet(cafes, dietaryRestrictions), stayDays);
   // Getting up late means brunch, so brunch places lead the breakfast list.
   const breakfast =
     startTimePreference === "late"
