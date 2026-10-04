@@ -86,6 +86,33 @@ export default function ViewContent({ id }: ViewContentProps) {
   // Guests' itineraries carry an expiry; downloading is for signed-in users
   // (plan/access-control.md §2), so a guest is sent to sign in instead.
   const isGuestItinerary = typeof data?.expiresInHours === "number";
+  // Someone else's itinerary that its (admin) owner published as an example:
+  // shown read-only (plan/access-control.md §8).
+  const isPublicView = data?.access === "public";
+
+  const [publishBusy, setPublishBusy] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
+  const togglePublic = async () => {
+    setPublishBusy(true);
+    try {
+      const res = await fetch(`/api/v1/itinerary/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isPublic: !data?.isPublic }),
+      });
+      if (res.ok) fetchData();
+    } finally {
+      setPublishBusy(false);
+    }
+  };
+  const copyPublicLink = async () => {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      setLinkCopied(true);
+    } catch {
+      // Clipboard can be unavailable (permissions / non-HTTPS); the URL bar works too.
+    }
+  };
   const handleDownload = () => {
     if (isGuestItinerary) {
       signIn("google", { redirectTo: window.location.pathname });
@@ -376,7 +403,15 @@ export default function ViewContent({ id }: ViewContentProps) {
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 py-16 px-4">
       <div className="max-w-7xl mx-auto">
-        {typeof data?.expiresInHours === "number" && <GuestNotice expiresInHours={data.expiresInHours} />}
+        {typeof data?.expiresInHours === "number" && !isPublicView && <GuestNotice expiresInHours={data.expiresInHours} />}
+        {isPublicView && (
+          <div data-print-hidden className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-100">
+            <span>這是公開的範例行程，只能瀏覽、不能編輯。</span>
+            <Link href="/" className="font-medium underline underline-offset-4">
+              規劃我自己的行程 →
+            </Link>
+          </div>
+        )}
         {/* Header */}
         <div className="mb-8 flex items-center justify-between" data-print-hidden>
           <Link
@@ -410,7 +445,29 @@ export default function ViewContent({ id }: ViewContentProps) {
                 </button>
               </div>
             )}
-            {data && (
+            {data?.canPublish && (
+              <span className="flex items-center gap-2 text-sm">
+                <button
+                  type="button"
+                  onClick={togglePublic}
+                  disabled={publishBusy}
+                  title="公開後，任何人都能用這個網址以唯讀方式查看（不顯示風格描述）"
+                  className="text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 underline underline-offset-4 disabled:opacity-50"
+                >
+                  {data.isPublic ? "取消公開" : "設為公開範例"}
+                </button>
+                {data.isPublic && (
+                  <button
+                    type="button"
+                    onClick={copyPublicLink}
+                    className="rounded-full bg-emerald-100 dark:bg-emerald-900/40 px-2 py-0.5 text-xs text-emerald-700 dark:text-emerald-300"
+                  >
+                    {linkCopied ? "已複製連結" : "已公開・複製連結"}
+                  </button>
+                )}
+              </span>
+            )}
+            {data && !isPublicView && (
               <button
                 type="button"
                 onClick={handleDownload}
@@ -420,13 +477,15 @@ export default function ViewContent({ id }: ViewContentProps) {
                 {isGuestItinerary ? "登入後下載 PDF" : "下載 PDF"}
               </button>
             )}
-            <button
-              type="button"
-              onClick={() => setShowTrash(true)}
-              className="text-sm text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 underline underline-offset-4"
-            >
-              垃圾桶
-            </button>
+            {!isPublicView && (
+              <button
+                type="button"
+                onClick={() => setShowTrash(true)}
+                className="text-sm text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 underline underline-offset-4"
+              >
+                垃圾桶
+              </button>
+            )}
             <Link
               href="/itineraries"
               className="text-sm text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 underline underline-offset-4"
@@ -450,12 +509,14 @@ export default function ViewContent({ id }: ViewContentProps) {
                     onExploreBorder={openRestructurePanel}
                     hideCostSummary
                     expandAll={printing}
+                    readOnly={isPublicView}
                   />
                 ) : (
                   <ItineraryMap
                     itineraryId={data.id}
                     days={data.data.days}
                     context={data.config?.generatedWith}
+                    readOnly={isPublicView}
                   />
                 )}
 
@@ -488,7 +549,7 @@ export default function ViewContent({ id }: ViewContentProps) {
               {/* Sidebar */}
               <div className="space-y-4 lg:sticky lg:top-4 max-h-screen lg:overflow-y-auto lg:pb-4 print:static print:max-h-none print:overflow-visible print:mt-6">
                 {renderCostSummary()}
-                <div data-print-hidden>{renderRestructurePanel()}</div>
+                {!isPublicView && <div data-print-hidden>{renderRestructurePanel()}</div>}
               </div>
             </div>
           </>

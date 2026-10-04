@@ -41,6 +41,15 @@ body {
 }
 
 /*
+ * Read-only view of a public example itinerary (plan/access-control.md §8):
+ * every editing control in the card is a button, so hide them all except the
+ * ones that only change what's shown (day collapse, jump-to-day).
+ */
+[data-readonly] button:not([data-print-show]):not([data-readonly-keep]) {
+  display: none !important;
+}
+
+/*
  * Print / "Save as PDF" layout for the itinerary page (plan/access-control.md
  * §8). Interactive chrome (every button, the account bar, map, edit panels)
  * is dropped, and everything is forced to dark-on-white: with an OS in dark

@@ -44,3 +44,30 @@ export async function authorizeItinerary(itineraryId: string | null | undefined)
   if (!itinerary) return { ok: false, response: itineraryNotFound() };
   return { ok: true, actor, itinerary };
 }
+
+type ReadAuthorized = {
+  ok: true;
+  // "public": a non-owner viewing an admin-published example — read-only.
+  access: "owner" | "public";
+  actor: Actor | null;
+  itinerary: OwnedItinerary;
+};
+
+// For read-only endpoints only (GET itinerary). Owners get full access; anyone
+// else — signed in or not — may read an itinerary marked public. Every write
+// route keeps using authorizeItinerary(), so a public itinerary is never
+// writable by a non-owner. plan/access-control.md §8.
+export async function authorizeItineraryRead(itineraryId: string | null | undefined): Promise<ReadAuthorized | Denied> {
+  const actor = await getActor();
+  if (!itineraryId) return { ok: false, response: itineraryNotFound() };
+  if (actor) {
+    const owned = await findOwnedItinerary(actor, itineraryId);
+    if (owned) return { ok: true, access: "owner", actor, itinerary: owned };
+  }
+  const shared = await prisma.itinerary.findFirst({
+    where: { id: itineraryId, isPublic: true, OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] },
+  });
+  if (shared) return { ok: true, access: "public", actor, itinerary: shared };
+  // Same answers as before public itineraries existed.
+  return { ok: false, response: actor ? itineraryNotFound() : signInRequired() };
+}

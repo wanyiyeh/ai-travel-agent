@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { authorizeItinerary } from "@/lib/auth/ownership";
+import { z } from "zod";
+import { authorizeItinerary, authorizeItineraryRead } from "@/lib/auth/ownership";
 
 const IATA_CURRENCY: Record<string, string> = {
   // Japan
@@ -76,13 +77,20 @@ export async function GET(
   try {
     const { id } = await params;
 
-    const access = await authorizeItinerary(id);
+    // Owners, or anyone for an admin-published example (read-only).
+    const access = await authorizeItineraryRead(id);
     if (!access.ok) return access.response;
     const { itinerary } = access;
+    const isOwner = access.access === "owner";
 
-    const config = (itinerary.config && typeof itinerary.config === "object"
+    const rawConfig = (itinerary.config && typeof itinerary.config === "object"
       ? itinerary.config
       : {}) as Record<string, unknown>;
+    // The style blurb is whatever the owner typed when generating; it's not
+    // part of the trip itself, so a public viewer doesn't get it.
+    const config = isOwner
+      ? rawConfig
+      : Object.fromEntries(Object.entries(rawConfig).filter(([key]) => key !== "generatedWith"));
     return NextResponse.json({
       success: true,
       id: itinerary.id,
@@ -99,9 +107,47 @@ export async function GET(
       expiresInHours: itinerary.expiresAt
         ? Math.max(0, Math.ceil((itinerary.expiresAt.getTime() - Date.now()) / (60 * 60 * 1000)))
         : null,
+      // "public" → the page renders read-only (no edit controls, no
+      // auto-enrich); the write routes would refuse a non-owner anyway.
+      access: access.access,
+      isPublic: itinerary.isPublic,
+      canPublish: isOwner && Boolean(access.actor?.isAdmin),
     });
   } catch (error) {
     console.error("[Itinerary GET Error]", error);
     return NextResponse.json({ error: "Failed to fetch" }, { status: 500 });
+  }
+}
+
+const PatchSchema = z.object({ isPublic: z.boolean() });
+
+// Publishing an itinerary as a read-only example is admin-only, and only for
+// the admin's own itineraries (plan/access-control.md §8).
+export async function PATCH(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params;
+    const parsed = PatchSchema.safeParse(await request.json().catch(() => null));
+    if (!parsed.success) {
+      return NextResponse.json({ error: "Invalid request", details: parsed.error.flatten() }, { status: 400 });
+    }
+
+    const access = await authorizeItinerary(id);
+    if (!access.ok) return access.response;
+    if (!access.actor.isAdmin) {
+      return NextResponse.json({ error: "只有管理者可以公開行程" }, { status: 403 });
+    }
+
+    const updated = await prisma.itinerary.update({
+      where: { id },
+      data: { isPublic: parsed.data.isPublic },
+      select: { isPublic: true },
+    });
+    return NextResponse.json({ success: true, isPublic: updated.isPublic });
+  } catch (error) {
+    console.error("[Itinerary PATCH Error]", error);
+    return NextResponse.json({ error: "Failed to update" }, { status: 500 });
   }
 }
