@@ -173,6 +173,9 @@ describe("assembleItineraryDays — form field wiring", () => {
     // calls: 東京 (first stay), 鎌倉 — the final 東京 block is only a transit + departure day
     const lockedForDeparture = departureStopsMock.mock.calls[0][5] as string[];
     expect(lockedForDeparture).toEqual(expect.arrayContaining(["東京-0", "東京-1"]));
+    // the transit day arriving back in 東京 mustn't repeat them either
+    const backToTokyo = transitStopsMock.mock.calls.find((c) => c[1] === "東京")!;
+    expect(backToTokyo[5]).toEqual(expect.arrayContaining(["東京-0", "東京-1"]));
   });
 
   it("pace (步調) reaches the per-day scheduler", async () => {

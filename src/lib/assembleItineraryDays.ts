@@ -133,7 +133,7 @@ export async function assembleItineraryDays(
     if (!isFirst) {
       const prevCity = plan.cities[cityIdx - 1];
       const [transitStops, mealsAndAccommodation] = await Promise.all([
-        generateTransitDayStops(prevCity.name, city.name, plan.currency, budget, preferenceIntent),
+        generateTransitDayStops(prevCity.name, city.name, plan.currency, budget, preferenceIntent, Array.from(usedPlaceIds)),
         mealsAndAccommodationPromise,
       ]);
       for (const placeId of extractPlaceIds(transitStops)) usedPlaceIds.add(placeId);

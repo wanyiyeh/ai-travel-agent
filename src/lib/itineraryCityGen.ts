@@ -216,7 +216,8 @@ async function generateTransitDayStopsViaScheduler(
   toCity: string,
   currency: string,
   budget: BudgetLevel | undefined,
-  preferenceIntent: PreferenceIntent
+  preferenceIntent: PreferenceIntent,
+  lockedPlaceIds: string[]
 ): Promise<Array<Record<string, unknown>> | null> {
   try {
     const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
@@ -245,7 +246,10 @@ async function generateTransitDayStopsViaScheduler(
     const places = await fetchNearbyPlaceCandidates(coords, apiKey, ["tourist_attraction"], 10000, 20);
     if (places.length === 0) return null;
 
-    const { candidates, candidateById } = placeCandidatesToStopCandidates(places);
+    const lockedIds = new Set(lockedPlaceIds);
+    const { candidates, candidateById } = placeCandidatesToStopCandidates(
+      places.filter((p) => !lockedIds.has(p.placeId))
+    );
     if (candidates.length === 0) return null;
 
     const hintById = new Map<string, RestaurantHint>();
@@ -290,9 +294,20 @@ export async function generateTransitDayStops(
   toCity: string,
   currency: string,
   budget?: BudgetLevel,
-  preferenceIntent: PreferenceIntent = NEUTRAL_PREFERENCE_INTENT
+  preferenceIntent: PreferenceIntent = NEUTRAL_PREFERENCE_INTENT,
+  // Places already used in toCity this trip — a round-trip loop arrives back
+  // in a city it already visited (札幌 → 函館 → 札幌), and without this the
+  // arrival stops repeated day 1's 札幌市時計台.
+  lockedPlaceIds: string[] = []
 ): Promise<Array<Record<string, unknown>>> {
-  const scheduled = await generateTransitDayStopsViaScheduler(fromCity, toCity, currency, budget, preferenceIntent);
+  const scheduled = await generateTransitDayStopsViaScheduler(
+    fromCity,
+    toCity,
+    currency,
+    budget,
+    preferenceIntent,
+    lockedPlaceIds
+  );
   if (scheduled) return scheduled;
   return generateTransitDayStopsWithLLM(fromCity, toCity, currency);
 }
@@ -338,8 +353,11 @@ export async function generateDepartureDayStops(
     const coords = await getCityCenter(cityName, apiKey);
     if (!coords) return [];
 
-    const maxCount = Math.min(20, estimatedCount + 4);
-    const places = await fetchNearbyPlaceCandidates(coords, apiKey, ["tourist_attraction"], 10000, maxCount);
+    // The full pool, not just the top few: the most popular places are the
+    // ones earlier days already used, so slicing before excluding them left
+    // the return day empty (Stockholm day 14, Sapporo day 7). Same cost — the
+    // cache always holds 20.
+    const places = await fetchNearbyPlaceCandidates(coords, apiKey, ["tourist_attraction"], 10000, 20);
     if (places.length === 0) return [];
 
     const lockedIds = new Set(lockedPlaceIds);
@@ -672,7 +690,10 @@ function assembleScheduledStops(
       : `前往 ${place.name}。`;
 
     return {
-      id: s.id,
+      // A stop's own id, not the place's: the same place can legitimately
+      // appear twice in a trip (e.g. a loop back to the arrival city), and
+      // the UI and every stop-editing route look stops up by id.
+      id: crypto.randomUUID(),
       placeId: s.id,
       name: place.name,
       description,

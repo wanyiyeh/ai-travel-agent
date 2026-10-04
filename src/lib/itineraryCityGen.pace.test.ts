@@ -33,7 +33,7 @@ vi.mock("@/lib/distanceMatrix", async () => ({
   describeTransport: () => "",
 }));
 
-const { generateDayStops } = await import("./itineraryCityGen");
+const { generateDayStops, generateDepartureDayStops } = await import("./itineraryCityGen");
 
 // A pool big enough that pool size is never what limits a day's stop count.
 const POOL: PlaceCandidate[] = Array.from({ length: 20 }, (_, i) => ({
@@ -95,5 +95,27 @@ describe("generateDayStops — 出門時間 (start time)", () => {
     const early = await stopsWithStart("early");
     const late = await stopsWithStart("late");
     for (let i = 0; i < early.length; i++) expect(late[i]).toBeLessThan(early[i]);
+  });
+});
+
+describe("stop identity and reuse", () => {
+  it("gives every stop its own id, separate from the place it visits", async () => {
+    const days = await generateDayStops("東京", 2, "JPY", [], undefined, NEUTRAL_PREFERENCE_INTENT);
+    const stops = days.flat();
+    expect(new Set(stops.map((s) => s.id)).size).toBe(stops.length);
+    for (const s of stops) expect(s.id).not.toBe(s.placeId);
+  });
+
+  it("the return day still finds stops when the most popular places were used earlier", async () => {
+    // Like the real cache: the pool is sliced to maxCount before anything else.
+    nearbyMock.mockImplementation(async (_c: unknown, _k: unknown, _t: unknown, _r: unknown, maxCount: number) =>
+      POOL.slice(0, maxCount)
+    );
+    const usedEarlier = POOL.slice(0, 10).map((p) => p.placeId);
+
+    const stops = await generateDepartureDayStops("東京", "JPY", undefined, undefined, NEUTRAL_PREFERENCE_INTENT, usedEarlier);
+
+    expect(stops.length).toBeGreaterThan(0);
+    for (const s of stops) expect(usedEarlier).not.toContain(s.placeId);
   });
 });
