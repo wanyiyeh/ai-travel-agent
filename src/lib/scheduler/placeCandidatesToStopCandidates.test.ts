@@ -54,11 +54,20 @@ describe("placeCandidatesToStopCandidates", () => {
 
   it("scores unrated places by popularity rank, so Google's order survives later re-sorts", () => {
     const { candidates } = placeCandidatesToStopCandidates([
-      place({ placeId: "most-popular" }),
-      place({ placeId: "middle" }),
-      place({ placeId: "least-popular" }),
+      place({ placeId: "most-popular", name: "A" }),
+      place({ placeId: "middle", name: "B" }),
+      place({ placeId: "least-popular", name: "C" }),
     ]);
     expect(candidates.map((c) => c.rating)).toEqual([5, 4.25, 3.5]);
+  });
+
+  it("treats two places with the same name as one, keeping the more popular", () => {
+    const { candidates } = placeCandidatesToStopCandidates([
+      place({ placeId: "park-1", name: "沖繩戰跡國定公園" }),
+      place({ placeId: "park-2", name: "沖繩戰跡國定公園" }),
+      place({ placeId: "other", name: "姬百合之塔" }),
+    ]);
+    expect(candidates.map((c) => c.id)).toEqual(["park-1", "other"]);
   });
 
   it("de-duplicates a placeId that appears more than once, keeping the first occurrence", () => {

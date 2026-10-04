@@ -126,7 +126,7 @@ describe("applyCandidatePicks", () => {
     // day 2 dinner: everything was used on day 1 or day 2 — nothing qualifies
     expect(main[1][1]).toBeUndefined();
     // day 3: day 1's places are two days back, so they may return
-    expect(main[2]).toEqual(["Ramen X", "Sushi Y"]);
+    expect([...main[2]].sort()).toEqual(["Ramen X", "Sushi Y"]);
   });
 
   it("keeps the LLM's own entry only when there is no candidate at all", () => {
@@ -153,5 +153,30 @@ describe("chunked picking", () => {
     expect(names).toEqual(["Izakaya Z", "Ramen X"]);
     const repeat = later.flatMap((d) => [d.lunch, d.dinner]).find((m) => (m as Record<string, unknown>)?.name === "Ramen X");
     expect(repeat).toMatchObject({ description: "Rich tonkotsu" });
+  });
+});
+
+describe("repeats once the pool is used up", () => {
+  it("don't copy a whole earlier day: one day's meals come from different days", () => {
+    const many: MealLodgingPools = {
+      breakfast: [place("B1"), place("B2"), place("B3")],
+      main: Array.from({ length: 6 }, (_, i) => place(`M${i}`)),
+      snack: [place("S1"), place("S2"), place("S3")],
+      lodging: [],
+    };
+    const meals = applyCandidatePicks({ meals: [] }, many, 9, "JPY").mealsByDay as Array<
+      Record<string, Record<string, unknown>>
+    >;
+    const firstUse = new Map<unknown, number>();
+    meals.forEach((d, day) =>
+      Object.values(d).forEach((m) => {
+        if (!firstUse.has(m.name)) firstUse.set(m.name, day);
+      })
+    );
+    // for every later day, its four meals must not all have first appeared on one same day
+    for (let day = 3; day < meals.length; day++) {
+      const origins = new Set(Object.values(meals[day]).map((m) => firstUse.get(m.name)));
+      expect(origins.size).toBeGreaterThan(1);
+    }
   });
 });

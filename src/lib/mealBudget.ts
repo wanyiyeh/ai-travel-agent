@@ -84,5 +84,9 @@ export function rankMainMealsByBudget<T extends Pick<PlaceCandidate, "priceRange
  */
 export function estimateFromPriceRange(range: PriceRange | null | undefined, currency: string | undefined): number | undefined {
   if (!range || range.currency !== currency || range.start === undefined) return undefined;
+  // Google writes "under ¥1,000" as ¥1–1,000; the midpoint (¥501) badly
+  // undersells it, so treat a ¥1 floor as "up to the ceiling" — the
+  // cautious figure for a budget.
+  if (range.start <= 1 && range.end !== undefined) return Math.round(range.end);
   return Math.round(range.end !== undefined ? (range.start + range.end) / 2 : range.start);
 }

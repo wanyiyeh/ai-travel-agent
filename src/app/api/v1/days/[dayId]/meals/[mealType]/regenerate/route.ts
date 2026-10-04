@@ -10,7 +10,7 @@ import { snapToGrid } from "@/lib/geo";
 import { resolveDayCoords } from "@/lib/itineraryGen";
 import { estimateMealCost } from "@/lib/priceLevelCost";
 import { isFoodPlace } from "@/lib/foodPlace";
-import { fitsCafeMealSlot } from "@/lib/cafeMealSlots";
+import { fitsCafeMealSlot, fitsMainMeal } from "@/lib/cafeMealSlots";
 import { dietRequiredTypes, excludeByDiet } from "@/lib/dietaryFilter";
 import { TripPreferencesSchema } from "@/lib/schemas";
 import { plannedLabel, plannedSlotsByPlace } from "@/lib/mealRepeats";
@@ -131,7 +131,7 @@ export async function POST(
     const foodPlaces = excludeByDiet([...dietPool, ...pool.filter((p) => !dietIds.has(p.placeId))], diet)
       .filter(isFoodPlace)
       // Breakfast and snack share one café search; keep what suits this slot.
-      .filter((p) => isMainMeal || fitsCafeMealSlot(p, mealType as "breakfast" | "snack"));
+      .filter((p) => (isMainMeal ? fitsMainMeal(p) : fitsCafeMealSlot(p, mealType as "breakfast" | "snack")));
     // Lunch/dinner: in-budget restaurants first (plan/form-preference-wiring.md 1.3).
     const ranked =
       isMainMeal && budget

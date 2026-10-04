@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fitsCafeMealSlot, splitCafePool } from "./cafeMealSlots";
+import { fitsCafeMealSlot, fitsMainMeal, splitCafePool } from "./cafeMealSlots";
 
 const at = (name: string, primary?: string) => ({ name, types: primary ? [primary, "food"] : undefined });
 
@@ -14,6 +14,22 @@ describe("fitsCafeMealSlot", () => {
       expect(fitsCafeMealSlot(place, "breakfast")).toBe(true);
       expect(fitsCafeMealSlot(place, "snack")).toBe(true);
     }
+  });
+});
+
+describe("slot-appropriate types", () => {
+  it("keeps full restaurants out of breakfast and snack, except breakfast/brunch and dessert places", () => {
+    expect(fitsCafeMealSlot(at("Curry Diner", "japanese_curry_restaurant"), "snack")).toBe(false);
+    expect(fitsCafeMealSlot(at("Curry Diner", "japanese_curry_restaurant"), "breakfast")).toBe(false);
+    expect(fitsCafeMealSlot(at("Brunch", "brunch_restaurant"), "breakfast")).toBe(true);
+    expect(fitsCafeMealSlot(at("Zenzai", "dessert_restaurant"), "snack")).toBe(true);
+  });
+
+  it("keeps sweets and coffee out of lunch and dinner", () => {
+    expect(fitsMainMeal(at("Shaved Ice", "dessert_restaurant"))).toBe(false);
+    expect(fitsMainMeal(at("Cafe", "cafe"))).toBe(false);
+    expect(fitsMainMeal(at("Ramen", "ramen_restaurant"))).toBe(true);
+    expect(fitsMainMeal(at("Unknown"))).toBe(true);
   });
 });
 

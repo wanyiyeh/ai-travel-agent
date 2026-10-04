@@ -14,7 +14,27 @@ const SNACK_ONLY = new Set(["ice_cream_shop", "dessert_shop", "dessert_restauran
 export function fitsCafeMealSlot(place: Pick<PlaceCandidate, "types">, slot: "breakfast" | "snack"): boolean {
   const primary = place.types?.[0];
   if (!primary) return true;
+  // A full restaurant is no breakfast or afternoon snack: Okinawa's café
+  // search returned a curry/ramen diner (primary japanese_curry_restaurant)
+  // that ended up as a snack. Dessert restaurants still count as a snack.
+  if (primary.endsWith("_restaurant") && !BREAKFAST_ONLY.has(primary) && primary !== "dessert_restaurant") {
+    return false;
+  }
   return slot === "breakfast" ? !SNACK_ONLY.has(primary) : !BREAKFAST_ONLY.has(primary);
+}
+
+// Places that are a sweet or a coffee, not a lunch or dinner. Google's
+// "restaurant" search includes them (an Okinawa shaved-ice shop, primary
+// dessert_restaurant, was served as dinner).
+const NOT_A_MAIN_MEAL = new Set([
+  "dessert_restaurant", "dessert_shop", "ice_cream_shop", "confectionery", "chocolate_shop",
+  "cafe", "coffee_shop", "coffee_stand", "tea_house", "bakery", "pastry_shop", "donut_shop", "juice_shop",
+]);
+
+/** Whether a place from the lunch/dinner search is a real meal, judged by Google's primary type. */
+export function fitsMainMeal(place: Pick<PlaceCandidate, "types">): boolean {
+  const primary = place.types?.[0];
+  return !primary || !NOT_A_MAIN_MEAL.has(primary);
 }
 
 /**

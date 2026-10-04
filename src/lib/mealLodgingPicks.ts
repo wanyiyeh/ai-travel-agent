@@ -68,10 +68,14 @@ const MIN_REPEAT_GAP_DAYS = 2;
  * Keyed by object: breakfast and snack lists hold the same café objects, so
  * one café can't be both on the same day.
  */
-export type PickHistory = { lastDay: Map<PlaceCandidate, number>; description: Map<PlaceCandidate, unknown> };
+export type PickHistory = {
+  lastDay: Map<PlaceCandidate, number>;
+  visits: Map<PlaceCandidate, number>;
+  description: Map<PlaceCandidate, unknown>;
+};
 
 export function newPickHistory(): PickHistory {
-  return { lastDay: new Map(), description: new Map() };
+  return { lastDay: new Map(), visits: new Map(), description: new Map() };
 }
 
 /** The same pools with never-used candidates first, for a later chunk's prompt. */
@@ -118,14 +122,18 @@ export function applyAccommodationPick(
 /**
  * Which real candidate serves a meal slot on `day`. The LLM's own pick when
  * it's a candidate not used yet; otherwise a candidate not used yet (keeping
- * pool order); once every candidate has been used, the LLM's pick or else
- * the longest-unused candidate, either only if it wasn't used in the last
- * MIN_REPEAT_GAP_DAYS - 1 days. Undefined when nothing qualifies.
+ * pool order). Once every candidate has been used: the LLM's pick, or else
+ * one of the least-visited places, either only if it wasn't used in the
+ * last MIN_REPEAT_GAP_DAYS - 1 days. Which least-visited place rotates with
+ * the day and slot — always taking the longest-unused one made a whole day's
+ * meals copy day 1's (an Okinawa trip's day 11 matched day 1 exactly).
+ * Undefined when nothing qualifies.
  */
 function pickForSlot(
   pool: PlaceCandidate[],
   llmPick: PlaceCandidate | undefined,
   day: number,
+  slotIndex: number,
   history: PickHistory,
 ): PlaceCandidate | undefined {
   if (llmPick && !history.lastDay.has(llmPick)) return llmPick;
@@ -133,7 +141,11 @@ function pickForSlot(
   if (unused) return unused;
   const spaced = (c: PlaceCandidate) => day - (history.lastDay.get(c) ?? -Infinity) >= MIN_REPEAT_GAP_DAYS;
   if (llmPick && spaced(llmPick)) return llmPick;
-  return [...pool].filter(spaced).sort((a, b) => history.lastDay.get(a)! - history.lastDay.get(b)!)[0];
+  const eligible = pool.filter(spaced);
+  if (eligible.length === 0) return undefined;
+  const fewest = Math.min(...eligible.map((c) => history.visits.get(c) ?? 0));
+  const leastVisited = eligible.filter((c) => (history.visits.get(c) ?? 0) === fewest);
+  return leastVisited[(day * MEAL_KEYS.length + slotIndex) % leastVisited.length];
 }
 
 /**
@@ -156,18 +168,19 @@ export function applyMealPicks(
     const dayOfStay = dayOffset + i;
     const rawDay = rawMeals?.[i] ?? {};
     const meals: Record<string, unknown> = {};
-    for (const mealKey of MEAL_KEYS) {
+    MEAL_KEYS.forEach((mealKey, slotIndex) => {
       const rawValue = rawDay[mealKey];
       const raw = rawValue && typeof rawValue === "object" ? (rawValue as RawPick) : undefined;
       const pool = pools[POOL_FOR_MEAL[mealKey]];
       const llmPick = raw ? findCandidate(pools, POOL_FOR_MEAL[mealKey], raw.id) : undefined;
-      const place = pickForSlot(pool, llmPick, dayOfStay, history);
+      const place = pickForSlot(pool, llmPick, dayOfStay, slotIndex, history);
       if (!place) {
         if (raw) meals[mealKey] = stripId(raw);
-        continue;
+        return;
       }
 
       history.lastDay.set(place, dayOfStay);
+      history.visits.set(place, (history.visits.get(place) ?? 0) + 1);
       const ownPick = place === llmPick;
       if (ownPick && raw?.description !== undefined && !history.description.has(place)) {
         history.description.set(place, raw.description);
@@ -186,7 +199,7 @@ export function applyMealPicks(
         rating: place.rating ?? null,
         photoName: place.photoName ?? null,
       };
-    }
+    });
     return meals;
   });
 }

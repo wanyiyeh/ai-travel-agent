@@ -23,7 +23,7 @@ import { estimateAttractionCost } from "@/lib/priceLevelCost";
 import { isFoodPlace } from "@/lib/foodPlace";
 import { getTwdRates } from "@/lib/exchangeRate";
 import { rankMainMealsByBudget } from "@/lib/mealBudget";
-import { splitCafePool } from "@/lib/cafeMealSlots";
+import { fitsMainMeal, splitCafePool } from "@/lib/cafeMealSlots";
 import { dietPromptLine, dietRequiredTypes, excludeByDiet } from "@/lib/dietaryFilter";
 
 // Shared AI-generation helpers for building out a city's worth of itinerary
@@ -479,7 +479,8 @@ async function fetchMealLodgingPools(
       : split.breakfast;
 
   const dietIds = new Set(dietMain.map((p) => p.placeId));
-  const allMain = excludeByDiet([...dietMain, ...main.filter((p) => !dietIds.has(p.placeId))], dietaryRestrictions);
+  const allMain = excludeByDiet([...dietMain, ...main.filter((p) => !dietIds.has(p.placeId))], dietaryRestrictions)
+    .filter(fitsMainMeal);
   // Lunch + dinner each day draw from the same pool.
   const rankedMain = rankMainMealsByBudget(allMain, budget, currency, twdPerUnit, stayDays * 2);
   return { breakfast, main: rankedMain, snack: split.snack, lodging };
