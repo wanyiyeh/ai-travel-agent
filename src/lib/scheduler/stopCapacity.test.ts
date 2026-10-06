@@ -33,9 +33,9 @@ describe("estimateStopCapacity", () => {
   });
 
   it("only subtracts lunch when the day actually spans it", () => {
-    // 13:00-18:00 at moderate landmarks: 300 / 135 = 2.2, no lunch deducted
+    // 15:00-20:00 at moderate landmarks: 300 / 135 = 2.2, no lunch deducted
     expect(
-      estimateStopCapacity({ pace: "moderate", dayStartMinute: 13 * 60, dayEndMinute: 18 * 60, candidateTypes: ["landmark"] })
+      estimateStopCapacity({ pace: "moderate", dayStartMinute: 15 * 60, dayEndMinute: 20 * 60, candidateTypes: ["landmark"] })
     ).toBe(2);
   });
 
