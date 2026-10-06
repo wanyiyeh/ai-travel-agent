@@ -1,6 +1,6 @@
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/lib/db";
-import { fetchLodgingCandidates, fetchNearbyPlaceCandidates } from "./fetchCityRestaurants";
+import { fetchLodgingCandidates, fetchLuxuryRestaurants, fetchNearbyPlaceCandidates } from "./fetchCityRestaurants";
 
 // Story: one generation asks for the same city's attractions with different
 // counts (transit day, sightseeing days, departure day). Nearby Search bills
@@ -169,5 +169,105 @@ describe("fetchLodgingCandidates for the luxury tier", () => {
     const textCall = fetchMock.mock.calls.find((c) => String(c[0]).includes("searchText")) as unknown as [string, RequestInit];
     const mask = new Headers(textCall[1].headers).get("X-Goog-FieldMask") ?? "";
     expect(mask).not.toMatch(/rating|priceLevel|priceRange/);
+  });
+});
+
+// Story: a luxury trip's lunches and dinners were all casual ramen and curry,
+// because the popularity-ranked Nearby pool barely has expensive places.
+describe("fetchLuxuryRestaurants", () => {
+  const coords = { lat: 33 + (Date.now() % 100000) / 1e6, lng: 44 };
+  const request = (fetchMock: ReturnType<typeof vi.fn>) => (fetchMock.mock.calls[0] as unknown as [string, RequestInit]);
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  afterAll(async () => {
+    await prisma.nearbyPlaceCandidatesCache.deleteMany({
+      where: { cacheKey: { startsWith: `text:restaurant@${coords.lat.toFixed(4)},` } },
+    });
+  });
+
+  it("filters by expensive price levels server-side and reads prices back", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          places: [
+            {
+              id: "kaiseki",
+              displayName: { text: "Kaiseki" },
+              location: { latitude: coords.lat, longitude: coords.lng },
+              priceRange: { startPrice: { currencyCode: "JPY", units: "8000" }, endPrice: { currencyCode: "JPY", units: "15000" } },
+            },
+          ],
+        }),
+        { status: 200 }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const [place] = await fetchLuxuryRestaurants(coords, "key", 3000);
+
+    const [url, init] = request(fetchMock);
+    expect(url).toContain("places:searchText");
+    expect(JSON.parse(init.body as string).priceLevels).toEqual(["PRICE_LEVEL_EXPENSIVE", "PRICE_LEVEL_VERY_EXPENSIVE"]);
+    expect(new Headers(init.headers).get("X-Goog-FieldMask")).toContain("places.priceRange");
+    expect(place.priceRange).toEqual({ currency: "JPY", start: 8000, end: 15000 });
+
+    // cached: a second call doesn't pay again
+    await fetchLuxuryRestaurants(coords, "key", 3000);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+// Story: a budget Tokyo trip kept getting the 4-star Asakusa View Hotel —
+// searching budget types plus generic "lodging" by popularity returned 20
+// chain hotels and no hostel or guest house to filter down to.
+describe("fetchLodgingCandidates for the budget tier", () => {
+  const coords = { lat: 34 + (Date.now() % 100000) / 1e6, lng: 45 };
+  const place = (id: string, type: string) => ({
+    id,
+    displayName: { text: id },
+    location: { latitude: coords.lat, longitude: coords.lng },
+    types: [type, "lodging"],
+  });
+  const typesSearched = (fetchMock: ReturnType<typeof vi.fn>) =>
+    fetchMock.mock.calls.map((c) => JSON.parse(((c as unknown as [string, RequestInit])[1].body as string)).includedTypes);
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  afterAll(async () => {
+    await prisma.nearbyPlaceCandidatesCache.deleteMany({
+      where: { cacheKey: { startsWith: `${coords.lat.toFixed(4)},` } },
+    });
+  });
+
+  it("searches budget lodging types only, without generic lodging", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ places: [place("h1", "hostel"), place("g1", "guest_house"), place("i1", "budget_japanese_inn")] }), { status: 200 })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await fetchLodgingCandidates(coords, "key", "budget", 3000, 10);
+
+    expect(typesSearched(fetchMock)).toEqual([["hostel", "guest_house", "bed_and_breakfast", "budget_japanese_inn", "motel"]]);
+    expect(result.map((p) => p.placeId)).toEqual(["h1", "g1", "i1"]);
+  });
+
+  it("adds regular lodging after the budget places in a town that has too few", async () => {
+    const town = { lat: coords.lat, lng: 46 };
+    const fetchMock = vi.fn(async (_url: string, init: RequestInit) => {
+      const types = JSON.parse(init.body as string).includedTypes as string[];
+      const places = types.includes("hostel") ? [place("h1", "hostel")] : [place("hotel1", "hotel")];
+      return new Response(JSON.stringify({ places }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await fetchLodgingCandidates(town, "key", "budget", 3000, 10);
+
+    expect(typesSearched(fetchMock)[1]).toEqual(["lodging"]);
+    expect(result.map((p) => p.placeId)).toEqual(["h1", "hotel1"]);
   });
 });

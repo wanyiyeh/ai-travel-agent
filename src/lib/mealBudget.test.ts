@@ -14,10 +14,11 @@ describe("mainMealBudgetFit", () => {
     expect(mainMealBudgetFit(yen(1500, 2500), "moderate", "JPY", rates)).toBe("fit");
   });
 
-  it("luxury: fits when the range overlaps NT$1,000-2,000", () => {
+  it("luxury: fits when the range overlaps NT$1,000-3,000", () => {
     expect(mainMealBudgetFit(yen(6000, 8000), "luxury", "JPY", rates)).toBe("fit"); // NT$1,200-1,600
     expect(mainMealBudgetFit(yen(1000, 2000), "luxury", "JPY", rates)).toBe("outside"); // too cheap
-    expect(mainMealBudgetFit(yen(15000, 20000), "luxury", "JPY", rates)).toBe("outside"); // too expensive
+    expect(mainMealBudgetFit(yen(10000, 14000), "luxury", "JPY", rates)).toBe("fit"); // NT$2,000-2,800
+    expect(mainMealBudgetFit(yen(20000, 30000), "luxury", "JPY", rates)).toBe("outside"); // too expensive
   });
 
   it("treats an open-ended range ('¥10,000+') as unbounded above", () => {

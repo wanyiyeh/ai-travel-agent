@@ -6,7 +6,9 @@ import { estimateMealCost } from "@/lib/priceLevelCost";
 export const MAIN_MEAL_BUDGET_TWD: Record<BudgetLevel, { min: number; max: number }> = {
   budget: { min: 0, max: 400 },
   moderate: { min: 0, max: 1000 },
-  luxury: { min: 1000, max: 2000 },
+  // Raised from NT$2,000 after the first eval: Tokyo's high-end dinners mostly
+  // start around ¥10,000 (~NT$2,100), so a 2,000 cap rejected nearly all of them.
+  luxury: { min: 1000, max: 3000 },
 };
 
 // Without an exchange rate, Google's 1-4 price level is the only signal left.
@@ -25,7 +27,7 @@ const FIT_ORDER: Record<BudgetFit, number> = { fit: 0, unknown: 1, outside: 2 };
  * meal cost estimate; with no exchange rate, to priceLevel alone. A missing
  * upper bound ("$2,000+") counts as unbounded. Budget/moderate fit when the
  * whole range is under the cap; luxury fits when the range overlaps
- * NT$1,000-2,000.
+ * NT$1,000-3,000.
  */
 export function mainMealBudgetFit(
   place: Pick<PlaceCandidate, "priceRange" | "priceLevel">,

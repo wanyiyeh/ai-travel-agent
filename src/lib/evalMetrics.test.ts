@@ -77,8 +77,8 @@ describe("measureItinerary", () => {
 
   it("classifies each lodging once", () => {
     expect(m.lodging).toEqual([
-      { name: "Backpackers", hostel: true, luxury: false },
-      { name: "Hilton Osaka", hostel: false, luxury: true },
+      { name: "Backpackers", budgetTier: true, luxury: false },
+      { name: "Hilton Osaka", budgetTier: false, luxury: true },
     ]);
   });
 

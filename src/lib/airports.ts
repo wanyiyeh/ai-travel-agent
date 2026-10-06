@@ -13,8 +13,8 @@ export interface Airport {
 
 export const AIRPORTS: Record<string, Airport> = {
   // 東北亞
-  NRT: { cityZh: "東京", lat: 35.6762, lng: 139.6503 },
-  HND: { cityZh: "東京", lat: 35.6762, lng: 139.6503 },
+  NRT: { cityZh: "東京", lat: 35.6812, lng: 139.7671 }, // Tokyo Station, not the metropolis centroid (see placesTextSearch.ts CITY_CENTER_OVERRIDES)
+  HND: { cityZh: "東京", lat: 35.6812, lng: 139.7671 },
   KIX: { cityZh: "大阪", lat: 34.6937, lng: 135.5023 },
   NGO: { cityZh: "名古屋", lat: 35.1815, lng: 136.9066 },
   CTS: { cityZh: "札幌", lat: 43.0618, lng: 141.3545 },
