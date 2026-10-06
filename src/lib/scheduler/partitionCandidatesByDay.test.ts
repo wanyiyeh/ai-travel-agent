@@ -76,6 +76,29 @@ describe("partitionCandidatesByDay with a lodging anchor", () => {
   });
 });
 
+describe("partitionCandidatesByDay with related places", () => {
+  it("puts a whole group on one day even when its second place is far down the ranking", () => {
+    const sensoji = { ...candidate("sensoji", 0, 0, 5), groupId: "sensoji" };
+    const gate = { ...candidate("gate", 0, 0.004, 3), groupId: "sensoji" };
+    const near = candidate("near", 0, 0.001, 4);
+    const far = candidate("far", 0, 1, 4.5);
+    const days = partitionCandidatesByDay([sensoji, near, far, gate], [2, 2]);
+    expect(days[0].map((c) => c.id)).toEqual(["sensoji", "gate"]);
+    expect(days[1].map((c) => c.id).sort()).toEqual(["far", "near"]);
+  });
+
+  it("skips a nearby group that doesn't fit the day's remaining room", () => {
+    const seed = candidate("seed", 0, 0, 5);
+    const pair = [
+      { ...candidate("p1", 0, 0.001, 3), groupId: "p" },
+      { ...candidate("p2", 0, 0.002, 3), groupId: "p" },
+    ];
+    const single = candidate("single", 0, 0.01, 3);
+    const [day] = partitionCandidatesByDay([seed, ...pair, single], [2]);
+    expect(day.map((c) => c.id)).toEqual(["seed", "single"]);
+  });
+});
+
 describe("distributeStopsPerDay", () => {
   it("gives every day its cap when the pool is big enough", () => {
     expect(distributeStopsPerDay(20, [4, 4, 4])).toEqual([4, 4, 4]);

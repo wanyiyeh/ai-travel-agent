@@ -77,8 +77,16 @@ const MEAL_WINDOWS: { startMinute: number; endMinute: number }[] = [
 // tourist_attraction — meals live separately on day.meals) still need to
 // leave room for lunch, or four ~1-hour stops from 08:00 all land before noon
 // and every stop comes out "morning" (validateItinerary's STOPS_ALL_SAME_TIME,
-// plan/hybrid-rule-engine-scheduling.md 0.10).
-export const LUNCH_BREAK = { startMinute: 12 * 60, endMinute: 13 * 60 };
+// plan/hybrid-rule-engine-scheduling.md 0.10). The hour can start anywhere
+// from 11:00 (a late riser's first meal) to 14:00: a fixed 12:00-13:00 pushed
+// any stop that touched it to 13:00, so a 3-hour museum from 10:00 left the
+// whole morning empty and later stops ran past the day's end.
+export const LUNCH = { earliestStartMinute: 11 * 60, latestStartMinute: 14 * 60, durationMinutes: 60 };
+
+// Stops before lunch start before noon and stops after it start after noon,
+// so the timeline (which places lunch between morning and afternoon stops)
+// shows it where it actually falls.
+const NOON_MINUTE = 12 * 60;
 
 // Cap on the extra gap stretching adds between two stops, so a 2-stop day
 // isn't spread into two stops five hours apart.
@@ -118,7 +126,7 @@ function layOut(
   buffer: number,
   pace: Pace
 ): ScheduledStop[] {
-  const reserveLunch = !stops.some((s) => s.isMeal);
+  let lunchDone = stops.some((s) => s.isMeal);
   let cursor = dayStartMinute;
 
   return stops.map((stop, index) => {
@@ -131,12 +139,15 @@ function layOut(
         MEAL_WINDOWS.find((w) => w.endMinute > startMinute) ??
         MEAL_WINDOWS[MEAL_WINDOWS.length - 1];
       startMinute = Math.max(startMinute, window.startMinute);
-    } else if (
-      reserveLunch &&
-      startMinute < LUNCH_BREAK.endMinute &&
-      startMinute + duration > LUNCH_BREAK.startMinute
-    ) {
-      startMinute = LUNCH_BREAK.endMinute;
+    } else if (!lunchDone) {
+      if (cursor > LUNCH.latestStartMinute) {
+        // The day started after lunchtime (a late arrival).
+        lunchDone = true;
+      } else if (startMinute >= NOON_MINUTE || startMinute + duration > LUNCH.latestStartMinute) {
+        // Too late to start before lunch, or it would end too late to eat after it.
+        startMinute = Math.max(cursor, LUNCH.earliestStartMinute) + LUNCH.durationMinutes;
+        lunchDone = true;
+      }
     }
 
     const endMinute = startMinute + duration;
@@ -160,8 +171,8 @@ function layOut(
  * (falling back to the last window if the clock has run past all of them,
  * rather than waiting indefinitely); a non-meal stop's duration comes from
  * `durationMinutes` when known, else a pace + type -> duration lookup.
- * When the stops include no meal of their own, a non-meal stop that would
- * run into the 12:00-13:00 lunch break starts after it instead.
+ * When the stops include no meal of their own, an hour for lunch goes in
+ * after the last stop that starts before noon and ends by 14:00 (see LUNCH).
  * `pace` sets both each stop's default stay and the buffer between
  * consecutive stops: relaxed stays longer and spaces stops out more. With `dayEndMinute`, spare
  * time before it is added evenly to every gap (the largest 5-minute step,

@@ -1,4 +1,4 @@
-import { BUFFER_MINUTES_BY_PACE, LUNCH_BREAK, typicalStopMinutes, type Pace } from "@/lib/scheduler/assignTimeSlots";
+import { BUFFER_MINUTES_BY_PACE, LUNCH, typicalStopMinutes, type Pace } from "@/lib/scheduler/assignTimeSlots";
 
 // Even at intensive pace a day of 8+ stops (~53 min each on real pools)
 // leaves no room to eat or rest — plan/form-preference-wiring.md 1.2 caps it.
@@ -21,11 +21,9 @@ export type StopCapacityOptions = {
  * hour subtracted here.
  */
 export function estimateStopCapacity({ pace, dayStartMinute, dayEndMinute, candidateTypes }: StopCapacityOptions): number {
-  const lunchOverlap = Math.max(
-    0,
-    Math.min(dayEndMinute, LUNCH_BREAK.endMinute) - Math.max(dayStartMinute, LUNCH_BREAK.startMinute)
-  );
-  const available = dayEndMinute - dayStartMinute - lunchOverlap;
+  // assignTimeSlots takes the lunch hour unless the day starts after its latest start.
+  const lunch = dayStartMinute <= LUNCH.latestStartMinute ? LUNCH.durationMinutes : 0;
+  const available = dayEndMinute - dayStartMinute - lunch;
   if (available <= 0) return 0;
 
   const durations = candidateTypes.length > 0

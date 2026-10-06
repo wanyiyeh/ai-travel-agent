@@ -109,7 +109,7 @@ describe("assignTimeSlots", () => {
     expect(relaxed[1].startMinute).toBeGreaterThan(intensive[1].startMinute);
   });
 
-  it("moves an attraction that would run into lunch to after the lunch break", () => {
+  it("takes lunch after the last stop that starts before noon", () => {
     const result = assignTimeSlots(
       [
         { id: "a", durationMinutes: 60 },
@@ -119,9 +119,48 @@ describe("assignTimeSlots", () => {
       ],
       { dayStartMinute: 9 * 60 }
     );
-    // 09:00, 10:15, 11:30 would end 12:30 -> pushed to 13:00, then 14:15
-    expect(result.map((s) => s.startMinute)).toEqual([540, 615, 780, 855]);
-    expect(result[2].time_of_day).toBe("afternoon");
+    // 09:00, 10:15, 11:30-12:30, lunch 12:30-13:30, then 13:30
+    expect(result.map((s) => s.startMinute)).toEqual([540, 615, 690, 810]);
+    expect(result.map((s) => s.time_of_day)).toEqual(["morning", "morning", "morning", "afternoon"]);
+  });
+
+  // Story: with lunch fixed at 12:00-13:00, a budget Tokyo trip's first day
+  // (10:00 start) moved the 3-hour museum to 13:00, left the morning empty,
+  // and the next stop ran past 18:00 and was dropped — 1 stop that day.
+  it("lets a long morning stop run into lunchtime and eats after it", () => {
+    const result = assignTimeSlots(
+      [
+        { id: "museum", durationMinutes: 180 },
+        { id: "market", durationMinutes: 150 },
+      ],
+      { dayStartMinute: 10 * 60 }
+    );
+    // museum 10:00-13:00, lunch 13:00-14:00, market 14:00
+    expect(result.map((s) => s.startMinute)).toEqual([600, 840]);
+  });
+
+  it("eats first when a stop would end too late to have lunch after it", () => {
+    const result = assignTimeSlots(
+      [
+        { id: "dome", durationMinutes: 120 },
+        { id: "palace", durationMinutes: 180 },
+      ],
+      { dayStartMinute: 9 * 60 }
+    );
+    // dome 09:00-11:00; palace from 11:15 would end 14:15, past lunch's
+    // latest start -> lunch 11:00-12:00, palace 12:00 (no longer 13:00)
+    expect(result.map((s) => s.startMinute)).toEqual([540, 720]);
+    expect(result[1].time_of_day).toBe("afternoon");
+  });
+
+  it("starts with lunch at 11:00 for a late riser whose first stop is long", () => {
+    const result = assignTimeSlots([{ id: "museum", durationMinutes: 210 }], { dayStartMinute: 11 * 60 });
+    expect(result[0].startMinute).toBe(12 * 60);
+  });
+
+  it("skips lunch on a day that starts after lunchtime", () => {
+    const result = assignTimeSlots([{ id: "a", durationMinutes: 60 }], { dayStartMinute: 15 * 60 });
+    expect(result[0].startMinute).toBe(15 * 60);
   });
 
   it("does not reserve a lunch break when the stops include their own meal", () => {

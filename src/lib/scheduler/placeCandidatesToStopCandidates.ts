@@ -1,6 +1,7 @@
 import type { StopCandidate } from "@/lib/scheduler/selectAndOrderStops";
 import type { PlaceCandidate } from "@/lib/fetchCityRestaurants";
 import { mapPlaceTypeToCategory } from "@/lib/scheduler/mapPlaceTypeToCategory";
+import { haversineKm } from "@/lib/geo";
 
 export type PlaceCandidateToStopCandidateResult = {
   candidates: StopCandidate[];
@@ -43,6 +44,25 @@ export function popularityScore(index: number, total: number): number {
   return POPULARITY_TOP_SCORE - ((POPULARITY_TOP_SCORE - POPULARITY_BOTTOM_SCORE) * index) / (total - 1);
 }
 
+// How far apart two parts of one sight can be. Measured on dev.db's cached
+// pools: 淺草寺 雷門 is 407m from 淺草寺, 皇居東御苑 431m from 皇居; 嵐山竹林小徑
+// (917m from 嵐山) is a walk of its own.
+const RELATED_PLACE_MAX_KM = 0.5;
+
+/**
+ * Whether `b` looks like part of `a` or vice versa: one name begins with the
+ * other, and they're close. Not merged into one stop, because the same test
+ * also pairs 倫敦塔 with 倫敦塔橋 — two different sights, 298m apart — so they
+ * only stay on the same day, back to back (partitionCandidatesByDay,
+ * selectAndOrderStops). Otherwise each got its own half day on different days.
+ */
+function isRelatedPlace(a: PlaceCandidate, b: PlaceCandidate): boolean {
+  const an = a.name.trim().toLowerCase();
+  const bn = b.name.trim().toLowerCase();
+  if (!an || !bn || !(an.startsWith(bn) || bn.startsWith(an))) return false;
+  return haversineKm(a.lat, a.lng, b.lat, b.lng) <= RELATED_PLACE_MAX_KM;
+}
+
 export function placeCandidatesToStopCandidates(
   places: PlaceCandidate[]
 ): PlaceCandidateToStopCandidateResult {
@@ -58,12 +78,17 @@ export function placeCandidatesToStopCandidates(
     if (candidateById.has(place.placeId) || seenNames.has(nameKey)) return;
     seenNames.add(nameKey);
 
+    // Joins the group of the first (most popular) related place already kept.
+    const related = candidates.find((c) => isRelatedPlace(candidateById.get(c.id)!, place));
+    if (related) related.groupId ??= related.id;
+
     candidates.push({
       id: place.placeId,
       lat: place.lat,
       lng: place.lng,
       rating: place.rating ?? popularityScore(index, places.length),
       type: place.types ? mapPlaceTypeToCategory(place.types) : undefined,
+      ...(related ? { groupId: related.groupId } : {}),
     });
     candidateById.set(place.placeId, place);
   });
