@@ -2,7 +2,7 @@ import { haversineKm } from "@/lib/distanceMatrix";
 import { getIataCoords } from "@/lib/airports";
 import { prisma, j } from "@/lib/db";
 import { googleFetch } from "@/lib/googleFetch";
-import { isLuxuryLodging, rankLodgingByBudget } from "@/lib/lodgingTiers";
+import { isBudgetLodging, isLuxuryLodging, rankLodgingByBudget } from "@/lib/lodgingTiers";
 import { CAFE_MEAL_TYPES } from "@/lib/cafeMealSlots";
 
 const NEARBY_SEARCH_URL = "https://places.googleapis.com/v1/places:searchNearby";
@@ -130,7 +130,9 @@ export function getMealPlaceTypes(mealType: "breakfast" | "lunch" | "dinner" | "
 // decide what's in the pool. Moderate: B&Bs, guest houses, ~3-star and business
 // hotels (Toyoko Inn-style chains are typed "hotel").
 const LODGING_TYPES_BY_BUDGET: Record<BudgetLevel, string[]> = {
-  budget:   ["hostel", "guest_house", "bed_and_breakfast", "motel", "lodging"],
+  // No generic "lodging": ranked by popularity, it filled all 20 Asakusa
+  // results with chain hotels and left no hostel or guest house in the pool.
+  budget:   ["hostel", "guest_house", "bed_and_breakfast", "budget_japanese_inn", "motel"],
   moderate: ["bed_and_breakfast", "guest_house", "hotel", "lodging"],
   luxury:   ["resort_hotel", "hotel", "lodging"],
 };
@@ -542,6 +544,9 @@ export async function searchTextCandidates(
   return candidates;
 }
 
+// Below this many budget-tier places, a budget search also brings in regular lodging.
+const MIN_BUDGET_LODGING = 3;
+
 // Expensive and very expensive by Google's own price level.
 const LUXURY_PRICE_LEVELS = ["PRICE_LEVEL_EXPENSIVE", "PRICE_LEVEL_VERY_EXPENSIVE"];
 
@@ -580,6 +585,13 @@ export async function fetchLodgingCandidates(
   maxCount: number,
 ): Promise<PlaceCandidate[]> {
   let pool = await fetchNearbyPlaceCandidates(coords, apiKey, getLodgingTypes(budget), radius, NEARBY_FETCH_COUNT);
+  // A small town may have too few budget places to choose from — then add
+  // regular lodging after them rather than offering almost nothing.
+  if (budget === "budget" && pool.filter(isBudgetLodging).length < MIN_BUDGET_LODGING) {
+    const extra = await fetchNearbyPlaceCandidates(coords, apiKey, ["lodging"], radius, NEARBY_FETCH_COUNT);
+    const seen = new Set(pool.map((p) => p.placeId));
+    pool = [...pool, ...extra.filter((p) => !seen.has(p.placeId))];
+  }
   if (budget === "luxury" && !pool.some(isLuxuryLodging)) {
     const extra = await searchTextCandidates("luxury hotel", coords, apiKey, radius, "lodging");
     const seen = new Set(pool.map((p) => p.placeId));

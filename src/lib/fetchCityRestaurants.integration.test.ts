@@ -219,3 +219,55 @@ describe("fetchLuxuryRestaurants", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
+
+// Story: a budget Tokyo trip kept getting the 4-star Asakusa View Hotel —
+// searching budget types plus generic "lodging" by popularity returned 20
+// chain hotels and no hostel or guest house to filter down to.
+describe("fetchLodgingCandidates for the budget tier", () => {
+  const coords = { lat: 34 + (Date.now() % 100000) / 1e6, lng: 45 };
+  const place = (id: string, type: string) => ({
+    id,
+    displayName: { text: id },
+    location: { latitude: coords.lat, longitude: coords.lng },
+    types: [type, "lodging"],
+  });
+  const typesSearched = (fetchMock: ReturnType<typeof vi.fn>) =>
+    fetchMock.mock.calls.map((c) => JSON.parse(((c as unknown as [string, RequestInit])[1].body as string)).includedTypes);
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  afterAll(async () => {
+    await prisma.nearbyPlaceCandidatesCache.deleteMany({
+      where: { cacheKey: { startsWith: `${coords.lat.toFixed(4)},` } },
+    });
+  });
+
+  it("searches budget lodging types only, without generic lodging", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ places: [place("h1", "hostel"), place("g1", "guest_house"), place("i1", "budget_japanese_inn")] }), { status: 200 })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await fetchLodgingCandidates(coords, "key", "budget", 3000, 10);
+
+    expect(typesSearched(fetchMock)).toEqual([["hostel", "guest_house", "bed_and_breakfast", "budget_japanese_inn", "motel"]]);
+    expect(result.map((p) => p.placeId)).toEqual(["h1", "g1", "i1"]);
+  });
+
+  it("adds regular lodging after the budget places in a town that has too few", async () => {
+    const town = { lat: coords.lat, lng: 46 };
+    const fetchMock = vi.fn(async (_url: string, init: RequestInit) => {
+      const types = JSON.parse(init.body as string).includedTypes as string[];
+      const places = types.includes("hostel") ? [place("h1", "hostel")] : [place("hotel1", "hotel")];
+      return new Response(JSON.stringify({ places }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await fetchLodgingCandidates(town, "key", "budget", 3000, 10);
+
+    expect(typesSearched(fetchMock)[1]).toEqual(["lodging"]);
+    expect(result.map((p) => p.placeId)).toEqual(["h1", "hotel1"]);
+  });
+});
