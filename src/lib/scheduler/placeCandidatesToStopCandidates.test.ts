@@ -94,3 +94,34 @@ describe("popularityScore", () => {
     expect(popularityScore(0, 1)).toBe(5);
   });
 });
+
+// Story: a budget Tokyo trip spent half of one day at 淺草寺 and half of the
+// next at 淺草寺 雷門 — the same visit. Related places are grouped so the
+// scheduler keeps them on one day, back to back.
+describe("placeCandidatesToStopCandidates related places", () => {
+  // Real coordinates from dev.db's cached pools.
+  const sensoji = place({ placeId: "sensoji", name: "淺草寺", lat: 35.7147651, lng: 139.7966553 });
+  const kaminarimon = place({ placeId: "kaminarimon", name: "淺草寺 雷門", lat: 35.7111, lng: 139.7963 });
+
+  it("groups a place whose name starts with a nearby place's name under the first one", () => {
+    const { candidates } = placeCandidatesToStopCandidates([sensoji, place({ placeId: "skytree", name: "東京晴空塔" }), kaminarimon]);
+    expect(candidates.map((c) => c.groupId)).toEqual(["sensoji", undefined, "sensoji"]);
+  });
+
+  it("keeps both places — 倫敦塔橋 is not part of 倫敦塔, only next to it", () => {
+    const { candidates } = placeCandidatesToStopCandidates([
+      place({ placeId: "tower", name: "倫敦塔", lat: 51.5081, lng: -0.0759 }),
+      place({ placeId: "bridge", name: "倫敦塔橋", lat: 51.5055, lng: -0.0754 }),
+    ]);
+    expect(candidates).toHaveLength(2);
+    expect(candidates[1].groupId).toBe("tower");
+  });
+
+  it("leaves places with a shared name prefix apart when they're over 500m away", () => {
+    const { candidates } = placeCandidatesToStopCandidates([
+      place({ placeId: "arashiyama", name: "嵐山", lat: 35.0094, lng: 135.6668 }),
+      place({ placeId: "bamboo", name: "嵐山竹林小徑", lat: 35.0170, lng: 135.6713 }),
+    ]);
+    expect(candidates.every((c) => c.groupId === undefined)).toBe(true);
+  });
+});

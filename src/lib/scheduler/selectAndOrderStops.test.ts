@@ -93,3 +93,14 @@ describe("selectAndOrderStops with a lodging anchor", () => {
     expect(selectAndOrderStops([far, near], { count: 1 }).map((c) => c.id)).toEqual(["famous-far"]);
   });
 });
+
+describe("selectAndOrderStops with related places", () => {
+  it("visits the rest of a group right after its first place, even when another stop is nearer", () => {
+    // From the origin, nearest-neighbor alone would go temple -> cafe -> gate.
+    const temple: StopCandidate = { id: "temple", lat: 0, lng: 0, groupId: "temple" };
+    const cafe: StopCandidate = { id: "cafe", lat: 0, lng: 0.002 };
+    const gate: StopCandidate = { id: "gate", lat: 0, lng: -0.003, groupId: "temple" };
+    const result = selectAndOrderStops([temple, cafe, gate], { count: 3, origin: { lat: 0, lng: 0 } });
+    expect(result.map((c) => c.id)).toEqual(["temple", "gate", "cafe"]);
+  });
+});

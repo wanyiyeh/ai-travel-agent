@@ -6,6 +6,8 @@ export type StopCandidate = {
   lng: number;
   type?: string;
   rating?: number | null;
+  /** Shared by parts of one sight listed separately (淺草寺 and 淺草寺 雷門) — scheduled on the same day, back to back. */
+  groupId?: string;
 };
 
 export type SelectAndOrderStopsOptions = {
@@ -72,6 +74,16 @@ function nearestNeighborOrder(
     const [next] = remaining.splice(nearestIndex, 1);
     ordered.push(next);
     current = next;
+
+    // The rest of its group comes straight after, nearest first.
+    if (next.groupId) {
+      const siblings = remaining.filter((c) => c.groupId === next.groupId);
+      for (const sibling of nearestNeighborOrder(siblings, next)) {
+        remaining.splice(remaining.indexOf(sibling), 1);
+        ordered.push(sibling);
+        current = sibling;
+      }
+    }
   }
 
   return ordered;

@@ -46,6 +46,7 @@ export function distributeStopsPerDay(poolSize: number, maxPerDay: number[]): nu
  * within-day route ordering afterward, this only decides which candidates
  * belong to which day). If the pool runs out, later days simply get fewer
  * candidates than requested rather than reusing an already-assigned one.
+ * Candidates sharing a `groupId` always land on the same day.
  */
 export function partitionCandidatesByDay(
   candidates: StopCandidate[],
@@ -55,6 +56,11 @@ export function partitionCandidatesByDay(
 ): StopCandidate[][] {
   const remaining = [...candidates];
   const days: StopCandidate[][] = [];
+  const groupOf = (c: StopCandidate) => (c.groupId ? remaining.filter((r) => r.groupId === c.groupId) : [c]);
+  const take = (group: StopCandidate[]) => {
+    for (const c of group) remaining.splice(remaining.indexOf(c), 1);
+    return group;
+  };
 
   for (const count of perDayCounts) {
     if (count <= 0 || remaining.length === 0) {
@@ -63,14 +69,22 @@ export function partitionCandidatesByDay(
     }
 
     remaining.sort((a, b) => scoreCandidate(b, interestWeights, anchor) - scoreCandidate(a, interestWeights, anchor));
-    const seed = remaining.shift()!;
+    // A group (parts of one sight) is taken whole. The seed is the best place
+    // whose group fits; one that fits nowhere still goes in whole, not split.
+    const seed = remaining.find((c) => groupOf(c).length <= count) ?? remaining[0];
+    const day = take(groupOf(seed));
 
     remaining.sort(
       (a, b) => haversineKm(seed.lat, seed.lng, a.lat, a.lng) - haversineKm(seed.lat, seed.lng, b.lat, b.lng)
     );
-    const nearest = remaining.splice(0, count - 1);
+    for (const candidate of [...remaining]) {
+      if (day.length >= count) break;
+      if (!remaining.includes(candidate)) continue; // already taken with its group
+      const group = groupOf(candidate);
+      if (day.length + group.length <= count) day.push(...take(group));
+    }
 
-    days.push([seed, ...nearest]);
+    days.push(day);
   }
 
   return days;
