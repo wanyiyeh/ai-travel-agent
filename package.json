@@ -18,6 +18,7 @@
     "shadow-compare": "tsx scripts/shadow-compare-scheduler.ts",
     "validate-preference-intent": "tsx scripts/validate-preference-intent.ts",
     "batch-test-rule-engine": "tsx scripts/batch-test-rule-engine.ts",
+    "eval-form-fidelity": "tsx scripts/eval-form-fidelity.ts",
     "claim-demo-itineraries": "tsx scripts/claim-demo-itineraries.ts",
     "cleanup-expired-guests": "tsx scripts/cleanup-expired-guests.ts"
   },
