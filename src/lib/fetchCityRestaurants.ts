@@ -471,9 +471,11 @@ const TEXT_SEARCH_URL = "https://places.googleapis.com/v1/places:searchText";
 
 /**
  * Text Search returning a whole candidate list — placesTextSearch.ts only
- * ever keeps the single best match. For place kinds Nearby Search has no
- * type for (e.g. "luxury hotel"). Pro fields only, cached for 30 days in the
- * same table as Nearby pools under a "text:" key.
+ * ever keeps the single best match. For what Nearby Search can't express: a
+ * place kind with no type ("luxury hotel"), or a price filter — unlike Nearby
+ * Search, Text Search applies `priceLevels` server-side. Pro fields unless
+ * `tier: "enterprise"` (needed to read prices back). Cached for 30 days in
+ * the same table as Nearby pools under a "text:" key.
  */
 export async function searchTextCandidates(
   query: string,
@@ -481,8 +483,10 @@ export async function searchTextCandidates(
   apiKey: string,
   radius: number,
   includedType?: string,
+  { tier = "pro", priceLevels }: { tier?: FieldTier; priceLevels?: string[] } = {},
 ): Promise<PlaceCandidate[]> {
-  const cacheKey = `text:${query}@${roundCoord(coords.lat)},${roundCoord(coords.lng)}:${radius}:${includedType ?? ""}:pro`;
+  const priceKey = priceLevels ? [...priceLevels].sort().join(",") : "";
+  const cacheKey = `text:${query}@${roundCoord(coords.lat)},${roundCoord(coords.lng)}:${radius}:${includedType ?? ""}:${priceKey}:${tier}`;
   const cached = await readFreshCandidates(cacheKey);
   if (cached) return cached;
 
@@ -493,7 +497,7 @@ export async function searchTextCandidates(
       headers: {
         "Content-Type": "application/json",
         "X-Goog-Api-Key": apiKey,
-        "X-Goog-FieldMask": PRO_FIELD_MASK,
+        "X-Goog-FieldMask": tier === "enterprise" ? ENTERPRISE_FIELD_MASK : PRO_FIELD_MASK,
       },
       body: JSON.stringify({
         textQuery: query,
@@ -501,6 +505,7 @@ export async function searchTextCandidates(
         languageCode: "zh-TW",
         locationBias: { circle: { center: { latitude: coords.lat, longitude: coords.lng }, radius } },
         ...(includedType ? { includedType } : {}),
+        ...(priceLevels ? { priceLevels } : {}),
       }),
     });
     if (!res.ok) {
@@ -511,6 +516,9 @@ export async function searchTextCandidates(
     candidates = (data.places ?? [])
       .map((p: NearbyPlaceResult) => ({
         name: p.displayName?.text ?? "",
+        rating: p.rating,
+        priceLevel: p.priceLevel ? (PRICE_LEVEL_MAP[p.priceLevel] ?? null) : null,
+        priceRange: parsePriceRange(p.priceRange),
         placeId: p.id ?? "",
         lat: p.location?.latitude ?? 0,
         lng: p.location?.longitude ?? 0,
@@ -532,6 +540,29 @@ export async function searchTextCandidates(
     });
   }
   return candidates;
+}
+
+// Expensive and very expensive by Google's own price level.
+const LUXURY_PRICE_LEVELS = ["PRICE_LEVEL_EXPENSIVE", "PRICE_LEVEL_VERY_EXPENSIVE"];
+
+/**
+ * Lunch/dinner candidates a luxury trip should see first. The regular
+ * "restaurant" Nearby pool is ranked by popularity, so it's mostly ramen and
+ * curry (an eval run of a luxury Tokyo trip had 0% of meals in the
+ * NT$1,000–2,000 range); ranking can't surface places that aren't in it.
+ * Text Search filters by price level server-side, and Enterprise fields bring
+ * back the price range used for budget ranking. One call per city, only for
+ * the luxury tier.
+ */
+export function fetchLuxuryRestaurants(
+  coords: { lat: number; lng: number },
+  apiKey: string,
+  radius: number,
+): Promise<PlaceCandidate[]> {
+  return searchTextCandidates("restaurant", coords, apiKey, radius, "restaurant", {
+    tier: "enterprise",
+    priceLevels: LUXURY_PRICE_LEVELS,
+  });
 }
 
 /**

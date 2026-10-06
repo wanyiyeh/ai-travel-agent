@@ -39,7 +39,7 @@ describe("resolveDayCoords", () => {
     // around the flight's arrival city by mistake.
     const day = { waypointCity: "東京", stops: [] };
     const coords = resolveDayCoords([day], day, "KIX");
-    expect(coords).toEqual({ lat: 35.6762, lng: 139.6503 });
+    expect(coords).toEqual({ lat: 35.6812, lng: 139.7671 });
   });
 
   it("falls back to the flight's arrival IATA code when the city can't be resolved", () => {

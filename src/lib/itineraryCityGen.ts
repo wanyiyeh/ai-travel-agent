@@ -1,6 +1,6 @@
 import { openai } from "@/lib/openai";
 import { getCityCenter } from "@/lib/placesTextSearch";
-import { fetchNearbyPlaceCandidates, fetchLodgingCandidates, getMealPlaceTypes, type RestaurantHint, type BudgetLevel, type PlaceCandidate, type FieldTier } from "@/lib/fetchCityRestaurants";
+import { fetchNearbyPlaceCandidates, fetchLodgingCandidates, fetchLuxuryRestaurants, getMealPlaceTypes, type RestaurantHint, type BudgetLevel, type PlaceCandidate, type FieldTier } from "@/lib/fetchCityRestaurants";
 import {
   applyAccommodationPick,
   applyMealPicks,
@@ -24,6 +24,7 @@ import { isFoodPlace } from "@/lib/foodPlace";
 import { getTwdRates } from "@/lib/exchangeRate";
 import { rankMainMealsByBudget } from "@/lib/mealBudget";
 import { fitsMainMeal, splitCafePool } from "@/lib/cafeMealSlots";
+import { stayAreaFor } from "@/lib/stayAreas";
 import { dietPromptLine, dietRequiredTypes, excludeByDiet } from "@/lib/dietaryFilter";
 
 // Shared AI-generation helpers for building out a city's worth of itinerary
@@ -429,6 +430,11 @@ const MEAL_LODGING_MAX_COUNT = 20;
 
 const isBrunchPlace = (p: PlaceCandidate) => p.types?.[0] === "brunch_restaurant";
 
+function uniqueByPlaceId(places: PlaceCandidate[]): PlaceCandidate[] {
+  const seen = new Set<string>();
+  return places.filter((p) => !seen.has(p.placeId) && seen.add(p.placeId));
+}
+
 /** Traveler preferences that change which places meals come from (plan/form-preference-wiring.md 1d). */
 export type MealPreferences = {
   dietaryRestrictions?: string[];
@@ -448,7 +454,10 @@ async function fetchMealLodgingPools(
 ): Promise<MealLodgingPools | null> {
   const apiKey = process.env.GOOGLE_PLACES_API_KEY;
   if (!apiKey) return null;
-  const coords = await getCityCenter(cityName, apiKey);
+  // In a city with a known stay district for this budget (Tokyo), lodging and
+  // meals are searched there rather than around the city center.
+  const stayArea = stayAreaFor(cityName, budget);
+  const coords = stayArea ? { lat: stayArea.lat, lng: stayArea.lng } : await getCityCenter(cityName, apiKey);
   if (!coords) return null;
 
   // Only lunch/dinner needs Enterprise fields (its budget ranking reads
@@ -463,10 +472,11 @@ async function fetchMealLodgingPools(
   const dietTypes = dietRequiredTypes(dietaryRestrictions);
 
   // Breakfast and snack share one café search, split locally (cafeMealSlots.ts).
-  const [cafes, main, dietMain, lodging, twdPerUnit] = await Promise.all([
+  const [cafes, main, dietMain, luxuryMain, lodging, twdPerUnit] = await Promise.all([
     search(getMealPlaceTypes("breakfast", budget), "pro", isFoodPlace),
     search(getMealPlaceTypes("lunch", budget), "enterprise", isFoodPlace),
     dietTypes.length > 0 ? search(dietTypes, "enterprise", isFoodPlace) : Promise.resolve([]),
+    budget === "luxury" ? fetchLuxuryRestaurants(coords, apiKey, MEAL_LODGING_RADIUS_M) : Promise.resolve([]),
     fetchLodgingCandidates(coords, apiKey, budget, MEAL_LODGING_RADIUS_M, MEAL_LODGING_MAX_COUNT),
     budget ? getTwdRates() : Promise.resolve({}),
   ]);
@@ -478,8 +488,11 @@ async function fetchMealLodgingPools(
       ? [...split.breakfast.filter(isBrunchPlace), ...split.breakfast.filter((p) => !isBrunchPlace(p))]
       : split.breakfast;
 
-  const dietIds = new Set(dietMain.map((p) => p.placeId));
-  const allMain = excludeByDiet([...dietMain, ...main.filter((p) => !dietIds.has(p.placeId))], dietaryRestrictions)
+  // Diet-specific places first (the stronger constraint), then price-filtered
+  // luxury places, then the regular popularity pool; budget ranking below
+  // still orders them by fit.
+  const allMain = excludeByDiet(uniqueByPlaceId([...dietMain, ...luxuryMain, ...main]), dietaryRestrictions)
+    .filter(isFoodPlace)
     .filter(fitsMainMeal);
   // Lunch + dinner each day draw from the same pool.
   const rankedMain = rankMainMealsByBudget(allMain, budget, currency, twdPerUnit, stayDays * 2);

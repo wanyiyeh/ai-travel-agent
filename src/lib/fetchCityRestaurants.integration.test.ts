@@ -1,6 +1,6 @@
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/lib/db";
-import { fetchLodgingCandidates, fetchNearbyPlaceCandidates } from "./fetchCityRestaurants";
+import { fetchLodgingCandidates, fetchLuxuryRestaurants, fetchNearbyPlaceCandidates } from "./fetchCityRestaurants";
 
 // Story: one generation asks for the same city's attractions with different
 // counts (transit day, sightseeing days, departure day). Nearby Search bills
@@ -169,5 +169,53 @@ describe("fetchLodgingCandidates for the luxury tier", () => {
     const textCall = fetchMock.mock.calls.find((c) => String(c[0]).includes("searchText")) as unknown as [string, RequestInit];
     const mask = new Headers(textCall[1].headers).get("X-Goog-FieldMask") ?? "";
     expect(mask).not.toMatch(/rating|priceLevel|priceRange/);
+  });
+});
+
+// Story: a luxury trip's lunches and dinners were all casual ramen and curry,
+// because the popularity-ranked Nearby pool barely has expensive places.
+describe("fetchLuxuryRestaurants", () => {
+  const coords = { lat: 33 + (Date.now() % 100000) / 1e6, lng: 44 };
+  const request = (fetchMock: ReturnType<typeof vi.fn>) => (fetchMock.mock.calls[0] as unknown as [string, RequestInit]);
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  afterAll(async () => {
+    await prisma.nearbyPlaceCandidatesCache.deleteMany({
+      where: { cacheKey: { startsWith: `text:restaurant@${coords.lat.toFixed(4)},` } },
+    });
+  });
+
+  it("filters by expensive price levels server-side and reads prices back", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          places: [
+            {
+              id: "kaiseki",
+              displayName: { text: "Kaiseki" },
+              location: { latitude: coords.lat, longitude: coords.lng },
+              priceRange: { startPrice: { currencyCode: "JPY", units: "8000" }, endPrice: { currencyCode: "JPY", units: "15000" } },
+            },
+          ],
+        }),
+        { status: 200 }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const [place] = await fetchLuxuryRestaurants(coords, "key", 3000);
+
+    const [url, init] = request(fetchMock);
+    expect(url).toContain("places:searchText");
+    expect(JSON.parse(init.body as string).priceLevels).toEqual(["PRICE_LEVEL_EXPENSIVE", "PRICE_LEVEL_VERY_EXPENSIVE"]);
+    expect(new Headers(init.headers).get("X-Goog-FieldMask")).toContain("places.priceRange");
+    expect(place.priceRange).toEqual({ currency: "JPY", start: 8000, end: 15000 });
+
+    // cached: a second call doesn't pay again
+    await fetchLuxuryRestaurants(coords, "key", 3000);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

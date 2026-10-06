@@ -4,6 +4,7 @@ import type { PlaceCandidate } from "@/lib/fetchCityRestaurants";
 const createMock = vi.fn();
 const nearbyMock = vi.fn();
 const lodgingMock = vi.fn();
+const luxuryMock = vi.fn();
 
 vi.mock("@/lib/openai", () => ({
   openai: { chat: { completions: { create: (...args: unknown[]) => createMock(...args) } } },
@@ -17,6 +18,7 @@ vi.mock("@/lib/fetchCityRestaurants", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/fetchCityRestaurants")>()),
   fetchNearbyPlaceCandidates: (...args: unknown[]) => nearbyMock(...args),
   fetchLodgingCandidates: (...args: unknown[]) => lodgingMock(...args),
+  fetchLuxuryRestaurants: (...args: unknown[]) => luxuryMock(...args),
 }));
 
 const { generateMealsAndAccommodation } = await import("./itineraryCityGen");
@@ -39,6 +41,8 @@ beforeEach(() => {
   nearbyMock.mockReset();
   lodgingMock.mockReset();
   lodgingMock.mockResolvedValue([]);
+  luxuryMock.mockReset();
+  luxuryMock.mockResolvedValue([]);
 });
 
 afterEach(() => {
@@ -150,6 +154,48 @@ describe("generateMealsAndAccommodation", () => {
       expect((day.lunch as Record<string, unknown>).placeId).toMatch(/^pid-Restaurant/);
       expect((day.dinner as Record<string, unknown>).placeId).toMatch(/^pid-Restaurant/);
     }
+  });
+
+  it("luxury: offers price-filtered restaurants ahead of the popular casual ones", async () => {
+    const priced = (name: string, start: number, end: number): PlaceCandidate => ({
+      ...place(name),
+      types: ["japanese_restaurant"],
+      priceRange: { currency: "JPY", start, end },
+    });
+    nearbyMock
+      .mockResolvedValueOnce([]) // cafés
+      .mockResolvedValueOnce([priced("Ramen", 1000, 2000), priced("Curry", 1000, 2000)]); // popularity pool
+    luxuryMock.mockResolvedValueOnce([priced("Kaiseki", 6000, 9000), priced("Teppanyaki", 7000, 10000)]);
+    mockLlm({ accommodation: {}, meals: [] });
+
+    await generateMealsAndAccommodation("東京", 1, "JPY", "luxury");
+
+    expect(luxuryMock).toHaveBeenCalledTimes(1);
+    // ¥6,000-9,000 at the mocked 0.2 rate = NT$1,200-1,800: inside the luxury range
+    expect(systemPrompt()).toContain("M1: Kaiseki");
+    expect(systemPrompt()).toContain("M2: Teppanyaki");
+  });
+
+  it("doesn't pay for the luxury search on other budgets", async () => {
+    nearbyMock.mockResolvedValue([]);
+    mockLlm({ accommodation: {}, meals: [] });
+
+    await generateMealsAndAccommodation("東京", 1, "JPY", "moderate");
+
+    expect(luxuryMock).not.toHaveBeenCalled();
+  });
+
+  it("searches Tokyo's lodging and meals in the budget's district, other cities around the center", async () => {
+    nearbyMock.mockResolvedValue([]);
+    mockLlm({ accommodation: {}, meals: [] });
+    await generateMealsAndAccommodation("東京", 1, "JPY", "budget");
+    expect(nearbyMock.mock.calls[0][0]).toEqual({ lat: 35.714, lng: 139.787 });
+    expect(lodgingMock.mock.calls[0][0]).toEqual({ lat: 35.714, lng: 139.787 });
+
+    nearbyMock.mockClear();
+    mockLlm({ accommodation: {}, meals: [] });
+    await generateMealsAndAccommodation("京都", 1, "JPY", "budget");
+    expect(nearbyMock.mock.calls[0][0]).toEqual({ lat: 35.01, lng: 135.77 }); // mocked city center
   });
 
   it("falls back to the invent-the-names prompt when there are no candidates", async () => {

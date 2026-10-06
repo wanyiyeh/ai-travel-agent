@@ -158,7 +158,20 @@ async function searchPlaceTextUncached(
 
 // Cache key prefix keeps city-center lookups in their own namespace within
 // the shared PlaceQuery cache so they can't collide with stop/meal queries.
-const CITY_CACHE_PREFIX = "city-center:";
+// v2: lookups used to be unrestricted, and some cached centers were wrong
+// ("Barcelona" resolved to a bar in Taipei), so v1 entries are left behind.
+const CITY_CACHE_PREFIX = "city-center:v2:";
+
+// Names Google resolves to a whole metropolis, prefecture or island, whose
+// geographic center is nowhere near where a visitor stays: 東京 gave
+// Tokyo Metropolis's center in residential Suginami (Asakusa and Ginza fell
+// outside the 10 km attraction radius), 沖繩 gave a point near Itoman, 北海道
+// the mountains near Kamikawa. These use the downtown a trip is based in.
+const CITY_CENTER_OVERRIDES: Record<string, { lat: number; lng: number }> = {
+  東京: { lat: 35.6812, lng: 139.7671 }, // Tokyo Station
+  沖繩: { lat: 26.2124, lng: 127.6809 }, // Naha
+  北海道: { lat: 43.0618, lng: 141.3545 }, // Sapporo
+};
 
 // Same 30-day TTL as the other Places caches — a city Google adds or starts
 // matching later eventually gets picked up.
@@ -174,6 +187,8 @@ export async function getCityCenter(
   apiKey: string,
 ): Promise<{ lat: number; lng: number } | null> {
   if (!cityName) return null;
+  const override = CITY_CENTER_OVERRIDES[cityName];
+  if (override) return override;
   const cacheKey = `${CITY_CACHE_PREFIX}${cityName}`;
 
   const cached = await lookupByQuery(cacheKey);
@@ -191,7 +206,10 @@ export async function getCityCenter(
   // own searchPlaceText call instead.
   let place: TextSearchPlace | null;
   try {
-    place = await searchPlaceText(cityName, apiKey);
+    // As a city first: unrestricted, "Barcelona" matched a Taipei bar called
+    // 巴賽隆納俱樂部. Regions and islands (西奈半島, 石垣島) aren't localities,
+    // so those fall back to the unrestricted search.
+    place = (await searchPlaceText(cityName, apiKey, null, "locality")) ?? (await searchPlaceText(cityName, apiKey));
   } catch (err) {
     if (err instanceof PlacesApiError) return null;
     throw err;

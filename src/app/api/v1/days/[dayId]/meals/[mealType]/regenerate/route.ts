@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma, j } from "@/lib/db";
 import { getMockMode, mockDelay, MOCK_FIXTURES } from "@/lib/mockAi";
 import {
+  fetchLuxuryRestaurants,
   fetchNearbyPlaceCandidates,
   getMealPlaceTypes,
 } from "@/lib/fetchCityRestaurants";
@@ -123,12 +124,15 @@ export async function POST(
 
     // Pull the full cached pool (same cost as 10 — see NEARBY_FETCH_COUNT) so
     // dropping non-food places still leaves up to 10 to show.
-    const [pool, dietPool] = await Promise.all([
+    const [pool, dietPool, luxuryPool] = await Promise.all([
       fetchNearbyPlaceCandidates(center, googleApiKey, types, 2000, 20, tier),
       dietTypes.length > 0 ? fetchNearbyPlaceCandidates(center, googleApiKey, dietTypes, 2000, 20, tier) : Promise.resolve([]),
+      // The popularity-ranked pool has few expensive places; see fetchLuxuryRestaurants.
+      isMainMeal && budget === "luxury" ? fetchLuxuryRestaurants(center, googleApiKey, 2000) : Promise.resolve([]),
     ]);
-    const dietIds = new Set(dietPool.map((p) => p.placeId));
-    const foodPlaces = excludeByDiet([...dietPool, ...pool.filter((p) => !dietIds.has(p.placeId))], diet)
+    const seen = new Set<string>();
+    const merged = [...dietPool, ...luxuryPool, ...pool].filter((p) => !seen.has(p.placeId) && seen.add(p.placeId));
+    const foodPlaces = excludeByDiet(merged, diet)
       .filter(isFoodPlace)
       // Breakfast and snack share one café search; keep what suits this slot.
       .filter((p) => (isMainMeal ? fitsMainMeal(p) : fitsCafeMealSlot(p, mealType as "breakfast" | "snack")));
