@@ -48,3 +48,6 @@ next-env.d.ts
 
 # claude code (personal, not shared with the team)
 CLAUDE.local.md
+
+# scripts/eval-form-fidelity.ts output (full itineraries, regenerated each run)
+/eval-results/

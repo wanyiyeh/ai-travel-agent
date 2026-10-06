@@ -3,7 +3,7 @@ import { estimateMealCost } from "@/lib/priceLevelCost";
 
 // Per-person lunch/dinner budget in NT$ (plan/form-preference-wiring.md 1.3).
 // Breakfast and snack have no cap.
-const MAIN_MEAL_BUDGET_TWD: Record<BudgetLevel, { min: number; max: number }> = {
+export const MAIN_MEAL_BUDGET_TWD: Record<BudgetLevel, { min: number; max: number }> = {
   budget: { min: 0, max: 400 },
   moderate: { min: 0, max: 1000 },
   luxury: { min: 1000, max: 2000 },
