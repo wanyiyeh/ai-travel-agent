@@ -71,6 +71,10 @@ describe("estimateFromPriceRange", () => {
     expect(estimateFromPriceRange({ currency: "JPY", start: 3000 }, "JPY")).toBe(3000);
   });
 
+  it("reads a ¥1 floor as 'up to', so 'under ¥1,000' isn't shown as ¥501", () => {
+    expect(estimateFromPriceRange({ currency: "JPY", start: 1, end: 1000 }, "JPY")).toBe(1000);
+  });
+
   it("gives nothing when the range is in another currency", () => {
     expect(estimateFromPriceRange({ currency: "USD", start: 10, end: 20 }, "JPY")).toBeUndefined();
   });

@@ -117,6 +117,9 @@ export function MealPicker({
           💴 {[currency, candidate.estimated_cost.toLocaleString()].filter(Boolean).join(" ")}
         </p>
       )}
+      {candidate.plannedElsewhere && (
+        <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">{candidate.plannedElsewhere}</p>
+      )}
     </CandidateCard>
   );
 

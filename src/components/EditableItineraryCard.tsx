@@ -33,6 +33,7 @@ import { formatDuration } from "@/types/itinerary";
 import { MEAL_TYPES } from "@/types/itinerary";
 import type { Itinerary, Day, Stop, Meal, MealType, Accommodation, StopCandidate } from "@/types/itinerary";
 import { buildDayTimeline, MEAL_TIME_OF_DAY } from "@/lib/dayTimeline";
+import { findRepeatedMeals, slotKey } from "@/lib/mealRepeats";
 
 // A candidate from another day counts as "same city" if it's within this
 // distance of the edited day's own stop centroid — used to build the reuse
@@ -199,6 +200,14 @@ export default function EditableItineraryCard({
   // to — a ref (not state) so the timeout callback can check it without
   // being a stale closure over deletedStopInfo.
   const deletedStopIdRef = useRef<string | null>(null);
+
+  // Long stays repeat a restaurant once the candidate pool runs out — label
+  // the second and later visits so a repeat is easy to spot and swap.
+  const repeatedMeals = useMemo(() => findRepeatedMeals(itinerary.days), [itinerary.days]);
+  const repeatNoteFor = (dayNumber: number, mealType: MealType) => {
+    const repeat = repeatedMeals.get(slotKey(dayNumber, mealType));
+    return repeat ? `第 ${repeat.visit} 次・上次在第 ${repeat.previousDay} 天` : undefined;
+  };
 
   const duplicateStopInfo = useMemo(() => {
     const firstSeenDay = new Map<string, number>();
@@ -1411,6 +1420,7 @@ export default function EditableItineraryCard({
                               isPicking={isPickingThis}
                               onPick={() => setPickingMeal({ dayId: day.id!, mealType })}
                               onSaveCost={(value) => handleUpdateMealCost(day.id!, mealType, value)}
+                              repeatNote={repeatNoteFor(day.day, mealType)}
                             />
                             {isPickingThis && (
                               <MealPicker

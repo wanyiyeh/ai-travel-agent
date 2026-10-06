@@ -1,7 +1,15 @@
 import { openai } from "@/lib/openai";
 import { getCityCenter } from "@/lib/placesTextSearch";
 import { fetchNearbyPlaceCandidates, fetchLodgingCandidates, getMealPlaceTypes, type RestaurantHint, type BudgetLevel, type PlaceCandidate, type FieldTier } from "@/lib/fetchCityRestaurants";
-import { applyCandidatePicks, formatCandidateLists, hasAnyCandidates, type MealLodgingPools } from "@/lib/mealLodgingPicks";
+import {
+  applyAccommodationPick,
+  applyMealPicks,
+  formatCandidateLists,
+  hasAnyCandidates,
+  newPickHistory,
+  unusedFirst,
+  type MealLodgingPools,
+} from "@/lib/mealLodgingPicks";
 import { placeCandidatesToStopCandidates } from "@/lib/scheduler/placeCandidatesToStopCandidates";
 import { distributeStopsPerDay, partitionCandidatesByDay } from "@/lib/scheduler/partitionCandidatesByDay";
 import { buildDaySkeleton, type SkeletonStop } from "@/lib/scheduler/buildDaySkeleton";
@@ -15,7 +23,7 @@ import { estimateAttractionCost } from "@/lib/priceLevelCost";
 import { isFoodPlace } from "@/lib/foodPlace";
 import { getTwdRates } from "@/lib/exchangeRate";
 import { rankMainMealsByBudget } from "@/lib/mealBudget";
-import { splitCafePool } from "@/lib/cafeMealSlots";
+import { fitsMainMeal, splitCafePool } from "@/lib/cafeMealSlots";
 import { dietPromptLine, dietRequiredTypes, excludeByDiet } from "@/lib/dietaryFilter";
 
 // Shared AI-generation helpers for building out a city's worth of itinerary
@@ -247,9 +255,14 @@ async function generateTransitDayStopsViaScheduler(
     if (places.length === 0) return null;
 
     const lockedIds = new Set(lockedPlaceIds);
-    const { candidates, candidateById } = placeCandidatesToStopCandidates(
-      places.filter((p) => !lockedIds.has(p.placeId))
+    const pool = await withSupplementalAttractions(
+      coords,
+      apiKey,
+      places.filter((p) => !lockedIds.has(p.placeId)),
+      lockedIds,
+      capacityFor([])
     );
+    const { candidates, candidateById } = placeCandidatesToStopCandidates(pool);
     if (candidates.length === 0) return null;
 
     const hintById = new Map<string, RestaurantHint>();
@@ -361,9 +374,14 @@ export async function generateDepartureDayStops(
     if (places.length === 0) return [];
 
     const lockedIds = new Set(lockedPlaceIds);
-    const { candidates, candidateById } = placeCandidatesToStopCandidates(
-      places.filter((p) => !lockedIds.has(p.placeId))
+    const pool = await withSupplementalAttractions(
+      coords,
+      apiKey,
+      places.filter((p) => !lockedIds.has(p.placeId)),
+      lockedIds,
+      estimatedCount
     );
+    const { candidates, candidateById } = placeCandidatesToStopCandidates(pool);
     if (candidates.length === 0) return [];
 
     const interestWeights = buildInterestWeights(preferenceIntent.interestBoost);
@@ -461,7 +479,8 @@ async function fetchMealLodgingPools(
       : split.breakfast;
 
   const dietIds = new Set(dietMain.map((p) => p.placeId));
-  const allMain = excludeByDiet([...dietMain, ...main.filter((p) => !dietIds.has(p.placeId))], dietaryRestrictions);
+  const allMain = excludeByDiet([...dietMain, ...main.filter((p) => !dietIds.has(p.placeId))], dietaryRestrictions)
+    .filter(fitsMainMeal);
   // Lunch + dinner each day draw from the same pool.
   const rankedMain = rankMainMealsByBudget(allMain, budget, currency, twdPerUnit, stayDays * 2);
   return { breakfast, main: rankedMain, snack: split.snack, lodging };
@@ -483,21 +502,76 @@ export async function generateMealsAndAccommodation(
   const pools = await fetchMealLodgingPools(cityName, budget, currency, stayDays, preferences).catch(() => null);
   const useCandidates = pools !== null && hasAnyCandidates(pools);
 
-  const candidateRules = useCandidates
-    ? `
-
-以下是 ${cityName} 真實存在的店家候選（Google 地圖資料）。每個欄位都要從對應清單中選一個，並在 "id" 填入它的編號（例如 "M3"），"name" 照抄清單上的名稱：
-- 住宿從「住宿候選」選一個
-- 早餐從「早餐候選」選，午餐和晚餐都從「午餐／晚餐候選」選，點心從「點心候選」選
-- 同一家店在整段停留期間只能出現一次（午餐和晚餐也不能選同一家）
-- 某個清單的候選不夠用時，才自行推薦真實店家，id 填 null
-
-${formatCandidateLists(pools)}`
-    : "";
-  const idField = useCandidates ? `"id": "候選編號或 null", ` : "";
   const lateRiserRule =
     preferences.startTimePreference === "late" ? "\n- 旅客晚起（約 11:00 出門），早餐請選早午餐" : "";
   const preferenceRules = dietPromptLine(preferences.dietaryRestrictions ?? []) + lateRiserRule;
+
+  if (!useCandidates) {
+    const parsed = await askMealsAndLodging(model, cityName, stayDays, currency, preferenceRules, null, true);
+    return {
+      accommodation: parsed.accommodation ?? {},
+      mealsByDay: Array.from({ length: stayDays }, (_, i) => parsed.meals?.[i] ?? {}),
+    };
+  }
+
+  // A long stay is asked for in chunks: one reply covering 14 days came back
+  // truncated, leaving the last days without meals. Each chunk lists unused
+  // candidates first, and applyMealPicks fills anything left empty with a
+  // real candidate, repeating one only after the pool is used up.
+  const history = newPickHistory();
+  let accommodation: Record<string, unknown> = {};
+  const mealsByDay: Array<Record<string, unknown>> = [];
+  for (let start = 0; start < stayDays; start += MEAL_CHUNK_DAYS) {
+    const days = Math.min(MEAL_CHUNK_DAYS, stayDays - start);
+    const isFirst = start === 0;
+    const chunkPools = isFirst ? pools : unusedFirst(pools, history);
+    // A failed chunk still gets meals: every slot is filled from candidates.
+    const parsed = await askMealsAndLodging(model, cityName, days, currency, preferenceRules, chunkPools, isFirst).catch(
+      (err) => {
+        console.warn(`[generateMealsAndAccommodation] chunk from day ${start} failed, filling from candidates:`, err);
+        return {} as ParsedMealsReply;
+      }
+    );
+    if (isFirst) accommodation = applyAccommodationPick(parsed.accommodation, chunkPools, currency);
+    mealsByDay.push(...applyMealPicks(parsed.meals, chunkPools, days, currency, history, start));
+  }
+  return { accommodation, mealsByDay };
+}
+
+// Days of meals asked for per LLM call — see generateMealsAndAccommodation.
+const MEAL_CHUNK_DAYS = 5;
+
+type ParsedMealsReply = {
+  accommodation?: Record<string, unknown>;
+  meals?: Array<Record<string, unknown>>;
+};
+
+/**
+ * One meal (and, for the first chunk, lodging) picking call. With `pools`
+ * the LLM picks from real candidates by id; without, it names places itself
+ * (the pre-candidate fallback).
+ */
+async function askMealsAndLodging(
+  model: string,
+  cityName: string,
+  stayDays: number,
+  currency: string,
+  preferenceRules: string,
+  pools: MealLodgingPools | null,
+  askLodging: boolean,
+): Promise<ParsedMealsReply> {
+  const candidateRules = pools
+    ? `
+
+以下是 ${cityName} 真實存在的店家候選（Google 地圖資料）。每個欄位都要從對應清單中選一個，並在 "id" 填入它的編號（例如 "M3"），"name" 照抄清單上的名稱：
+- ${askLodging ? "住宿從「住宿候選」選一個" : "住宿已經決定，accommodation 回傳空物件 {} 即可"}
+- 早餐從「早餐候選」選，午餐和晚餐都從「午餐／晚餐候選」選，點心從「點心候選」選
+- 清單越前面的店越優先；同一家店不要在同一天出現兩次（午餐和晚餐也不能選同一家），也不要在相鄰兩天重複
+- 某個清單完全沒有候選時，才自行推薦真實店家，id 填 null
+
+${formatCandidateLists(pools)}`
+    : "";
+  const idField = pools ? `"id": "候選編號或 null", ` : "";
 
   const completion = await openai.chat.completions.create({
     model,
@@ -535,17 +609,8 @@ ${formatCandidateLists(pools)}`
   });
 
   const content = completion.choices[0].message.content;
-  if (!content) return { accommodation: {}, mealsByDay: Array.from({ length: stayDays }, () => ({})) };
-
-  const parsed = JSON.parse(content) as {
-    accommodation?: Record<string, unknown>;
-    meals?: Array<Record<string, unknown>>;
-  };
-  if (useCandidates) return applyCandidatePicks(parsed, pools, stayDays, currency);
-  return {
-    accommodation: parsed.accommodation ?? {},
-    mealsByDay: Array.from({ length: stayDays }, (_, i) => parsed.meals?.[i] ?? {}),
-  };
+  if (!content) return {};
+  return JSON.parse(content) as ParsedMealsReply;
 }
 
 // Falls back to this pure-LLM implementation whenever the rule-engine path
@@ -662,6 +727,30 @@ function dayStartFor(preferenceIntent: PreferenceIntent): number {
 // opens at 18:00) instead of all finishing before lunch.
 const SIGHTSEEING_DAY_END_MINUTE = 18 * 60;
 
+// A second look at a city once its 20 tourist_attraction results run out —
+// a 14-day Stockholm trip had 1 stop a day from day 8 and an empty return
+// day. Nearby Search has no paging, so this asks for a different mix of
+// types instead (Pro fields, cached like any pool).
+const SUPPLEMENT_ATTRACTION_TYPES = ["museum", "art_gallery", "park", "historical_landmark", "observation_deck"];
+
+/**
+ * `places` (already free of used ones) plus, only when fewer than `needed`
+ * are left, places from SUPPLEMENT_ATTRACTION_TYPES that aren't in the pool
+ * or used yet. Short trips never pay for the extra search.
+ */
+async function withSupplementalAttractions(
+  coords: { lat: number; lng: number },
+  apiKey: string,
+  places: PlaceCandidate[],
+  usedIds: Set<string>,
+  needed: number
+): Promise<PlaceCandidate[]> {
+  if (places.length >= needed) return places;
+  const extra = await fetchNearbyPlaceCandidates(coords, apiKey, SUPPLEMENT_ATTRACTION_TYPES, 10000, 20);
+  const inPool = new Set(places.map((p) => p.placeId));
+  return [...places, ...extra.filter((p) => !inPool.has(p.placeId) && !usedIds.has(p.placeId))];
+}
+
 // estimateStopCapacity only approximates how many stops fit (the lunch-break
 // push can waste more than the hour it budgets for), so drop whatever still
 // ends past the day's end. assignTimeSlots schedules strictly in order, so
@@ -742,9 +831,23 @@ async function generateDayStopsViaScheduler(
     if (places.length === 0) return null;
 
     const lockedIds = new Set(lockedPlaceIds);
-    const { candidates, candidateById } = placeCandidatesToStopCandidates(
-      places.filter((p) => !lockedIds.has(p.placeId))
+    const pace = preferenceIntent.pace ?? "moderate";
+    const dayStartMinute = dayStartFor(preferenceIntent);
+    const dayStarts = Array.from({ length: dayCount }, (_, dayIdx) =>
+      dayIdx === 0 ? (firstDayStartMinute ?? dayStartMinute) : dayStartMinute
     );
+    const capacitiesFor = (pool: PlaceCandidate[]) => {
+      const candidateTypes = placeCandidatesToStopCandidates(pool).candidates.map((c) => c.type);
+      return dayStarts.map((start) =>
+        estimateStopCapacity({ pace, dayStartMinute: start, dayEndMinute: SIGHTSEEING_DAY_END_MINUTE, candidateTypes })
+      );
+    };
+
+    const available = places.filter((p) => !lockedIds.has(p.placeId));
+    const neededStops = capacitiesFor(available).reduce((sum, n) => sum + n, 0);
+    const pool = await withSupplementalAttractions(coords, apiKey, available, lockedIds, neededStops);
+
+    const { candidates, candidateById } = placeCandidatesToStopCandidates(pool);
     if (candidates.length === 0) return null;
 
     const hintById = new Map<string, RestaurantHint>();
@@ -753,15 +856,7 @@ async function generateDayStopsViaScheduler(
     }
 
     const interestWeights = buildInterestWeights(preferenceIntent.interestBoost);
-    const pace = preferenceIntent.pace ?? "moderate";
-    const dayStartMinute = dayStartFor(preferenceIntent);
-    const dayStarts = Array.from({ length: dayCount }, (_, dayIdx) =>
-      dayIdx === 0 ? (firstDayStartMinute ?? dayStartMinute) : dayStartMinute
-    );
-    const candidateTypes = candidates.map((c) => c.type);
-    const capacities = dayStarts.map((start) =>
-      estimateStopCapacity({ pace, dayStartMinute: start, dayEndMinute: SIGHTSEEING_DAY_END_MINUTE, candidateTypes })
-    );
+    const capacities = capacitiesFor(pool);
 
     // rating × preference × distance from where the traveler sleeps (the
     // city center when the lodging isn't known), and each day's route starts

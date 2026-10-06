@@ -10,9 +10,10 @@ import { snapToGrid } from "@/lib/geo";
 import { resolveDayCoords } from "@/lib/itineraryGen";
 import { estimateMealCost } from "@/lib/priceLevelCost";
 import { isFoodPlace } from "@/lib/foodPlace";
-import { fitsCafeMealSlot } from "@/lib/cafeMealSlots";
+import { fitsCafeMealSlot, fitsMainMeal } from "@/lib/cafeMealSlots";
 import { dietRequiredTypes, excludeByDiet } from "@/lib/dietaryFilter";
 import { TripPreferencesSchema } from "@/lib/schemas";
+import { plannedLabel, plannedSlotsByPlace } from "@/lib/mealRepeats";
 import { getTwdRates } from "@/lib/exchangeRate";
 import { estimateFromPriceRange, rankMainMealsByBudget } from "@/lib/mealBudget";
 
@@ -130,7 +131,7 @@ export async function POST(
     const foodPlaces = excludeByDiet([...dietPool, ...pool.filter((p) => !dietIds.has(p.placeId))], diet)
       .filter(isFoodPlace)
       // Breakfast and snack share one café search; keep what suits this slot.
-      .filter((p) => isMainMeal || fitsCafeMealSlot(p, mealType as "breakfast" | "snack"));
+      .filter((p) => (isMainMeal ? fitsMainMeal(p) : fitsCafeMealSlot(p, mealType as "breakfast" | "snack")));
     // Lunch/dinner: in-budget restaurants first (plan/form-preference-wiring.md 1.3).
     const ranked =
       isMainMeal && budget
@@ -158,18 +159,29 @@ export async function POST(
       model,
     );
 
+    // Places already planned for another meal of this trip are labelled and
+    // moved to the end, so swapping out a repeat doesn't just land on another.
+    // Labelled rather than dropped: candidates can be scarce, and some
+    // travelers do want to go back somewhere.
+    const dayNumber = typeof day.day === "number" ? day.day : dayIndex + 1;
+    const plannedElsewhere = plannedSlotsByPlace(days, { day: dayNumber, mealType });
     const newCandidates: MealCandidate[] = filteredPlaces
-      .map((p) => ({
-        name: nameTranslations.get(p.name) ?? p.name,
-        placeId: p.placeId,
-        lat: p.lat,
-        lng: p.lng,
-        address: p.address,
-        rating: p.rating ?? null,
-        estimated_cost:
-          estimateFromPriceRange(p.priceRange, config.currency) ?? estimateMealCost(config.currency, mealType, p.priceLevel),
-        photoName: p.photoName ?? null,
-      }));
+      .map((p) => {
+        const planned = plannedElsewhere.get(p.placeId);
+        return {
+          name: nameTranslations.get(p.name) ?? p.name,
+          placeId: p.placeId,
+          lat: p.lat,
+          lng: p.lng,
+          address: p.address,
+          rating: p.rating ?? null,
+          estimated_cost:
+            estimateFromPriceRange(p.priceRange, config.currency) ?? estimateMealCost(config.currency, mealType, p.priceLevel),
+          photoName: p.photoName ?? null,
+          ...(planned ? { plannedElsewhere: plannedLabel(planned) } : {}),
+        };
+      })
+      .sort((a, b) => Number(Boolean(a.plannedElsewhere)) - Number(Boolean(b.plannedElsewhere)));
 
     // Surface the day's existing meal as the first candidate so picking it
     // again (i.e. "keep what I had") costs nothing extra.

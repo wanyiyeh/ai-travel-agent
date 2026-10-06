@@ -48,9 +48,15 @@ export function placeCandidatesToStopCandidates(
 ): PlaceCandidateToStopCandidateResult {
   const candidates: StopCandidate[] = [];
   const candidateById = new Map<string, PlaceCandidate>();
+  // Google can list one sight as two places with the same name (Okinawa's
+  // 沖繩戰跡國定公園 came back twice, ~200m apart, and filled a whole day),
+  // so a repeated name counts as the same place: the first, more popular one stays.
+  const seenNames = new Set<string>();
 
   places.forEach((place, index) => {
-    if (candidateById.has(place.placeId)) return;
+    const nameKey = place.name.trim().toLowerCase();
+    if (candidateById.has(place.placeId) || seenNames.has(nameKey)) return;
+    seenNames.add(nameKey);
 
     candidates.push({
       id: place.placeId,

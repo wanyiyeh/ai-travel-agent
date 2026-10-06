@@ -131,6 +131,27 @@ describe("generateMealsAndAccommodation", () => {
     expect(systemPrompt()).toContain("早餐請選早午餐");
   });
 
+  it("asks for a long stay in chunks, and a failed chunk still gets real meals", async () => {
+    const restaurants = Array.from({ length: 20 }, (_, i) => place(`Restaurant ${i}`));
+    nearbyMock
+      .mockResolvedValueOnce([place("Cafe A"), place("Cafe B")])
+      .mockResolvedValueOnce(restaurants);
+    lodgingMock.mockResolvedValueOnce([place("Hotel H")]);
+    mockLlm({ accommodation: { id: "H1" }, meals: [] }); // days 1-5
+    createMock.mockRejectedValueOnce(new Error("timeout")); // days 6-7
+
+    const result = await generateMealsAndAccommodation("斯德哥爾摩", 7, "SEK", "moderate");
+
+    expect(createMock).toHaveBeenCalledTimes(2);
+    expect(createMock.mock.calls[1][0].messages[0].content).toContain("住宿已經決定");
+    expect(result.accommodation.placeId).toBe("pid-Hotel H");
+    expect(result.mealsByDay).toHaveLength(7);
+    for (const day of result.mealsByDay) {
+      expect((day.lunch as Record<string, unknown>).placeId).toMatch(/^pid-Restaurant/);
+      expect((day.dinner as Record<string, unknown>).placeId).toMatch(/^pid-Restaurant/);
+    }
+  });
+
   it("falls back to the invent-the-names prompt when there are no candidates", async () => {
     nearbyMock.mockResolvedValue([]);
     mockLlm({ accommodation: { name: "Some Hotel", area: "X" }, meals: [{ lunch: { name: "Some Place" } }] });
