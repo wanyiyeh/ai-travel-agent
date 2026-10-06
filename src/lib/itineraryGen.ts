@@ -13,7 +13,7 @@ export const paceMap: Record<string, string> = {
 export const budgetMap: Record<string, string> = {
   budget: "經濟實惠，住青年旅館，午晚餐以每人約 NT$400 以下的平價小館或外帶為主",
   moderate: "中等消費，住民宿、三星級或商務旅館，午晚餐以每人約 NT$1,000 以下為主",
-  luxury: "高端奢華，住希爾頓、萬豪等級的國際品牌飯店，午晚餐以每人約 NT$1,000～2,000 為主",
+  luxury: "高端奢華，住希爾頓、萬豪等級的國際品牌飯店，午晚餐以每人約 NT$1,000～3,000 為主",
 };
 
 export const interestMap: Record<string, string> = {

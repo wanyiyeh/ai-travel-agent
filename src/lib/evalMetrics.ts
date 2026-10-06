@@ -1,6 +1,6 @@
 import type { BudgetLevel } from "@/lib/fetchCityRestaurants";
 import { MAIN_MEAL_BUDGET_TWD } from "@/lib/mealBudget";
-import { isLuxuryLodging } from "@/lib/lodgingTiers";
+import { isBudgetLodging, isLuxuryLodging } from "@/lib/lodgingTiers";
 import { mapPlaceTypeToCategory } from "@/lib/scheduler/mapPlaceTypeToCategory";
 
 // Measures one generated itinerary for scripts/eval-form-fidelity.ts — how
@@ -34,7 +34,8 @@ export type ItineraryMetrics = {
   vegetarianShare: number;
   /** Lunches/dinners centred on meat or seafood (steak house, seafood, sushi). */
   meatOrSeafoodMeals: number;
-  lodging: { name: string; hostel: boolean; luxury: boolean }[];
+  /** budgetTier: hostel, guest house, B&B, budget inn or motel (lodgingTiers.ts). */
+  lodging: { name: string; budgetTier: boolean; luxury: boolean }[];
   /** Days (other than the return day) with fewer meals than expected — 3 on a transit day, else 4. */
   daysMissingMeals: number;
   /** 1 − distinct places / meals, over meals that have a placeId. */
@@ -123,7 +124,7 @@ export function measureItinerary(days: Rec[], ctx: EvalContext): ItineraryMetric
     if (!acc || !name || lodgingSeen.has(name)) continue;
     lodgingSeen.add(name);
     const types = typesOf(acc.placeId);
-    lodging.push({ name, hostel: types?.[0] === "hostel", luxury: isLuxuryLodging({ name, types }) });
+    lodging.push({ name, budgetTier: isBudgetLodging({ types }), luxury: isLuxuryLodging({ name, types }) });
   }
 
   // --- cities ---

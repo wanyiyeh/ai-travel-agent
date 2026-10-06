@@ -46,9 +46,17 @@ describe("rankLodgingByBudget", () => {
     expect(rankLodgingByBudget(pool, "budget").map((p) => p.name)).toEqual(["Hostel 1", "Hostel 2", "Hostel 3"]);
   });
 
-  it("budget: with too few hostels, puts them first but keeps the rest", () => {
+  it("budget: with too few budget places, puts them first but keeps the rest", () => {
     const pool = [lux(1), hostel(1), business(1)];
     expect(rankLodgingByBudget(pool, "budget").map((p) => p.name)).toEqual(["Hostel 1", "Hilton 1", "Business Hotel 1"]);
+  });
+
+  it("budget: counts guest houses and budget inns too, hostels first, and drops big hotels", () => {
+    // like Asakusa: one hostel among popular hotels was too few for a hostels-only filter
+    const guest = { name: "Guest House", types: ["guest_house", "lodging"] };
+    const inn = { name: "Budget Inn", types: ["budget_japanese_inn", "lodging"] };
+    const pool = [business(1), guest, lux(1), inn, hostel(1)];
+    expect(rankLodgingByBudget(pool, "budget").map((p) => p.name)).toEqual(["Hostel 1", "Guest House", "Budget Inn"]);
   });
 
   it("moderate: drops luxury brands that the hotel search also returns", () => {

@@ -22,7 +22,7 @@ const PACE_OPTIONS: { value: NonNullable<TripPreferences["pace"]>; label: string
 const BUDGET_OPTIONS: { value: NonNullable<TripPreferences["budget"]>; label: string; desc: string }[] = [
   { value: "budget", label: "經濟實惠", desc: "青旅・每餐約 NT$400 內" },
   { value: "moderate", label: "中等消費", desc: "民宿、商務旅館・每餐約 NT$1,000 內" },
-  { value: "luxury", label: "高端奢華", desc: "國際品牌飯店・每餐約 NT$1,000～2,000" },
+  { value: "luxury", label: "高端奢華", desc: "國際品牌飯店・每餐約 NT$1,000～3,000" },
 ];
 
 const START_TIME_OPTIONS: { value: NonNullable<TripPreferences["startTime"]>; label: string; desc: string }[] = [

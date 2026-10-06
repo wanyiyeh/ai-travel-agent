@@ -47,12 +47,23 @@ export function isLuxuryLodging(place: Pick<PlaceCandidate, "name" | "types">): 
 // Enough in-tier places that the LLM / picker still has a real choice.
 const MIN_TIER_MATCHES = 3;
 
+// The budget tier: hostels first, but any of these counts. Hostels alone were
+// too few to trigger the filter (fewer than 3 among Asakusa's popular
+// lodging), so a budget Tokyo trip got the 4-star Asakusa View Hotel.
+const BUDGET_LODGING_TYPES = new Set(["hostel", "guest_house", "bed_and_breakfast", "budget_japanese_inn", "motel"]);
+
+/** Whether Google's primary type puts a place in the budget lodging tier. */
+export function isBudgetLodging(place: Pick<PlaceCandidate, "types">): boolean {
+  return BUDGET_LODGING_TYPES.has(place.types?.[0] ?? "");
+}
+
 /**
  * Narrows a lodging pool to the budget tier. Ordering alone wasn't enough:
  * a budget trip to Sapporo still got the ANA Crowne Plaza, because the LLM
  * picks from the whole list regardless of order. So when at least
  * MIN_TIER_MATCHES places fit the tier, only those are kept:
- * - budget: hostels (by primary type)
+ * - budget: budget lodging types (hostels, guest houses, B&Bs, budget inns,
+ *   motels — by primary type), hostels first
  * - moderate: anything but luxury brands/resorts (its "hotel" search also
  *   returns Hiltons)
  * - luxury: luxury brands/resorts
@@ -66,14 +77,16 @@ export function rankLodgingByBudget<T extends Pick<PlaceCandidate, "name" | "typ
 ): T[] {
   const fits =
     budget === "budget"
-      ? (p: T) => p.types?.[0] === "hostel"
+      ? isBudgetLodging
       : budget === "moderate"
         ? (p: T) => !isLuxuryLodging(p)
         : budget === "luxury"
           ? isLuxuryLodging
           : null;
   if (!fits) return places;
-  const matches = places.filter(fits);
+  const isHostel = (p: T) => p.types?.[0] === "hostel";
+  const inTier = places.filter(fits);
+  const matches = budget === "budget" ? [...inTier.filter(isHostel), ...inTier.filter((p) => !isHostel(p))] : inTier;
   if (matches.length >= MIN_TIER_MATCHES) return matches;
   return [...matches, ...places.filter((p) => !fits(p))];
 }

@@ -126,10 +126,10 @@ const CHECKS: Check[] = [
         .join("、"),
   },
   {
-    title: "預算：經濟實惠的午晚餐 7 成以上在 NT$400 內，住宿是青旅",
+    title: "預算：經濟實惠的午晚餐 7 成以上在 NT$400 內，住宿是平價類型（青旅、民宿、平價旅館）",
     pass: (r) => {
       const m = r.get("tokyo-budget");
-      return m ? (m.mainMealsWithinBudget ?? 0) >= 0.7 && m.lodging.some((l) => l.hostel) : null;
+      return m ? (m.mainMealsWithinBudget ?? 0) >= 0.7 && m.lodging.some((l) => l.budgetTier) : null;
     },
     detail: (r) => {
       const m = r.get("tokyo-budget");
@@ -137,7 +137,7 @@ const CHECKS: Check[] = [
     },
   },
   {
-    title: "預算：高端奢華的午晚餐 5 成以上在 NT$1,000～2,000，住宿是國際品牌",
+    title: "預算：高端奢華的午晚餐 5 成以上在 NT$1,000～3,000，住宿是國際品牌",
     pass: (r) => {
       const m = r.get("tokyo-luxury");
       return m ? (m.mainMealsWithinBudget ?? 0) >= 0.5 && m.lodging.some((l) => l.luxury) : null;
