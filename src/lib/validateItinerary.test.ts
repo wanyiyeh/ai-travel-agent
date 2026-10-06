@@ -308,4 +308,23 @@ describe("validateItinerary — flight time conflicts", () => {
     const result = validateItinerary(itinerary, flightInfo, "台北", "台北");
     expect(result.issues.some((i) => i.code === "LAST_DAY_DEPARTURE_CONFLICT")).toBe(true);
   });
+
+  // Story: every eval run warned DAY_TOO_FEW_STOPS or STOPS_ALL_SAME_TIME on
+  // the return day, which only has the morning before the flight.
+  it("does not flag a short, morning-only return day", () => {
+    const itinerary: Itinerary = {
+      title: "t",
+      days: [
+        makeDay(1),
+        makeDay(2),
+        makeDay(3, { accommodation: null, stops: [makeStop({ time_of_day: "morning" })] }),
+      ],
+    };
+    const oneStop = validateItinerary(itinerary, makeFlightInfo(), "台北", "台北");
+    expect(oneStop.issues.some((i) => i.code === "DAY_TOO_FEW_STOPS")).toBe(false);
+
+    itinerary.days[2].stops = [makeStop({ time_of_day: "morning" }), makeStop({ time_of_day: "morning" })];
+    const allMorning = validateItinerary(itinerary, makeFlightInfo(), "台北", "台北");
+    expect(allMorning.issues.some((i) => i.code === "STOPS_ALL_SAME_TIME")).toBe(false);
+  });
 });

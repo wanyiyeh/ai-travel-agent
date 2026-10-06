@@ -132,8 +132,11 @@ export function validateItinerary(
   // Per-day content checks
   for (const day of days) {
     const isTransit = day.isTransitDay === true;
+    // The return day only has the morning before the flight, so one stop, or
+    // stops that are all "morning", is expected there.
+    const isReturnDay = day.day === days.length;
 
-    if (!isTransit && day.stops.length < 2) {
+    if (!isTransit && !isReturnDay && day.stops.length < 2) {
       issues.push({
         severity: "warning",
         code: "DAY_TOO_FEW_STOPS",
@@ -151,7 +154,7 @@ export function validateItinerary(
       });
     }
 
-    if (day.stops.length >= 2) {
+    if (!isReturnDay && day.stops.length >= 2) {
       const timesOfDay = day.stops.map((s) => s.time_of_day).filter(Boolean);
       const unique = new Set(timesOfDay);
       if (timesOfDay.length === day.stops.length && unique.size === 1) {
