@@ -161,3 +161,30 @@ describe("long stays — supplemental attraction search", () => {
     for (const s of days.flat()) expect(used).not.toContain(s.placeId);
   });
 });
+
+// Story: a culture trip's day 3 was 太陽城 9:00-12:00, 東京巨蛋 13:00-15:00 and
+// 東京國立博物館 15:15-18:15 — the museum ran 15 minutes past 18:00 and was
+// dropped, leaving 2 stops.
+describe("generateDayStops — the end of the day", () => {
+  it("keeps a last stop that ends up to 30 minutes past 18:00", async () => {
+    // Mostly 2-hour landmarks, so the day is planned for 3 stops; the two
+    // 3-hour museums nearest the center make it run to 18:15.
+    const place = (i: number, type: string): PlaceCandidate => ({
+      ...POOL[0],
+      name: `${type} ${i}`,
+      placeId: `${type}-${i}`,
+      lat: 35.68 + i * 0.002,
+      types: ["tourist_attraction", type],
+    });
+    nearbyMock.mockResolvedValue([
+      place(0, "museum"),
+      place(1, "museum"),
+      ...Array.from({ length: 18 }, (_, i) => place(i + 2, "historical_landmark")),
+    ]);
+
+    const [day] = await generateDayStops("東京", 1, "JPY", [], undefined, NEUTRAL_PREFERENCE_INTENT);
+
+    expect(day.map((s) => s.placeId)).toEqual(expect.arrayContaining(["museum-0", "museum-1"]));
+    expect(day).toHaveLength(3);
+  });
+});

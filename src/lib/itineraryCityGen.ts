@@ -740,6 +740,13 @@ function dayStartFor(preferenceIntent: PreferenceIntent): number {
 // opens at 18:00) instead of all finishing before lunch.
 const SIGHTSEEING_DAY_END_MINUTE = 18 * 60;
 
+// How far past SIGHTSEEING_DAY_END_MINUTE the last stop may still end — dinner
+// runs until 20:00. Without it, a culture trip lost a 3-hour museum that ran
+// to 18:15. Replaying every cached pool, 30 minutes kept 46 of 56 dropped
+// stops while adding only about 1% more stops overall, so the pace levels stay
+// apart. Only the trimming uses it: capacity and stretching still aim for 18:00.
+const DAY_END_GRACE_MINUTES = 30;
+
 // A second look at a city once its 20 tourist_attraction results run out —
 // a 14-day Stockholm trip had 1 stop a day from day 8 and an empty return
 // day. Nearby Search has no paging, so this asks for a different mix of
@@ -764,12 +771,13 @@ async function withSupplementalAttractions(
   return [...places, ...extra.filter((p) => !inPool.has(p.placeId) && !usedIds.has(p.placeId))];
 }
 
-// estimateStopCapacity only approximates how many stops fit (the lunch-break
-// push can waste more than the hour it budgets for), so drop whatever still
-// ends past the day's end. assignTimeSlots schedules strictly in order, so
-// this only ever trims trailing stops, never leaves a gap mid-day.
+// estimateStopCapacity only approximates how many stops fit (it uses the
+// pool's average stay, and an interest can favor longer ones), so drop
+// whatever still ends past the day's end plus DAY_END_GRACE_MINUTES.
+// assignTimeSlots schedules strictly in order, so this only ever trims
+// trailing stops, never leaves a gap mid-day.
 function withinDayEnd(skeleton: SkeletonStop[], dayEndMinute: number): SkeletonStop[] {
-  return skeleton.filter((s) => s.endMinute <= dayEndMinute);
+  return skeleton.filter((s) => s.endMinute <= dayEndMinute + DAY_END_GRACE_MINUTES);
 }
 
 // Shared by generateDayStopsViaScheduler and generateTransitDayStopsViaScheduler
