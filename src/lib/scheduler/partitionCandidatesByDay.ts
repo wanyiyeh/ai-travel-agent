@@ -1,4 +1,3 @@
-import { haversineKm } from "@/lib/distanceMatrix";
 import { scoreCandidate, type StopCandidate } from "@/lib/scheduler/selectAndOrderStops";
 
 /**
@@ -40,9 +39,10 @@ export function distributeStopsPerDay(poolSize: number, maxPerDay: number[]): nu
  * day's group is picked in two steps: the single highest-scoring remaining
  * candidate becomes that day's "seed" (spreads the best-reviewed places
  * across days instead of one day claiming them all), then the group fills
- * out with the `count - 1` candidates geographically nearest to the seed
- * (keeps each day's stops in one area rather than scattered across the
- * city — selectAndOrderStops/buildDaySkeleton still does the actual
+ * out with the `count - 1` best candidates scored from the seed — rating ×
+ * interest × distance from the seed (keeps each day's stops in one area
+ * rather than scattered across the city, while still favoring the
+ * traveler's interests — selectAndOrderStops/buildDaySkeleton still does the actual
  * within-day route ordering afterward, this only decides which candidates
  * belong to which day). If the pool runs out, later days simply get fewer
  * candidates than requested rather than reusing an already-assigned one.
@@ -74,9 +74,11 @@ export function partitionCandidatesByDay(
     const seed = remaining.find((c) => groupOf(c).length <= count) ?? remaining[0];
     const day = take(groupOf(seed));
 
-    remaining.sort(
-      (a, b) => haversineKm(seed.lat, seed.lng, a.lat, a.lng) - haversineKm(seed.lat, seed.lng, b.lat, b.lng)
-    );
+    // The same score as the seed's, but measured from the seed instead of the
+    // lodging, so the day stays in one area. Picking by distance alone undid the
+    // interest weights: staying in Shinjuku, the 8 places nearest each seed were
+    // the same for 文化歷史, 自然景觀 and no preference at all.
+    remaining.sort((a, b) => scoreCandidate(b, interestWeights, seed) - scoreCandidate(a, interestWeights, seed));
     for (const candidate of [...remaining]) {
       if (day.length >= count) break;
       if (!remaining.includes(candidate)) continue; // already taken with its group
