@@ -76,6 +76,21 @@ describe("partitionCandidatesByDay with a lodging anchor", () => {
   });
 });
 
+// Story: staying in Shinjuku, 文化歷史, 自然景觀 and no preference all got
+// the same 8 places — each day was filled with the places nearest its first
+// stop, whatever their type.
+describe("partitionCandidatesByDay with interest weights", () => {
+  it("fills a day with a preferred place over a slightly nearer one", () => {
+    const seed = { ...candidate("seed", 0, 0, 5), type: "museum" };
+    const nearPark = { ...candidate("park", 0, 0.01, 4), type: "park" };
+    const temple = { ...candidate("temple", 0, 0.02, 4), type: "temple" };
+    const [none] = partitionCandidatesByDay([seed, nearPark, temple], [2]);
+    const [culture] = partitionCandidatesByDay([seed, nearPark, temple], [2], { museum: 1.5, temple: 1.5 });
+    expect(none.map((c) => c.id)).toEqual(["seed", "park"]);
+    expect(culture.map((c) => c.id)).toEqual(["seed", "temple"]);
+  });
+});
+
 describe("partitionCandidatesByDay with related places", () => {
   it("puts a whole group on one day even when its second place is far down the ranking", () => {
     const sensoji = { ...candidate("sensoji", 0, 0, 5), groupId: "sensoji" };
