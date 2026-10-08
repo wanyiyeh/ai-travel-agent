@@ -114,6 +114,39 @@ describe("partitionCandidatesByDay with related places", () => {
   });
 });
 
+describe("partitionCandidatesByDay with day themes", () => {
+  // Same spot, so distance never decides; ratings decide among equals.
+  const theme = (id: string, rating: number) => ({ ...candidate(id, 0, 0, rating), type: "museum" });
+  const popular = (id: string, rating: number) => ({ ...candidate(id, 0, 0, rating), type: "park" });
+  const onTheme = (c: StopCandidate) => c.type === "museum";
+  const popularIds = new Set(["p1", "p2"]);
+  const isPopular = (c: StopCandidate) => popularIds.has(c.id);
+
+  it("fills a themed day with on-theme places and keeps the rest for popular sights", () => {
+    const pool = [popular("p1", 5), popular("p2", 4.9), theme("t1", 4), theme("t2", 3.9), theme("t3", 3.8)];
+    const [day] = partitionCandidatesByDay(pool, [3], {}, undefined, {
+      themes: [{ onTheme, themeCount: 2 }],
+      isPopular,
+    });
+    expect(day.map((c) => c.id)).toEqual(["t1", "t2", "p1"]);
+  });
+
+  it("fills the day with whatever's left when the theme pool runs out", () => {
+    const pool = [popular("p1", 5), popular("p2", 4.9), theme("t1", 4), candidate("other", 0, 0, 3)];
+    const [day] = partitionCandidatesByDay(pool, [4], {}, undefined, {
+      themes: [{ onTheme, themeCount: 3 }],
+      isPopular,
+    });
+    expect(day.map((c) => c.id)).toEqual(["t1", "p1", "p2", "other"]);
+  });
+
+  it("leaves a day without a theme as before", () => {
+    const pool = [popular("p1", 5), theme("t1", 4)];
+    const [day] = partitionCandidatesByDay(pool, [1], {}, undefined, { themes: [undefined], isPopular });
+    expect(day.map((c) => c.id)).toEqual(["p1"]);
+  });
+});
+
 describe("distributeStopsPerDay", () => {
   it("gives every day its cap when the pool is big enough", () => {
     expect(distributeStopsPerDay(20, [4, 4, 4])).toEqual([4, 4, 4]);

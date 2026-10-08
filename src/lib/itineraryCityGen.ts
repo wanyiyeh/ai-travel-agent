@@ -14,7 +14,6 @@ import { placeCandidatesToStopCandidates } from "@/lib/scheduler/placeCandidates
 import { distributeStopsPerDay, partitionCandidatesByDay } from "@/lib/scheduler/partitionCandidatesByDay";
 import { buildDaySkeleton, type SkeletonStop } from "@/lib/scheduler/buildDaySkeleton";
 import { computeDepartureDayBudget } from "@/lib/scheduler/departureDayBudget";
-import { type DurationCategory } from "@/lib/scheduler/assignTimeSlots";
 import { estimateStopCapacity } from "@/lib/scheduler/stopCapacity";
 import { generateSkeletonCopy } from "@/lib/skeletonCopy";
 import { NEUTRAL_PREFERENCE_INTENT, type PreferenceIntent } from "@/lib/schemas";
@@ -25,6 +24,7 @@ import { getTwdRates } from "@/lib/exchangeRate";
 import { rankMainMealsByBudget } from "@/lib/mealBudget";
 import { fitsMainMeal, splitCafePool } from "@/lib/cafeMealSlots";
 import { stayAreaFor } from "@/lib/stayAreas";
+import { THEMES, dayThemeKeys, interestWeightsOf, isOnTheme, popularSlots, themesOf, type ThemeKey } from "@/lib/dayThemes";
 import { dietPromptLine, dietRequiredTypes, excludeByDiet } from "@/lib/dietaryFilter";
 
 // Shared AI-generation helpers for building out a city's worth of itinerary
@@ -271,7 +271,7 @@ async function generateTransitDayStopsViaScheduler(
       hintById.set(id, { name: place.name, rating: place.rating, lat: place.lat, lng: place.lng, types: place.types });
     }
 
-    const interestWeights = buildInterestWeights(preferenceIntent.interestBoost);
+    const interestWeights = interestWeightsOf(preferenceIntent.interestBoost);
     const skeleton = withinDayEnd(
       buildDaySkeleton(candidates, {
         count: capacityFor(candidates.map((c) => c.type)),
@@ -385,7 +385,7 @@ export async function generateDepartureDayStops(
     const { candidates, candidateById } = placeCandidatesToStopCandidates(pool);
     if (candidates.length === 0) return [];
 
-    const interestWeights = buildInterestWeights(preferenceIntent.interestBoost);
+    const interestWeights = interestWeightsOf(preferenceIntent.interestBoost);
     const anchor = lodging ?? coords;
     const skeleton = buildDaySkeleton(candidates, {
       count: estimatedCount,
@@ -697,32 +697,6 @@ async function generateDayStopsWithLLM(
   });
 }
 
-// Only covers the tags parsePreferenceIntent's own prompt gives as examples
-// (src/lib/preferenceIntent.ts) — interestBoost is free-form, so any tag not
-// listed here (including ones the model invents) simply gets no boost rather
-// than erroring. "local_food"/"nightlife"-style tags have no entry because
-// this candidate pool only ever queries tourist_attraction places — there's
-// no matching candidate type to boost.
-const INTEREST_CATEGORY_BOOST: Record<string, DurationCategory[]> = {
-  history: ["landmark", "temple"],
-  architecture: ["landmark", "temple"],
-  art: ["museum"],
-  culture: ["museum", "temple", "landmark"],
-  nature: ["park", "viewpoint"],
-  shopping: ["shopping"],
-};
-const INTEREST_BOOST_WEIGHT = 1.5;
-
-function buildInterestWeights(interestBoost: string[]): Record<string, number> {
-  const weights: Record<string, number> = {};
-  for (const tag of interestBoost) {
-    const categories = INTEREST_CATEGORY_BOOST[tag];
-    if (!categories) continue;
-    for (const category of categories) weights[category] = INTEREST_BOOST_WEIGHT;
-  }
-  return weights;
-}
-
 // When a sightseeing day starts, by the form's 出門時間 (plan/form-preference-
 // wiring.md 1.6): early = out before 8:00, normal = 9:00, late = after 11:00.
 // "normal" is also the default when nothing was chosen.
@@ -837,19 +811,35 @@ async function generateDayStopsViaScheduler(
   budget: BudgetLevel | undefined,
   preferenceIntent: PreferenceIntent,
   firstDayStartMinute: number | undefined,
-  lodging: { lat: number; lng: number } | undefined
-): Promise<Array<Array<Record<string, unknown>>> | null> {
+  lodging: { lat: number; lng: number } | undefined,
+  firstThemeIndex: number
+): Promise<ThemedDayStops | null> {
   try {
     const apiKey = process.env.GOOGLE_PLACES_API_KEY!;
 
     const coords = await getCityCenter(cityName, apiKey);
     if (!coords) return null;
 
+    const dayThemes = dayThemeKeys(themesOf(preferenceIntent.interestBoost), dayCount, firstThemeIndex);
+    const cityThemes = [...new Set(dayThemes.filter((t): t is ThemeKey => t !== undefined))];
+
     // Always the full pool: how many stops a day gets now depends on pace and
     // candidate types (estimateStopCapacity), not a fixed count, and the
     // Nearby cache stores 20 regardless, so asking for fewer saves nothing.
-    const places = await fetchNearbyPlaceCandidates(coords, apiKey, ["tourist_attraction"], 10000, 20);
+    // Each theme used in this city adds its own pool (cached like any other).
+    const [places, ...themePools] = await Promise.all([
+      fetchNearbyPlaceCandidates(coords, apiKey, ["tourist_attraction"], 10000, 20),
+      ...cityThemes.map((theme) => fetchNearbyPlaceCandidates(coords, apiKey, THEMES[theme].searchTypes, 10000, 20)),
+    ]);
     if (places.length === 0) return null;
+    const popularIds = new Set(places.map((p) => p.placeId));
+    const merged = [...places];
+    const themeOnlyIds = new Set<string>();
+    for (const place of themePools.flat()) {
+      if (merged.some((p) => p.placeId === place.placeId)) continue;
+      merged.push(place);
+      themeOnlyIds.add(place.placeId);
+    }
 
     const lockedIds = new Set(lockedPlaceIds);
     const pace = preferenceIntent.pace ?? "moderate";
@@ -857,14 +847,19 @@ async function generateDayStopsViaScheduler(
     const dayStarts = Array.from({ length: dayCount }, (_, dayIdx) =>
       dayIdx === 0 ? (firstDayStartMinute ?? dayStartMinute) : dayStartMinute
     );
+    // Estimated without the theme pools: a culture pool is mostly 3-hour
+    // museums, which cut the estimate to 2 stops a day, while the places
+    // actually picked near the lodging were 2-hour sights — culture days ended
+    // by 15:00. Longer days than estimated get trimmed at the day's end anyway.
     const capacitiesFor = (pool: PlaceCandidate[]) => {
-      const candidateTypes = placeCandidatesToStopCandidates(pool).candidates.map((c) => c.type);
+      const estimateFrom = pool.filter((p) => !themeOnlyIds.has(p.placeId));
+      const candidateTypes = placeCandidatesToStopCandidates(estimateFrom).candidates.map((c) => c.type);
       return dayStarts.map((start) =>
         estimateStopCapacity({ pace, dayStartMinute: start, dayEndMinute: SIGHTSEEING_DAY_END_MINUTE, candidateTypes })
       );
     };
 
-    const available = places.filter((p) => !lockedIds.has(p.placeId));
+    const available = merged.filter((p) => !lockedIds.has(p.placeId));
     const neededStops = capacitiesFor(available).reduce((sum, n) => sum + n, 0);
     const pool = await withSupplementalAttractions(coords, apiKey, available, lockedIds, neededStops);
 
@@ -876,19 +871,21 @@ async function generateDayStopsViaScheduler(
       hintById.set(id, { name: place.name, rating: place.rating, lat: place.lat, lng: place.lng, types: place.types });
     }
 
-    const interestWeights = buildInterestWeights(preferenceIntent.interestBoost);
+    const interestWeights = interestWeightsOf(preferenceIntent.interestBoost);
     const capacities = capacitiesFor(pool);
 
     // rating × preference × distance from where the traveler sleeps (the
     // city center when the lodging isn't known), and each day's route starts
     // there too.
     const anchor = lodging ?? coords;
-    const dayGroups = partitionCandidatesByDay(
-      candidates,
-      distributeStopsPerDay(candidates.length, capacities),
-      interestWeights,
-      anchor
-    );
+    const counts = distributeStopsPerDay(candidates.length, capacities);
+    const onTheme = (theme: ThemeKey) => (c: { id: string }) => isOnTheme(candidateById.get(c.id)?.types, theme);
+    const dayGroups = partitionCandidatesByDay(candidates, counts, interestWeights, anchor, {
+      themes: dayThemes.map((theme, dayIdx) =>
+        theme ? { onTheme: onTheme(theme), themeCount: counts[dayIdx] - popularSlots(counts[dayIdx]) } : undefined
+      ),
+      isPopular: (c) => popularIds.has(c.id),
+    });
     const skeletonsByDay: SkeletonStop[][] = dayGroups.map((group, dayIdx) =>
       group.length > 0
         ? withinDayEnd(
@@ -923,16 +920,33 @@ async function generateDayStopsViaScheduler(
       ),
     ]);
 
-    return skeletonsByDay.map((skeleton, dayIdx) =>
-      assembleScheduledStops(skeleton, candidateById, copies[dayIdx], distancesByDay[dayIdx], currency)
-    );
+    return {
+      stopsByDay: skeletonsByDay.map((skeleton, dayIdx) =>
+        assembleScheduledStops(skeleton, candidateById, copies[dayIdx], distancesByDay[dayIdx], currency)
+      ),
+      // A day only claims its theme when it actually got an on-theme stop.
+      themeByDay: skeletonsByDay.map((skeleton, dayIdx) => {
+        const theme = dayThemes[dayIdx];
+        return theme && skeleton.some(onTheme(theme)) ? theme : undefined;
+      }),
+    };
   } catch (err) {
     console.warn("[generateDayStopsViaScheduler] falling back to LLM:", err);
     return null;
   }
 }
 
-export async function generateDayStops(
+export type ThemedDayStops = {
+  stopsByDay: Array<Array<Record<string, unknown>>>;
+  /** Each day's theme (plan/form-preference-wiring.md 1.4), undefined for a day without one. */
+  themeByDay: (ThemeKey | undefined)[];
+};
+
+/**
+ * generateDayStops plus each day's theme, for callers that title the days.
+ * The LLM fallback has no themes.
+ */
+export async function generateThemedDayStops(
   cityName: string,
   stayDays: number,
   currency: string,
@@ -947,8 +961,11 @@ export async function generateDayStops(
   firstDayStartMinute?: number,
   // Where the traveler stays in this city — stops are scored by distance from
   // it and each day's route starts there. Defaults to the city center.
-  lodging?: { lat: number; lng: number }
-): Promise<Array<Array<Record<string, unknown>>>> {
+  lodging?: { lat: number; lng: number },
+  // Where the theme rotation continues from — the trip's sightseeing days so
+  // far, so each city doesn't restart at the first theme.
+  firstThemeIndex = 0
+): Promise<ThemedDayStops> {
   const scheduled = await generateDayStopsViaScheduler(
     cityName,
     stayDays,
@@ -957,8 +974,16 @@ export async function generateDayStops(
     budget,
     preferenceIntent,
     firstDayStartMinute,
-    lodging
+    lodging,
+    firstThemeIndex
   );
   if (scheduled) return scheduled;
-  return generateDayStopsWithLLM(cityName, stayDays, currency);
+  const stopsByDay = await generateDayStopsWithLLM(cityName, stayDays, currency);
+  return { stopsByDay, themeByDay: stopsByDay.map(() => undefined) };
+}
+
+export async function generateDayStops(
+  ...args: Parameters<typeof generateThemedDayStops>
+): Promise<Array<Array<Record<string, unknown>>>> {
+  return (await generateThemedDayStops(...args)).stopsByDay;
 }

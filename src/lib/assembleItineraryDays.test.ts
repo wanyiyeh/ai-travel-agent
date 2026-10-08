@@ -13,6 +13,7 @@ import { computeArrivalDayStartMinute } from "@/lib/scheduler/arrivalDayStart";
 
 const planTripMock = vi.fn();
 const dayStopsMock = vi.fn();
+const themeByDayMock = vi.fn();
 const transitStopsMock = vi.fn();
 const departureStopsMock = vi.fn();
 const mealsMock = vi.fn();
@@ -27,7 +28,10 @@ vi.mock("@/lib/preferenceIntent", () => ({
 }));
 vi.mock("@/lib/itineraryCityGen", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/itineraryCityGen")>()),
-  generateDayStops: (...args: unknown[]) => dayStopsMock(...args),
+  generateThemedDayStops: async (...args: unknown[]) => ({
+    stopsByDay: await dayStopsMock(...args),
+    themeByDay: themeByDayMock(...args),
+  }),
   generateTransitDayStops: (...args: unknown[]) => transitStopsMock(...args),
   generateDepartureDayStops: (...args: unknown[]) => departureStopsMock(...args),
   generateMealsAndAccommodation: (...args: unknown[]) => mealsMock(...args),
@@ -51,6 +55,7 @@ const DAY_STOPS_BUDGET = 4;
 const DAY_STOPS_INTENT = 5;
 const DAY_STOPS_FIRST_START = 6;
 const DAY_STOPS_LODGING = 7;
+const DAY_STOPS_FIRST_THEME = 8;
 const DEPARTURE_LODGING = 6;
 const TRANSIT_BUDGET = 3;
 const TRANSIT_INTENT = 4;
@@ -87,6 +92,7 @@ beforeEach(() => {
   dayStopsMock.mockImplementation(async (_city: string, count: number) =>
     Array.from({ length: count }, () => [])
   );
+  themeByDayMock.mockImplementation((_city: string, count: number) => Array.from({ length: count }, () => undefined));
   transitStopsMock.mockResolvedValue([]);
   departureStopsMock.mockResolvedValue([]);
   mealsMock.mockImplementation(async (_city: string, nights: number) => ({
@@ -233,5 +239,28 @@ describe("assembleItineraryDays — form field wiring", () => {
     for (const call of mealsMock.mock.calls) {
       expect(call).toContainEqual(expect.objectContaining({ dietaryRestrictions: ["no_seafood"] }));
     }
+  });
+});
+
+describe("assembleItineraryDays — themed days", () => {
+  it("titles a sightseeing day by its theme, and a day without one as 探索", async () => {
+    themeByDayMock.mockImplementation((city: string) => (city === "東京" ? ["culture", undefined, "nature"] : ["culture"]));
+
+    const result = await run(undefined, undefined);
+
+    expect(result!.days.filter((d) => !d.isTransitDay).map((d) => d.theme)).toEqual([
+      "東京 文化巡禮",
+      "東京 探索",
+      "東京 自然漫遊",
+      "大阪 文化巡禮",
+      "返程日",
+    ]);
+  });
+
+  it("continues the theme rotation from city to city", async () => {
+    await run(undefined, undefined);
+
+    // 東京 has 3 sightseeing days, so 大阪's first day is the trip's 4th.
+    expect(dayStopsMock.mock.calls.map((c) => c[DAY_STOPS_FIRST_THEME])).toEqual([0, 3]);
   });
 });
