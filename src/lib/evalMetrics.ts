@@ -46,6 +46,8 @@ export type ItineraryMetrics = {
   inventedMeals: number;
   /** Cities in order, consecutive duplicates merged. */
   cities: string[];
+  /** Each sightseeing day's title, e.g. 「東京 文化巡禮」 (dayThemes.ts). */
+  dayTitles: string[];
 };
 
 const MEAL_KEYS = ["breakfast", "lunch", "snack", "dinner"] as const;
@@ -151,5 +153,6 @@ export function measureItinerary(days: Rec[], ctx: EvalContext): ItineraryMetric
     adjacentRepeats,
     inventedMeals,
     cities,
+    dayTitles: sightseeing.map((d) => str(d.theme) ?? ""),
   };
 }

@@ -79,6 +79,12 @@ const SCENARIOS: Scenario[] = [
   { id: "tokyo-culture", label: "東京・偏好文化歷史", flightInfo: TOKYO, preferences: { interests: ["culture"] } },
   { id: "tokyo-nature", label: "東京・偏好自然景觀", flightInfo: TOKYO, preferences: { interests: ["nature"] } },
   {
+    id: "tokyo-culture-nature",
+    label: "東京・文化歷史＋自然景觀（主題輪流）",
+    flightInfo: TOKYO,
+    preferences: { interests: ["culture", "nature"] },
+  },
+  {
     id: "tokyo-vegetarian",
     label: "東京・素食",
     flightInfo: TOKYO,
@@ -165,6 +171,24 @@ const CHECKS: Check[] = [
         : null,
     detail: (r) =>
       `自然組 ${pct(share(r.get("tokyo-nature"), ["park", "viewpoint"]))}、文化組 ${pct(share(r.get("tokyo-culture"), ["park", "viewpoint"]))}`,
+  },
+  {
+    title: "主題日：只選文化歷史，每個觀光日都是「文化巡禮」",
+    pass: (r) => {
+      const t = r.get("tokyo-culture")?.dayTitles;
+      return t ? t.length > 0 && t.every((title) => title.endsWith("文化巡禮")) : null;
+    },
+    detail: (r) => r.get("tokyo-culture")?.dayTitles.join("、") ?? "—",
+  },
+  {
+    title: "主題日：選文化＋自然，兩個主題輪流（不連續兩天同主題）",
+    pass: (r) => {
+      const t = r.get("tokyo-culture-nature")?.dayTitles;
+      if (!t) return null;
+      const hasBoth = t.some((x) => x.endsWith("文化巡禮")) && t.some((x) => x.endsWith("自然漫遊"));
+      return hasBoth && t.every((x, i) => i === 0 || x !== t[i - 1]);
+    },
+    detail: (r) => r.get("tokyo-culture-nature")?.dayTitles.join("、") ?? "—",
   },
   {
     title: "飲食：素食組有素食餐廳、沒有牛排／海鮮／壽司",

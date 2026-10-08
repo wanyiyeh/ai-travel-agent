@@ -86,6 +86,11 @@ describe("measureItinerary", () => {
     expect(m.cities).toEqual(["東京", "大阪"]);
   });
 
+  it("lists the sightseeing days' titles", () => {
+    const titled = days.map((d, i) => ({ ...d, theme: i === 0 ? "東京 文化巡禮" : undefined }));
+    expect(measureItinerary(titled, ctx).dayTitles).toEqual(["東京 文化巡禮", ""]);
+  });
+
   it("leaves budget fit empty when no budget was chosen", () => {
     expect(measureItinerary(days, { ...ctx, budget: undefined }).mainMealsWithinBudget).toBeNull();
   });
