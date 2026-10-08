@@ -26,6 +26,19 @@ export function distributeStopsPerDay(poolSize: number, maxPerDay: number[]): nu
   return counts;
 }
 
+export type DayThemeSlots = {
+  onTheme: (c: StopCandidate) => boolean;
+  /** How many of the day's stops should be on theme. */
+  themeCount: number;
+};
+
+export type PartitionOptions = {
+  /** Per day; undefined for a day without a theme. */
+  themes?: (DayThemeSlots | undefined)[];
+  /** The popular-sight pool, for a themed day's remaining stops. */
+  isPopular?: (c: StopCandidate) => boolean;
+};
+
 /**
  * Splits one shared candidate pool into disjoint per-day groups — the gap
  * found while scoping how to wire buildDaySkeleton into a real multi-day
@@ -47,12 +60,18 @@ export function distributeStopsPerDay(poolSize: number, maxPerDay: number[]): nu
  * belong to which day). If the pool runs out, later days simply get fewer
  * candidates than requested rather than reusing an already-assigned one.
  * Candidates sharing a `groupId` always land on the same day.
+ *
+ * With `options.themes`, a themed day seeds from an on-theme place, fills
+ * `themeCount` stops (seed included) from on-theme places, and the rest from
+ * `isPopular` ones — each step falling back to anything left when its kind
+ * runs out, so a day is never short just because the theme pool is.
  */
 export function partitionCandidatesByDay(
   candidates: StopCandidate[],
   perDayCounts: number[],
   interestWeights: Record<string, number> = {},
-  anchor?: { lat: number; lng: number }
+  anchor?: { lat: number; lng: number },
+  options: PartitionOptions = {}
 ): StopCandidate[][] {
   const remaining = [...candidates];
   const days: StopCandidate[][] = [];
@@ -62,16 +81,19 @@ export function partitionCandidatesByDay(
     return group;
   };
 
-  for (const count of perDayCounts) {
+  perDayCounts.forEach((count, dayIdx) => {
     if (count <= 0 || remaining.length === 0) {
       days.push([]);
-      continue;
+      return;
     }
+    const theme = options.themes?.[dayIdx];
 
     remaining.sort((a, b) => scoreCandidate(b, interestWeights, anchor) - scoreCandidate(a, interestWeights, anchor));
     // A group (parts of one sight) is taken whole. The seed is the best place
     // whose group fits; one that fits nowhere still goes in whole, not split.
-    const seed = remaining.find((c) => groupOf(c).length <= count) ?? remaining[0];
+    const fits = (c: StopCandidate) => groupOf(c).length <= count;
+    const seed =
+      (theme && remaining.find((c) => theme.onTheme(c) && fits(c))) ?? remaining.find(fits) ?? remaining[0];
     const day = take(groupOf(seed));
 
     // The same score as the seed's, but measured from the seed instead of the
@@ -79,15 +101,22 @@ export function partitionCandidatesByDay(
     // interest weights: staying in Shinjuku, the 8 places nearest each seed were
     // the same for 文化歷史, 自然景觀 and no preference at all.
     remaining.sort((a, b) => scoreCandidate(b, interestWeights, seed) - scoreCandidate(a, interestWeights, seed));
-    for (const candidate of [...remaining]) {
-      if (day.length >= count) break;
-      if (!remaining.includes(candidate)) continue; // already taken with its group
-      const group = groupOf(candidate);
-      if (day.length + group.length <= count) day.push(...take(group));
+    const fill = (limit: number, wanted: (c: StopCandidate) => boolean) => {
+      for (const candidate of [...remaining]) {
+        if (day.length >= limit) break;
+        if (!remaining.includes(candidate) || !wanted(candidate)) continue; // taken with its group, or not wanted
+        const group = groupOf(candidate);
+        if (day.length + group.length <= limit) day.push(...take(group));
+      }
+    };
+    if (theme) {
+      fill(theme.themeCount, theme.onTheme);
+      if (options.isPopular) fill(count, options.isPopular);
     }
+    fill(count, () => true);
 
     days.push(day);
-  }
+  });
 
   return days;
 }

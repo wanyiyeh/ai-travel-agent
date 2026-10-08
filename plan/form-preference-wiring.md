@@ -388,6 +388,15 @@ Google 依請求裡最貴的欄位計費（Pro：每月免費 5,000 次；Enterp
 
 ### 階段 2：每天一個主題、市區偏好、飲品、室內行程、固定行程（`feat/themed-days`）
 
+2026-10-08 決定拆成 4 個 PR：2a 主題日（`feat/themed-days`）、2b 飲品（`feat/drinks`）、
+2c 室內行程（`feat/indoor-first`）、2d 固定行程（`feat/fixed-events`）。2a 的決定：
+- 表單偏好維持現在 5 個；只有美食、文化歷史、自然景觀、購物有主題日，「冒險戶外」到階段 3 再換成水上、陸上活動。
+- 只選 1 個偏好時，每個觀光日都是那個主題。
+- 每天約三分之一保留熱門景點：6 個點 → 2 個熱門，3 個 → 1 個，2 個 → 1 個，只有 1 個點時全給主題。
+- 主題輪流跨城市延續，不會每到一個城市就從第一個主題重來。
+- 文化歷史的主題池不查寺廟、神社（會查到大量小神社），但熱門景點池裡的寺廟、神社、城堡算文化主題。
+- 交通日、回程日沒有主題，沿用 1.5 倍加權偏向偏好的類型。
+
 - 每個選到的偏好，每個城市各多查 1 次 Nearby Search（快取 30 天），併進候選池：
   - 文化歷史：`museum`、`art_museum`、`art_gallery`、`historical_place`、`historical_landmark`、`monument`
   - 自然景觀：`park`、`garden`、`botanical_garden`、`observation_deck`

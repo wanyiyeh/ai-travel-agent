@@ -7,7 +7,8 @@ import type { DurationCategory } from "@/lib/scheduler/assignTimeSlots";
 // "museum", ...] lands on "landmark", not the coincidentally-also-present "museum".
 // Built from real `types` returned for this project's seeded itineraries (see
 // plan/hybrid-rule-engine-scheduling.md section 7's type-data-gap note) —
-// covers the specific types actually observed, not every possible Google type.
+// covers the specific types actually observed, not every possible Google type,
+// plus the types the themed-day pools search for (dayThemes.ts).
 const CATEGORY_PRIORITY: { category: DurationCategory; googleTypes: string[] }[] = [
   { category: "museum", googleTypes: ["museum", "art_museum", "history_museum"] },
   {
@@ -15,8 +16,17 @@ const CATEGORY_PRIORITY: { category: DurationCategory; googleTypes: string[] }[]
     googleTypes: ["hindu_temple", "buddhist_temple", "place_of_worship", "church", "synagogue", "mosque"],
   },
   { category: "viewpoint", googleTypes: ["observation_deck", "scenic_spot"] },
-  { category: "shopping", googleTypes: ["shopping_mall", "market"] },
-  { category: "park", googleTypes: ["park", "garden", "zoo", "amusement_park", "hiking_area"] },
+  {
+    category: "shopping",
+    googleTypes: ["shopping_mall", "department_store", "market", "farmers_market", "food_court", "gift_shop", "supermarket"],
+  },
+  {
+    category: "park",
+    googleTypes: ["park", "garden", "botanical_garden", "national_park", "state_park", "zoo", "amusement_park", "hiking_area"],
+  },
+  // Low priority on purpose: observation decks and malls often host a gallery
+  // too, and those should stay viewpoint/shopping.
+  { category: "museum", googleTypes: ["art_gallery"] },
   {
     category: "landmark",
     googleTypes: [

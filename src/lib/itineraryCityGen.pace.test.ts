@@ -33,7 +33,7 @@ vi.mock("@/lib/distanceMatrix", async () => ({
   describeTransport: () => "",
 }));
 
-const { generateDayStops, generateDepartureDayStops } = await import("./itineraryCityGen");
+const { generateDayStops, generateDepartureDayStops, generateThemedDayStops } = await import("./itineraryCityGen");
 
 // A pool big enough that pool size is never what limits a day's stop count.
 const POOL: PlaceCandidate[] = Array.from({ length: 20 }, (_, i) => ({
@@ -186,5 +186,71 @@ describe("generateDayStops — the end of the day", () => {
 
     expect(day.map((s) => s.placeId)).toEqual(expect.arrayContaining(["museum-0", "museum-1"]));
     expect(day).toHaveLength(3);
+  });
+});
+
+// Story: staying in Shinjuku, 文化歷史 and no preference used to get the same
+// 8 places — a 20-place popular pool near the lodging has few museums.
+describe("generateThemedDayStops — themed days", () => {
+  const place = (id: string, type: string, i: number): PlaceCandidate => ({
+    ...POOL[0],
+    name: id,
+    placeId: id,
+    lat: 35.68 + i * 0.001,
+    types: ["tourist_attraction", type],
+  });
+  const parks = Array.from({ length: 20 }, (_, i) => place(`park${i}`, "park", i));
+  const museums = Array.from({ length: 20 }, (_, i) => place(`museum${i}`, "museum", i));
+  const byTypes = async (_c: unknown, _k: unknown, types: string[]) => (types.includes("tourist_attraction") ? parks : museums);
+  const culture = { ...NEUTRAL_PREFERENCE_INTENT, pace: "intensive" as const, interestBoost: ["culture"] };
+
+  it("searches the theme's own pool and fills most of each day from it", async () => {
+    nearbyMock.mockImplementation(byTypes);
+
+    const { stopsByDay, themeByDay } = await generateThemedDayStops("東京", 2, "JPY", [], undefined, culture);
+
+    expect(nearbyMock.mock.calls.some((c) => (c[2] as string[]).includes("art_museum"))).toBe(true);
+    expect(themeByDay).toEqual(["culture", "culture"]);
+    for (const day of stopsByDay) {
+      const onTheme = day.filter((s) => String(s.placeId).startsWith("museum")).length;
+      // About a third stays popular: 6 stops -> 4 museums, 2 parks.
+      expect(onTheme).toBe(day.length - Math.max(1, Math.floor(day.length / 3)));
+    }
+  });
+
+  it("doesn't title a day by a theme it got no places for", async () => {
+    nearbyMock.mockImplementation(async (_c: unknown, _k: unknown, types: string[]) =>
+      types.includes("tourist_attraction") ? parks : []
+    );
+
+    const { themeByDay } = await generateThemedDayStops("東京", 1, "JPY", [], undefined, culture);
+
+    expect(themeByDay).toEqual([undefined]);
+  });
+
+  // Story: the culture eval trip got 2 stops a day (baseline 2.7). Its
+  // culture pool was mostly 3-hour museums, which cut the estimate, but the
+  // places picked near the lodging were short sights and days ended by 15:00.
+  it("doesn't let a theme pool of long museums shrink the day", async () => {
+    const near = [place("monument0", "monument", 1), place("monument1", "monument", 2)];
+    const farMuseums = Array.from({ length: 18 }, (_, i) => ({ ...place(`museum${i}`, "museum", i), lat: 35.75 }));
+    nearbyMock.mockImplementation(async (_c: unknown, _k: unknown, types: string[]) =>
+      types.includes("tourist_attraction") ? parks : [...near, ...farMuseums]
+    );
+
+    const moderateCulture = { ...NEUTRAL_PREFERENCE_INTENT, pace: "moderate" as const, interestBoost: ["culture"] };
+    const { stopsByDay } = await generateThemedDayStops("東京", 1, "JPY", [], undefined, moderateCulture);
+    const baseline = await generateDayStops("東京", 1, "JPY", [], undefined, { ...moderateCulture, interestBoost: [] });
+
+    expect(stopsByDay[0]).toHaveLength(baseline[0].length);
+  });
+
+  it("makes no theme search without interests", async () => {
+    nearbyMock.mockImplementation(byTypes);
+
+    const { themeByDay } = await generateThemedDayStops("東京", 1, "JPY", [], undefined, NEUTRAL_PREFERENCE_INTENT);
+
+    expect(nearbyMock).toHaveBeenCalledTimes(1);
+    expect(themeByDay).toEqual([undefined]);
   });
 });

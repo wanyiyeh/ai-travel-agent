@@ -2,7 +2,7 @@ import type { FlightInfo, TripPreferences } from "@/lib/schemas";
 import type { BudgetLevel } from "@/lib/fetchCityRestaurants";
 import { planTrip, type TripPlan } from "@/lib/tripPlan";
 import {
-  generateDayStops,
+  generateThemedDayStops,
   generateTransitDayStops,
   generateDepartureDayStops,
   generateMealsAndAccommodation,
@@ -12,6 +12,7 @@ import {
 import { parsePreferenceIntent } from "@/lib/preferenceIntent";
 import { mergePreferenceIntent } from "@/lib/mergePreferenceIntent";
 import { computeArrivalDayStartMinute } from "@/lib/scheduler/arrivalDayStart";
+import { THEMES } from "@/lib/dayThemes";
 
 const DEFAULT_ARRIVAL_MINUTE_FALLBACK = 14 * 60;
 
@@ -103,6 +104,8 @@ export async function assembleItineraryDays(
   }
 
   const usedPlaceIdsByCity = new Map<string, Set<string>>();
+  // Sightseeing days so far, so the theme rotation runs across the whole trip.
+  let themedDaysSoFar = 0;
   for (let cityIdx = 0; cityIdx < plan.cities.length; cityIdx++) {
     const city = plan.cities[cityIdx];
     const isFirst = cityIdx === 0;
@@ -172,9 +175,9 @@ export async function assembleItineraryDays(
     const accommodation = hasAccommodation ? mealsAndAccommodation.accommodation : undefined;
     const lodging = locationOf(accommodation);
 
-    const sightseeingStops =
+    const { stopsByDay: sightseeingStops, themeByDay } =
       sightseeingCount > 0
-        ? await generateDayStops(
+        ? await generateThemedDayStops(
             city.name,
             sightseeingCount,
             plan.currency,
@@ -182,17 +185,20 @@ export async function assembleItineraryDays(
             budget,
             preferenceIntent,
             isFirst ? arrivalDayStartMinute : undefined,
-            lodging
+            lodging,
+            themedDaysSoFar
           )
-        : [];
+        : { stopsByDay: [], themeByDay: [] };
+    themedDaysSoFar += sightseeingCount;
     for (const dayStops of sightseeingStops) {
       for (const placeId of extractPlaceIds(dayStops)) usedPlaceIds.add(placeId);
     }
 
     for (let i = 0; i < sightseeingStops.length; i++) {
+      const dayTheme = themeByDay[i];
       pushDay({
         id: crypto.randomUUID(),
-        theme: `${city.name} 探索`,
+        theme: `${city.name} ${dayTheme ? THEMES[dayTheme].label : "探索"}`,
         waypointCity: city.name,
         stops: sightseeingStops[i],
         accommodation,
