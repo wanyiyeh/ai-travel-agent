@@ -176,6 +176,8 @@ const both = (r: Map<string, Metrics>, ...ids: string[]) => ids.every((id) => r.
 
 // Tokyo Station — the city center 東京 trips search from (placesTextSearch.ts).
 const TOKYO_CENTER = { lat: 35.6812, lng: 139.7671 };
+// 小樽 Station — the sapporo-loop route stays there, so a Sapporo day trip shouldn't.
+const OTARU_CENTER = { lat: 43.1978, lng: 140.9939 };
 const tripKm = (trip: Metrics["suburbDays"][number] | undefined) => {
   const first = trip?.first;
   if (first?.lat === undefined || first.lng === undefined) return undefined;
@@ -398,6 +400,20 @@ const CHECKS: Check[] = [
       return c ? c.length > 1 && c[0] === "札幌" && c[c.length - 1] === "札幌" && c.includes("小樽") : null;
     },
     detail: (r) => r.get("sapporo-loop")?.cities.join(" → ") ?? "—",
+  },
+  {
+    // Only names to go on: the suburb stop doesn't carry Google's types.
+    title: "季節：11 月的札幌，郊區行程不是滑雪場、海灘或碼頭，也不在路線上的小樽",
+    pass: (r) => {
+      const trips = r.get("sapporo-loop")?.suburbDays;
+      if (!trips) return null;
+      return trips.every((t) => {
+        if (/滑雪|スキー|ski|海灘|海水浴|beach|marina|碼頭|マリーナ/i.test(t.title)) return false;
+        const first = t.first;
+        return first?.lat === undefined || first.lng === undefined || haversineKm(OTARU_CENTER.lat, OTARU_CENTER.lng, first.lat, first.lng) > 15;
+      });
+    },
+    detail: (r) => r.get("sapporo-loop")?.suburbDays.map((t) => `第 ${t.day} 天「${t.title}」`).join("、") || "沒有郊區行程",
   },
   {
     title: "兩天一夜：東京 5 天，只到一個東京以外的城鎮過夜，再回東京",
