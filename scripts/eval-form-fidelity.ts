@@ -39,6 +39,13 @@ type Preferences = {
   interests?: Array<"food" | "culture" | "nature" | "shopping" | "adventure">;
   startTime?: "early" | "normal" | "late";
   indoorFirst?: boolean;
+  fixedEvents?: Array<{
+    type: "concert" | "sports" | "show" | "reservation" | "work" | "other";
+    date: string;
+    startTime: string;
+    endTime?: string;
+    venueName?: string;
+  }>;
   dietaryRestrictions?: Array<"vegetarian" | "vegan" | "no_seafood" | "no_beef" | "halal" | "no_spicy">;
   drinks?: Array<"coffee" | "tea" | "alcohol">;
 };
@@ -99,6 +106,17 @@ const SCENARIOS: Scenario[] = [
   { id: "tokyo-coffee-tea", label: "東京・飲品選咖啡＋抹茶（輪流）", flightInfo: TOKYO, preferences: { drinks: ["coffee", "tea"] } },
   { id: "tokyo-alcohol", label: "東京・飲品選酒（小酌）", flightInfo: TOKYO, preferences: { drinks: ["alcohol"] } },
   { id: "tokyo-indoor", label: "東京・室內行程為主", flightInfo: TOKYO, preferences: { indoorFirst: true } },
+  {
+    id: "tokyo-fixed",
+    label: "東京・固定行程（第 2 天東京巨蛋演唱會 18:00、第 3 天午餐訂位）",
+    flightInfo: TOKYO,
+    preferences: {
+      fixedEvents: [
+        { type: "concert", date: "2026-11-11", startTime: "18:00", venueName: "東京巨蛋" },
+        { type: "reservation", date: "2026-11-12", startTime: "12:00", venueName: "叙々苑 新宿" },
+      ],
+    },
+  },
   { id: "sapporo-loop", label: "札幌 7 天・想去小樽（環狀多城市）", flightInfo: SAPPORO_WEEK, prompt: "想去小樽" },
 ];
 
@@ -267,6 +285,18 @@ const CHECKS: Check[] = [
       return m ? m.taxiLegs === 0 : null;
     },
     detail: (r) => `對照組 ${r.get("tokyo-baseline")?.taxiLegs ?? "—"} 段計程車`,
+  },
+  {
+    title: "固定行程：第 2 天演唱會排在當天最後，第 3 天午餐換成訂位的店",
+    pass: (r) => {
+      const f = r.get("tokyo-fixed")?.fixedEvents;
+      if (!f) return null;
+      const concert = f.find((e) => e.as === "stop" && e.day === 2);
+      const lunch = f.find((e) => e.as === "lunch" && e.day === 3);
+      return Boolean(concert?.lastStop && lunch);
+    },
+    detail: (r) =>
+      r.get("tokyo-fixed")?.fixedEvents.map((e) => `第 ${e.day} 天 ${e.name}（${e.as === "stop" ? (e.lastStop ? "最後一站" : "景點") : e.as}）`).join("、") ?? "—",
   },
   {
     title: "出門時間：晚起每天景點數 < 對照組",

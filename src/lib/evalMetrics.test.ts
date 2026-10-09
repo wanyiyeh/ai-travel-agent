@@ -86,6 +86,22 @@ describe("measureItinerary", () => {
     expect(m.cities).toEqual(["東京", "大阪"]);
   });
 
+  it("lists where each fixed event ended up", () => {
+    const withEvents = days.map((d, i) =>
+      i === 0
+        ? {
+            ...d,
+            stops: [...d.stops, { name: "東京巨蛋", fixedEvent: { type: "concert" } }],
+            meals: { ...d.meals, lunch: { name: "叙々苑", fixedEvent: { type: "reservation" } } },
+          }
+        : d
+    );
+    expect(measureItinerary(withEvents, ctx).fixedEvents).toEqual([
+      { day: 1, name: "東京巨蛋", as: "stop", lastStop: true },
+      { day: 1, name: "叙々苑", as: "lunch" },
+    ]);
+  });
+
   it("counts legs shown as a taxi ride", () => {
     const withTaxi = days.map((d, i) =>
       i === 0 ? { ...d, stops: [d.stops[0], { ...d.stops[1], transport_from_prev: "搭計程車約 9 分鐘" }] } : d
