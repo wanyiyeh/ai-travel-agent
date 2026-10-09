@@ -51,18 +51,23 @@ const LODGING_TYPES = new Set(["hotel", "lodging", "resort_hotel", "inn", "ryoka
 export type MealContext = { budget?: BudgetLevel; dietaryRestrictions?: string[]; currency?: string };
 
 /**
- * A restaurant near a show's venue for dinner before it, or undefined (no
- * coordinates, nothing nearby). One Nearby Search per venue, Pro fields,
- * cached like any meal pool.
+ * A restaurant near a place for a meal there (dinner before a show, lunch on
+ * a day trip), or undefined when nothing's nearby. One Nearby Search per
+ * place, Pro fields, cached like any meal pool.
  */
-async function dinnerNearVenue(venue: Venue, context: MealContext): Promise<Record<string, unknown> | undefined> {
+export async function restaurantNear(
+  venue: Venue,
+  context: MealContext,
+  description: string,
+  radiusM = DINNER_NEAR_VENUE_RADIUS_M
+): Promise<Record<string, unknown> | undefined> {
   const apiKey = process.env.GOOGLE_PLACES_API_KEY;
   if (!apiKey) return undefined;
   const places = await fetchNearbyPlaceCandidates(
     { lat: venue.lat, lng: venue.lng },
     apiKey,
     getMealPlaceTypes("dinner", context.budget),
-    DINNER_NEAR_VENUE_RADIUS_M,
+    radiusM,
     20,
     "pro"
   );
@@ -77,7 +82,7 @@ async function dinnerNearVenue(venue: Venue, context: MealContext): Promise<Reco
   const cost = estimateSlotCost(context.currency, "dinner", place.priceLevel);
   return {
     name: place.name,
-    description: `開場前在${venue.name}附近用餐`,
+    description,
     placeId: place.placeId,
     lat: place.lat,
     lng: place.lng,
@@ -125,7 +130,7 @@ export async function planDayEvents(
     const km = venue && lodging ? haversineKm(lodging.lat, lodging.lng, venue.lat, venue.lng) : undefined;
     fixed.push({ block: blockOf(event), stop: eventStop(event, venue, eventNotes(event, km)) });
     if (venue && !dinnerBefore && hasDinnerBefore(event)) {
-      dinnerBefore = await dinnerNearVenue(venue, mealContext).catch(() => undefined);
+      dinnerBefore = await restaurantNear(venue, mealContext, `開場前在${venue.name}附近用餐`).catch(() => undefined);
     }
   }
   // A dinner reservation the traveler made wins over a suggestion.

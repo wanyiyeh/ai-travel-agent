@@ -24,6 +24,10 @@ export default defineConfig({
       MOCK_AI: "1",
       // Signs guest cookies and keys the IP hash in usage quotas.
       AUTH_SECRET: "integration-test-secret",
+      // Tests stub fetch; a missing stub must fail, not bill. Prisma loads
+      // .env, which never overrides a variable already set.
+      GOOGLE_PLACES_API_KEY: "",
+      OPENAI_API_KEY: "integration-tests-never-call-openai",
     },
     // Prisma writes to one shared SQLite file — parallel files would race
     // on table state (e.g. one test's cleanup deleting another's fixture).

@@ -25,7 +25,8 @@ describe("enrich-all-stops remembers failed lookups", () => {
   beforeEach(() => signInAs(owner));
 
   beforeAll(async () => {
-    process.env.GOOGLE_PLACES_API_KEY ??= "test-key";
+    // The test config sets an empty key (vitest.integration.config.mts), so ||= not ??=.
+    process.env.GOOGLE_PLACES_API_KEY ||= "test-key";
     const user = await prisma.user.create({
       data: { email: `enrich-failure-${Date.now()}@test.local` },
     });

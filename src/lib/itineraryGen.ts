@@ -21,6 +21,8 @@ export const interestMap: Record<string, string> = {
   culture: "文化歷史",
   nature: "自然景觀",
   shopping: "購物",
+  water: "水上活動（海灘、碼頭、水上樂園）",
+  land: "陸上活動（國家公園、步道、滑雪）",
   adventure: "冒險戶外活動",
 };
 

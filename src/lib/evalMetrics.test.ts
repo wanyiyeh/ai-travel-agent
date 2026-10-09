@@ -127,6 +127,13 @@ describe("measureItinerary", () => {
     expect(m2.tripEnds.first).toBe("機場取車");
   });
 
+  it("lists the days out of the city", () => {
+    const withTrip = days.map((d, i) => (i === 1 ? { ...d, theme: "東京 一日遊：高尾山", stops: [{ name: "高尾山", lat: 35.62, lng: 139.24 }] } : d));
+    expect(measureItinerary(withTrip, ctx).suburbDays).toEqual([
+      { day: 2, title: "東京 一日遊：高尾山", stops: 1, first: { name: "高尾山", lat: 35.62, lng: 139.24 } },
+    ]);
+  });
+
   it("counts legs shown as a taxi ride", () => {
     const withTaxi = days.map((d, i) =>
       i === 0 ? { ...d, stops: [d.stops[0], { ...d.stops[1], transport_from_prev: "搭計程車約 9 分鐘" }] } : d

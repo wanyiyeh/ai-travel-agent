@@ -22,6 +22,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "fs";
 import { resolve } from "path";
 // No import-time side effects (unlike openai.ts), so safe before the .env load.
 import { NIGHTCAP_TYPES } from "../src/lib/drinkPlaces";
+import { haversineKm } from "../src/lib/geo";
 
 try {
   const envContent = readFileSync(resolve(process.cwd(), ".env"), "utf-8");
@@ -36,7 +37,7 @@ const MODEL = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
 type Preferences = {
   pace?: "relaxed" | "moderate" | "intensive";
   budget?: "budget" | "moderate" | "luxury";
-  interests?: Array<"food" | "culture" | "nature" | "shopping" | "adventure">;
+  interests?: Array<"food" | "culture" | "nature" | "shopping" | "water" | "land" | "adventure">;
   startTime?: "early" | "normal" | "late";
   indoorFirst?: boolean;
   fixedEvents?: Array<{
@@ -169,6 +170,14 @@ const share = (m: Metrics | undefined, cats: string[]) =>
 const pct = (x: number | null | undefined) => (x === null || x === undefined || Number.isNaN(x) ? "—" : `${Math.round(x * 100)}%`);
 const fix1 = (x: number | undefined) => (x === undefined ? "—" : x.toFixed(1));
 const both = (r: Map<string, Metrics>, ...ids: string[]) => ids.every((id) => r.has(id));
+
+// Tokyo Station — the city center 東京 trips search from (placesTextSearch.ts).
+const TOKYO_CENTER = { lat: 35.6812, lng: 139.7671 };
+const tripKm = (trip: Metrics["suburbDays"][number] | undefined) => {
+  const first = trip?.first;
+  if (first?.lat === undefined || first.lng === undefined) return undefined;
+  return haversineKm(TOKYO_CENTER.lat, TOKYO_CENTER.lng, first.lat, first.lng);
+};
 
 const COFFEE_TYPES = new Set(["coffee_shop", "coffee_roastery", "coffee_stand", "cafe"]);
 const TEA_TYPES = new Set(["tea_house", "dessert_shop", "dessert_restaurant", "confectionery"]);
@@ -358,6 +367,19 @@ const CHECKS: Check[] = [
       return m
         ? `第一站 ${m.tripEnds.first ?? "?"}、最後一站 ${m.tripEnds.last ?? "?"}；開車 ${m.legModes.drive}、步行 ${m.legModes.walk}、大眾運輸 ${m.legModes.transit} 段`
         : "—";
+    },
+  },
+  {
+    title: "郊區：東京 4 天的對照組有一天一日遊，地點離東京車站 15～50 km",
+    pass: (r) => {
+      const trip = r.get("tokyo-baseline")?.suburbDays.find((d) => d.title.includes("一日遊"));
+      if (!r.get("tokyo-baseline")) return null;
+      const km = tripKm(trip);
+      return km !== undefined && km >= 15 && km <= 50;
+    },
+    detail: (r) => {
+      const trip = r.get("tokyo-baseline")?.suburbDays[0];
+      return trip ? `第 ${trip.day} 天「${trip.title}」，離東京車站 ${tripKm(trip)?.toFixed(0) ?? "?"} km` : "沒有郊區行程";
     },
   },
   {

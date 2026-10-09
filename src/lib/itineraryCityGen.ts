@@ -827,13 +827,13 @@ const START_TIME_MINUTE: Record<NonNullable<PreferenceIntent["startTimePreferenc
   late: 11 * 60,
 };
 
-function dayStartFor(preferenceIntent: PreferenceIntent): number {
+export function dayStartFor(preferenceIntent: PreferenceIntent): number {
   return START_TIME_MINUTE[preferenceIntent.startTimePreference ?? "normal"];
 }
 
 // Sightseeing stops spread out until dinner (assignTimeSlots' dinner window
 // opens at 18:00) instead of all finishing before lunch.
-const SIGHTSEEING_DAY_END_MINUTE = 18 * 60;
+export const SIGHTSEEING_DAY_END_MINUTE = 18 * 60;
 
 // How far past SIGHTSEEING_DAY_END_MINUTE the last stop may still end — dinner
 // runs until 20:00. Without it, a culture trip lost a 3-hour museum that ran
@@ -902,7 +902,8 @@ function shelterFor(preferenceIntent: PreferenceIntent, candidateById: Map<strin
   }
   const isOutdoor = (c: { id: string }) => exposureOf(candidateById.get(c.id)?.types) === "outdoor";
   const wantsOutdoor =
-    themesOf(preferenceIntent.interestBoost).includes("nature") || preferenceIntent.interestBoost.includes("adventure");
+    themesOf(preferenceIntent.interestBoost).includes("nature") ||
+    ["water", "land", "adventure"].some((tag) => preferenceIntent.interestBoost.includes(tag));
   return {
     isOutdoor,
     pool: <T extends { id: string }>(candidates: T[], needed: number) =>

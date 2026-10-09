@@ -5,7 +5,8 @@ describe("modePickerFor", () => {
   it.each([
     ["public transport", {}, 1.0, "walking"],
     ["public transport", {}, 3, "transit"],
-    ["public transport", {}, 40, "driving"],
+    ["public transport, a day trip out of town", {}, 40, "transit"],
+    ["public transport", {}, 80, "driving"],
     ["indoor first", { indoorFirst: true }, 0.8, "transit"],
     // 自駕: short hops on foot rather than re-parking, the rental car beyond.
     ["self-drive", { selfDrive: true }, 0.8, "walking"],

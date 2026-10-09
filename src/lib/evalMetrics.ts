@@ -36,6 +36,8 @@ export type ItineraryMetrics = {
   legModes: { walk: number; transit: number; drive: number; taxi: number };
   /** The trip's very first and very last stop — a self-driver's car pickup and return. */
   tripEnds: { first?: string; last?: string };
+  /** Days out of the city (suburbTrips.ts): the title and where the first stop is. */
+  suburbDays: { day: number; title: string; stops: number; first?: { name: string; lat?: number; lng?: number } }[];
   /** Where each 固定行程 ended up: a stop (with its position in the day) or the meal it replaced. */
   fixedEvents: { day: number; name: string; as: string; lastStop?: boolean; dinnerKm?: number; city?: string }[];
   mainMeals: number;
@@ -173,6 +175,18 @@ export function measureItinerary(days: Rec[], ctx: EvalContext): ItineraryMetric
       first: str(asRecords(days[0]?.stops)[0]?.name),
       last: str(asRecords(days[lastIdx]?.stops).at(-1)?.name),
     },
+    suburbDays: days.flatMap((d, i) => {
+      const title = str(d.theme) ?? "";
+      if (!/一日遊|半日遊/.test(title)) return [];
+      const stops = asRecords(d.stops);
+      const first = stops[0];
+      return [{
+        day: i + 1,
+        title,
+        stops: stops.length,
+        ...(first ? { first: { name: str(first.name) ?? "", lat: num(first.lat), lng: num(first.lng) } } : {}),
+      }];
+    }),
     fixedEvents: days.flatMap((d, i) => {
       const dayStops = asRecords(d.stops);
       const meals = (d.meals ?? {}) as Rec;

@@ -64,7 +64,8 @@ const INTEREST_OPTIONS: { value: NonNullable<TripPreferences["interests"]>[numbe
   { value: "culture", label: "文化歷史" },
   { value: "nature", label: "自然景觀" },
   { value: "shopping", label: "購物" },
-  { value: "adventure", label: "冒險戶外" },
+  { value: "water", label: "水上活動" },
+  { value: "land", label: "陸上活動" },
 ];
 
 const CITY_OPTIONS: { code: string; name: string; country: string }[] = Object.entries(AIRPORTS)
