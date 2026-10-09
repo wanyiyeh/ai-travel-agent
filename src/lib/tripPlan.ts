@@ -11,8 +11,9 @@ import { FIXED_EVENT_TYPES, tripDayOfDate } from "@/lib/fixedEvents";
 
 // A round-trip flight (same airport in and out) used to be forced to one
 // city, which kept a 7-day Hokkaido trip within 10km of Sapporo. With enough
-// days it may now loop out to nearby towns and come back (札幌 → 富良野 →
-// 札幌): at least this many days to allocate...
+// days it now loops out to a nearby town for a night and comes back (札幌 →
+// 富良野 → 札幌, a 兩天一夜), unless the traveler asked to stay put: at
+// least this many days to allocate (a 5-day trip)...
 const LOOP_MIN_DAYS = 4;
 // ...and every stop on the loop within ~3h by ground of the arrival city.
 // Straight-line, so a bit generous: Sapporo–Hakodate is ~250km / 3.5h by train.
@@ -150,6 +151,9 @@ const RawTripPlanSchema = TripPlanSchema.extend({
   cities: z
     .array(z.object({ name: z.string().min(1), days: z.number().int().min(0) }))
     .min(1),
+  // A loop-length round trip that stays in one city anyway: what the
+  // traveler said that asks for it. Without one, the plan is retried.
+  stayReason: z.string().optional(),
 });
 
 /**
@@ -184,14 +188,19 @@ function buildSystemPrompt(
   const citiesBudget = totalDays - 1;
   const loopAllowed = !isMultiCity && citiesBudget >= LOOP_MIN_DAYS;
 
-  const loopRules = `\n\n【同一城市來回：可以只待一個城市，也可以繞一圈】航班從「${arrivalCityName}」進、
-也從「${arrivalCityName}」出。天數夠時，可以從 ${arrivalCityName} 出發，到附近城鎮住幾晚再回來
-（例如「${arrivalCityName} 3 → 鄰近城鎮 2 → ${arrivalCityName} 1」），讓旅客不必每天都待在同一個城市。規則：
-- 第一個和最後一個城市都必須是「${arrivalCityName}」，因為要從這裡搭機回程
+  const loopRules = `\n\n【同一城市來回：繞一圈，至少一次兩天一夜】航班從「${arrivalCityName}」進、
+也從「${arrivalCityName}」出。這趟天數夠，要從 ${arrivalCityName} 出發，到附近城鎮過夜再回來
+（${arrivalCityName} → 鄰近城鎮 → ${arrivalCityName}），讓旅客不必每天都待在同一個城市。規則：
+- 第一個和最後一個城市都必須是「${arrivalCityName}」，因為要從這裡搭機回程。回到 ${arrivalCityName} 的
+  那一段也要列在 cities 的最後，days 至少 1（回來的移動日），也要算進天數加總
 - 中途的城鎮必須在 ${arrivalCityName} 地面交通 3 小時以內，不可以加入需要搭飛機或很遠的城市
-- 旅客的風格描述若點名了想去的城鎮，優先安排；沒有的話，就安排 ${arrivalCityName} 周邊最值得過夜的一兩個城鎮
-- 中途每個城鎮建議至少 2 天，城市總數不要超過 4 個（含頭尾的 ${arrivalCityName}）
-- 只待 ${arrivalCityName} 一個城市也可以（cities 長度為 1、days 等於 ${citiesBudget}），例如風格描述說想深度玩 ${arrivalCityName}`;
+- 旅客的風格描述若點名了想去的城鎮，優先安排；沒有的話，就安排 ${arrivalCityName} 周邊最值得過夜的城鎮
+- 中途城鎮的 days 填 1 或 2，依城鎮值得玩多久決定。填 1 是兩天一夜：那天移動過去、住一晚，
+  隔天移動到下一站（隔天的移動日算在下一站的 days 裡）；填 2 是多住一晚，中間有一整天在當地
+- 中途城鎮最多 ${maxLoopTowns(citiesBudget)} 個：每多一個城鎮就多一個移動日，真正觀光的天數會變少
+- 只有旅客的風格描述明確表示只想待在 ${arrivalCityName} 時，才只排這一個城市（cities 長度為 1、
+  days 等於 ${citiesBudget}），並且在 JSON 多加 "stayReason" 欄位，照抄旅客說的那句話。
+  沒有這樣的描述就一定要繞一圈，不要填 stayReason`;
 
   const singleCityConstraint = `\n\n【重要：這是同一城市來回，絕對只能有一個城市】航班從「${arrivalCityName}」進、
 也從「${arrivalCityName}」出，這不是開口式多城市行程。cities 陣列的長度必須恰好是 1，
@@ -283,6 +292,51 @@ export function closeLoop(cities: TripPlan["cities"], arrivalCityName: string): 
 }
 
 /**
+ * A loop that leaves out the stay back in the arrival city and its days
+ * with it: a Sapporo run came back 札幌 3 → 小樽 2 on both attempts, 5 of 6
+ * days, so the day-total check rejected the plan before closeLoop could
+ * repair it. The missing days become that last stay. Returns the input
+ * unchanged when the loop already ends there or nothing is missing.
+ */
+export function returnLeg(cities: TripPlan["cities"], arrivalCityName: string, daysToAllocate: number): TripPlan["cities"] {
+  const missing = daysToAllocate - cities.reduce((sum, c) => sum + c.days, 0);
+  if (cities.length < 2 || missing < 1 || cities[cities.length - 1].name === arrivalCityName) return cities;
+  return [...cities, { name: arrivalCityName, days: missing }];
+}
+
+// Every town on a loop takes a transit day: a 5-day Tokyo run came back
+// 東京 1 → 箱根 1 → 鎌倉 1 → 東京 1, leaving one day to sightsee.
+export function maxLoopTowns(daysToAllocate: number): number {
+  return daysToAllocate >= 7 ? 2 : 1;
+}
+
+/**
+ * Cuts a loop down to maxLoopTowns towns, keeping those with the most days
+ * (the earlier one on a tie) and giving the dropped towns' days to the first
+ * city. Like closeLoop, a repair rather than a retry: the route is otherwise
+ * fine. Returns the input unchanged when it's within the limit.
+ */
+export function trimLoopTowns(cities: TripPlan["cities"], arrivalCityName: string, daysToAllocate: number): TripPlan["cities"] {
+  const towns = cities.map((c, i) => ({ c, i })).filter(({ c }) => c.name !== arrivalCityName);
+  const max = maxLoopTowns(daysToAllocate);
+  if (towns.length <= max) return cities;
+  const kept = new Set(
+    [...towns].sort((a, b) => b.c.days - a.c.days || a.i - b.i).slice(0, max).map(({ i }) => i)
+  );
+  const freed = towns.filter(({ i }) => !kept.has(i)).reduce((sum, { c }) => sum + c.days, 0);
+  const result: TripPlan["cities"] = [];
+  cities.forEach((c, i) => {
+    if (c.name !== arrivalCityName && !kept.has(i)) return;
+    const days = i === 0 ? c.days + freed : c.days;
+    const last = result[result.length - 1];
+    // Back-to-back stays in the same city once a town between them is gone.
+    if (last?.name === c.name) last.days += days;
+    else result.push({ ...c, days });
+  });
+  return result;
+}
+
+/**
  * A loop trip's towns must really be near the arrival city — the prompt asks
  * for within 3h by ground, but nothing stops the LLM from adding a city a
  * flight away. Each town is looked up (getCityCenter: cached, and the
@@ -340,6 +394,10 @@ export async function planTrip(
   let lastUnmet: CityRequirement[] = [];
   const arrivalCityName = iataToCity(flightInfo.arrivalCity);
   const isRoundTrip = arrivalCityName === iataToCity(flightInfo.returnDepartureCity);
+  const loopExpected = isRoundTrip && totalDays - 1 >= LOOP_MIN_DAYS;
+  // A valid plan that stayed in one city without the traveler asking —
+  // retried once for a loop, and kept if the retry does no better.
+  let stayedPut: TripPlan | undefined;
   // The style blurb is caller-controlled, so it rides in the user message as
   // tagged data rather than in the system prompt (see untrustedInput.ts).
   const userMessage =
@@ -370,6 +428,11 @@ export async function planTrip(
         continue;
       }
 
+      const comingBack = returnLeg(raw.data.cities, arrivalCityName, totalDays - 1);
+      if (loopExpected && comingBack !== raw.data.cities) {
+        console.warn(`[planTrip] attempt ${attempt}: added the way back to ${arrivalCityName}`, raw.data.cities, "->", comingBack);
+        raw.data.cities = comingBack;
+      }
       const daysSum = raw.data.cities.reduce((sum, city) => sum + city.days, 0);
       if (daysSum !== totalDays - 1) {
         console.warn(
@@ -407,7 +470,11 @@ export async function planTrip(
         if (loop !== parsed.data.cities) {
           console.warn(`[planTrip] attempt ${attempt}: closed the loop back to ${arrivalCityName}`, names, "->", loop.map((c) => c.name));
         }
-        plan = await keepLoopNearby({ ...parsed.data, cities: loop }, flightInfo.arrivalCity, arrivalCityName, totalDays - 1);
+        const trimmed = trimLoopTowns(loop, arrivalCityName, totalDays - 1);
+        if (trimmed !== loop) {
+          console.warn(`[planTrip] attempt ${attempt}: too many towns for ${totalDays - 1} days`, loop, "->", trimmed);
+        }
+        plan = await keepLoopNearby({ ...parsed.data, cities: trimmed }, flightInfo.arrivalCity, arrivalCityName, totalDays - 1);
       }
 
       const aligned = alignCityDays(plan.cities, requirements);
@@ -421,12 +488,21 @@ export async function planTrip(
         lastUnmet = unmet;
         continue;
       }
+      if (loopExpected && plan.cities.length === 1 && !raw.data.stayReason?.trim()) {
+        if (attempt === 1) {
+          console.warn(`[planTrip] attempt ${attempt}: stayed in ${arrivalCityName} without the traveler asking, retrying for a night away`);
+          stayedPut = plan;
+          continue;
+        }
+        console.warn(`[planTrip] attempt ${attempt}: stayed in ${arrivalCityName} again, keeping it`);
+      }
       return plan;
     } catch (err) {
       console.warn(`[planTrip] attempt ${attempt} failed:`, err);
     }
   }
 
+  if (stayedPut) return stayedPut;
   if (lastUnmet.length > 0) throw new FixedEventCityError(describeUnmet(lastUnmet));
   return null;
 }
