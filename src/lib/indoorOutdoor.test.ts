@@ -15,6 +15,13 @@ describe("exposureOf", () => {
     expect(exposureOf(types)).toBe(expected);
   });
 
+  // Story: the eval counted teamLab as outdoor — the cache row it read had
+  // Google's types in a different order, with amusement_park first.
+  it("judges teamLab indoor whichever order Google lists its types in", () => {
+    const fromThemePool = ["tourist_attraction", "amusement_park", "amusement_center", "art_museum", "museum"];
+    expect(exposureOf(fromThemePool)).toBe("indoor");
+  });
+
   it("leaves a place with nothing to go on undecided", () => {
     expect(exposureOf(["tourist_attraction", "point_of_interest"])).toBeUndefined();
   });

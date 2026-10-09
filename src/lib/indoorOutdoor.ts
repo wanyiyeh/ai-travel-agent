@@ -20,17 +20,28 @@ const OUTDOOR_TYPES = new Set([
 ]);
 
 /**
- * Indoor or outdoor by the first of a place's types that says, primary type
- * first: teamLab is [tourist_attraction, amusement_center, art_museum] →
- * indoor. Undefined when nothing does (a famous crossing, a city hall) —
- * those are neither preferred nor kept off midday.
+ * Indoor or outdoor by majority of a place's types, ties going to the first
+ * one that says. Not just the first: Google orders the same place's types
+ * differently from one search to the next — teamLab came back as
+ * [tourist_attraction, amusement_center, art_museum, ...] in one pool and
+ * [tourist_attraction, amusement_park, ...] in another, which flipped it to
+ * outdoor. Its types are three indoor to one outdoor either way. Undefined
+ * when nothing says (a famous crossing, a city hall) — those are neither
+ * preferred nor kept off midday.
  */
 export function exposureOf(types: string[] | undefined): Exposure | undefined {
+  let indoor = 0;
+  let outdoor = 0;
+  let first: Exposure | undefined;
   for (const type of types ?? []) {
-    if (INDOOR_TYPES.has(type)) return "indoor";
-    if (OUTDOOR_TYPES.has(type)) return "outdoor";
+    const exposure = INDOOR_TYPES.has(type) ? "indoor" : OUTDOOR_TYPES.has(type) ? "outdoor" : undefined;
+    if (!exposure) continue;
+    first ??= exposure;
+    if (exposure === "indoor") indoor++;
+    else outdoor++;
   }
-  return undefined;
+  if (indoor !== outdoor) return indoor > outdoor ? "indoor" : "outdoor";
+  return first;
 }
 
 // The 11:00-15:00 sun an indoor-first traveler wants to spend inside.
