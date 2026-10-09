@@ -15,6 +15,7 @@ import { computeArrivalDayStartMinute } from "@/lib/scheduler/arrivalDayStart";
 import { THEMES } from "@/lib/dayThemes";
 import { tripDayOfDate } from "@/lib/fixedEvents";
 import { planDayEvents, type PlannedDayEvents } from "@/lib/fixedEventVenues";
+import { carPickup, carReturnStop, findCarRental } from "@/lib/carRental";
 
 const DEFAULT_ARRIVAL_MINUTE_FALLBACK = 14 * 60;
 
@@ -121,6 +122,13 @@ export async function assembleItineraryDays(
       (e) => tripDayOfDate(e.date, flightInfo.departureDate, flightInfo.returnDate) === dayNumber
     );
   const eventStops = (planned: PlannedDayEvents) => planned.fixed.flatMap((e) => (e.stop ? [e.stop] : []));
+  // 自駕: the rental counters at both airports, looked up once (cached).
+  const [pickupRental, returnRental] = preferenceIntent.selfDrive
+    ? await Promise.all([
+        findCarRental(flightInfo.arrivalCity).catch(() => undefined),
+        findCarRental(flightInfo.returnDepartureCity).catch(() => undefined),
+      ])
+    : [undefined, undefined];
   // Dinner near a show's venue follows the same budget and diet as other meals.
   const eventMealContext = {
     budget,
@@ -215,6 +223,15 @@ export async function assembleItineraryDays(
         planDayEvents(eventsOn(nextDayNumber + i), city.name, lodging, eventMealContext)
       )
     );
+    // A self-driver picks up the car first thing on day 1.
+    if (isFirst && preferenceIntent.selfDrive && sightseeingEvents.length > 0) {
+      sightseeingEvents[0].fixed.unshift(
+        carPickup(pickupRental, arrivalDayStartMinute, {
+          arrivalIata: flightInfo.arrivalCity,
+          returnIata: flightInfo.returnDepartureCity,
+        })
+      );
+    }
     // A concert at 東京巨蛋 shouldn't also turn up as a sightseeing stop there.
     for (const stop of sightseeingEvents.flatMap(eventStops)) {
       if (typeof stop.placeId === "string") usedPlaceIds.add(stop.placeId);
@@ -265,7 +282,8 @@ export async function assembleItineraryDays(
         preferenceIntent,
         Array.from(usedPlaceIds),
         lodging,
-        departureEvents.fixed
+        departureEvents.fixed,
+        preferenceIntent.selfDrive ? (minute) => carReturnStop(returnRental, minute) : undefined
       );
       pushDay({
         id: crypto.randomUUID(),

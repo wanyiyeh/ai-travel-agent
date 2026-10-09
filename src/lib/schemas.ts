@@ -89,6 +89,9 @@ export const TripPreferencesSchema = z.object({
   // outdoor ones kept off 11:00-15:00, transit beyond a short walk.
   indoorFirst: z.boolean().optional(),
   fixedEvents: z.array(FixedEventSchema).max(10).optional(),
+  // 交通方式 (plan/form-preference-wiring.md 1.7): self-drive means renting a
+  // car on arrival for the whole trip. Unset is public transport.
+  transport: z.enum(["transit", "drive"]).optional(),
 });
 
 export type TripPreferences = z.infer<typeof TripPreferencesSchema>;
@@ -112,6 +115,8 @@ export const PreferenceIntentSchema = z.object({
   avoid: z.array(z.string()),
   // From the form only (mergePreferenceIntent); the free-text parse never sets it.
   indoorFirst: z.boolean().optional(),
+  // Form only, like indoorFirst: renting a car (transport "drive").
+  selfDrive: z.boolean().optional(),
 });
 
 export type PreferenceIntent = z.infer<typeof PreferenceIntentSchema>;

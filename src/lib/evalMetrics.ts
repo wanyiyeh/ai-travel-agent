@@ -32,6 +32,10 @@ export type ItineraryMetrics = {
   outdoorShare: number;
   /** Legs between sightseeing stops shown as a taxi ride (「搭計程車」). */
   taxiLegs: number;
+  /** Every leg in the trip by how it's travelled, from its label. */
+  legModes: { walk: number; transit: number; drive: number; taxi: number };
+  /** The trip's very first and very last stop — a self-driver's car pickup and return. */
+  tripEnds: { first?: string; last?: string };
   /** Where each 固定行程 ended up: a stop (with its position in the day) or the meal it replaced. */
   fixedEvents: { day: number; name: string; as: string; lastStop?: boolean; dinnerKm?: number; city?: string }[];
   mainMeals: number;
@@ -156,6 +160,19 @@ export function measureItinerary(days: Rec[], ctx: EvalContext): ItineraryMetric
     categoryShare,
     outdoorShare: stops.filter((s) => exposureOf(typesOf(s.placeId)) === "outdoor").length / Math.max(1, stops.length),
     taxiLegs: stops.filter((s) => str(s.transport_from_prev)?.includes("計程車")).length,
+    legModes: (() => {
+      const labels = days.flatMap((d) => asRecords(d.stops)).map((s) => str(s.transport_from_prev) ?? "");
+      return {
+        walk: labels.filter((l) => l.startsWith("步行")).length,
+        transit: labels.filter((l) => l.startsWith("搭乘大眾運輸")).length,
+        drive: labels.filter((l) => l.startsWith("開車")).length,
+        taxi: labels.filter((l) => l.startsWith("搭計程車")).length,
+      };
+    })(),
+    tripEnds: {
+      first: str(asRecords(days[0]?.stops)[0]?.name),
+      last: str(asRecords(days[lastIdx]?.stops).at(-1)?.name),
+    },
     fixedEvents: days.flatMap((d, i) => {
       const dayStops = asRecords(d.stops);
       const meals = (d.meals ?? {}) as Rec;

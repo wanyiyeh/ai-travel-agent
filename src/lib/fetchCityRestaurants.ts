@@ -486,6 +486,7 @@ async function fetchNearbyPlaceCandidatesUncached(
 }
 
 const TEXT_SEARCH_URL = "https://places.googleapis.com/v1/places:searchText";
+const MAX_TEXT_BIAS_RADIUS_M = 50000;
 
 /**
  * Text Search returning a whole candidate list — placesTextSearch.ts only
@@ -522,7 +523,11 @@ export async function searchTextCandidates(
         textQuery: query,
         pageSize: NEARBY_FETCH_COUNT,
         languageCode: "zh-TW",
-        locationBias: { circle: { center: { latitude: coords.lat, longitude: coords.lng }, radius } },
+        // Google rejects a bias circle over 50km with a 400 (a car-rental search
+        // at 80km came back empty that way).
+        locationBias: {
+          circle: { center: { latitude: coords.lat, longitude: coords.lng }, radius: Math.min(radius, MAX_TEXT_BIAS_RADIUS_M) },
+        },
         ...(includedType ? { includedType } : {}),
         ...(priceLevels ? { priceLevels } : {}),
         // Filtered by Google, so it needs no rating field (stays Pro).

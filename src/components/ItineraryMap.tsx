@@ -78,6 +78,8 @@ interface ItineraryMapProps {
   // Public example viewed by a non-owner: show what's already geocoded, but
   // don't call the enrich routes (they write to the itinerary and bill Google).
   readOnly?: boolean;
+  /** Directions links' mode: driving for a self-driver (交通方式), else transit. */
+  travelMode?: "driving" | "transit";
 }
 
 // --- Inner component: has access to map instance via useMap ---
@@ -92,6 +94,7 @@ function MapContent({
   onAccommodationClick,
   onMealClick,
   onCloseInfoWindow,
+  travelMode,
 }: {
   visibleStops: MapStop[];
   visibleAccommodations: MapAccommodation[];
@@ -103,6 +106,7 @@ function MapContent({
   onAccommodationClick: (acc: MapAccommodation) => void;
   onMealClick: (meal: MapMeal) => void;
   onCloseInfoWindow: () => void;
+  travelMode: "driving" | "transit";
 }) {
   const map = useMap();
 
@@ -167,7 +171,7 @@ function MapContent({
 
       // Click polyline → open Google Maps directions for this day's route
       polyline.addListener("click", () => {
-        const url = buildDirectionsUrl(path.map((p) => `${p.lat},${p.lng}`), "driving");
+        const url = buildDirectionsUrl(path.map((p) => `${p.lat},${p.lng}`), travelMode);
         window.open(url, "_blank");
       });
 
@@ -177,7 +181,7 @@ function MapContent({
     return () => {
       polylines.forEach((p) => p.setMap(null));
     };
-  }, [map, visibleStops, visibleMeals]);
+  }, [map, visibleStops, visibleMeals, travelMode]);
 
   return (
     <>
@@ -344,6 +348,7 @@ export default function ItineraryMap({
   days,
   context,
   readOnly = false,
+  travelMode = "transit",
 }: ItineraryMapProps) {
   const [mapStops, setMapStops] = useState<MapStop[]>([]);
   const [mapAccommodations, setMapAccommodations] = useState<MapAccommodation[]>([]);
@@ -660,6 +665,7 @@ export default function ItineraryMap({
               disableDefaultUI={false}
             >
               <MapContent
+                travelMode={travelMode}
                 visibleStops={visibleStops}
                 visibleAccommodations={visibleAccommodations}
                 visibleMeals={visibleMeals}

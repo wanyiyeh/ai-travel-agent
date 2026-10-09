@@ -31,9 +31,9 @@ vi.mock("@/lib/skeletonCopy", () => ({
 // @/lib/db. Its geo re-exports come straight from the db-free @/lib/geo.
 vi.mock("@/lib/distanceMatrix", async () => ({
   ...(await import("@/lib/geo")),
+  // The real walk/transit/drive rules, so tests see which a generator picks.
+  ...(await import("@/lib/travelMode")),
   getDistancesForStopPairs: (stops: unknown[], pickMode: (km: number) => string) => distancesMock(stops, pickMode),
-  // Honors the walk limit, so tests can see which limit a generator passes.
-  pickModeForDistance: (km: number, walkLimitKm = 1.2) => (km < walkLimitKm ? "walking" : "transit"),
   describeTransport: () => "",
 }));
 
@@ -402,5 +402,40 @@ describe("generateTransitDayStops — fixed events", () => {
     const stops = await generateTransitDayStops("東京", "大阪", "JPY", undefined, NEUTRAL_PREFERENCE_INTENT, [], [evening]);
 
     expect(stops.map((s) => s.name)).toEqual(["退房", "搭新幹線", "大阪城ホール"]);
+  });
+});
+
+// 自駕: the car goes back at the airport after the last day's stops.
+describe("generateDepartureDayStops — returning the rental car", () => {
+  it("ends with the car return, 30 minutes before the airport buffer", async () => {
+    const returnStop = (minute: number) => ({ id: "return", name: "機場還車", startedAt: minute });
+
+    // 17:00 flight: stops end by 13:30, then the car goes back.
+    const stops = await generateDepartureDayStops("東京", "JPY", "17:00", undefined, NEUTRAL_PREFERENCE_INTENT, [], undefined, [], returnStop);
+
+    expect(stops[stops.length - 1]).toMatchObject({ id: "return", startedAt: 13 * 60 + 30 });
+    expect(stops.length).toBeGreaterThan(1);
+  });
+});
+
+describe("generateTransitDayStops — 自駕", () => {
+  it("tells the transit-day planner the traveler drives between cities", async () => {
+    createMock.mockResolvedValueOnce({
+      choices: [{ message: { content: JSON.stringify({ prepStops: [], transitStop: { name: "開車前往大阪", description: "d", duration_minutes: 300 }, arrivalTime: "19:00" }) } }],
+    });
+
+    await generateTransitDayStops("東京", "大阪", "JPY", undefined, { ...NEUTRAL_PREFERENCE_INTENT, selfDrive: true });
+
+    expect(createMock.mock.calls[0][0].messages[0].content).toContain("【旅客自駕】");
+  });
+
+  it("says nothing about driving for public transport", async () => {
+    createMock.mockResolvedValueOnce({
+      choices: [{ message: { content: JSON.stringify({ prepStops: [], transitStop: { name: "搭新幹線", description: "d", duration_minutes: 150 }, arrivalTime: "19:00" }) } }],
+    });
+
+    await generateTransitDayStops("東京", "大阪", "JPY", undefined, NEUTRAL_PREFERENCE_INTENT);
+
+    expect(createMock.mock.calls[0][0].messages[0].content).not.toContain("【旅客自駕】");
   });
 });

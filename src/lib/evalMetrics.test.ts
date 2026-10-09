@@ -116,6 +116,17 @@ describe("measureItinerary", () => {
     expect(measureItinerary(concertDay, ctx).fixedEvents[0].dinnerKm).toBe(1);
   });
 
+  it("counts legs by how they're travelled, and names the trip's first and last stop", () => {
+    const withLegs = days.map((d, i) =>
+      i === 0
+        ? { ...d, stops: [{ ...d.stops[0], name: "機場取車" }, { ...d.stops[1], transport_from_prev: "開車約 20 分鐘" }] }
+        : d
+    );
+    const m2 = measureItinerary(withLegs, ctx);
+    expect(m2.legModes.drive).toBe(1);
+    expect(m2.tripEnds.first).toBe("機場取車");
+  });
+
   it("counts legs shown as a taxi ride", () => {
     const withTaxi = days.map((d, i) =>
       i === 0 ? { ...d, stops: [d.stops[0], { ...d.stops[1], transport_from_prev: "搭計程車約 9 分鐘" }] } : d

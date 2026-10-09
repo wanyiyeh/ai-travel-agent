@@ -31,12 +31,14 @@ const MAX_DEPARTURE_STOPS = 3;
  */
 export function computeDepartureDayBudget(
   returnDepartureMinute: number | undefined,
-  dayStartMinute = 8 * 60
+  dayStartMinute = 8 * 60,
+  // Time needed before the airport buffer — returning a rental car.
+  extraBufferMinutes = 0
 ): DepartureDayBudget {
   const cutoffMinute =
-    returnDepartureMinute != null
+    (returnDepartureMinute != null
       ? returnDepartureMinute - DEPARTURE_BUFFER_MINUTES
-      : DEFAULT_DEPARTURE_CUTOFF_MINUTE;
+      : DEFAULT_DEPARTURE_CUTOFF_MINUTE) - extraBufferMinutes;
 
   const availableMinutes = cutoffMinute - dayStartMinute;
   const estimatedCount =

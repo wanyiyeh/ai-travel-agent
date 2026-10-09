@@ -337,3 +337,15 @@ describe("generateMealsAndAccommodation — 小酌 (nightcap)", () => {
     expect((result.mealsByDay[0].nightcap as { estimated_cost?: number }).estimated_cost).toBe(2250);
   });
 });
+
+describe("generateMealsAndAccommodation — 自駕", () => {
+  it("keeps the 小酌 for a self-driver, with a reminder not to drive after it", async () => {
+    const bar = { ...place("Bar"), types: ["cocktail_bar"] };
+    nearbyMock.mockImplementation(async (_c: unknown, _k: unknown, types: string[]) => (types.includes("bar") ? [bar] : []));
+    mockLlm({ accommodation: {}, meals: [{ nightcap: { id: "N1", description: "很棒的酒吧" } }] });
+
+    const result = await generateMealsAndAccommodation("東京", 1, "JPY", undefined, { drinks: ["alcohol"], selfDrive: true });
+
+    expect((result.mealsByDay[0].nightcap as { description: string }).description).toBe("很棒的酒吧。開車的話請不要喝酒，可以把車留在住宿");
+  });
+});

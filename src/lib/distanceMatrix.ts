@@ -8,7 +8,8 @@ import { estimateTransit, isInJapan } from "@/lib/transitEstimate";
 // directly, since this file also pulls in @/lib/db (PrismaClient).
 export { haversineKm, centroid, SUSPICIOUS_DISTANCE_KM, MAX_PLAUSIBLE_DISTANCE_KM };
 
-type TravelMode = "driving" | "walking" | "transit" | "bicycling";
+import type { TravelMode } from "@/lib/travelMode";
+export { modePickerFor, pickModeForDistance, type TravelPrefs } from "@/lib/travelMode";
 
 export interface DistanceResult {
   distanceText: string;
@@ -208,16 +209,10 @@ function formatDurationZh(seconds: number): string {
   return rest > 0 ? `${hours} 小時 ${rest} 分鐘` : `${hours} 小時`;
 }
 
-// Picks a plausible mode from straight-line distance so we don't have to
-// query every mode for every leg. Thresholds are rough tourist-itinerary
-// heuristics, not routing logic. An indoor-first traveler walks less
-// (indoorOutdoor.ts INDOOR_FIRST_WALK_LIMIT_KM).
-export function pickModeForDistance(km: number, walkLimitKm = 1.2): TravelMode {
-  if (km < walkLimitKm) return "walking";
-  if (km < 30) return "transit";
-  return "driving";
+
+export function describeTransport(mode: TravelMode, durationSeconds: number, estimated = false, selfDrive = false): string {
+  // A driving leg is a taxi for most travelers, but the rental car for a self-driver.
+  const label = mode === "driving" && selfDrive ? "開車" : TRANSPORT_LABEL_ZH[mode];
+  return `${label}約 ${formatDurationZh(durationSeconds)}${estimated ? "（估計）" : ""}`;
 }
 
-export function describeTransport(mode: TravelMode, durationSeconds: number, estimated = false): string {
-  return `${TRANSPORT_LABEL_ZH[mode]}約 ${formatDurationZh(durationSeconds)}${estimated ? "（估計）" : ""}`;
-}

@@ -47,6 +47,7 @@ type Preferences = {
     venueName?: string;
     city?: string;
   }>;
+  transport?: "transit" | "drive";
   dietaryRestrictions?: Array<"vegetarian" | "vegan" | "no_seafood" | "no_beef" | "halal" | "no_spicy">;
   drinks?: Array<"coffee" | "tea" | "alcohol">;
 };
@@ -129,6 +130,13 @@ const SCENARIOS: Scenario[] = [
     },
   },
   { id: "sapporo-loop", label: "札幌 7 天・想去小樽（環狀多城市）", flightInfo: SAPPORO_WEEK, prompt: "想去小樽" },
+  {
+    id: "sapporo-drive",
+    label: "札幌 7 天・自駕（機場取車、還車）",
+    flightInfo: SAPPORO_WEEK,
+    prompt: "想去小樽",
+    preferences: { transport: "drive" },
+  },
   {
     id: "multi-city-fixed",
     label: "東京進大阪出・第 4 天名古屋演唱會（固定行程的城市）",
@@ -331,6 +339,25 @@ const CHECKS: Check[] = [
       const m = r.get("multi-city-fixed");
       const concert = m?.fixedEvents.find((e) => e.as === "stop");
       return m ? `路線 ${m.cities.join(" → ")}；演唱會在第 ${concert?.day ?? "?"} 天（${concert?.city ?? "?"}）` : "—";
+    },
+  },
+  {
+    title: "交通方式：自駕第 1 天先取車、最後一天還車，景點之間開車或走路，不搭大眾運輸",
+    pass: (r) => {
+      const m = r.get("sapporo-drive");
+      if (!m) return null;
+      return Boolean(
+        m.tripEnds.first?.startsWith("機場取車") &&
+          m.tripEnds.last?.startsWith("機場還車") &&
+          m.legModes.drive > 0 &&
+          m.legModes.transit === 0
+      );
+    },
+    detail: (r) => {
+      const m = r.get("sapporo-drive");
+      return m
+        ? `第一站 ${m.tripEnds.first ?? "?"}、最後一站 ${m.tripEnds.last ?? "?"}；開車 ${m.legModes.drive}、步行 ${m.legModes.walk}、大眾運輸 ${m.legModes.transit} 段`
+        : "—";
     },
   },
   {
