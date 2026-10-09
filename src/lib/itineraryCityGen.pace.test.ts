@@ -37,7 +37,7 @@ vi.mock("@/lib/distanceMatrix", async () => ({
   describeTransport: () => "",
 }));
 
-const { generateDayStops, generateDepartureDayStops, generateThemedDayStops } = await import("./itineraryCityGen");
+const { generateDayStops, generateDepartureDayStops, generateThemedDayStops, generateTransitDayStops } = await import("./itineraryCityGen");
 
 // A pool big enough that pool size is never what limits a day's stop count.
 const POOL: PlaceCandidate[] = Array.from({ length: 20 }, (_, i) => ({
@@ -364,5 +364,43 @@ describe("generateDepartureDayStops — fixed events", () => {
     const stops = await generateDepartureDayStops("東京", "JPY", "11:00", undefined, NEUTRAL_PREFERENCE_INTENT, [], undefined, [lunch]);
 
     expect(stops.map((s) => s.id)).toEqual(["booked"]);
+  });
+});
+
+// 2d-2: a show on the day the trip moves to its city.
+describe("generateTransitDayStops — fixed events", () => {
+  const transitPlan = (arrivalTime: string) =>
+    createMock.mockResolvedValueOnce({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              prepStops: [{ name: "退房", description: "d", duration_minutes: 30, time_of_day: "morning" }],
+              transitStop: { name: "搭新幹線", description: "d", duration_minutes: 150, time_of_day: "morning" },
+              arrivalTime,
+            }),
+          },
+        },
+      ],
+    });
+  const show = { block: { startMinute: 15 * 60, endMinute: 18 * 60 }, stop: { id: "show", name: "大阪城ホール", lat: 34.6939, lng: 135.5338 } };
+
+  it("plans the arrival stops around the show and puts it in its place", async () => {
+    transitPlan("11:00");
+
+    const stops = await generateTransitDayStops("東京", "大阪", "JPY", undefined, NEUTRAL_PREFERENCE_INTENT, [], [show]);
+
+    expect(stops.slice(0, 2).map((s) => s.name)).toEqual(["退房", "搭新幹線"]);
+    expect(stops[stops.length - 1].id).toBe("show");
+  });
+
+  it("still shows the event when the train arrives too late for anything else", async () => {
+    transitPlan("17:30");
+    // A 19:00 show, arriving 30 minutes early.
+    const evening = { ...show, block: { startMinute: 18 * 60 + 30, endMinute: 21 * 60 + 30 } };
+
+    const stops = await generateTransitDayStops("東京", "大阪", "JPY", undefined, NEUTRAL_PREFERENCE_INTENT, [], [evening]);
+
+    expect(stops.map((s) => s.name)).toEqual(["退房", "搭新幹線", "大阪城ホール"]);
   });
 });

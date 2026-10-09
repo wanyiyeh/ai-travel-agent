@@ -7,6 +7,7 @@ import { UNTRUSTED_INPUT_RULE, wrapUntrusted } from "@/lib/untrustedInput";
 import { getIataCoords } from "@/lib/airports";
 import { getCityCenter } from "@/lib/placesTextSearch";
 import { haversineKm } from "@/lib/geo";
+import { FIXED_EVENT_TYPES, tripDayOfDate } from "@/lib/fixedEvents";
 
 // A round-trip flight (same airport in and out) used to be forced to one
 // city, which kept a 7-day Hokkaido trip within 10km of Sapporo. With enough
@@ -46,6 +47,102 @@ export const TripPlanSchema = z.object({
 });
 export type TripPlan = z.infer<typeof TripPlanSchema>;
 
+/**
+ * A fixed event's city couldn't be fitted into the route after every
+ * attempt. Not a reason to fall back to the old flow — that would quietly
+ * drop the requirement — so generation stops and the traveler is told what
+ * to change (plan/form-preference-wiring.md 2d-2).
+ */
+export class FixedEventCityError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "FixedEventCityError";
+  }
+}
+
+/** A 固定行程 the route must be in the right city for. */
+export type CityRequirement = { dayNumber: number; date: string; city: string; label: string };
+
+/** Fixed events that name a city, with the trip day they fall on. */
+export function cityRequirements(flightInfo: FlightInfo, preferences: TripPreferences | undefined): CityRequirement[] {
+  return (preferences?.fixedEvents ?? []).flatMap((event) => {
+    const city = event.city?.trim();
+    if (!city) return [];
+    const dayNumber = tripDayOfDate(event.date, flightInfo.departureDate, flightInfo.returnDate);
+    return dayNumber ? [{ dayNumber, date: event.date, city, label: FIXED_EVENT_TYPES[event.type].label }] : [];
+  });
+}
+
+/**
+ * The city the traveler is in on trip day `dayNumber`: the first city's days
+ * come first, each later city's days start with the transit day into it, and
+ * the return day is in the last city.
+ */
+export function cityOnDay(cities: TripPlan["cities"], dayNumber: number): string {
+  let lastDay = 0;
+  for (const city of cities) {
+    lastDay += city.days;
+    if (dayNumber <= lastDay) return city.name;
+  }
+  return cities[cities.length - 1].name;
+}
+
+// Names the model and the traveler may write differently (東京 / 東京都).
+const normalizeCity = (name: string) => name.trim().toLowerCase().replace(/[市都府縣县]$/, "");
+// Two names this close are the same place to stay in.
+const SAME_CITY_KM = 50;
+
+async function isSameCity(a: string, b: string): Promise<boolean> {
+  if (normalizeCity(a) === normalizeCity(b)) return true;
+  const apiKey = process.env.GOOGLE_PLACES_API_KEY;
+  if (!apiKey) return false;
+  const [ca, cb] = await Promise.all([getCityCenter(a, apiKey), getCityCenter(b, apiKey)]);
+  return Boolean(ca && cb && haversineKm(ca.lat, ca.lng, cb.lat, cb.lng) <= SAME_CITY_KM);
+}
+
+/**
+ * Moves days between neighboring cities so each requirement's day falls in
+ * its city, when the city is already on the route: the model counts the
+ * transit day wrong easily (東京 2, 名古屋 1, 大阪 2 puts 名古屋 on day 3, not
+ * day 4). Every city keeps at least a day and the total stays the same. A
+ * city that isn't on the route at all is left to a retry.
+ */
+export function alignCityDays(cities: TripPlan["cities"], requirements: CityRequirement[]): TripPlan["cities"] {
+  const days = cities.map((c) => c.days);
+  for (const r of requirements) {
+    const k = cities.findIndex((c) => normalizeCity(c.name) === normalizeCity(r.city));
+    if (k < 0) continue;
+    const start = 1 + days.slice(0, k).reduce((a, b) => a + b, 0);
+    const end = start + days[k] - 1;
+    // Later cities give days to push the city's end out; earlier ones to pull its start in.
+    let need = r.dayNumber > end ? r.dayNumber - end : r.dayNumber < start ? start - r.dayNumber : 0;
+    const donors = r.dayNumber > end
+      ? Array.from({ length: cities.length - k - 1 }, (_, i) => k + 1 + i)
+      : Array.from({ length: k }, (_, i) => k - 1 - i);
+    for (const j of donors) {
+      if (need === 0) break;
+      const give = Math.min(need, days[j] - 1);
+      days[j] -= give;
+      days[k] += give;
+      need -= give;
+    }
+  }
+  return days.every((d, i) => d === cities[i].days) ? cities : cities.map((c, i) => ({ ...c, days: days[i] }));
+}
+
+/** The requirements a plan misses — the route isn't in the event's city that day. */
+export async function unmetCityRequirements(cities: TripPlan["cities"], requirements: CityRequirement[]): Promise<CityRequirement[]> {
+  const met = await Promise.all(requirements.map((r) => isSameCity(cityOnDay(cities, r.dayNumber), r.city)));
+  return requirements.filter((_, i) => !met[i]);
+}
+
+function describeUnmet(unmet: CityRequirement[]): string {
+  return (
+    unmet.map((r) => `第 ${r.dayNumber} 天（${r.date.slice(5).replace("-", "/")}）的${r.label}在${r.city}`).join("、") +
+    "，排不進這趟路線。請調整固定行程的日期或城市，或航班的進出城市後再試一次。"
+  );
+}
+
 // Same shape as TripPlanSchema but lets a city through with 0 days, so
 // rebalanceZeroDayCities() gets a chance to repair it before the strict
 // schema rejects the whole response.
@@ -78,7 +175,8 @@ export function rebalanceZeroDayCities(cities: TripPlan["cities"]): TripPlan["ci
 function buildSystemPrompt(
   flightInfo: FlightInfo,
   preferences: TripPreferences | undefined,
-  totalDays: number
+  totalDays: number,
+  requirements: CityRequirement[] = []
 ): string {
   const arrivalCityName = iataToCity(flightInfo.arrivalCity);
   const returnCityName = iataToCity(flightInfo.returnDepartureCity);
@@ -108,13 +206,23 @@ function buildSystemPrompt(
 （例如 ${Math.ceil(citiesBudget / 2)} + ${citiesBudget - Math.ceil(citiesBudget / 2)}）。
 回傳前務必自己把所有城市的 days 加總一遍，確認等於 ${citiesBudget} 才輸出。`;
 
+  // A later city's days start with the transit day into it — same counting as cityOnDay.
+  const requirementRules = requirements.length
+    ? `\n\n【固定行程：這幾天必須在指定城市】旅客已經訂好以下行程，那一天一定要待在該城市：
+${requirements.map((r) => `- 第 ${r.dayNumber} 天：${r.city}（${r.label}）`).join("\n")}
+- 城市不在原本的路線上時，把它加進路線，城市名稱照上面寫的
+- 天數計算方式：第一個城市從第 1 天開始；之後每個城市的第一天是移動到該城市的那天。
+  例如前一個城市排 3 天（第 1～3 天），下一個城市的第一天就是第 4 天，也就是移動過去的日子
+- 回傳前逐一確認：上面每個指定的日子，依你的分配是不是真的落在那個城市`
+    : "";
+
   return `你是專業的旅遊規劃專家。請判斷這趟旅程要去哪些城市、每個城市待幾天——
 只需要決定城市清單與天數分配，不需要規劃景點、住宿或餐廳內容。
 
 航班：從 ${arrivalCityName} 進、從 ${returnCityName} 出${isMultiCity ? "（不同城市，開口式行程）" : "（同一城市來回）"}。
 總天數：${totalDays} 天，但最後一天固定是回程日（不計入下面的城市天數分配），
 你只需要分配前 ${citiesBudget} 天。${buildFlightTimePrompt(flightInfo)}${buildPreferencePrompt(preferences)}
-${!isMultiCity ? (loopAllowed ? loopRules : singleCityConstraint) : ""}${daysSumExample}${UNTRUSTED_INPUT_RULE}
+${!isMultiCity ? (loopAllowed ? loopRules : singleCityConstraint) : ""}${requirementRules}${daysSumExample}${UNTRUSTED_INPUT_RULE}
 
 回傳嚴格的 JSON 格式（不要其他文字）：
 {
@@ -227,7 +335,9 @@ export async function planTrip(
   // single-day trip is entirely covered by generateDepartureDayStops alone.
   if (totalDays <= 1) return null;
 
-  const systemPrompt = buildSystemPrompt(flightInfo, preferences, totalDays);
+  const requirements = cityRequirements(flightInfo, preferences);
+  const systemPrompt = buildSystemPrompt(flightInfo, preferences, totalDays, requirements);
+  let lastUnmet: CityRequirement[] = [];
   const arrivalCityName = iataToCity(flightInfo.arrivalCity);
   const isRoundTrip = arrivalCityName === iataToCity(flightInfo.returnDepartureCity);
   // The style blurb is caller-controlled, so it rides in the user message as
@@ -284,6 +394,7 @@ export async function planTrip(
         continue;
       }
 
+      let plan: TripPlan = parsed.data;
       if (isRoundTrip && parsed.data.cities.length > 1) {
         const names = parsed.data.cities.map((c) => c.name);
         const loop = totalDays - 1 >= LOOP_MIN_DAYS && names[0] === arrivalCityName
@@ -296,14 +407,26 @@ export async function planTrip(
         if (loop !== parsed.data.cities) {
           console.warn(`[planTrip] attempt ${attempt}: closed the loop back to ${arrivalCityName}`, names, "->", loop.map((c) => c.name));
         }
-        return await keepLoopNearby({ ...parsed.data, cities: loop }, flightInfo.arrivalCity, arrivalCityName, totalDays - 1);
+        plan = await keepLoopNearby({ ...parsed.data, cities: loop }, flightInfo.arrivalCity, arrivalCityName, totalDays - 1);
       }
 
-      return parsed.data;
+      const aligned = alignCityDays(plan.cities, requirements);
+      if (aligned !== plan.cities) {
+        console.warn(`[planTrip] attempt ${attempt}: moved days so fixed events fall in their city`, plan.cities, "->", aligned);
+        plan = { ...plan, cities: aligned };
+      }
+      const unmet = await unmetCityRequirements(plan.cities, requirements);
+      if (unmet.length > 0) {
+        console.warn(`[planTrip] attempt ${attempt}: fixed events in the wrong city`, plan.cities, unmet);
+        lastUnmet = unmet;
+        continue;
+      }
+      return plan;
     } catch (err) {
       console.warn(`[planTrip] attempt ${attempt} failed:`, err);
     }
   }
 
+  if (lastUnmet.length > 0) throw new FixedEventCityError(describeUnmet(lastUnmet));
   return null;
 }

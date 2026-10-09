@@ -16,6 +16,7 @@ import {
   repairTransitDayDepartureCities,
   tagWaypointCities,
 } from "@/lib/itineraryGen";
+import { FixedEventCityError } from "@/lib/tripPlan";
 import { assembleItineraryDays, type AssembledItinerary } from "@/lib/assembleItineraryDays";
 import { clientIp, generateStreamGate } from "@/lib/rateLimit";
 import { newRequestId } from "@/lib/apiError";
@@ -273,6 +274,13 @@ export async function POST(request: Request) {
               console.warn("[Stream] Rule-engine path failed validation, falling back to LLM flow:", logicResult.issues);
             }
           } catch (err) {
+            // A booked event's city that can't fit the route: the old flow
+            // would ignore the requirement, so say what to change instead.
+            if (err instanceof FixedEventCityError) {
+              send(JSON.stringify({ type: "error", error: "固定行程排不進路線", details: err.message }));
+              close();
+              return;
+            }
             console.warn("[Stream] Rule-engine path threw, falling back to LLM flow:", err);
           }
 

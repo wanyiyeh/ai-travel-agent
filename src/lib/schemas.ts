@@ -56,6 +56,9 @@ export const FixedEventSchema = z
     // Concerts, games, shows: how long before the start to be there (queue,
     // merch, dinner nearby). Defaults by type (fixedEvents.ts).
     arriveEarlyMinutes: z.number().int().min(0).max(240).optional(),
+    // The city the event is in, for a multi-city trip: the route must be
+    // there that day (tripPlan.ts). Optional — a one-city trip needs none.
+    city: z.string().max(100).optional(),
   })
   .refine((e) => e.type !== "work" || e.endTime, { message: "工作需要結束時間", path: ["endTime"] })
   .refine((e) => e.type === "work" || (e.venueName ?? "").trim().length > 0, { message: "請填地點", path: ["venueName"] })

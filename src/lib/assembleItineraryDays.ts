@@ -13,7 +13,7 @@ import { parsePreferenceIntent } from "@/lib/preferenceIntent";
 import { mergePreferenceIntent } from "@/lib/mergePreferenceIntent";
 import { computeArrivalDayStartMinute } from "@/lib/scheduler/arrivalDayStart";
 import { THEMES } from "@/lib/dayThemes";
-import { dateOfDay } from "@/lib/fixedEvents";
+import { tripDayOfDate } from "@/lib/fixedEvents";
 import { planDayEvents, type PlannedDayEvents } from "@/lib/fixedEventVenues";
 
 const DEFAULT_ARRIVAL_MINUTE_FALLBACK = 14 * 60;
@@ -117,7 +117,9 @@ export async function assembleItineraryDays(
   let themedDaysSoFar = 0;
   // 固定行程 (plan/form-preference-wiring.md 1.11) by the trip day they fall on.
   const eventsOn = (dayNumber: number) =>
-    (preferences?.fixedEvents ?? []).filter((e) => e.date === dateOfDay(flightInfo.departureDate, dayNumber));
+    (preferences?.fixedEvents ?? []).filter(
+      (e) => tripDayOfDate(e.date, flightInfo.departureDate, flightInfo.returnDate) === dayNumber
+    );
   const eventStops = (planned: PlannedDayEvents) => planned.fixed.flatMap((e) => (e.stop ? [e.stop] : []));
   // Dinner near a show's venue follows the same budget and diet as other meals.
   const eventMealContext = {
@@ -166,27 +168,34 @@ export async function assembleItineraryDays(
 
     if (!isFirst) {
       const prevCity = plan.cities[cityIdx - 1];
+      // Planned before the lodging is known (transit stops are generated
+      // alongside it), so work with no place given has no lodging to go to.
+      const transitEvents = await planDayEvents(eventsOn(nextDayNumber), city.name, undefined, eventMealContext);
+      for (const stop of eventStops(transitEvents)) {
+        if (typeof stop.placeId === "string") usedPlaceIds.add(stop.placeId);
+      }
       const [transitStops, mealsAndAccommodation] = await Promise.all([
-        generateTransitDayStops(prevCity.name, city.name, plan.currency, budget, preferenceIntent, Array.from(usedPlaceIds)),
+        generateTransitDayStops(
+          prevCity.name,
+          city.name,
+          plan.currency,
+          budget,
+          preferenceIntent,
+          Array.from(usedPlaceIds),
+          transitEvents.fixed
+        ),
         mealsAndAccommodationPromise,
       ]);
       for (const placeId of extractPlaceIds(transitStops)) usedPlaceIds.add(placeId);
 
       const hasAccommodation = Object.keys(mealsAndAccommodation.accommodation).length > 0;
-      // Not planned around yet (multi-city events are a later step) — just shown.
-      const transitEvents = await planDayEvents(
-        eventsOn(nextDayNumber),
-        city.name,
-        locationOf(hasAccommodation ? mealsAndAccommodation.accommodation : undefined),
-        eventMealContext
-      );
       pushDay({
         id: crypto.randomUUID(),
         theme: `移動日：前往${city.name}`,
         isTransitDay: true,
         transitTo: city.name,
         waypointCity: prevCity.name,
-        stops: [...transitStops, ...eventStops(transitEvents)],
+        stops: transitStops,
         // The transit day's own night is spent in the destination city —
         // same accommodation as the sightseeing days that follow it.
         accommodation: hasAccommodation ? mealsAndAccommodation.accommodation : undefined,

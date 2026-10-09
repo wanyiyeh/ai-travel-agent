@@ -240,7 +240,8 @@ async function generateTransitDayStopsViaScheduler(
   currency: string,
   budget: BudgetLevel | undefined,
   preferenceIntent: PreferenceIntent,
-  lockedPlaceIds: string[]
+  lockedPlaceIds: string[],
+  fixed: DayFixedEvents
 ): Promise<Array<Record<string, unknown>> | null> {
   try {
     const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
@@ -251,15 +252,17 @@ async function generateTransitDayStopsViaScheduler(
     // time, same as a sightseeing day — not a count the LLM guesses. Checked
     // with no candidate types first so a late arrival skips the Places call.
     const pace = preferenceIntent.pace ?? "moderate";
+    const fixedBlocks = fixed.map((e) => e.block);
     const capacityFor = (candidateTypes: (string | undefined)[]) =>
       estimateStopCapacity({
         pace,
         dayStartMinute: plan.arrivalMinute,
         dayEndMinute: SIGHTSEEING_DAY_END_MINUTE,
         candidateTypes,
+        fixedBlocks,
       });
     if (capacityFor([]) === 0) {
-      return [...plan.prepStops, plan.transitStop];
+      return [...plan.prepStops, plan.transitStop, ...fixedEventStopsOnly(fixed)];
     }
 
     const apiKey = process.env.GOOGLE_PLACES_API_KEY!;
@@ -300,19 +303,20 @@ async function generateTransitDayStopsViaScheduler(
         anchor: coords,
         origin: coords,
         isOutdoor: shelter.isOutdoor,
+        fixedBlocks,
       }),
       SIGHTSEEING_DAY_END_MINUTE
     );
 
-    const [copy, distances] = await Promise.all([
+    // Arrival stops and the day's events, in time order (stopsWithFixedEvents).
+    const arrivalStops = await stopsWithFixedEvents(
+      skeleton,
+      fixed,
       generateSkeletonCopy(skeleton, hintById, preferenceIntent, model, toCity),
-      getDistancesForStopPairs(
-        skeleton.map((s) => ({ id: s.id, lat: s.lat, lng: s.lng })),
-        shelter.pickMode
-      ),
-    ]);
-
-    const arrivalStops = assembleScheduledStops(skeleton, candidateById, copy, distances, currency);
+      candidateById,
+      currency,
+      shelter.pickMode
+    );
     return [...plan.prepStops, plan.transitStop, ...arrivalStops];
   } catch (err) {
     console.warn("[generateTransitDayStopsViaScheduler] falling back to LLM:", err);
@@ -329,7 +333,9 @@ export async function generateTransitDayStops(
   // Places already used in toCity this trip — a round-trip loop arrives back
   // in a city it already visited (札幌 → 函館 → 札幌), and without this the
   // arrival stops repeated day 1's 札幌市時計台.
-  lockedPlaceIds: string[] = []
+  lockedPlaceIds: string[] = [],
+  // The day's 固定行程 in toCity — arrival stops are planned around them.
+  fixed: DayFixedEvents = []
 ): Promise<Array<Record<string, unknown>>> {
   const scheduled = await generateTransitDayStopsViaScheduler(
     fromCity,
@@ -337,10 +343,12 @@ export async function generateTransitDayStops(
     currency,
     budget,
     preferenceIntent,
-    lockedPlaceIds
+    lockedPlaceIds,
+    fixed
   );
   if (scheduled) return scheduled;
-  return generateTransitDayStopsWithLLM(fromCity, toCity, currency);
+  // The fallback can't plan around them, but the booked events still show.
+  return [...(await generateTransitDayStopsWithLLM(fromCity, toCity, currency)), ...fixedEventStopsOnly(fixed)];
 }
 
 /**

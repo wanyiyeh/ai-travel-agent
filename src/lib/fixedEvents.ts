@@ -70,11 +70,23 @@ export function eventWindow(event: FixedEvent): { startMinute: number; endMinute
   return { startMinute, endMinute: Math.max(endMinute, startMinute + 15) };
 }
 
-/** The trip date (YYYY-MM-DD) of itinerary day `dayNumber` (1-based), counting from the departure date. */
-export function dateOfDay(departureDate: string, dayNumber: number): string {
-  const d = new Date(`${departureDate}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + dayNumber - 1);
-  return d.toISOString().slice(0, 10);
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+/**
+ * Which itinerary day (1-based) a fixed event's date falls on. Day N is
+ * departureDate + (N - 1) and the trip has returnDate - departureDate days
+ * (the same count as calcDays), so the return date itself is one past the
+ * last day — an event booked on it goes on the last day, the 返程日, rather
+ * than being dropped. Undefined outside the trip.
+ */
+export function tripDayOfDate(date: string, departureDate: string, returnDate: string): number | undefined {
+  const totalDays = Math.max(
+    1,
+    Math.ceil((new Date(`${returnDate}T00:00:00Z`).getTime() - new Date(`${departureDate}T00:00:00Z`).getTime()) / MS_PER_DAY)
+  );
+  if (date === returnDate) return totalDays;
+  const day = Math.round((new Date(`${date}T00:00:00Z`).getTime() - new Date(`${departureDate}T00:00:00Z`).getTime()) / MS_PER_DAY) + 1;
+  return day >= 1 && day <= totalDays ? day : undefined;
 }
 
 /** A reservation stands in for a meal rather than adding a stop. */

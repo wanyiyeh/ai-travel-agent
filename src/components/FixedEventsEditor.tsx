@@ -1,6 +1,7 @@
 "use client";
 
 import { ARRIVE_EARLY_DEFAULT_MINUTES, FIXED_EVENT_TYPES, isShowEvent } from "@/lib/fixedEvents";
+import { AIRPORTS } from "@/lib/airports";
 import { FIXED_EVENT_TYPE_VALUES, FixedEventSchema, type FixedEvent, type FixedEventType } from "@/lib/schemas";
 
 // 固定行程 (plan/form-preference-wiring.md 1.11): what the traveler already
@@ -15,7 +16,12 @@ export type FixedEventDraft = {
   venueName: string;
   /** Minutes as typed, "" for the type's default (concerts, games, shows only). */
   arriveEarly: string;
+  /** The event's city, for a multi-city trip; "" when not given. */
+  city: string;
 };
+
+// Suggestions for the city field — any name can still be typed.
+const CITY_SUGGESTIONS = [...new Set(Object.values(AIRPORTS).map((a) => a.cityZh))].sort((a, b) => a.localeCompare(b, "zh-Hant"));
 
 const ARRIVE_EARLY_CHOICES = [0, 30, 60, 90, 120, 180];
 
@@ -24,7 +30,7 @@ const hoursLabel = (minutes: number) => (minutes === 0 ? "不用提早" : `提�
 export const MAX_FIXED_EVENTS = 10;
 
 export function emptyDraft(date: string): FixedEventDraft {
-  return { type: "concert", date, startTime: "", endTime: "", venueName: "", arriveEarly: "" };
+  return { type: "concert", date, startTime: "", endTime: "", venueName: "", arriveEarly: "", city: "" };
 }
 
 export function toFixedEvent(draft: FixedEventDraft): FixedEvent {
@@ -35,6 +41,7 @@ export function toFixedEvent(draft: FixedEventDraft): FixedEvent {
     ...(draft.endTime ? { endTime: draft.endTime } : {}),
     ...(draft.venueName.trim() ? { venueName: draft.venueName.trim() } : {}),
     ...(isShowEvent(draft) && draft.arriveEarly !== "" ? { arriveEarlyMinutes: Number(draft.arriveEarly) } : {}),
+    ...(draft.city.trim() ? { city: draft.city.trim() } : {}),
   };
 }
 
@@ -116,15 +123,27 @@ export function FixedEventsEditor({
                 刪除
               </button>
             </div>
-            <input
-              type="text"
-              aria-label="地點"
-              value={draft.venueName}
-              maxLength={200}
-              onChange={(e) => update(index, { venueName: e.target.value })}
-              placeholder={isWork ? "地點（選填，沒填就在住宿工作）" : "地點，例：東京巨蛋、すきやばし次郎"}
-              className={`${INPUT_CLASS} w-full`}
-            />
+            <div className="flex gap-2">
+              <input
+                type="text"
+                aria-label="地點"
+                value={draft.venueName}
+                maxLength={200}
+                onChange={(e) => update(index, { venueName: e.target.value })}
+                placeholder={isWork ? "地點（選填，沒填就在住宿工作）" : "地點，例：東京巨蛋、すきやばし次郎"}
+                className={`${INPUT_CLASS} flex-1 min-w-0`}
+              />
+              <input
+                type="text"
+                aria-label="城市"
+                list="fixed-event-cities"
+                value={draft.city}
+                maxLength={100}
+                onChange={(e) => update(index, { city: e.target.value })}
+                placeholder="城市（跨城市行程請填）"
+                className={`${INPUT_CLASS} w-40`}
+              />
+            </div>
             {isShowEvent(draft) && (
               <select
                 aria-label="提早到場"
@@ -146,6 +165,11 @@ export function FixedEventsEditor({
           </div>
         );
       })}
+      <datalist id="fixed-event-cities">
+        {CITY_SUGGESTIONS.map((city) => (
+          <option key={city} value={city} />
+        ))}
+      </datalist>
       {drafts.length < MAX_FIXED_EVENTS && (
         <button
           type="button"
