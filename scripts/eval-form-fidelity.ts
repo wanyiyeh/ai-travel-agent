@@ -261,6 +261,14 @@ const CHECKS: Check[] = [
       `室內組戶外 ${pct(r.get("tokyo-indoor")?.outdoorShare)}／每天 ${fix1(r.get("tokyo-indoor")?.stopsPerDay)} 個、對照組戶外 ${pct(r.get("tokyo-baseline")?.outdoorShare)}`,
   },
   {
+    title: "交通：東京的景點之間沒有「搭計程車」（日本查不到大眾運輸，改用估計）",
+    pass: (r) => {
+      const m = r.get("tokyo-baseline");
+      return m ? m.taxiLegs === 0 : null;
+    },
+    detail: (r) => `對照組 ${r.get("tokyo-baseline")?.taxiLegs ?? "—"} 段計程車`,
+  },
+  {
     title: "出門時間：晚起每天景點數 < 對照組",
     pass: (r) =>
       both(r, "tokyo-late", "tokyo-baseline") ? r.get("tokyo-late")!.stopsPerDay < r.get("tokyo-baseline")!.stopsPerDay : null,
