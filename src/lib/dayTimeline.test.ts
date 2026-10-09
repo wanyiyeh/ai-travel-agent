@@ -57,3 +57,28 @@ describe("buildDayTimeline — 小酌", () => {
     ]);
   });
 });
+
+// Story: on a concert night dinner was shown after the show — a 21:00 finish.
+describe("buildDayTimeline — dinner before an evening show", () => {
+  type T = S & { show?: boolean };
+  it("puts the snack and dinner right before the show, the 小酌 after it", () => {
+    const stops: T[] = [{ name: "Museum", tod: "morning" }, { name: "Park", tod: "afternoon" }, { name: "Concert", tod: "evening", show: true }];
+    const items = buildDayTimeline<T, string | null>(stops, { ...allMeals, nightcap: "N" }, (s) => s.tod, (s) => Boolean(s.show));
+    expect(items.map((i) => (i.kind === "stop" ? i.stop.name : i.mealType))).toEqual([
+      "breakfast",
+      "Museum",
+      "lunch",
+      "Park",
+      "snack",
+      "dinner",
+      "Concert",
+      "nightcap",
+    ]);
+  });
+
+  it("leaves a day without a show as it was", () => {
+    const stops: T[] = [{ name: "Museum", tod: "morning" }];
+    const items = buildDayTimeline<T, string | null>(stops, allMeals, (s) => s.tod, (s) => Boolean(s.show));
+    expect(items[items.length - 1]).toMatchObject({ kind: "meal", mealType: "dinner" });
+  });
+});

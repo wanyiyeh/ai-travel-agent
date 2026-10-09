@@ -119,6 +119,12 @@ export async function assembleItineraryDays(
   const eventsOn = (dayNumber: number) =>
     (preferences?.fixedEvents ?? []).filter((e) => e.date === dateOfDay(flightInfo.departureDate, dayNumber));
   const eventStops = (planned: PlannedDayEvents) => planned.fixed.flatMap((e) => (e.stop ? [e.stop] : []));
+  // Dinner near a show's venue follows the same budget and diet as other meals.
+  const eventMealContext = {
+    budget,
+    dietaryRestrictions: mealPreferences.dietaryRestrictions,
+    currency: plan.currency,
+  };
   for (let cityIdx = 0; cityIdx < plan.cities.length; cityIdx++) {
     const city = plan.cities[cityIdx];
     const isFirst = cityIdx === 0;
@@ -171,7 +177,8 @@ export async function assembleItineraryDays(
       const transitEvents = await planDayEvents(
         eventsOn(nextDayNumber),
         city.name,
-        locationOf(hasAccommodation ? mealsAndAccommodation.accommodation : undefined)
+        locationOf(hasAccommodation ? mealsAndAccommodation.accommodation : undefined),
+        eventMealContext
       );
       pushDay({
         id: crypto.randomUUID(),
@@ -195,7 +202,9 @@ export async function assembleItineraryDays(
     const lodging = locationOf(accommodation);
 
     const sightseeingEvents = await Promise.all(
-      Array.from({ length: sightseeingCount }, (_, i) => planDayEvents(eventsOn(nextDayNumber + i), city.name, lodging))
+      Array.from({ length: sightseeingCount }, (_, i) =>
+        planDayEvents(eventsOn(nextDayNumber + i), city.name, lodging, eventMealContext)
+      )
     );
     // A concert at 東京巨蛋 shouldn't also turn up as a sightseeing stop there.
     for (const stop of sightseeingEvents.flatMap(eventStops)) {
@@ -235,7 +244,7 @@ export async function assembleItineraryDays(
     }
 
     if (isLast) {
-      const departureEvents = await planDayEvents(eventsOn(nextDayNumber), city.name, lodging);
+      const departureEvents = await planDayEvents(eventsOn(nextDayNumber), city.name, lodging, eventMealContext);
       for (const stop of eventStops(departureEvents)) {
         if (typeof stop.placeId === "string") usedPlaceIds.add(stop.placeId);
       }
