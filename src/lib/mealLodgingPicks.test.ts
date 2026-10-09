@@ -5,6 +5,7 @@ import {
   applyMealPicks,
   formatCandidateLists,
   newPickHistory,
+  snackRotationRule,
   unusedFirst,
   type MealLodgingPools,
 } from "./mealLodgingPicks";
@@ -219,5 +220,22 @@ describe("applyMealPicks with a snack rotation", () => {
 
   it("keeps the rotation in a later chunk's reordered pools", () => {
     expect(unusedFirst(rotating, newPickHistory()).snackRotation).toBe(rotating.snackRotation);
+  });
+});
+
+// Story: with no word about drinks in the prompt, the LLM picked ordinary
+// sweet shops, the rotation swapped every snack, and none had a description.
+describe("snackRotationRule", () => {
+  const coffee = [place("Coffee 1"), place("Coffee 2")];
+  const tea = [place("Tea 1")];
+  const rotating: MealLodgingPools = { ...pools, snack: [coffee[0], tea[0], coffee[1], place("Gelato Q")], snackRotation: [coffee, tea] };
+
+  it("lists each day's snack candidates by id, continuing the rotation from the chunk's first day", () => {
+    expect(snackRotationRule(rotating, 0, 2)).toBe("\n- 旅客選了飲品，點心照天數從這些候選選：第 1 天：S1、S3；第 2 天：S2");
+    expect(snackRotationRule(rotating, 5, 1)).toBe("\n- 旅客選了飲品，點心照天數從這些候選選：第 1 天：S2");
+  });
+
+  it("adds nothing without drinks", () => {
+    expect(snackRotationRule(pools, 0, 3)).toBe("");
   });
 });

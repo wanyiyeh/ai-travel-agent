@@ -61,6 +61,25 @@ export function formatCandidateLists(pools: MealLodgingPools): string {
   ].join("\n\n");
 }
 
+/**
+ * A prompt line telling the LLM which snack candidates each day of a chunk
+ * should come from, when drinks rotate. Without it the LLM picked ordinary
+ * sweet shops, the rotation swapped every one out, and the swapped-in places
+ * had no description. Empty without a rotation.
+ */
+export function snackRotationRule(pools: MealLodgingPools, dayOffset: number, days: number): string {
+  const rotation = pools.snackRotation;
+  if (!rotation?.length) return "";
+  const lines = Array.from({ length: days }, (_, i) => {
+    const ids = rotation[(dayOffset + i) % rotation.length]
+      .map((place) => pools.snack.indexOf(place))
+      .filter((index) => index >= 0)
+      .map((index) => candidateId("snack", index));
+    return `第 ${i + 1} 天：${ids.join("、")}`;
+  });
+  return `\n- 旅客選了飲品，點心照天數從這些候選選：${lines.join("；")}`;
+}
+
 type RawPick = Record<string, unknown>;
 
 // A place may come back on a later day once a stay has used every

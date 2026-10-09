@@ -8,6 +8,7 @@ import {
   hasAnyCandidates,
   newPickHistory,
   unusedFirst,
+  snackRotationRule,
   type MealLodgingPools,
 } from "@/lib/mealLodgingPicks";
 import { placeCandidatesToStopCandidates } from "@/lib/scheduler/placeCandidatesToStopCandidates";
@@ -569,7 +570,8 @@ export async function generateMealsAndAccommodation(
     const isFirst = start === 0;
     const chunkPools = isFirst ? pools : unusedFirst(pools, history);
     // A failed chunk still gets meals: every slot is filled from candidates.
-    const parsed = await askMealsAndLodging(model, cityName, days, currency, preferenceRules, chunkPools, isFirst).catch(
+    const chunkRules = preferenceRules + snackRotationRule(chunkPools, start, days);
+    const parsed = await askMealsAndLodging(model, cityName, days, currency, chunkRules, chunkPools, isFirst).catch(
       (err) => {
         console.warn(`[generateMealsAndAccommodation] chunk from day ${start} failed, filling from candidates:`, err);
         return {} as ParsedMealsReply;

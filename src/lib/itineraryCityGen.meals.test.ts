@@ -267,6 +267,16 @@ describe("generateMealsAndAccommodation — 飲品 (drinks)", () => {
     expect(systemPrompt()).toContain("早餐候選：\nB1: Glitch Coffee");
   });
 
+  it("tells the model which snack candidates each day should come from", async () => {
+    nearbyMock.mockResolvedValue([]);
+    textMock.mockImplementation(byQuery);
+    mockLlm({ accommodation: {}, meals: [] });
+
+    await generateMealsAndAccommodation("京都", 2, "JPY", undefined, { drinks: ["coffee", "tea"] });
+
+    expect(systemPrompt()).toContain("旅客選了飲品，點心照天數從這些候選選：第 1 天：S1、S3；第 2 天：S2、S4");
+  });
+
   it("makes no drink search when none was chosen", async () => {
     nearbyMock.mockResolvedValue([]);
     mockLlm({ accommodation: {}, meals: [] });
