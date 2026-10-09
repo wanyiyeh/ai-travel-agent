@@ -99,7 +99,8 @@ export function eventStop(event: FixedEvent, venue: Venue | undefined): Record<s
 export function eventMeal(event: FixedEvent, venue: Venue | undefined): Record<string, unknown> {
   return {
     name: event.venueName?.trim() || venue?.name || "餐廳訂位",
-    description: `已訂位：${eventTimeLabel(event)}`,
+    // Not eventTimeLabel: 「已訂位：餐廳訂位 12:00～13:30」 says it twice.
+    description: `已訂位 ${fixedEventInfo(event).startTime}～${fixedEventInfo(event).endTime}`,
     fixedEvent: fixedEventInfo(event),
     ...(venue ? { placeId: venue.placeId, lat: venue.lat, lng: venue.lng, address: venue.address } : {}),
   };

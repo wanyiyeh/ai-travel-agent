@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { blockOf, dateOfDay, eventStop, eventWindow, mealSlotOf } from "@/lib/fixedEvents";
+import { blockOf, dateOfDay, eventMeal, eventStop, eventWindow, mealSlotOf } from "@/lib/fixedEvents";
 import { FixedEventSchema, type FixedEvent } from "@/lib/schemas";
 import { draftProblem } from "@/components/FixedEventsEditor";
 
@@ -59,6 +59,13 @@ describe("eventStop", () => {
   it("calls work with no place given 在住宿工作", () => {
     const work: FixedEvent = { type: "work", date: "2026-11-11", startTime: "14:00", endTime: "17:00" };
     expect(eventStop(work, undefined).name).toBe("在住宿工作");
+  });
+});
+
+describe("eventMeal", () => {
+  it("describes a reservation by its time, without repeating 訂位", () => {
+    const lunch: FixedEvent = { type: "reservation", date: "2026-11-12", startTime: "12:00", venueName: "叙々苑 新宿" };
+    expect(eventMeal(lunch, undefined).description).toBe("已訂位 12:00～13:30");
   });
 });
 
