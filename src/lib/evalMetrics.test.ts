@@ -86,6 +86,13 @@ describe("measureItinerary", () => {
     expect(m.cities).toEqual(["東京", "大阪"]);
   });
 
+  it("counts the nights in each city, the transit day's in the city it goes to", () => {
+    expect(m.nightStays).toEqual([
+      { city: "東京", nights: 2 },
+      { city: "大阪", nights: 1 },
+    ]);
+  });
+
   it("lists where each fixed event ended up", () => {
     const withEvents = days.map((d, i) =>
       i === 0

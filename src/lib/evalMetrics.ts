@@ -60,6 +60,8 @@ export type ItineraryMetrics = {
   inventedMeals: number;
   /** Cities in order, consecutive duplicates merged. */
   cities: string[];
+  /** Where each night is spent, consecutive nights in one city merged (a transit day's night is in the city it goes to). */
+  nightStays: { city: string; nights: number }[];
   /** Each sightseeing day's title, e.g. 「東京 文化巡禮」 (dayThemes.ts). */
   dayTitles: string[];
   /** Each day's snack in order (days without one skipped), with Google's primary type. */
@@ -153,6 +155,14 @@ export function measureItinerary(days: Rec[], ctx: EvalContext): ItineraryMetric
     const city = str(d.waypointCity);
     if (city && cities[cities.length - 1] !== city) cities.push(city);
   }
+  const nightStays: ItineraryMetrics["nightStays"] = [];
+  for (const d of days.slice(0, lastIdx)) {
+    const city = str(d.isTransitDay ? d.transitTo : d.waypointCity);
+    if (!city) continue;
+    const last = nightStays[nightStays.length - 1];
+    if (last?.city === city) last.nights++;
+    else nightStays.push({ city, nights: 1 });
+  }
 
   return {
     sightseeingDays: sightseeing.length,
@@ -228,6 +238,7 @@ export function measureItinerary(days: Rec[], ctx: EvalContext): ItineraryMetric
     adjacentRepeats,
     inventedMeals,
     cities,
+    nightStays,
     dayTitles: sightseeing.map((d) => str(d.theme) ?? ""),
     snacks: days.flatMap((d) => {
       const snack = ((d.meals ?? {}) as Rec).snack as Rec | undefined;
