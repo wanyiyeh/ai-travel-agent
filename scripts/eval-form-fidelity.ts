@@ -86,6 +86,8 @@ const TOKYO_TO_OSAKA = {
   departureDate: "2026-11-10",
   returnDate: "2026-11-16",
 };
+// Tokyo, 5 days: long enough that the trip should spend a night out of town.
+const TOKYO_5_DAYS = { ...TOKYO, returnDate: "2026-11-15" };
 const SAPPORO_WEEK = {
   departureCity: "TPE",
   arrivalCity: "CTS",
@@ -130,6 +132,7 @@ const SCENARIOS: Scenario[] = [
       ],
     },
   },
+  { id: "tokyo-5-days", label: "東京 5 天・不選任何偏好（兩天一夜）", flightInfo: TOKYO_5_DAYS },
   { id: "sapporo-loop", label: "札幌 7 天・想去小樽（環狀多城市）", flightInfo: SAPPORO_WEEK, prompt: "想去小樽" },
   {
     id: "sapporo-drive",
@@ -395,6 +398,16 @@ const CHECKS: Check[] = [
       return c ? c.length > 1 && c[0] === "札幌" && c[c.length - 1] === "札幌" && c.includes("小樽") : null;
     },
     detail: (r) => r.get("sapporo-loop")?.cities.join(" → ") ?? "—",
+  },
+  {
+    title: "兩天一夜：東京 5 天，只到一個東京以外的城鎮過夜，再回東京",
+    pass: (r) => {
+      const stays = r.get("tokyo-5-days")?.nightStays;
+      if (!stays) return null;
+      const towns = stays.filter((s) => s.city !== "東京");
+      return stays[0]?.city === "東京" && stays.at(-1)?.city === "東京" && towns.length === 1;
+    },
+    detail: (r) => r.get("tokyo-5-days")?.nightStays.map((s) => `${s.city} ${s.nights} 晚`).join(" → ") ?? "—",
   },
 ];
 
