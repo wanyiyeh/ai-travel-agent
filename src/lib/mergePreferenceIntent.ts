@@ -15,7 +15,7 @@ function union(a: readonly string[], b: readonly string[]): string[] {
  *   Form interest values double as interestBoost tags (culture/nature/
  *   shopping map to scheduler categories; others simply get no boost).
  * - avoid: free text only, the form has no such field.
- * - indoorFirst: form only.
+ * - indoorFirst, selfDrive: form only.
  */
 export function mergePreferenceIntent(
   preferences: TripPreferences | undefined,
@@ -28,5 +28,6 @@ export function mergePreferenceIntent(
     dietaryRestrictions: union(preferences?.dietaryRestrictions ?? [], parsed.dietaryRestrictions),
     avoid: parsed.avoid,
     ...(preferences?.indoorFirst ? { indoorFirst: true } : {}),
+    ...(preferences?.transport === "drive" ? { selfDrive: true } : {}),
   };
 }

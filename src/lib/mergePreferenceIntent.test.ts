@@ -51,3 +51,10 @@ describe("mergePreferenceIntent — 室內行程為主", () => {
     expect(mergePreferenceIntent({}, parsed({}))).not.toHaveProperty("indoorFirst");
   });
 });
+
+describe("mergePreferenceIntent — 交通方式", () => {
+  it("marks a self-driver for the scheduler", () => {
+    expect(mergePreferenceIntent({ transport: "drive" }, parsed({})).selfDrive).toBe(true);
+    expect(mergePreferenceIntent({ transport: "transit" }, parsed({}))).not.toHaveProperty("selfDrive");
+  });
+});

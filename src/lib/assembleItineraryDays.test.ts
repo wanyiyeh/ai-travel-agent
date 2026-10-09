@@ -41,6 +41,11 @@ vi.mock("@/lib/itineraryCityGen", async (importOriginal) => ({
 vi.mock("@/lib/fixedEventVenues", () => ({
   planDayEvents: (...args: unknown[]) => planEventsMock(...args),
 }));
+const findRentalMock = vi.fn();
+vi.mock("@/lib/carRental", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/carRental")>()),
+  findCarRental: (...args: unknown[]) => findRentalMock(...args),
+}));
 
 const { assembleItineraryDays } = await import("./assembleItineraryDays");
 
@@ -362,5 +367,35 @@ describe("assembleItineraryDays — fixed events", () => {
 
     const day3 = result!.days.find((d) => d.day === 3)!;
     expect(day3.meals).toMatchObject({ lunch: { name: "叙々苑" }, dinner: { name: "Sushi" } });
+  });
+});
+
+// 自駕 (plan/form-preference-wiring.md 1.7).
+describe("assembleItineraryDays — self-drive", () => {
+  beforeEach(() => {
+    findRentalMock.mockReset();
+    findRentalMock.mockImplementation(async (iata: string) => ({ placeId: iata, name: `${iata} Rental`, lat: 0, lng: 0 }));
+  });
+
+  it("starts day 1 with picking up the car at the arrival airport's counter", async () => {
+    await run(undefined, { transport: "drive" });
+
+    const firstDayEvents = dayStopsMock.mock.calls[0][9][0];
+    expect(firstDayEvents[0].stop).toMatchObject({ name: "機場取車：NRT Rental" });
+    expect(firstDayEvents[0].block.startMinute).toBe(computeArrivalDayStartMinute(15 * 60));
+  });
+
+  it("returns the car at the departure airport's counter on the last day", async () => {
+    await run(undefined, { transport: "drive" });
+
+    const makeReturn = departureStopsMock.mock.calls[0][8] as (minute: number) => Record<string, unknown>;
+    expect(makeReturn(13 * 60)).toMatchObject({ name: "機場還車：KIX Rental" });
+  });
+
+  it("does none of it for public transport", async () => {
+    await run(undefined, { transport: "transit" });
+
+    expect(findRentalMock).not.toHaveBeenCalled();
+    expect(departureStopsMock.mock.calls[0][8]).toBeUndefined();
   });
 });

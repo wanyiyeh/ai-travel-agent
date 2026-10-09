@@ -18,7 +18,7 @@ import { computeDepartureDayBudget } from "@/lib/scheduler/departureDayBudget";
 import { estimateStopCapacity } from "@/lib/scheduler/stopCapacity";
 import { generateSkeletonCopy } from "@/lib/skeletonCopy";
 import { NEUTRAL_PREFERENCE_INTENT, type PreferenceIntent } from "@/lib/schemas";
-import { getDistancesForStopPairs, pickModeForDistance, describeTransport } from "@/lib/distanceMatrix";
+import { getDistancesForStopPairs, pickModeForDistance, describeTransport, modePickerFor } from "@/lib/distanceMatrix";
 import { estimateAttractionCost } from "@/lib/priceLevelCost";
 import { isFoodPlace } from "@/lib/foodPlace";
 import { getTwdRates } from "@/lib/exchangeRate";
@@ -36,8 +36,9 @@ import {
   type DrinkChoice,
   type DrinkKey,
 } from "@/lib/drinkPlaces";
-import { INDOOR_FIRST_WALK_LIMIT_KM, exposureOf, indoorFirstPool } from "@/lib/indoorOutdoor";
+import { exposureOf, indoorFirstPool } from "@/lib/indoorOutdoor";
 import type { DayFixedEvents } from "@/lib/fixedEvents";
+import { RETURN_CAR_MINUTES } from "@/lib/carRental";
 import { THEMES, dayThemeKeys, interestWeightsOf, isOnTheme, popularSlots, themesOf, type ThemeKey } from "@/lib/dayThemes";
 import { dietPromptLine, dietRequiredTypes, excludeByDiet } from "@/lib/dietaryFilter";
 
@@ -143,11 +144,18 @@ export function parseTimeString(raw: unknown, fallbackMinute: number): number {
  * invent named arrival-city attractions. Returns null on any parse failure
  * so the caller falls back to the full pure-LLM implementation.
  */
+// 自駕: the move between cities is a drive in the rental car, not a train.
+const SELF_DRIVE_TRANSIT_RULE = `
+
+【旅客自駕】旅客在當地租車，城市之間開車移動，不搭火車或巴士：transitStop 寫成「開車前往○○」，
+transport_from_prev 寫開車時間，arrivalTime 依開車時間推算。`;
+
 async function planTransitDay(
   fromCity: string,
   toCity: string,
   currency: string,
-  model: string
+  model: string,
+  selfDrive = false
 ): Promise<TransitPlan | null> {
   try {
     const completion = await openai.chat.completions.create({
@@ -162,7 +170,7 @@ async function planTransitDay(
 - 中程（車程 90 分鐘－4 小時，如維也納→布達佩斯 2.5hr、大阪→廣島 1.5hr）
 - 長程（車程＞4 小時或需過夜，如布達佩斯→捷克克魯姆洛夫 8-11hr）
 
-抵達時間（arrivalTime）必須用「出發時間＋交通時長」實際推算，不可憑感覺。
+抵達時間（arrivalTime）必須用「出發時間＋交通時長」實際推算，不可憑感覺。${selfDrive ? SELF_DRIVE_TRANSIT_RULE : ""}
 
 回傳嚴格的 JSON 格式（不要其他文字）：
 {
@@ -245,7 +253,7 @@ async function generateTransitDayStopsViaScheduler(
 ): Promise<Array<Record<string, unknown>> | null> {
   try {
     const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
-    const plan = await planTransitDay(fromCity, toCity, currency, model);
+    const plan = await planTransitDay(fromCity, toCity, currency, model, preferenceIntent.selfDrive);
     if (!plan) return null;
 
     // How many arrival-city stops fit is clock arithmetic from the arrival
@@ -315,7 +323,8 @@ async function generateTransitDayStopsViaScheduler(
       generateSkeletonCopy(skeleton, hintById, preferenceIntent, model, toCity),
       candidateById,
       currency,
-      shelter.pickMode
+      shelter.pickMode,
+      preferenceIntent.selfDrive
     );
     return [...plan.prepStops, plan.transitStop, ...arrivalStops];
   } catch (err) {
@@ -380,14 +389,25 @@ export async function generateDepartureDayStops(
   // Where the traveler stayed; scores and routes from here. Defaults to the city center.
   lodging?: { lat: number; lng: number },
   // The day's 固定行程 — kept clear of other stops and slotted in by time.
-  fixed: DayFixedEvents = []
+  dayEvents: DayFixedEvents = [],
+  // A self-driver's car return (carRental.ts), made for the time it falls at:
+  // right after the stops, 30 minutes earlier than heading to the airport.
+  carReturn?: (startMinute: number) => Record<string, unknown>
 ): Promise<Array<Record<string, unknown>>> {
+  let fixed = dayEvents;
   try {
     const dayStartMinute = dayStartFor(preferenceIntent);
     const returnDepartureMinute = returnDepartureTime
       ? parseTimeString(returnDepartureTime, DEFAULT_ARRIVAL_MINUTE)
       : undefined;
-    const { cutoffMinute, estimatedCount } = computeDepartureDayBudget(returnDepartureMinute, dayStartMinute);
+    const { cutoffMinute, estimatedCount } = computeDepartureDayBudget(
+      returnDepartureMinute,
+      dayStartMinute,
+      carReturn ? RETURN_CAR_MINUTES : 0
+    );
+    fixed = carReturn
+      ? [...dayEvents, { block: { startMinute: cutoffMinute, endMinute: cutoffMinute + RETURN_CAR_MINUTES }, stop: carReturn(cutoffMinute) }]
+      : dayEvents;
     if (estimatedCount === 0) return fixedEventStopsOnly(fixed);
 
     const apiKey = process.env.GOOGLE_PLACES_API_KEY!;
@@ -444,7 +464,8 @@ export async function generateDepartureDayStops(
       generateSkeletonCopy(withinCutoff, hintById, preferenceIntent, model, cityName),
       candidateById,
       currency,
-      shelter.pickMode
+      shelter.pickMode,
+      preferenceIntent.selfDrive
     );
   } catch (err) {
     console.warn("[generateDepartureDayStops] returning no extra stops:", err);
@@ -470,11 +491,28 @@ export type MealPreferences = {
   startTimePreference?: PreferenceIntent["startTimePreference"];
   /** From the form only — the free-text parse has no drinks. */
   drinks?: DrinkChoice[];
+  /** Renting a car: the 小酌 gets a don't-drink-and-drive reminder. */
+  selfDrive?: boolean;
 };
 
 /** `drinks` comes from the stored form preferences — the free-text parse has none. */
 export function mealPreferencesOf(intent: PreferenceIntent, drinks?: DrinkChoice[]): MealPreferences {
-  return { dietaryRestrictions: intent.dietaryRestrictions, startTimePreference: intent.startTimePreference, drinks };
+  return {
+    dietaryRestrictions: intent.dietaryRestrictions,
+    startTimePreference: intent.startTimePreference,
+    drinks,
+    ...(intent.selfDrive ? { selfDrive: true } : {}),
+  };
+}
+
+const DRINK_DRIVE_NOTE = "開車的話請不要喝酒，可以把車留在住宿";
+
+/** A self-driver's 小酌 keeps its place, with a reminder not to drive after it. */
+function withDrinkDriveNote(meals: Record<string, unknown>): Record<string, unknown> {
+  const nightcap = meals.nightcap as Record<string, unknown> | undefined;
+  if (!nightcap) return meals;
+  const description = typeof nightcap.description === "string" && nightcap.description ? `${nightcap.description}。` : "";
+  return { ...meals, nightcap: { ...nightcap, description: `${description}${DRINK_DRIVE_NOTE}` } };
 }
 
 async function fetchMealLodgingPools(
@@ -625,7 +663,7 @@ export async function generateMealsAndAccommodation(
     if (isFirst) accommodation = applyAccommodationPick(parsed.accommodation, chunkPools, currency);
     mealsByDay.push(...applyMealPicks(parsed.meals, chunkPools, days, currency, history, start));
   }
-  return { accommodation, mealsByDay };
+  return { accommodation, mealsByDay: preferences.selfDrive ? mealsByDay.map(withDrinkDriveNote) : mealsByDay };
 }
 
 // Days of meals asked for per LLM call — see generateMealsAndAccommodation.
@@ -860,7 +898,7 @@ const INDOOR_CATEGORY_BOOST: Record<string, number> = { museum: 1.5, viewpoint: 
 
 function shelterFor(preferenceIntent: PreferenceIntent, candidateById: Map<string, PlaceCandidate>): Shelter {
   if (!preferenceIntent.indoorFirst) {
-    return { pool: (candidates) => candidates, weights: (w) => w, pickMode: (km) => pickModeForDistance(km) };
+    return { pool: (candidates) => candidates, weights: (w) => w, pickMode: modePickerFor(preferenceIntent) };
   }
   const isOutdoor = (c: { id: string }) => exposureOf(candidateById.get(c.id)?.types) === "outdoor";
   const wantsOutdoor =
@@ -876,7 +914,7 @@ function shelterFor(preferenceIntent: PreferenceIntent, candidateById: Map<strin
       }
       return merged;
     },
-    pickMode: (km: number) => pickModeForDistance(km, INDOOR_FIRST_WALK_LIMIT_KM),
+    pickMode: modePickerFor(preferenceIntent),
   };
 }
 
@@ -932,7 +970,8 @@ async function stopsWithFixedEvents(
   copy: Promise<Awaited<ReturnType<typeof generateSkeletonCopy>>>,
   candidateById: Map<string, PlaceCandidate>,
   currency: string,
-  pickMode: (km: number) => ReturnType<typeof pickModeForDistance>
+  pickMode: (km: number) => ReturnType<typeof pickModeForDistance>,
+  selfDrive = false
 ): Promise<Array<Record<string, unknown>>> {
   type Item = { start: number; point: { id: string; lat?: number; lng?: number }; skeletonIndex?: number; stop?: Record<string, unknown> };
   const items: Item[] = [
@@ -954,7 +993,9 @@ async function stopsWithFixedEvents(
     const dist = k > 0 ? distances[k - 1] : null;
     const base = item.skeletonIndex !== undefined ? scheduled[item.skeletonIndex] : { ...item.stop };
     delete base.transport_from_prev;
-    return dist ? { ...base, transport_from_prev: describeTransport(dist.mode, dist.durationSeconds, dist.estimated) } : base;
+    return dist
+      ? { ...base, transport_from_prev: describeTransport(dist.mode, dist.durationSeconds, dist.estimated, selfDrive) }
+      : base;
   });
 }
 
@@ -1096,7 +1137,8 @@ async function generateDayStopsViaScheduler(
           generateSkeletonCopy(skeleton, hintById, preferenceIntent, model, cityName),
           candidateById,
           currency,
-          shelter.pickMode
+          shelter.pickMode,
+          preferenceIntent.selfDrive
         )
       )
     );

@@ -126,6 +126,8 @@ interface EditableItineraryCardProps {
   // A public example viewed by a non-owner: no editing, no dragging, and no
   // automatic enrich calls (those write to the itinerary and bill Google).
   readOnly?: boolean;
+  /** Directions links' mode: driving for a self-driver (交通方式), else transit. */
+  travelMode?: "driving" | "transit";
 }
 
 type EditingStop = {
@@ -143,6 +145,7 @@ export default function EditableItineraryCard({
   hideCostSummary = false,
   expandAll = false,
   readOnly = false,
+  travelMode = "transit",
 }: EditableItineraryCardProps) {
   const [itinerary, setItinerary] = useState(data.data);
   const [editingStop, setEditingStop] = useState<EditingStop | null>(null);
@@ -254,7 +257,7 @@ export default function EditableItineraryCard({
           : [item.meal?.name, item.meal?.address].filter(Boolean).join(", ")
       ),
     ].filter((p): p is string => !!p);
-    return buildDirectionsUrl(points);
+    return buildDirectionsUrl(points, travelMode);
   };
 
   // The previous day's accommodation is where the user actually starts this

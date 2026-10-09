@@ -4,8 +4,9 @@ import { prisma, j } from "@/lib/db";
 import {
   describeTransport,
   getDistancesForStopPairs,
-  pickModeForDistance,
+  modePickerFor,
 } from "@/lib/distanceMatrix";
+import { TripPreferencesSchema } from "@/lib/schemas";
 import { findDayIndex } from "@/lib/itineraryDays";
 import { assignTimeOfDay } from "@/lib/scheduler/assignTimeSlots";
 import { internalErrorResponse } from "@/lib/apiError";
@@ -79,7 +80,13 @@ export async function POST(
       })),
     ];
 
-    const distanceResults = await getDistancesForStopPairs(distancePoints, pickModeForDistance);
+    // Same leg rules as generation: the trip's indoor-first and self-drive choices.
+    const preferences = TripPreferencesSchema.safeParse((itinerary.config as { preferences?: unknown }).preferences).data;
+    const selfDrive = preferences?.transport === "drive";
+    const distanceResults = await getDistancesForStopPairs(
+      distancePoints,
+      modePickerFor({ indoorFirst: preferences?.indoorFirst, selfDrive })
+    );
     // When an origin point was prepended, distanceResults[0] is origin->stops[0],
     // so stop i's incoming leg is at distanceResults[i] instead of distanceResults[i-1].
     const distanceOffset = originPoint ? 0 : -1;
@@ -87,7 +94,7 @@ export async function POST(
     const updatedFields = stops.map((s, i) => {
       const dist = i > 0 || originPoint ? distanceResults[i + distanceOffset] : null;
       const transport_from_prev = dist
-        ? describeTransport(dist.mode, dist.durationSeconds, dist.estimated)
+        ? describeTransport(dist.mode, dist.durationSeconds, dist.estimated, selfDrive)
         : i === 0
           ? `從${originDesc}出發`
           : "交通方式未知（缺少座標）";

@@ -285,6 +285,17 @@ describe("searchTextCandidates for drinks", () => {
     await prisma.nearbyPlaceCandidatesCache.deleteMany({ where: { cacheKey: { contains: `@${coords.lat.toFixed(4)},` } } });
   });
 
+  // Story: a car-rental search with an 80km bias got a 400 from Google and the
+  // trip fell back to a generic 「租車公司」.
+  it("keeps the bias circle within Google's 50km limit", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ places: [] }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await searchTextCandidates("CTS airport car rental", { lat: coords.lat, lng: 52 }, "key", 80000, "car_rental");
+
+    expect(body(fetchMock).locationBias.circle.radius).toBe(50000);
+  });
+
   it("asks Google to filter by rating, so no Enterprise rating field is needed", async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({ places: [] }), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);

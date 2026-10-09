@@ -31,6 +31,8 @@ export default function ViewContent({ id }: ViewContentProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<"list" | "map">("list");
+  // Navigation links follow the trip's 交通方式: driving directions for a self-driver.
+  const travelMode: "driving" | "transit" = data?.config?.preferences?.transport === "drive" ? "driving" : "transit";
   const [exchangeRate, setExchangeRate] = useState(35);
   const [showRestructure, setShowRestructure] = useState(false);
   const [showTrash, setShowTrash] = useState(false);
@@ -505,6 +507,7 @@ export default function ViewContent({ id }: ViewContentProps) {
                 {view === "list" || printing ? (
                   <EditableItineraryCard
                     data={data}
+                    travelMode={travelMode}
                     onUpdate={fetchData}
                     onExploreBorder={openRestructurePanel}
                     hideCostSummary
@@ -514,6 +517,7 @@ export default function ViewContent({ id }: ViewContentProps) {
                 ) : (
                   <ItineraryMap
                     itineraryId={data.id}
+                    travelMode={travelMode}
                     days={data.data.days}
                     context={data.config?.generatedWith}
                     readOnly={isPublicView}

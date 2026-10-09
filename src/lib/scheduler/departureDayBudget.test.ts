@@ -47,3 +47,10 @@ describe("computeDepartureDayBudget", () => {
     expect(result.estimatedCount).toBe(1);
   });
 });
+
+describe("computeDepartureDayBudget with a car to return", () => {
+  it("ends the day's stops earlier by the extra time", () => {
+    // 17:00 flight: 3h buffer -> 14:00, minus 30 minutes to return the car.
+    expect(computeDepartureDayBudget(17 * 60, 9 * 60, 30).cutoffMinute).toBe(13 * 60 + 30);
+  });
+});
