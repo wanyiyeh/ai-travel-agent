@@ -208,6 +208,16 @@ model NearbyPlaceCandidatesCache {
 // found nothing within range — that "no station nearby" answer is itself
 // stable and worth caching, unlike a network/HTTP failure (which is never
 // written here at all, so it retries next time rather than getting pinned).
+// Last year's weather for a place (rounded to 0.1°) and month, from
+// Open-Meteo — whether a beach or a ski resort is in season (climate.ts).
+// Only successful lookups are written; a failed request retries next time.
+model ClimateNormalCache {
+  cacheKey      String   @id // "43.1,141.1,2025-11"
+  avgMaxTempC   Float
+  avgSnowDepthM Float
+  updatedAt     DateTime @updatedAt
+}
+
 model NearestStationCache {
   cacheKey  String   @id
   station   String?  // JSON-encoded NearestStation, or null = confirmed none found

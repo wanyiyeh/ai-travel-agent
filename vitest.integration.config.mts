@@ -28,6 +28,8 @@ export default defineConfig({
       // .env, which never overrides a variable already set.
       GOOGLE_PLACES_API_KEY: "",
       OPENAI_API_KEY: "integration-tests-never-call-openai",
+      // Open-Meteo has no key to blank (climate.ts).
+      CLIMATE_LOOKUPS: "off",
     },
     // Prisma writes to one shared SQLite file — parallel files would race
     // on table state (e.g. one test's cleanup deleting another's fixture).
