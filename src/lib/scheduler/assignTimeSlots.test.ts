@@ -224,3 +224,31 @@ describe("assignTimeSlots", () => {
     expect(eveningStop.time_of_day).toBe("evening");
   });
 });
+
+// 固定行程: a booked event's time is locked and the day is planned around it.
+describe("assignTimeSlots with fixed blocks", () => {
+  it("moves a stop that would overlap a booked event to after it", () => {
+    const result = assignTimeSlots(
+      [
+        { id: "a", durationMinutes: 120 },
+        { id: "b", durationMinutes: 120 },
+      ],
+      { dayStartMinute: 9 * 60, fixedBlocks: [{ startMinute: 10 * 60, endMinute: 12 * 60 }] }
+    );
+    // a would run 9:00-11:00 into the 10:00 event -> after it (12:15).
+    expect(result[0].startMinute).toBeGreaterThanOrEqual(12 * 60);
+    for (const s of result) expect(s.endMinute <= 10 * 60 || s.startMinute >= 12 * 60).toBe(true);
+  });
+
+  it("treats a lunch reservation as lunch, without another lunch hour", () => {
+    const withReservation = assignTimeSlots(
+      [
+        { id: "a", durationMinutes: 120 },
+        { id: "b", durationMinutes: 60 },
+      ],
+      { dayStartMinute: 9 * 60, fixedBlocks: [{ startMinute: 12 * 60, endMinute: 13 * 60 + 30, meal: true }] }
+    );
+    // a 9:00-11:00, b 11:15-12:15 would overlap the reservation -> 13:45.
+    expect(withReservation.map((s) => s.startMinute)).toEqual([540, 13 * 60 + 45]);
+  });
+});
