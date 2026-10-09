@@ -87,7 +87,7 @@ export async function POST(
     const updatedFields = stops.map((s, i) => {
       const dist = i > 0 || originPoint ? distanceResults[i + distanceOffset] : null;
       const transport_from_prev = dist
-        ? describeTransport(dist.mode, dist.durationSeconds)
+        ? describeTransport(dist.mode, dist.durationSeconds, dist.estimated)
         : i === 0
           ? `從${originDesc}出發`
           : "交通方式未知（缺少座標）";

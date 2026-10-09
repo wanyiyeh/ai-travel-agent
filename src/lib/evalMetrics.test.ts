@@ -86,6 +86,13 @@ describe("measureItinerary", () => {
     expect(m.cities).toEqual(["東京", "大阪"]);
   });
 
+  it("counts legs shown as a taxi ride", () => {
+    const withTaxi = days.map((d, i) =>
+      i === 0 ? { ...d, stops: [d.stops[0], { ...d.stops[1], transport_from_prev: "搭計程車約 9 分鐘" }] } : d
+    );
+    expect(measureItinerary(withTaxi, ctx).taxiLegs).toBe(1);
+  });
+
   it("measures the share of outdoor stops", () => {
     // Day 1 has a museum and a park.
     expect(m.outdoorShare).toBe(0.5);

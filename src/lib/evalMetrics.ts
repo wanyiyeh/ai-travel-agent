@@ -29,6 +29,8 @@ export type ItineraryMetrics = {
   categoryShare: Record<string, number>;
   /** Share of sightseeing stops that are outdoor (indoorOutdoor.ts). */
   outdoorShare: number;
+  /** Legs between sightseeing stops shown as a taxi ride (「搭計程車」). */
+  taxiLegs: number;
   mainMeals: number;
   avgMainMealTwd: number | null;
   /** Share of priced lunches/dinners inside the budget's NT$ range; null without a budget or prices. */
@@ -150,6 +152,7 @@ export function measureItinerary(days: Rec[], ctx: EvalContext): ItineraryMetric
     emptySightseeingDays: sightseeing.filter((d) => asRecords(d.stops).length === 0).length,
     categoryShare,
     outdoorShare: stops.filter((s) => exposureOf(typesOf(s.placeId)) === "outdoor").length / Math.max(1, stops.length),
+    taxiLegs: stops.filter((s) => str(s.transport_from_prev)?.includes("計程車")).length,
     mainMeals: mainMeals.length,
     avgMainMealTwd: pricedTwd.length ? avg(pricedTwd) : null,
     mainMealsWithinBudget,
