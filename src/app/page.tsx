@@ -25,6 +25,11 @@ const BUDGET_OPTIONS: { value: NonNullable<TripPreferences["budget"]>; label: st
   { value: "luxury", label: "高端奢華", desc: "國際品牌飯店・每餐約 NT$1,000～3,000" },
 ];
 
+// A one-option ChoiceRow works as a checkbox with its explanation underneath.
+const INDOOR_OPTIONS: { value: "indoor"; label: string; desc: string }[] = [
+  { value: "indoor", label: "室內行程為主", desc: "不想曬太陽、下雨也能玩：室內景點優先，戶外景點避開 11:00～15:00" },
+];
+
 const START_TIME_OPTIONS: { value: NonNullable<TripPreferences["startTime"]>; label: string; desc: string }[] = [
   { value: "early", label: "早起", desc: "8:00 前出門" },
   { value: "normal", label: "一般", desc: "9:00 出門" },
@@ -428,6 +433,7 @@ export default function Home() {
   const [budget, setBudget] = useState<TripPreferences["budget"]>(undefined);
   const [interests, setInterests] = useState<NonNullable<TripPreferences["interests"]>>([]);
   const [startTime, setStartTime] = useState<TripPreferences["startTime"]>(undefined);
+  const [indoor, setIndoor] = useState<"indoor" | undefined>(undefined);
   const [diet, setDiet] = useState<DietTag[]>([]);
   const [drinks, setDrinks] = useState<DrinkTag[]>([]);
   const [selectedWaypoints, setSelectedWaypoints] = useState<string[]>([]);
@@ -491,6 +497,7 @@ export default function Home() {
       budget,
       interests: interests.length ? interests : undefined,
       startTime,
+      indoorFirst: indoor === "indoor" ? true : undefined,
       dietaryRestrictions: diet.length ? diet : undefined,
       drinks: drinks.length ? drinks : undefined,
     };
@@ -697,7 +704,7 @@ export default function Home() {
               >
                 <div className="flex flex-col gap-0.5">
                   <span className="text-sm font-medium text-zinc-900 dark:text-zinc-50">更多選項</span>
-                  <span className="text-xs text-zinc-400">航班時間、出門時間、飲食限制、旅遊偏好、飲品</span>
+                  <span className="text-xs text-zinc-400">航班時間、出門時間、飲食限制、旅遊偏好、飲品、室內行程</span>
                 </div>
                 <ChevronIcon direction={moreOpen ? "up" : "down"} />
               </button>
@@ -784,6 +791,13 @@ export default function Home() {
                     />
                     <ChipRow label="飲食限制" options={DIET_OPTIONS} selected={diet} onToggle={toggleDiet} />
                     <ChipRow label="偏好" options={INTEREST_OPTIONS} selected={interests} onToggle={toggleInterest} />
+                    <ChoiceRow
+                      label="室內"
+                      options={INDOOR_OPTIONS}
+                      value={indoor}
+                      onChange={setIndoor}
+                      emptyHint="未勾選時室內、戶外都排"
+                    />
                     <ChipRow label="飲品" options={DRINK_OPTIONS} selected={drinks} onToggle={toggleDrink} />
                   </div>
                 </div>

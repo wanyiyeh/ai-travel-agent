@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { haversineKm } from "@/lib/distanceMatrix";
+import { haversineKm, pickModeForDistance } from "@/lib/distanceMatrix";
 
 describe("haversineKm", () => {
   it("returns 0 for identical coordinates", () => {
@@ -24,5 +24,17 @@ describe("haversineKm", () => {
     const km = haversineKm(25.033, 121.5654, 24.1477, 120.6736);
     expect(km).toBeGreaterThan(120);
     expect(km).toBeLessThan(160);
+  });
+});
+
+describe("pickModeForDistance", () => {
+  it("walks up to 1.2km by default", () => {
+    expect(pickModeForDistance(0.8)).toBe("walking");
+  });
+
+  // 室內行程為主: 500m is about 6-7 minutes in the sun.
+  it("takes transit sooner with a shorter walk limit", () => {
+    expect(pickModeForDistance(0.8, 0.5)).toBe("transit");
+    expect(pickModeForDistance(0.4, 0.5)).toBe("walking");
   });
 });

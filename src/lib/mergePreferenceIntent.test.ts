@@ -41,3 +41,13 @@ describe("mergePreferenceIntent", () => {
     expect(mergePreferenceIntent({ pace: "moderate" }, parsed({ avoid: ["long_walks"] })).avoid).toEqual(["long_walks"]);
   });
 });
+
+describe("mergePreferenceIntent — 室內行程為主", () => {
+  it("carries the form's indoor-first choice to the scheduler", () => {
+    expect(mergePreferenceIntent({ indoorFirst: true }, parsed({})).indoorFirst).toBe(true);
+  });
+
+  it("adds nothing when it wasn't chosen", () => {
+    expect(mergePreferenceIntent({}, parsed({}))).not.toHaveProperty("indoorFirst");
+  });
+});

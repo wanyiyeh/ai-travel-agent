@@ -36,6 +36,7 @@ import {
   type DrinkChoice,
   type DrinkKey,
 } from "@/lib/drinkPlaces";
+import { INDOOR_FIRST_WALK_LIMIT_KM, exposureOf, indoorFirstPool } from "@/lib/indoorOutdoor";
 import { THEMES, dayThemeKeys, interestWeightsOf, isOnTheme, popularSlots, themesOf, type ThemeKey } from "@/lib/dayThemes";
 import { dietPromptLine, dietRequiredTypes, excludeByDiet } from "@/lib/dietaryFilter";
 
@@ -283,10 +284,12 @@ async function generateTransitDayStopsViaScheduler(
       hintById.set(id, { name: place.name, rating: place.rating, lat: place.lat, lng: place.lng, types: place.types });
     }
 
-    const interestWeights = interestWeightsOf(preferenceIntent.interestBoost);
+    const shelter = shelterFor(preferenceIntent, candidateById);
+    const interestWeights = shelter.weights(interestWeightsOf(preferenceIntent.interestBoost));
+    const count = capacityFor(candidates.map((c) => c.type));
     const skeleton = withinDayEnd(
-      buildDaySkeleton(candidates, {
-        count: capacityFor(candidates.map((c) => c.type)),
+      buildDaySkeleton(shelter.pool(candidates, count), {
+        count,
         pace,
         dayStartMinute: plan.arrivalMinute,
         dayEndMinute: SIGHTSEEING_DAY_END_MINUTE,
@@ -295,6 +298,7 @@ async function generateTransitDayStopsViaScheduler(
         // runs alongside meal/lodging generation), so score from the center.
         anchor: coords,
         origin: coords,
+        isOutdoor: shelter.isOutdoor,
       }),
       SIGHTSEEING_DAY_END_MINUTE
     );
@@ -303,7 +307,7 @@ async function generateTransitDayStopsViaScheduler(
       generateSkeletonCopy(skeleton, hintById, preferenceIntent, model, toCity),
       getDistancesForStopPairs(
         skeleton.map((s) => ({ id: s.id, lat: s.lat, lng: s.lng })),
-        pickModeForDistance
+        shelter.pickMode
       ),
     ]);
 
@@ -397,9 +401,10 @@ export async function generateDepartureDayStops(
     const { candidates, candidateById } = placeCandidatesToStopCandidates(pool);
     if (candidates.length === 0) return [];
 
-    const interestWeights = interestWeightsOf(preferenceIntent.interestBoost);
     const anchor = lodging ?? coords;
-    const skeleton = buildDaySkeleton(candidates, {
+    const shelter = shelterFor(preferenceIntent, candidateById);
+    const interestWeights = shelter.weights(interestWeightsOf(preferenceIntent.interestBoost));
+    const skeleton = buildDaySkeleton(shelter.pool(candidates, estimatedCount), {
       count: estimatedCount,
       pace: preferenceIntent.pace ?? undefined,
       dayStartMinute,
@@ -407,6 +412,7 @@ export async function generateDepartureDayStops(
       interestWeights,
       anchor,
       origin: anchor,
+      isOutdoor: shelter.isOutdoor,
     });
 
     // assignTimeSlots schedules strictly in order, so filtering by cutoff
@@ -424,7 +430,7 @@ export async function generateDepartureDayStops(
       generateSkeletonCopy(withinCutoff, hintById, preferenceIntent, model, cityName),
       getDistancesForStopPairs(
         withinCutoff.map((s) => ({ id: s.id, lat: s.lat, lng: s.lng })),
-        pickModeForDistance
+        shelter.pickMode
       ),
     ]);
 
@@ -820,6 +826,49 @@ function withinDayEnd(skeleton: SkeletonStop[], dayEndMinute: number): SkeletonS
   return skeleton.filter((s) => s.endMinute <= dayEndMinute + DAY_END_GRACE_MINUTES);
 }
 
+/**
+ * 室內行程為主 (plan/form-preference-wiring.md 1.9) for one candidate pool:
+ * which candidates are outdoor (kept off midday by buildDaySkeleton), the pool
+ * narrowed to sheltered places when enough are left, and a shorter walk
+ * before transit. A traveler who also chose an outdoor interest (自然景觀,
+ * 冒險戶外) still gets outdoor places, just not at midday. Without the
+ * preference, everything is as before.
+ */
+type Shelter = {
+  isOutdoor?: (c: { id: string }) => boolean;
+  pool: <T extends { id: string }>(candidates: T[], needed: number) => T[];
+  weights: (interestWeights: Record<string, number>) => Record<string, number>;
+  pickMode: (km: number) => ReturnType<typeof pickModeForDistance>;
+};
+
+// Categories that are indoor once outdoor places are filtered out (museums,
+// observation decks). Without the boost, places Google gives no telling type
+// — 新宿黃金街, the Shibuya crossing — took most of a Shinjuku stay's slots:
+// known-indoor places went from 3 of 8 stops to 5 of 8 with it.
+const INDOOR_CATEGORY_BOOST: Record<string, number> = { museum: 1.5, viewpoint: 1.5 };
+
+function shelterFor(preferenceIntent: PreferenceIntent, candidateById: Map<string, PlaceCandidate>): Shelter {
+  if (!preferenceIntent.indoorFirst) {
+    return { pool: (candidates) => candidates, weights: (w) => w, pickMode: (km) => pickModeForDistance(km) };
+  }
+  const isOutdoor = (c: { id: string }) => exposureOf(candidateById.get(c.id)?.types) === "outdoor";
+  const wantsOutdoor =
+    themesOf(preferenceIntent.interestBoost).includes("nature") || preferenceIntent.interestBoost.includes("adventure");
+  return {
+    isOutdoor,
+    pool: <T extends { id: string }>(candidates: T[], needed: number) =>
+      wantsOutdoor ? candidates : indoorFirstPool(candidates, needed, isOutdoor),
+    weights: (interestWeights) => {
+      const merged = { ...interestWeights };
+      for (const [category, boost] of Object.entries(INDOOR_CATEGORY_BOOST)) {
+        merged[category] = Math.max(merged[category] ?? 1, boost);
+      }
+      return merged;
+    },
+    pickMode: (km: number) => pickModeForDistance(km, INDOOR_FIRST_WALK_LIMIT_KM),
+  };
+}
+
 // Shared by generateDayStopsViaScheduler and generateTransitDayStopsViaScheduler
 // — both pick/order/time-slot a candidate pool via buildDaySkeleton and then
 // need the exact same Stop-shape assembly (real placeId/name/address from the
@@ -937,16 +986,18 @@ async function generateDayStopsViaScheduler(
       hintById.set(id, { name: place.name, rating: place.rating, lat: place.lat, lng: place.lng, types: place.types });
     }
 
-    const interestWeights = interestWeightsOf(preferenceIntent.interestBoost);
+    const shelter = shelterFor(preferenceIntent, candidateById);
+    const interestWeights = shelter.weights(interestWeightsOf(preferenceIntent.interestBoost));
     const capacities = capacitiesFor(pool);
 
     // rating × preference × distance from where the traveler sleeps (the
     // city center when the lodging isn't known), and each day's route starts
     // there too.
     const anchor = lodging ?? coords;
-    const counts = distributeStopsPerDay(candidates.length, capacities);
+    const dayCandidates = shelter.pool(candidates, capacities.reduce((sum, n) => sum + n, 0));
+    const counts = distributeStopsPerDay(dayCandidates.length, capacities);
     const onTheme = (theme: ThemeKey) => (c: { id: string }) => isOnTheme(candidateById.get(c.id)?.types, theme);
-    const dayGroups = partitionCandidatesByDay(candidates, counts, interestWeights, anchor, {
+    const dayGroups = partitionCandidatesByDay(dayCandidates, counts, interestWeights, anchor, {
       themes: dayThemes.map((theme, dayIdx) =>
         theme ? { onTheme: onTheme(theme), themeCount: counts[dayIdx] - popularSlots(counts[dayIdx]) } : undefined
       ),
@@ -963,6 +1014,7 @@ async function generateDayStopsViaScheduler(
               interestWeights,
               anchor,
               origin: anchor,
+              isOutdoor: shelter.isOutdoor,
             }),
             SIGHTSEEING_DAY_END_MINUTE
           )
@@ -980,7 +1032,7 @@ async function generateDayStopsViaScheduler(
         skeletonsByDay.map((skeleton) =>
           getDistancesForStopPairs(
             skeleton.map((s) => ({ id: s.id, lat: s.lat, lng: s.lng })),
-            pickModeForDistance
+            shelter.pickMode
           )
         )
       ),

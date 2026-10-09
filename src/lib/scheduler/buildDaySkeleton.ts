@@ -1,5 +1,6 @@
 import { selectAndOrderStops, type StopCandidate } from "@/lib/scheduler/selectAndOrderStops";
 import { assignTimeSlots, type Pace, type ScheduledStop } from "@/lib/scheduler/assignTimeSlots";
+import { keepOutdoorOffMidday } from "@/lib/indoorOutdoor";
 
 export type BuildDaySkeletonOptions = {
   /** How many candidates to pick for this day. */
@@ -17,6 +18,8 @@ export type BuildDaySkeletonOptions = {
   dayEndMinute?: number;
   /** Candidate `type` values treated as meal stops for time-slot snapping. */
   mealTypes?: string[];
+  /** For an indoor-first traveler: these stops are moved out of the midday sun (indoorOutdoor.ts). */
+  isOutdoor?: (candidate: StopCandidate) => boolean;
 };
 
 export type SkeletonStop = ScheduledStop & { lat: number; lng: number };
@@ -44,9 +47,12 @@ export function buildDaySkeleton(
     dayStartMinute,
     dayEndMinute,
     mealTypes = DEFAULT_MEAL_TYPES,
+    isOutdoor,
   } = options;
 
-  const ordered = selectAndOrderStops(candidates, { count, origin, interestWeights, anchor });
+  const routed = selectAndOrderStops(candidates, { count, origin, interestWeights, anchor });
+  // assignTimeSlots' own default start when none is given.
+  const ordered = isOutdoor ? keepOutdoorOffMidday(routed, isOutdoor, dayStartMinute ?? 8 * 60) : routed;
 
   const scheduled = assignTimeSlots(
     ordered.map((c) => ({

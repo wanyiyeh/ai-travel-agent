@@ -10,6 +10,9 @@ import { NEUTRAL_PREFERENCE_INTENT, type PreferenceIntent } from "@/lib/schemas"
 
 const createMock = vi.fn();
 const nearbyMock = vi.fn();
+const distancesMock = vi.fn<(stops: unknown[], pickMode: (km: number) => string) => Promise<null[]>>(async (stops) =>
+  stops.slice(1).map(() => null)
+);
 
 vi.mock("@/lib/openai", () => ({
   openai: { chat: { completions: { create: (...args: unknown[]) => createMock(...args) } } },
@@ -28,8 +31,9 @@ vi.mock("@/lib/skeletonCopy", () => ({
 // @/lib/db. Its geo re-exports come straight from the db-free @/lib/geo.
 vi.mock("@/lib/distanceMatrix", async () => ({
   ...(await import("@/lib/geo")),
-  getDistancesForStopPairs: async (stops: unknown[]) => stops.slice(1).map(() => null),
-  pickModeForDistance: () => "walking",
+  getDistancesForStopPairs: (stops: unknown[], pickMode: (km: number) => string) => distancesMock(stops, pickMode),
+  // Honors the walk limit, so tests can see which limit a generator passes.
+  pickModeForDistance: (km: number, walkLimitKm = 1.2) => (km < walkLimitKm ? "walking" : "transit"),
   describeTransport: () => "",
 }));
 
@@ -58,6 +62,7 @@ beforeEach(() => {
   vi.stubEnv("GOOGLE_PLACES_API_KEY", "key");
   createMock.mockReset();
   nearbyMock.mockReset();
+  distancesMock.mockClear();
   nearbyMock.mockResolvedValue(POOL);
 });
 
@@ -252,5 +257,71 @@ describe("generateThemedDayStops — themed days", () => {
 
     expect(nearbyMock).toHaveBeenCalledTimes(1);
     expect(themeByDay).toEqual([undefined]);
+  });
+});
+
+describe("generateThemedDayStops — 室內行程為主 (indoor first)", () => {
+  const place = (id: string, type: string, i: number): PlaceCandidate => ({
+    ...POOL[0],
+    name: id,
+    placeId: id,
+    lat: 35.68 + i * 0.001,
+    types: ["tourist_attraction", type],
+  });
+  // Parks first, so by popularity they'd be picked first.
+  const mixed = [
+    ...Array.from({ length: 10 }, (_, i) => place(`park${i}`, "park", i)),
+    ...Array.from({ length: 10 }, (_, i) => place(`museum${i}`, "museum", i + 10)),
+  ];
+  const indoor = { ...NEUTRAL_PREFERENCE_INTENT, pace: "moderate" as const, indoorFirst: true };
+  const outdoorIds = (days: Array<Array<Record<string, unknown>>>) =>
+    days.flat().map((s) => String(s.placeId)).filter((id) => id.startsWith("park"));
+
+  it("leaves outdoor places out when there are enough indoor ones", async () => {
+    nearbyMock.mockResolvedValue(mixed);
+
+    const { stopsByDay } = await generateThemedDayStops("東京", 2, "JPY", [], undefined, indoor);
+
+    expect(stopsByDay.flat().length).toBeGreaterThan(0);
+    expect(outdoorIds(stopsByDay)).toEqual([]);
+  });
+
+  it("still schedules outdoor places for a traveler who also chose 自然景觀", async () => {
+    nearbyMock.mockResolvedValue(mixed);
+
+    const { stopsByDay } = await generateThemedDayStops("東京", 2, "JPY", [], undefined, { ...indoor, interestBoost: ["nature"] });
+
+    expect(outdoorIds(stopsByDay).length).toBeGreaterThan(0);
+  });
+
+  // Story: staying in Shinjuku, places with no telling type (新宿黃金街, the
+  // Shibuya crossing) took most slots ahead of museums and observation decks.
+  it("prefers places known to be indoor over undecided ones", async () => {
+    const undecided = Array.from({ length: 10 }, (_, i) => place(`street${i}`, "city_hall", i));
+    const museums = Array.from({ length: 10 }, (_, i) => place(`museum${i}`, "museum", i + 10));
+    nearbyMock.mockResolvedValue([...undecided, ...museums]);
+
+    const { stopsByDay } = await generateThemedDayStops("東京", 1, "JPY", [], undefined, indoor);
+
+    const ids = stopsByDay.flat().map((s) => String(s.placeId));
+    expect(ids.filter((id) => id.startsWith("museum")).length).toBeGreaterThan(ids.length / 2);
+  });
+
+  it("takes transit beyond a 500m walk", async () => {
+    nearbyMock.mockResolvedValue(mixed);
+
+    await generateThemedDayStops("東京", 1, "JPY", [], undefined, indoor);
+
+    const pickMode = distancesMock.mock.calls[0][1];
+    expect(pickMode(0.8)).toBe("transit");
+  });
+
+  it("changes nothing for a traveler who didn't choose it", async () => {
+    nearbyMock.mockResolvedValue(mixed);
+
+    const { stopsByDay } = await generateThemedDayStops("東京", 2, "JPY", [], undefined, { ...indoor, indoorFirst: undefined });
+
+    expect(outdoorIds(stopsByDay).length).toBeGreaterThan(0);
+    expect(distancesMock.mock.calls[0][1](0.8)).toBe("walking");
   });
 });
