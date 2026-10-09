@@ -1,6 +1,6 @@
 import type { PlaceCandidate } from "@/lib/fetchCityRestaurants";
 import type { MealType } from "@/types/itinerary";
-import { estimateMealCost, estimateLodgingCostPerNight, estimateLodgingCostRange } from "@/lib/priceLevelCost";
+import { estimateSlotCost, estimateLodgingCostPerNight, estimateLodgingCostRange } from "@/lib/priceLevelCost";
 import { estimateFromPriceRange } from "@/lib/mealBudget";
 
 // Real Nearby Search candidates for one city's meals and accommodation, handed
@@ -16,6 +16,8 @@ export type MealLodgingPools = {
   main: PlaceCandidate[]; // shared by lunch and dinner
   snack: PlaceCandidate[];
   lodging: PlaceCandidate[];
+  /** Bars and izakaya for the 小酌 after dinner; empty unless the traveler picked 酒. */
+  nightcap: PlaceCandidate[];
   /**
    * The traveler's drink places (drinkPlaces.ts), one list per drink: day d's
    * snack comes from list d % length, so coffee and tea alternate. Each list
@@ -25,11 +27,17 @@ export type MealLodgingPools = {
   snackRotation?: PlaceCandidate[][];
 };
 
-type PoolKey = "breakfast" | "main" | "snack" | "lodging";
+type PoolKey = "breakfast" | "main" | "snack" | "lodging" | "nightcap";
 
-const ID_PREFIX: Record<PoolKey, string> = { breakfast: "B", main: "M", snack: "S", lodging: "H" };
-const POOL_FOR_MEAL: Record<MealType, PoolKey> = { breakfast: "breakfast", lunch: "main", dinner: "main", snack: "snack" };
-const MEAL_KEYS: MealType[] = ["breakfast", "lunch", "dinner", "snack"];
+const ID_PREFIX: Record<PoolKey, string> = { breakfast: "B", main: "M", snack: "S", lodging: "H", nightcap: "N" };
+const POOL_FOR_MEAL: Record<MealType, PoolKey> = {
+  breakfast: "breakfast",
+  lunch: "main",
+  dinner: "main",
+  snack: "snack",
+  nightcap: "nightcap",
+};
+const MEAL_KEYS: MealType[] = ["breakfast", "lunch", "dinner", "snack", "nightcap"];
 
 function candidateId(pool: PoolKey, index: number): string {
   return `${ID_PREFIX[pool]}${index + 1}`;
@@ -58,6 +66,9 @@ export function formatCandidateLists(pools: MealLodgingPools): string {
     section("早餐候選", "breakfast"),
     section("午餐／晚餐候選", "main"),
     section("點心候選", "snack"),
+    // Only for a traveler who picked 酒 — an empty section would tell the
+    // model to recommend bars on its own.
+    ...(pools.nightcap.length > 0 ? [section("小酌候選", "nightcap")] : []),
   ].join("\n\n");
 }
 
@@ -115,6 +126,7 @@ export function unusedFirst(pools: MealLodgingPools, history: PickHistory): Meal
     main: reorder(pools.main),
     snack: reorder(pools.snack),
     lodging: pools.lodging,
+    nightcap: reorder(pools.nightcap),
     snackRotation: pools.snackRotation,
   };
 }
@@ -225,7 +237,7 @@ export function applyMealPicks(
       }
       // Google's real per-person range beats the priceLevel lookup table.
       const estimated =
-        estimateFromPriceRange(place.priceRange, currency) ?? estimateMealCost(currency, mealKey, place.priceLevel);
+        estimateFromPriceRange(place.priceRange, currency) ?? estimateSlotCost(currency, mealKey, place.priceLevel);
       meals[mealKey] = {
         name: place.name,
         description: ownPick ? raw?.description : history.description.get(place),

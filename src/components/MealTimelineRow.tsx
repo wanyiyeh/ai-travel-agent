@@ -10,6 +10,7 @@ export const MEAL_META: Record<MealType, { label: string; icon: string }> = {
   lunch: { label: "午餐", icon: "☀️" },
   snack: { label: "點心", icon: "🍰" },
   dinner: { label: "晚餐", icon: "🌙" },
+  nightcap: { label: "小酌", icon: "🍷" },
 };
 
 interface MealTimelineRowProps {

@@ -4,10 +4,16 @@ import type { MealType } from "@/types/itinerary";
 // (mealLodgingPicks.ts). These helpers make repeats visible so a traveler
 // can swap one out with 換一家.
 
-export const MEAL_LABELS: Record<MealType, string> = { breakfast: "早餐", lunch: "午餐", snack: "點心", dinner: "晚餐" };
+export const MEAL_LABELS: Record<MealType, string> = {
+  breakfast: "早餐",
+  lunch: "午餐",
+  snack: "點心",
+  dinner: "晚餐",
+  nightcap: "小酌",
+};
 
 // The order meals appear in a day's timeline (lib/dayTimeline.ts).
-const TIMELINE_ORDER: MealType[] = ["breakfast", "lunch", "snack", "dinner"];
+const TIMELINE_ORDER: MealType[] = ["breakfast", "lunch", "snack", "dinner", "nightcap"];
 
 // Stored days are loosely typed (itinerary JSON), so read only what's needed.
 type DayLike = { day?: unknown; meals?: unknown };

@@ -12,13 +12,14 @@ export const MEAL_TIME_OF_DAY: Record<MealType, TimeOfDay> = {
   lunch: "afternoon",
   snack: "afternoon",
   dinner: "evening",
+  nightcap: "evening",
 };
 
 /**
  * One day's stops and meals as a single ordered list. Meals carry no time of
  * their own, so they're placed by rule: breakfast first, lunch just before
- * the first afternoon stop (or mid-day if no stop is tagged), snack and
- * dinner at the end. Shared by the day card and the map's route polyline so
+ * the first afternoon stop (or mid-day if no stop is tagged), snack,
+ * dinner and the 小酌 at the end. Shared by the day card and the map's route polyline so
  * both show the same order.
  *
  * Only meal types present as keys in `meals` are included — pass `null`
@@ -40,5 +41,5 @@ export function buildDayTimeline<S, M>(
     middle.splice(at, 0, ...lunch);
   }
 
-  return [...mealItem("breakfast"), ...middle, ...mealItem("snack"), ...mealItem("dinner")];
+  return [...mealItem("breakfast"), ...middle, ...mealItem("snack"), ...mealItem("dinner"), ...mealItem("nightcap")];
 }

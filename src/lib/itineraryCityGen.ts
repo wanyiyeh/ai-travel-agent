@@ -1,6 +1,6 @@
 import { openai } from "@/lib/openai";
 import { getCityCenter } from "@/lib/placesTextSearch";
-import { fetchNearbyPlaceCandidates, fetchLodgingCandidates, fetchLuxuryRestaurants, getMealPlaceTypes, searchTextCandidates, type RestaurantHint, type BudgetLevel, type PlaceCandidate, type FieldTier } from "@/lib/fetchCityRestaurants";
+import { fetchNearbyPlaceCandidates, fetchLodgingCandidates, fetchLuxuryRestaurants, getMealPlaceTypes, searchTextCandidates, type RestaurantHint, type BudgetLevel, type PlaceCandidate, type FieldTier, type TypeMatch } from "@/lib/fetchCityRestaurants";
 import {
   applyAccommodationPick,
   applyMealPicks,
@@ -25,7 +25,17 @@ import { getTwdRates } from "@/lib/exchangeRate";
 import { rankMainMealsByBudget } from "@/lib/mealBudget";
 import { fitsCafeMealSlot, fitsMainMeal, splitCafePool } from "@/lib/cafeMealSlots";
 import { stayAreaFor } from "@/lib/stayAreas";
-import { DRINKS, DRINK_MIN_RATING, interleave, selectDrinkPlaces, type DrinkKey } from "@/lib/drinkPlaces";
+import {
+  DRINKS,
+  DRINK_MIN_RATING,
+  NIGHTCAP_TYPES,
+  barsFirst,
+  interleave,
+  isNightcapPlace,
+  selectDrinkPlaces,
+  type DrinkChoice,
+  type DrinkKey,
+} from "@/lib/drinkPlaces";
 import { THEMES, dayThemeKeys, interestWeightsOf, isOnTheme, popularSlots, themesOf, type ThemeKey } from "@/lib/dayThemes";
 import { dietPromptLine, dietRequiredTypes, excludeByDiet } from "@/lib/dietaryFilter";
 
@@ -442,11 +452,12 @@ export type MealPreferences = {
   dietaryRestrictions?: string[];
   startTimePreference?: PreferenceIntent["startTimePreference"];
   /** From the form only — the free-text parse has no drinks. */
-  drinks?: DrinkKey[];
+  drinks?: DrinkChoice[];
 };
 
-export function mealPreferencesOf(intent: PreferenceIntent): MealPreferences {
-  return { dietaryRestrictions: intent.dietaryRestrictions, startTimePreference: intent.startTimePreference };
+/** `drinks` comes from the stored form preferences — the free-text parse has none. */
+export function mealPreferencesOf(intent: PreferenceIntent, drinks?: DrinkChoice[]): MealPreferences {
+  return { dietaryRestrictions: intent.dietaryRestrictions, startTimePreference: intent.startTimePreference, drinks };
 }
 
 async function fetchMealLodgingPools(
@@ -468,8 +479,15 @@ async function fetchMealLodgingPools(
   // priceRange, plan/form-preference-wiring.md 1c-2); breakfast/snack have no
   // budget cap and lodging tiers by type and brand (fetchLodgingCandidates),
   // so those stay on Pro.
-  const search = async (types: string[], tier: FieldTier, keep: (p: PlaceCandidate) => boolean = () => true) =>
-    (await fetchNearbyPlaceCandidates(coords, apiKey, types, MEAL_LODGING_RADIUS_M, MEAL_LODGING_MAX_COUNT, tier)).filter(keep);
+  const search = async (
+    types: string[],
+    tier: FieldTier,
+    keep: (p: PlaceCandidate) => boolean = () => true,
+    match: TypeMatch = "any"
+  ) =>
+    (await fetchNearbyPlaceCandidates(coords, apiKey, types, MEAL_LODGING_RADIUS_M, MEAL_LODGING_MAX_COUNT, tier, match)).filter(
+      keep
+    );
 
   // A vegetarian/vegan/halal traveler gets one extra search for restaurants
   // of exactly that type, put first — a real filter, not just a prompt hint.
@@ -484,14 +502,18 @@ async function fetchMealLodgingPools(
   };
 
   // Breakfast and snack share one café search, split locally (cafeMealSlots.ts).
-  const [cafes, main, dietMain, luxuryMain, lodging, twdPerUnit, ...drinkPools] = await Promise.all([
+  const snackDrinks = drinks.filter((d): d is DrinkKey => d !== "alcohol");
+  const [cafes, main, dietMain, luxuryMain, lodging, twdPerUnit, bars, ...drinkPools] = await Promise.all([
     search(getMealPlaceTypes("breakfast", budget), "pro", isFoodPlace),
     search(getMealPlaceTypes("lunch", budget), "enterprise", isFoodPlace),
     dietTypes.length > 0 ? search(dietTypes, "enterprise", isFoodPlace) : Promise.resolve([]),
     budget === "luxury" ? fetchLuxuryRestaurants(coords, apiKey, MEAL_LODGING_RADIUS_M) : Promise.resolve([]),
     fetchLodgingCandidates(coords, apiKey, budget, MEAL_LODGING_RADIUS_M, MEAL_LODGING_MAX_COUNT),
     budget ? getTwdRates() : Promise.resolve({}),
-    ...drinks.map(searchDrink),
+    // Bars and izakaya in one Nearby Search (Pro, popularity-ranked) — Text
+    // Search's rating filter would need one query per kind.
+    drinks.includes("alcohol") ? search(NIGHTCAP_TYPES, "pro", isNightcapPlace, "primary") : Promise.resolve([]),
+    ...snackDrinks.map(searchDrink),
   ]);
   // One breakfast and one snack per day of the stay.
   const split = splitCafePool(excludeByDiet(cafes, dietaryRestrictions), stayDays);
@@ -515,7 +537,7 @@ async function fetchMealLodgingPools(
   const seenDrink = new Set<string>();
   const drinkLists = drinkPools.map((pool) => pool.filter((p) => !seenDrink.has(p.placeId) && seenDrink.add(p.placeId)));
   const snackRotation = drinkLists.filter((pool) => pool.length > 0);
-  const coffee = drinks.includes("coffee") ? drinkLists[drinks.indexOf("coffee")] : [];
+  const coffee = snackDrinks.includes("coffee") ? drinkLists[snackDrinks.indexOf("coffee")] : [];
   const coffeeBreakfast = coffee.filter((p) => fitsCafeMealSlot(p, "breakfast"));
   // Pick history is keyed by object, so a café both searches found must be
   // one object, or it could be breakfast and snack on the same day.
@@ -526,6 +548,12 @@ async function fetchMealLodgingPools(
     main: rankedMain,
     snack: uniqueByPlaceId([...interleave(snackRotation), ...canonical(split.snack)]),
     lodging,
+    // An izakaya can come up in the dinner search too; it's dinner then, not
+    // a second visit the same evening.
+    nightcap: barsFirst(
+      bars.filter((p) => !allMain.some((m) => m.placeId === p.placeId)),
+      stayDays
+    ),
     ...(snackRotation.length > 0 ? { snackRotation } : {}),
   };
 }
@@ -617,6 +645,12 @@ async function askMealsAndLodging(
 ${formatCandidateLists(pools)}`
     : "";
   const idField = pools ? `"id": "候選編號或 null", ` : "";
+  // 小酌 only for a traveler who picked 酒 (its candidates are empty otherwise).
+  const withNightcap = (pools?.nightcap.length ?? 0) > 0;
+  const nightcapField = withNightcap
+    ? `,\n      "nightcap": { ${idField}"name": "酒吧或居酒屋名稱", "description": "一句話簡介", "estimated_cost": 0 }`
+    : "";
+  const nightcapRule = withNightcap ? "\n- 小酌（nightcap）從「小酌候選」選，是晚餐後喝一杯的酒吧或居酒屋，不可與當天晚餐同一家" : "";
 
   const completion = await openai.chat.completions.create({
     model,
@@ -633,7 +667,7 @@ ${formatCandidateLists(pools)}`
       "breakfast": { ${idField}"name": "餐廳名稱", "description": "一句話簡介", "estimated_cost": 0 },
       "lunch": { ${idField}"name": "餐廳名稱", "description": "一句話簡介", "estimated_cost": 0 },
       "dinner": { ${idField}"name": "餐廳名稱", "description": "一句話簡介", "estimated_cost": 0 },
-      "snack": { ${idField}"name": "咖啡館或甜點店名稱", "description": "一句話簡介", "estimated_cost": 0 }
+      "snack": { ${idField}"name": "咖啡館或甜點店名稱", "description": "一句話簡介", "estimated_cost": 0 }${nightcapField}
     }
   ]
 }
@@ -642,7 +676,7 @@ ${formatCandidateLists(pools)}`
 - accommodation 為整個在 ${cityName} 停留期間的住宿，必須是真實存在且可在 Booking.com 找到的飯店
 - meals 陣列共 ${stayDays} 個元素，每天推薦不同的餐廳
 - 所有餐廳必須是 ${cityName} 真實存在的知名店家；snack 須為咖啡館、甜點店或冰淇淋店，不可填正餐型餐廳
-- estimated_cost 為 ${currency} 整數，代表每人平均消費${preferenceRules}${candidateRules}`,
+- estimated_cost 為 ${currency} 整數，代表每人平均消費${preferenceRules}${nightcapRule}${candidateRules}`,
       },
       {
         role: "user",

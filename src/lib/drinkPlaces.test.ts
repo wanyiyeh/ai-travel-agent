@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { interleave, selectDrinkPlaces } from "@/lib/drinkPlaces";
+import { barsFirst, interleave, selectDrinkPlaces } from "@/lib/drinkPlaces";
 
 const cafe = (name: string, type = "coffee_shop") => ({ name, placeId: name, types: [type, "cafe"] });
 
@@ -40,5 +40,24 @@ describe("interleave", () => {
     const a = [{ placeId: "c1" }, { placeId: "c2" }, { placeId: "both" }];
     const b = [{ placeId: "t1" }, { placeId: "both" }];
     expect(interleave([a, b]).map((p) => p.placeId)).toEqual(["c1", "t1", "c2", "both"]);
+  });
+});
+
+// Story: a Tokyo 小酌 was つるとんたん (an udon place Google types as an
+// izakaya) and a teppanyaki spot — another meal right after dinner.
+describe("barsFirst", () => {
+  const at = (name: string, type: string) => ({ name, types: [type] });
+  const pool = [at("Tsurutontan", "japanese_izakaya_restaurant"), at("SG Club", "cocktail_bar"), at("Wine Bar", "wine_bar")];
+
+  it("leaves izakaya out when there are enough bars for every night", () => {
+    expect(barsFirst(pool, 2).map((p) => p.name)).toEqual(["SG Club", "Wine Bar"]);
+  });
+
+  it("adds izakaya after the bars when bars run short", () => {
+    expect(barsFirst(pool, 3).map((p) => p.name)).toEqual(["SG Club", "Wine Bar", "Tsurutontan"]);
+  });
+
+  it("just puts bars first when no night count is given (the 換一家 picker)", () => {
+    expect(barsFirst(pool).map((p) => p.name)).toEqual(["SG Club", "Wine Bar", "Tsurutontan"]);
   });
 });

@@ -20,6 +20,8 @@
 
 import { mkdirSync, readFileSync, writeFileSync } from "fs";
 import { resolve } from "path";
+// No import-time side effects (unlike openai.ts), so safe before the .env load.
+import { NIGHTCAP_TYPES } from "../src/lib/drinkPlaces";
 
 try {
   const envContent = readFileSync(resolve(process.cwd(), ".env"), "utf-8");
@@ -37,7 +39,7 @@ type Preferences = {
   interests?: Array<"food" | "culture" | "nature" | "shopping" | "adventure">;
   startTime?: "early" | "normal" | "late";
   dietaryRestrictions?: Array<"vegetarian" | "vegan" | "no_seafood" | "no_beef" | "halal" | "no_spicy">;
-  drinks?: Array<"coffee" | "tea">;
+  drinks?: Array<"coffee" | "tea" | "alcohol">;
 };
 
 type Scenario = {
@@ -94,6 +96,7 @@ const SCENARIOS: Scenario[] = [
   { id: "tokyo-late", label: "東京・晚起（11:00 出門）", flightInfo: TOKYO, preferences: { startTime: "late" } },
   { id: "tokyo-coffee", label: "東京・飲品選咖啡", flightInfo: TOKYO, preferences: { drinks: ["coffee"] } },
   { id: "tokyo-coffee-tea", label: "東京・飲品選咖啡＋抹茶（輪流）", flightInfo: TOKYO, preferences: { drinks: ["coffee", "tea"] } },
+  { id: "tokyo-alcohol", label: "東京・飲品選酒（小酌）", flightInfo: TOKYO, preferences: { drinks: ["alcohol"] } },
   { id: "sapporo-loop", label: "札幌 7 天・想去小樽（環狀多城市）", flightInfo: SAPPORO_WEEK, prompt: "想去小樽" },
 ];
 
@@ -234,6 +237,16 @@ const CHECKS: Check[] = [
       return kinds.includes("coffee") && kinds.includes("tea") && kinds.every((k, i) => i === 0 || k !== kinds[i - 1]);
     },
     detail: (r) => r.get("tokyo-coffee-tea")?.snacks.map((x) => `${x.name}（${x.primaryType ?? "?"}）`).join("、") ?? "—",
+  },
+  {
+    title: "飲品：選酒，回程日以外每晚都有小酌，而且是酒吧或居酒屋",
+    pass: (r) => {
+      const n = r.get("tokyo-alcohol")?.nightcaps;
+      if (!n || n.length === 0) return null;
+      return n.every((x) => x !== null && NIGHTCAP_TYPES.includes(x.primaryType ?? ""));
+    },
+    detail: (r) =>
+      r.get("tokyo-alcohol")?.nightcaps.map((x) => (x ? `${x.name}（${x.primaryType ?? "?"}）` : "（沒有）")).join("、") ?? "—",
   },
   {
     title: "出門時間：晚起每天景點數 < 對照組",

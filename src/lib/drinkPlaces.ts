@@ -6,6 +6,8 @@ import { matchesBrand, type BrandNames } from "@/lib/brandMatch";
 // leans to coffee places too.
 
 export type DrinkKey = "coffee" | "tea";
+/** Every 飲品 choice on the form; alcohol adds a 小酌 instead of changing the snack. */
+export type DrinkChoice = DrinkKey | "alcohol";
 
 type Drink = {
   /** Text Search query — Nearby Search can't filter by rating, Text Search can (minRating). */
@@ -88,4 +90,31 @@ export function interleave<T extends { placeId: string }>(lists: T[][]): T[] {
     }
   }
   return out;
+}
+
+// The 小酌 after dinner: bars of every kind, and izakaya — in Japan an
+// izakaya is where a night of drinking happens. snack_bar is left out: in
+// Japan a スナック is a hostess bar.
+export const NIGHTCAP_TYPES = [
+  "bar", "wine_bar", "cocktail_bar", "lounge_bar", "pub", "beer_garden", "brewpub", "japanese_izakaya_restaurant",
+];
+
+/** Whether a place from the 小酌 search is primarily a bar or izakaya. */
+export function isNightcapPlace(place: Pick<PlaceCandidate, "types">): boolean {
+  return NIGHTCAP_TYPES.includes(place.types?.[0] ?? "");
+}
+
+const isIzakaya = (place: Pick<PlaceCandidate, "types">) => place.types?.[0] === "japanese_izakaya_restaurant";
+
+/**
+ * Bars before izakaya. The most popular izakaya are mostly about food — a
+ * Tokyo trip's 小酌 was a famous udon place and a teppanyaki spot, right after
+ * dinner — so izakaya only come in when bars run short. With `nights` given
+ * and enough bars to cover them, izakaya are left out entirely: the AI picks
+ * from the whole list regardless of order.
+ */
+export function barsFirst<T extends Pick<PlaceCandidate, "types">>(places: T[], nights?: number): T[] {
+  const bars = places.filter((p) => !isIzakaya(p));
+  if (nights !== undefined && bars.length >= nights) return bars;
+  return [...bars, ...places.filter(isIzakaya)];
 }

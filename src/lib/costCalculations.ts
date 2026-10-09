@@ -13,7 +13,8 @@ export function calculateMealsCost(meals?: DayMeals): number {
     (meals?.breakfast?.estimated_cost ?? 0) +
     (meals?.lunch?.estimated_cost ?? 0) +
     (meals?.dinner?.estimated_cost ?? 0) +
-    (meals?.snack?.estimated_cost ?? 0)
+    (meals?.snack?.estimated_cost ?? 0) +
+    (meals?.nightcap?.estimated_cost ?? 0)
   );
 }
 

@@ -6,12 +6,14 @@ import {
   fetchLuxuryRestaurants,
   fetchNearbyPlaceCandidates,
   getMealPlaceTypes,
+  searchTextCandidates,
 } from "@/lib/fetchCityRestaurants";
+import { DRINKS, DRINK_MIN_RATING, barsFirst, interleave, selectDrinkPlaces, type DrinkKey } from "@/lib/drinkPlaces";
 import { snapToGrid } from "@/lib/geo";
 import { resolveDayCoords } from "@/lib/itineraryGen";
-import { estimateMealCost } from "@/lib/priceLevelCost";
+import { estimateSlotCost } from "@/lib/priceLevelCost";
 import { isFoodPlace } from "@/lib/foodPlace";
-import { fitsCafeMealSlot, fitsMainMeal } from "@/lib/cafeMealSlots";
+import { fitsMealSlot } from "@/lib/cafeMealSlots";
 import { dietRequiredTypes, excludeByDiet } from "@/lib/dietaryFilter";
 import { TripPreferencesSchema } from "@/lib/schemas";
 import { plannedLabel, plannedSlotsByPlace } from "@/lib/mealRepeats";
@@ -109,7 +111,7 @@ export async function POST(
 
     const types = getMealPlaceTypes(mealType, budget);
     // Only lunch/dinner needs Enterprise fields (budget ranking reads
-    // priceRange); breakfast/snack have no budget cap (plan/form-preference-wiring.md 1c-2).
+    // priceRange); breakfast/snack/小酌 have no budget cap (plan/form-preference-wiring.md 1c-2).
     const isMainMeal = mealType === "lunch" || mealType === "dinner";
     const tier = isMainMeal ? "enterprise" : "pro";
 
@@ -122,20 +124,37 @@ export async function POST(
     const dietTypes = isMainMeal ? dietRequiredTypes(diet) : [];
     const center = snapToGrid(coords, PICKER_SEARCH_GRID_DEG);
 
+    // A coffee/tea traveler's snack: their drink places first, same search as
+    // generation (drinkPlaces.ts), then ordinary cafés so the list isn't short.
+    const drinks = TripPreferencesSchema.shape.drinks.safeParse(
+      (config.preferences as { drinks?: unknown } | undefined)?.drinks
+    ).data ?? [];
+    const snackDrinks = mealType === "snack" ? drinks.filter((d): d is DrinkKey => d !== "alcohol") : [];
+    const searchDrink = async (drink: DrinkKey) =>
+      selectDrinkPlaces(
+        (await searchTextCandidates(DRINKS[drink].query, center, googleApiKey, 2000, undefined, { minRating: DRINK_MIN_RATING }))
+          .filter(isFoodPlace),
+        drink
+      );
+
     // Pull the full cached pool (same cost as 10 — see NEARBY_FETCH_COUNT) so
     // dropping non-food places still leaves up to 10 to show.
-    const [pool, dietPool, luxuryPool] = await Promise.all([
-      fetchNearbyPlaceCandidates(center, googleApiKey, types, 2000, 20, tier),
+    const [pool, dietPool, luxuryPool, ...drinkPools] = await Promise.all([
+      // 小酌 matches on the main type only — see TypeMatch.
+      fetchNearbyPlaceCandidates(center, googleApiKey, types, 2000, 20, tier, mealType === "nightcap" ? "primary" : "any"),
       dietTypes.length > 0 ? fetchNearbyPlaceCandidates(center, googleApiKey, dietTypes, 2000, 20, tier) : Promise.resolve([]),
       // The popularity-ranked pool has few expensive places; see fetchLuxuryRestaurants.
       isMainMeal && budget === "luxury" ? fetchLuxuryRestaurants(center, googleApiKey, 2000) : Promise.resolve([]),
+      ...snackDrinks.map(searchDrink),
     ]);
     const seen = new Set<string>();
-    const merged = [...dietPool, ...luxuryPool, ...pool].filter((p) => !seen.has(p.placeId) && seen.add(p.placeId));
-    const foodPlaces = excludeByDiet(merged, diet)
-      .filter(isFoodPlace)
-      // Breakfast and snack share one café search; keep what suits this slot.
-      .filter((p) => (isMainMeal ? fitsMainMeal(p) : fitsCafeMealSlot(p, mealType as "breakfast" | "snack")));
+    const merged = [...interleave(drinkPools), ...dietPool, ...luxuryPool, ...pool].filter(
+      (p) => !seen.has(p.placeId) && seen.add(p.placeId)
+    );
+    // Breakfast and snack share one café search; keep what suits this slot.
+    const fitting = excludeByDiet(merged, diet).filter((p) => fitsMealSlot(p, mealType));
+    // The traveler picks here, so izakaya just come after the bars.
+    const foodPlaces = mealType === "nightcap" ? barsFirst(fitting) : fitting;
     // Lunch/dinner: in-budget restaurants first (plan/form-preference-wiring.md 1.3).
     const ranked =
       isMainMeal && budget
@@ -180,7 +199,7 @@ export async function POST(
           address: p.address,
           rating: p.rating ?? null,
           estimated_cost:
-            estimateFromPriceRange(p.priceRange, config.currency) ?? estimateMealCost(config.currency, mealType, p.priceLevel),
+            estimateFromPriceRange(p.priceRange, config.currency) ?? estimateSlotCost(config.currency, mealType, p.priceLevel),
           photoName: p.photoName ?? null,
           ...(planned ? { plannedElsewhere: plannedLabel(planned) } : {}),
         };

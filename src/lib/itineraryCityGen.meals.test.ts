@@ -286,3 +286,54 @@ describe("generateMealsAndAccommodation — 飲品 (drinks)", () => {
     expect(textMock).not.toHaveBeenCalled();
   });
 });
+
+describe("generateMealsAndAccommodation — 小酌 (nightcap)", () => {
+  const typed = (name: string, type: string) => ({ ...place(name), types: [type] });
+  const bars = [typed("Bar Benfiddich", "cocktail_bar"), typed("鳥貴族", "japanese_izakaya_restaurant"), typed("Cafe X", "cafe"), typed("Wine Bar Two", "wine_bar")];
+  // café pool, main pool, then bars — the order fetchMealLodgingPools searches in
+  const byTypes = async (_c: unknown, _k: unknown, types: string[]) =>
+    types.includes("bar") ? bars : types.includes("cafe") ? [typed("Gelato Q", "ice_cream_shop")] : [typed("鳥貴族", "japanese_izakaya_restaurant"), typed("Ramen X", "ramen_restaurant")];
+
+  it("searches bars and izakaya once and fills a 小酌 every night from them", async () => {
+    nearbyMock.mockImplementation(byTypes);
+    mockLlm({ accommodation: {}, meals: [] });
+
+    const result = await generateMealsAndAccommodation("東京", 2, "JPY", undefined, { drinks: ["alcohol"] });
+
+    const barSearches = nearbyMock.mock.calls.filter((c) => (c[2] as string[]).includes("bar"));
+    expect(barSearches).toHaveLength(1);
+    expect(barSearches[0][6]).toBe("primary");
+    const nightcaps = result.mealsByDay.map((d) => (d.nightcap as { name: string } | undefined)?.name);
+    expect(nightcaps).toEqual(["Bar Benfiddich", "Wine Bar Two"]);
+  });
+
+  it("doesn't offer an izakaya from the dinner list again as the same evening's 小酌", async () => {
+    nearbyMock.mockImplementation(byTypes);
+    mockLlm({ accommodation: {}, meals: [] });
+
+    await generateMealsAndAccommodation("東京", 1, "JPY", undefined, { drinks: ["alcohol"] });
+
+    expect(systemPrompt()).toContain("小酌候選：\nN1: Bar Benfiddich");
+    expect(systemPrompt()).not.toMatch(/N\d: 鳥貴族/);
+  });
+
+  it("asks for a 小酌 only from a traveler who picked 酒", async () => {
+    nearbyMock.mockImplementation(byTypes);
+    mockLlm({ accommodation: {}, meals: [] });
+
+    const result = await generateMealsAndAccommodation("東京", 1, "JPY");
+
+    expect(systemPrompt()).not.toContain("nightcap");
+    expect(systemPrompt()).not.toContain("小酌候選");
+    expect(result.mealsByDay[0].nightcap).toBeUndefined();
+  });
+
+  it("prices a 小酌 with no price data at the middle of its range", async () => {
+    nearbyMock.mockImplementation(byTypes);
+    mockLlm({ accommodation: {}, meals: [] });
+
+    const result = await generateMealsAndAccommodation("東京", 1, "JPY", undefined, { drinks: ["alcohol"] });
+
+    expect((result.mealsByDay[0].nightcap as { estimated_cost?: number }).estimated_cost).toBe(2250);
+  });
+});

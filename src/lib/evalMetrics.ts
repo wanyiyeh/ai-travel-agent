@@ -50,6 +50,8 @@ export type ItineraryMetrics = {
   dayTitles: string[];
   /** Each day's snack in order (days without one skipped), with Google's primary type. */
   snacks: { name: string; primaryType?: string }[];
+  /** Each night's 小酌 except the return day's, null where there is none. */
+  nightcaps: ({ name: string; primaryType?: string } | null)[];
 };
 
 const MEAL_KEYS = ["breakfast", "lunch", "snack", "dinner"] as const;
@@ -160,6 +162,11 @@ export function measureItinerary(days: Rec[], ctx: EvalContext): ItineraryMetric
       const snack = ((d.meals ?? {}) as Rec).snack as Rec | undefined;
       const name = str(snack?.name);
       return name ? [{ name, primaryType: typesOf(snack?.placeId)?.[0] }] : [];
+    }),
+    nightcaps: days.slice(0, lastIdx).map((d) => {
+      const nightcap = ((d.meals ?? {}) as Rec).nightcap as Rec | undefined;
+      const name = str(nightcap?.name);
+      return name ? { name, primaryType: typesOf(nightcap?.placeId)?.[0] } : null;
     }),
   };
 }

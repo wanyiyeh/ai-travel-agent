@@ -241,6 +241,19 @@ describe("assembleItineraryDays — form field wiring", () => {
     }
   });
 
+  it("gives every night a 小酌 except the return day, which ends at the airport", async () => {
+    mealsMock.mockImplementation(async (_city: string, nights: number) => ({
+      accommodation: { name: "Hotel" },
+      mealsByDay: Array.from({ length: nights }, () => ({ dinner: { name: "D" }, nightcap: { name: "Bar" } })),
+    }));
+
+    const result = await run(undefined, { drinks: ["alcohol"] });
+
+    const days = result!.days;
+    expect(days.slice(0, -1).every((d) => (d.meals as { nightcap?: unknown }).nightcap)).toBe(true);
+    expect((days[days.length - 1].meals as { nightcap?: unknown }).nightcap).toBeUndefined();
+  });
+
   it("drinks (飲品) reach the meal generator", async () => {
     await run(undefined, { drinks: ["coffee", "tea"] });
 

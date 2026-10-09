@@ -9,6 +9,7 @@ import { translatePlaceNames } from "@/lib/translatePlaceNames";
 import { getCityHintForDay } from "@/lib/itineraryDays";
 import { isRecentEnrichFailure, enrichFailureMarker } from "@/lib/enrichFailure";
 import { internalErrorResponse } from "@/lib/apiError";
+import { MEAL_TYPES } from "@/types/itinerary";
 import { authorizeItinerary } from "@/lib/auth/ownership";
 
 export async function POST(
@@ -73,8 +74,7 @@ export async function POST(
       // an OpenAI call on every page open.
       const namesNeedingTranslation = [
         ...(meals
-          ? (["breakfast", "lunch", "dinner", "snack"] as const)
-              .map((k) => meals[k])
+          ? MEAL_TYPES.map((k) => meals[k])
               .filter((m) => m && (!m.placeId || hasKana(String(m.name))))
               .filter((m) => !isRecentEnrichFailure(m, buildMealQuery(String(m!.name), cityHint)))
               .map((m) => String(m!.name))
@@ -97,7 +97,7 @@ export async function POST(
       );
 
       if (meals) {
-        for (const mealKey of ["breakfast", "lunch", "dinner", "snack"] as const) {
+        for (const mealKey of MEAL_TYPES) {
           const meal = meals[mealKey];
           if (!meal) continue;
 

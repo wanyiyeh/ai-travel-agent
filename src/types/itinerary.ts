@@ -74,6 +74,8 @@ export type DayMeals = {
   lunch?: Meal;
   dinner?: Meal;
   snack?: Meal;
+  /** 小酌 after dinner — only when the traveler picked 酒 (drinkPlaces.ts). */
+  nightcap?: Meal;
 };
 
 export type MealCandidate = Meal & {
@@ -82,7 +84,7 @@ export type MealCandidate = Meal & {
   plannedElsewhere?: string;
 };
 
-export const MEAL_TYPES = ["breakfast", "lunch", "dinner", "snack"] as const;
+export const MEAL_TYPES = ["breakfast", "lunch", "dinner", "snack", "nightcap"] as const;
 export type MealType = (typeof MEAL_TYPES)[number];
 
 export function isMealType(value: string): value is MealType {

@@ -55,8 +55,9 @@ export const TripPreferencesSchema = z.object({
     .array(z.enum(["vegetarian", "vegan", "no_seafood", "no_beef", "halal", "no_spicy"]))
     .max(6)
     .optional(),
-  // 飲品 (plan/form-preference-wiring.md 1.8): coffee or tea places for the snack.
-  drinks: z.array(z.enum(["coffee", "tea"])).max(2).optional(),
+  // 飲品 (plan/form-preference-wiring.md 1.8): coffee or tea places for the
+  // snack; alcohol adds a 小酌 after dinner.
+  drinks: z.array(z.enum(["coffee", "tea", "alcohol"])).max(3).optional(),
 });
 
 export type TripPreferences = z.infer<typeof TripPreferencesSchema>;
@@ -190,6 +191,7 @@ const DayMealsSchema = z.object({
   lunch: nullableMeal,
   dinner: nullableMeal,
   snack: nullableMeal,
+  nightcap: nullableMeal,
 });
 
 export const TransitRecommendationSchema = z.object({

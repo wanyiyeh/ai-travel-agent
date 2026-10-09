@@ -111,6 +111,11 @@ async function buildCityBlock(
   budget: BudgetLevel | undefined,
   preferenceIntent: PreferenceIntent
 ): Promise<Record<string, unknown>[]> {
+  // The trip's 飲品 choice, so rebuilt meals keep the coffee/tea snack and 小酌.
+  const drinks = TripPreferencesSchema.shape.drinks.safeParse(
+    (config.preferences as { drinks?: unknown } | undefined)?.drinks
+  ).data;
+  const mealPreferences = mealPreferencesOf(preferenceIntent, drinks);
   const lockedCount = city.lockedAttractions.length;
   // Keeps the rule-engine candidate pool (generateDayStopsViaScheduler) from
   // re-suggesting a place the user already locked in as its own full day.
@@ -220,7 +225,7 @@ async function buildCityBlock(
           })
         : Promise.resolve([]),
       newDaysNeeded > 0
-        ? generateMealsAndAccommodation(city.name, newDaysNeeded, currency, budget, mealPreferencesOf(preferenceIntent)).catch(() => ({
+        ? generateMealsAndAccommodation(city.name, newDaysNeeded, currency, budget, mealPreferences).catch(() => ({
             accommodation: {},
             mealsByDay: Array.from({ length: newDaysNeeded }, () => ({})),
           }))
@@ -290,7 +295,7 @@ async function buildCityBlock(
           return Array.from({ length: aiDayCount }, () => []);
         })
       : Promise.resolve([]),
-    generateMealsAndAccommodation(city.name, nights, currency, budget, mealPreferencesOf(preferenceIntent)).catch(() => ({
+    generateMealsAndAccommodation(city.name, nights, currency, budget, mealPreferences).catch(() => ({
       accommodation: {},
       mealsByDay: Array.from({ length: nights }, () => ({})),
     })),
