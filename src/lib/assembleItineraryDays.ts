@@ -3,6 +3,8 @@ import type { BudgetLevel } from "@/lib/fetchCityRestaurants";
 import { planTrip, type TripPlan } from "@/lib/tripPlan";
 import {
   generateThemedDayStops,
+  dayStartFor,
+  SIGHTSEEING_DAY_END_MINUTE,
   generateTransitDayStops,
   generateDepartureDayStops,
   generateMealsAndAccommodation,
@@ -16,6 +18,17 @@ import { THEMES } from "@/lib/dayThemes";
 import { tripDayOfDate } from "@/lib/fixedEvents";
 import { planDayEvents, type PlannedDayEvents } from "@/lib/fixedEventVenues";
 import { carPickup, carReturnStop, findCarRental } from "@/lib/carRental";
+import { getCityCenter } from "@/lib/placesTextSearch";
+import {
+  findSuburbPlace,
+  MAX_SUBURB_KM,
+  suburbDayIndex,
+  suburbGroupsFor,
+  suburbKindFor,
+  suburbTripEvent,
+  type SuburbKind,
+} from "@/lib/suburbTrips";
+import { restaurantNear } from "@/lib/fixedEventVenues";
 
 const DEFAULT_ARRIVAL_MINUTE_FALLBACK = 14 * 60;
 
@@ -122,6 +135,11 @@ export async function assembleItineraryDays(
       (e) => tripDayOfDate(e.date, flightInfo.departureDate, flightInfo.returnDate) === dayNumber
     );
   const eventStops = (planned: PlannedDayEvents) => planned.fixed.flatMap((e) => (e.stop ? [e.stop] : []));
+  const selfDrive = Boolean(preferenceIntent.selfDrive);
+  // Which kinds of suburb place, from the traveler's interests and drinks.
+  const suburbGroups = suburbGroupsFor(preferenceIntent.interestBoost, preferences?.drinks ?? []);
+  const usedSuburbIds = new Set<string>();
+
   // 自駕: the rental counters at both airports, looked up once (cached).
   const [pickupRental, returnRental] = preferenceIntent.selfDrive
     ? await Promise.all([
@@ -232,6 +250,34 @@ export async function assembleItineraryDays(
         })
       );
     }
+    // 郊區: a day out of the city when the stay has room (suburbTrips.ts) —
+    // on a day without fixed events, never a city's first.
+    const planSuburbTrip = async (eventCounts: number[]) => {
+      const kind: SuburbKind | undefined = suburbKindFor(sightseeingCount);
+      const dayIndex = suburbDayIndex(eventCounts);
+      const apiKey = process.env.GOOGLE_PLACES_API_KEY;
+      if (!kind || dayIndex === undefined || !apiKey) return undefined;
+      const center = await getCityCenter(city.name, apiKey).catch(() => null);
+      if (!center) return undefined;
+      const found = await findSuburbPlace(center, apiKey, suburbGroups, MAX_SUBURB_KM, new Set([...usedPlaceIds, ...usedSuburbIds]));
+      if (!found) return undefined;
+      usedSuburbIds.add(found.place.placeId);
+      usedPlaceIds.add(found.place.placeId);
+      const event = suburbTripEvent(found.place, found.group, kind, dayStartFor(preferenceIntent), SIGHTSEEING_DAY_END_MINUTE, selfDrive);
+      // A day out eats lunch out there, not back downtown.
+      const lunch =
+        kind === "day"
+          ? await restaurantNear(
+              { placeId: found.place.placeId, name: found.place.name, lat: found.place.lat, lng: found.place.lng },
+              eventMealContext,
+              `在${found.place.name}附近吃午餐`,
+              3000
+            ).catch(() => undefined)
+          : undefined;
+      return { dayIndex, kind, name: found.place.name, event, lunch };
+    };
+    const suburbTrip = await planSuburbTrip(sightseeingEvents.map((e) => e.fixed.length));
+    if (suburbTrip) sightseeingEvents[suburbTrip.dayIndex].fixed.push(suburbTrip.event);
     // A concert at 東京巨蛋 shouldn't also turn up as a sightseeing stop there.
     for (const stop of sightseeingEvents.flatMap(eventStops)) {
       if (typeof stop.placeId === "string") usedPlaceIds.add(stop.placeId);
@@ -259,13 +305,22 @@ export async function assembleItineraryDays(
 
     for (let i = 0; i < sightseeingStops.length; i++) {
       const dayTheme = themeByDay[i];
+      const trip = suburbTrip?.dayIndex === i ? suburbTrip : undefined;
       pushDay({
         id: crypto.randomUUID(),
-        theme: `${city.name} ${dayTheme ? THEMES[dayTheme].label : "探索"}`,
+        theme: trip
+          ? `${city.name} ${trip.kind === "day" ? "一日遊" : "半日遊"}：${trip.name}`
+          : `${city.name} ${dayTheme ? THEMES[dayTheme].label : "探索"}`,
         waypointCity: city.name,
         stops: sightseeingStops[i],
         accommodation,
-        meals: { ...(mealsAndAccommodation.mealsByDay[transitMealDays + i] ?? {}), ...sightseeingEvents[i].meals },
+        meals: {
+          ...(mealsAndAccommodation.mealsByDay[transitMealDays + i] ?? {}),
+          ...sightseeingEvents[i].meals,
+          ...(trip?.lunch ? { lunch: trip.lunch } : {}),
+        },
+        // A whole day out stays as planned when the trip is restructured.
+        ...(trip?.kind === "day" ? { isLocked: true } : {}),
       });
     }
 

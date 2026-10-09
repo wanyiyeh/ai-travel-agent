@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FlightInfo, PreferenceIntent, TripPreferences } from "@/lib/schemas";
 import { NEUTRAL_PREFERENCE_INTENT } from "@/lib/schemas";
 import { computeArrivalDayStartMinute } from "@/lib/scheduler/arrivalDayStart";
@@ -40,8 +40,16 @@ vi.mock("@/lib/itineraryCityGen", async (importOriginal) => ({
 
 vi.mock("@/lib/fixedEventVenues", () => ({
   planDayEvents: (...args: unknown[]) => planEventsMock(...args),
+  restaurantNear: (...args: unknown[]) => restaurantNearMock(...args),
 }));
 const findRentalMock = vi.fn();
+const findSuburbMock = vi.fn();
+const restaurantNearMock = vi.fn();
+vi.mock("@/lib/suburbTrips", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/suburbTrips")>()),
+  findSuburbPlace: (...args: unknown[]) => findSuburbMock(...args),
+}));
+vi.mock("@/lib/placesTextSearch", () => ({ getCityCenter: async () => ({ lat: 35.68, lng: 139.76 }) }));
 vi.mock("@/lib/carRental", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/carRental")>()),
   findCarRental: (...args: unknown[]) => findRentalMock(...args),
@@ -111,6 +119,9 @@ beforeEach(() => {
   }));
   parseIntentMock.mockResolvedValue(NEUTRAL_PREFERENCE_INTENT);
   planEventsMock.mockImplementation(async () => ({ fixed: [], meals: {} }));
+  // No suburb place unless a test offers one.
+  findSuburbMock.mockResolvedValue(undefined);
+  restaurantNearMock.mockResolvedValue(undefined);
 });
 
 describe("assembleItineraryDays — form field wiring", () => {
@@ -397,5 +408,57 @@ describe("assembleItineraryDays — self-drive", () => {
 
     expect(findRentalMock).not.toHaveBeenCalled();
     expect(departureStopsMock.mock.calls[0][8]).toBeUndefined();
+  });
+});
+
+// 3b: a day out of the city (suburbTrips.ts). 東京 has 3 sightseeing days in the fixture.
+describe("assembleItineraryDays — suburb trips", () => {
+  const takao = { placeId: "takao", name: "高尾山", lat: 35.625, lng: 139.243, address: "", types: ["hiking_area"] };
+
+  beforeEach(() => {
+    vi.stubEnv("GOOGLE_PLACES_API_KEY", "key");
+    findSuburbMock.mockResolvedValue({ place: takao, group: "land" });
+    restaurantNearMock.mockResolvedValue({ name: "Takao Soba", placeId: "soba" });
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("gives a self-driver a whole day out on the city's second day, kept as planned", async () => {
+    const result = await run(undefined, { transport: "drive" });
+
+    const day2 = result!.days[1];
+    expect(day2.theme).toBe("東京 一日遊：高尾山");
+    expect(day2.isLocked).toBe(true);
+    expect((day2.meals as { lunch: { name: string } }).lunch.name).toBe("Takao Soba");
+    const blocks = dayStopsMock.mock.calls[0][9][1].map((e: { block: { endMinute: number } }) => e.block.endMinute);
+    expect(blocks).toContain(18 * 60);
+  });
+
+  it("gives public transport a day trip too, by train", async () => {
+    const result = await run(undefined, { transport: "transit" });
+
+    expect(result!.days[1].theme).toBe("東京 一日遊：高尾山");
+    expect(findSuburbMock.mock.calls[0][3]).toBe(50);
+  });
+
+  it("gives a two-day stay a half day, with the afternoon in the city", async () => {
+    planTripMock.mockResolvedValue({ title: "t", currency: "JPY", cities: [{ name: "東京", days: 2 }, { name: "大阪", days: 3 }] });
+
+    const result = await run(undefined, undefined);
+
+    expect(result!.days[1].theme).toBe("東京 半日遊：高尾山");
+    expect(result!.days[1]).not.toHaveProperty("isLocked");
+    // 大阪 3 days include the transit day: 2 sightseeing days, a half day too — no lunch out of town.
+    expect(restaurantNearMock).not.toHaveBeenCalled();
+  });
+
+  it("plans nothing out of town when no place fits", async () => {
+    findSuburbMock.mockResolvedValue(undefined);
+
+    const result = await run(undefined, { transport: "drive" });
+
+    expect(result!.days.map((d) => d.theme)).not.toContainEqual(expect.stringContaining("一日遊"));
   });
 });

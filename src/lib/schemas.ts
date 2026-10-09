@@ -69,9 +69,12 @@ export type FixedEvent = z.infer<typeof FixedEventSchema>;
 export const TripPreferencesSchema = z.object({
   pace: z.enum(["relaxed", "moderate", "intensive"]).optional(),
   budget: z.enum(["budget", "moderate", "luxury"]).optional(),
+  // 水上活動 (water) and 陸上活動 (land) replaced 冒險戶外 (adventure) on the
+  // form; "adventure" stays valid for older itineraries' stored config and
+  // counts as land (suburbTrips.ts).
   interests: z
-    .array(z.enum(["food", "culture", "nature", "shopping", "adventure"]))
-    .max(5)
+    .array(z.enum(["food", "culture", "nature", "shopping", "water", "land", "adventure"]))
+    .max(7)
     .optional(),
   // No longer on the form (plan/form-preference-wiring.md 1.1) — kept so
   // older itineraries' stored config still parses.

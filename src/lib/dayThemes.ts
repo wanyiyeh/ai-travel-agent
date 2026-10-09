@@ -61,6 +61,7 @@ const TAG_TO_THEME: Record<string, ThemeKey> = {
   nature: "nature",
   shopping: "shopping",
   food: "food",
+  // water / land have no city theme: they pick the suburb trip (suburbTrips.ts).
 };
 
 /** The traveler's themes in the order they were given, each once. */
