@@ -37,6 +37,7 @@ type Preferences = {
   interests?: Array<"food" | "culture" | "nature" | "shopping" | "adventure">;
   startTime?: "early" | "normal" | "late";
   dietaryRestrictions?: Array<"vegetarian" | "vegan" | "no_seafood" | "no_beef" | "halal" | "no_spicy">;
+  drinks?: Array<"coffee" | "tea">;
 };
 
 type Scenario = {
@@ -91,6 +92,8 @@ const SCENARIOS: Scenario[] = [
     preferences: { dietaryRestrictions: ["vegetarian"] },
   },
   { id: "tokyo-late", label: "東京・晚起（11:00 出門）", flightInfo: TOKYO, preferences: { startTime: "late" } },
+  { id: "tokyo-coffee", label: "東京・飲品選咖啡", flightInfo: TOKYO, preferences: { drinks: ["coffee"] } },
+  { id: "tokyo-coffee-tea", label: "東京・飲品選咖啡＋抹茶（輪流）", flightInfo: TOKYO, preferences: { drinks: ["coffee", "tea"] } },
   { id: "sapporo-loop", label: "札幌 7 天・想去小樽（環狀多城市）", flightInfo: SAPPORO_WEEK, prompt: "想去小樽" },
 ];
 
@@ -116,6 +119,16 @@ const share = (m: Metrics | undefined, cats: string[]) =>
 const pct = (x: number | null | undefined) => (x === null || x === undefined || Number.isNaN(x) ? "—" : `${Math.round(x * 100)}%`);
 const fix1 = (x: number | undefined) => (x === undefined ? "—" : x.toFixed(1));
 const both = (r: Map<string, Metrics>, ...ids: string[]) => ids.every((id) => r.has(id));
+
+const COFFEE_TYPES = new Set(["coffee_shop", "coffee_roastery", "coffee_stand", "cafe"]);
+const TEA_TYPES = new Set(["tea_house", "dessert_shop", "dessert_restaurant", "confectionery"]);
+// A matcha place's primary type is often just "cafe", so for that the name decides.
+const drinkKind = (s: { name: string; primaryType?: string }) =>
+  TEA_TYPES.has(s.primaryType ?? "") || (s.primaryType === "cafe" && /抹茶|matcha|茶/i.test(s.name))
+    ? "tea"
+    : COFFEE_TYPES.has(s.primaryType ?? "")
+      ? "coffee"
+      : "other";
 
 // What each form choice should do, judged from paired scenarios.
 const CHECKS: Check[] = [
@@ -201,6 +214,26 @@ const CHECKS: Check[] = [
       const base = r.get("tokyo-baseline");
       return m ? `素食餐廳 ${pct(m.vegetarianShare)}（對照組 ${pct(base?.vegetarianShare)}）、牛排／海鮮／壽司 ${m.meatOrSeafoodMeals} 餐` : "—";
     },
+  },
+  {
+    title: "飲品：選咖啡，7 成以上的點心是咖啡店，沒有星巴克等國際連鎖",
+    pass: (r) => {
+      const s = r.get("tokyo-coffee")?.snacks;
+      if (!s || s.length === 0) return null;
+      const coffee = s.filter((x) => COFFEE_TYPES.has(x.primaryType ?? "")).length / s.length;
+      return coffee >= 0.7 && !s.some((x) => /starbucks|星巴克|スターバックス/i.test(x.name));
+    },
+    detail: (r) => r.get("tokyo-coffee")?.snacks.map((x) => `${x.name}（${x.primaryType ?? "?"}）`).join("、") ?? "—",
+  },
+  {
+    title: "飲品：選咖啡＋抹茶，點心每天輪流",
+    pass: (r) => {
+      const s = r.get("tokyo-coffee-tea")?.snacks;
+      if (!s || s.length < 2) return null;
+      const kinds = s.map(drinkKind);
+      return kinds.includes("coffee") && kinds.includes("tea") && kinds.every((k, i) => i === 0 || k !== kinds[i - 1]);
+    },
+    detail: (r) => r.get("tokyo-coffee-tea")?.snacks.map((x) => `${x.name}（${x.primaryType ?? "?"}）`).join("、") ?? "—",
   },
   {
     title: "出門時間：晚起每天景點數 < 對照組",

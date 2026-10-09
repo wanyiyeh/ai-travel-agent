@@ -48,6 +48,8 @@ export type ItineraryMetrics = {
   cities: string[];
   /** Each sightseeing day's title, e.g. 「東京 文化巡禮」 (dayThemes.ts). */
   dayTitles: string[];
+  /** Each day's snack in order (days without one skipped), with Google's primary type. */
+  snacks: { name: string; primaryType?: string }[];
 };
 
 const MEAL_KEYS = ["breakfast", "lunch", "snack", "dinner"] as const;
@@ -154,5 +156,10 @@ export function measureItinerary(days: Rec[], ctx: EvalContext): ItineraryMetric
     inventedMeals,
     cities,
     dayTitles: sightseeing.map((d) => str(d.theme) ?? ""),
+    snacks: days.flatMap((d) => {
+      const snack = ((d.meals ?? {}) as Rec).snack as Rec | undefined;
+      const name = str(snack?.name);
+      return name ? [{ name, primaryType: typesOf(snack?.placeId)?.[0] }] : [];
+    }),
   };
 }
