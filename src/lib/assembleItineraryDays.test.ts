@@ -44,6 +44,8 @@ vi.mock("@/lib/fixedEventVenues", () => ({
 }));
 const findRentalMock = vi.fn();
 const findSuburbMock = vi.fn();
+const inSeasonMock = vi.fn();
+vi.mock("@/lib/climate", () => ({ isInSeason: (...args: unknown[]) => inSeasonMock(...args) }));
 const restaurantNearMock = vi.fn();
 vi.mock("@/lib/suburbTrips", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/suburbTrips")>()),
@@ -434,6 +436,22 @@ describe("assembleItineraryDays — suburb trips", () => {
     expect((day2.meals as { lunch: { name: string } }).lunch.name).toBe("Takao Soba");
     const blocks = dayStopsMock.mock.calls[0][9][1].map((e: { block: { endMinute: number } }) => e.block.endMinute);
     expect(blocks).toContain(18 * 60);
+  });
+
+  it("checks the season on the day trip's own date", async () => {
+    await run(undefined, undefined);
+
+    const accept = findSuburbMock.mock.calls[0][5] as (place: unknown) => Promise<boolean>;
+    await accept(takao);
+    expect(inSeasonMock).toHaveBeenCalledWith(takao, "2026-12-02"); // 東京's second day
+  });
+
+  it("turns down a day trip into another city on the route", async () => {
+    await run(undefined, undefined);
+
+    const accept = findSuburbMock.mock.calls[0][5] as (place: unknown) => Promise<boolean>;
+    // getCityCenter is mocked to one point for every city, so 大阪's center sits on this place
+    expect(await accept({ ...takao, lat: 35.68, lng: 139.76 })).toBe(false);
   });
 
   it("gives public transport a day trip too, by train", async () => {

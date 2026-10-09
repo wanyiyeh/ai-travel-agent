@@ -6,7 +6,7 @@ vi.mock("@/lib/fetchCityRestaurants", () => ({
   fetchNearbyPlaceCandidates: (...args: unknown[]) => nearbyMock(...args),
 }));
 
-const { findSuburbPlace, suburbDayIndex, suburbGroupsFor, suburbKindFor, suburbTripEvent } = await import("@/lib/suburbTrips");
+const { findSuburbPlace, isInOtherCity, suburbDayIndex, suburbGroupsFor, suburbKindFor, suburbTripEvent } = await import("@/lib/suburbTrips");
 
 // Sapporo; 支笏湖 is about 40km out, 円山公園 in town.
 const sapporo = { lat: 43.0618, lng: 141.3545 };
@@ -76,6 +76,17 @@ describe("findSuburbPlace", () => {
     expect(found?.place.placeId).toBe("Farm Tomita");
   });
 
+  it("skips a place out of season for the next one", async () => {
+    const skiResort = place("Sapporo Kokusai", 43.08, 141.1, ["ski_resort"]);
+    nearbyMock.mockResolvedValue([skiResort, shikotsu]);
+    const accept = vi.fn(async (p: PlaceCandidate) => !p.types?.includes("ski_resort"));
+
+    const found = await findSuburbPlace(sapporo, "key", ["land"], 50, new Set(), accept);
+
+    expect(found?.place.placeId).toBe("支笏湖");
+    expect(accept).toHaveBeenCalledTimes(2); // only the places reached
+  });
+
   it("searches each interest on its own, so one rejected search doesn't sink the rest", async () => {
     nearbyMock.mockImplementation(async (_c: unknown, _k: unknown, types: string[]) => {
       if (types.includes("winery")) throw new Error("400");
@@ -84,6 +95,16 @@ describe("findSuburbPlace", () => {
     const found = await findSuburbPlace(sapporo, "key", ["alcohol", "land"], 50, new Set());
     expect(nearbyMock).toHaveBeenCalledTimes(2);
     expect(found?.group).toBe("land");
+  });
+});
+
+describe("isInOtherCity", () => {
+  const otaru = { lat: 43.19, lng: 141.0 };
+
+  it("catches a place in a town the route already stays in", () => {
+    expect(isInOtherCity({ lat: 43.186, lng: 141.023 }, [otaru])).toBe(true); // Otaru Port Marina
+    expect(isInOtherCity(shikotsu, [otaru])).toBe(false);
+    expect(isInOtherCity(shikotsu, [])).toBe(false);
   });
 });
 

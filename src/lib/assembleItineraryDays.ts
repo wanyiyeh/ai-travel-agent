@@ -15,12 +15,14 @@ import { parsePreferenceIntent } from "@/lib/preferenceIntent";
 import { mergePreferenceIntent } from "@/lib/mergePreferenceIntent";
 import { computeArrivalDayStartMinute } from "@/lib/scheduler/arrivalDayStart";
 import { THEMES } from "@/lib/dayThemes";
-import { tripDayOfDate } from "@/lib/fixedEvents";
+import { dateOfTripDay, tripDayOfDate } from "@/lib/fixedEvents";
+import { isInSeason } from "@/lib/climate";
 import { planDayEvents, type PlannedDayEvents } from "@/lib/fixedEventVenues";
 import { carPickup, carReturnStop, findCarRental } from "@/lib/carRental";
 import { getCityCenter } from "@/lib/placesTextSearch";
 import {
   findSuburbPlace,
+  isInOtherCity,
   MAX_SUBURB_KM,
   suburbDayIndex,
   suburbGroupsFor,
@@ -139,6 +141,12 @@ export async function assembleItineraryDays(
   // Which kinds of suburb place, from the traveler's interests and drinks.
   const suburbGroups = suburbGroupsFor(preferenceIntent.interestBoost, preferences?.drinks ?? []);
   const usedSuburbIds = new Set<string>();
+  // The route's other cities, which a day trip shouldn't land in.
+  const otherCityCenters = async (cityName: string, apiKey: string) => {
+    const names = [...new Set(plan.cities.map((c) => c.name))].filter((name) => name !== cityName);
+    const centers = await Promise.all(names.map((name) => getCityCenter(name, apiKey).catch(() => null)));
+    return centers.filter((c): c is { lat: number; lng: number } => Boolean(c));
+  };
 
   // 自駕: the rental counters at both airports, looked up once (cached).
   const [pickupRental, returnRental] = preferenceIntent.selfDrive
@@ -259,7 +267,15 @@ export async function assembleItineraryDays(
       if (!kind || dayIndex === undefined || !apiKey) return undefined;
       const center = await getCityCenter(city.name, apiKey).catch(() => null);
       if (!center) return undefined;
-      const found = await findSuburbPlace(center, apiKey, suburbGroups, MAX_SUBURB_KM, new Set([...usedPlaceIds, ...usedSuburbIds]));
+      const tripDate = dateOfTripDay(flightInfo.departureDate, nextDayNumber + dayIndex);
+      const found = await findSuburbPlace(
+        center,
+        apiKey,
+        suburbGroups,
+        MAX_SUBURB_KM,
+        new Set([...usedPlaceIds, ...usedSuburbIds]),
+        async (place) => !isInOtherCity(place, await otherCityCenters(city.name, apiKey)) && (await isInSeason(place, tripDate))
+      );
       if (!found) return undefined;
       usedSuburbIds.add(found.place.placeId);
       usedPlaceIds.add(found.place.placeId);

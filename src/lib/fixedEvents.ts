@@ -89,6 +89,11 @@ export function tripDayOfDate(date: string, departureDate: string, returnDate: s
   return day >= 1 && day <= totalDays ? day : undefined;
 }
 
+/** The date of itinerary day N (1-based): departureDate + (N - 1), the other way round from tripDayOfDate. */
+export function dateOfTripDay(departureDate: string, dayNumber: number): string {
+  return new Date(new Date(`${departureDate}T00:00:00Z`).getTime() + (dayNumber - 1) * MS_PER_DAY).toISOString().slice(0, 10);
+}
+
 /** A reservation stands in for a meal rather than adding a stop. */
 export function isMealEvent(event: FixedEvent): boolean {
   return event.type === "reservation";

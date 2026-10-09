@@ -54,14 +54,17 @@ export const MAX_SUBURB_KM = 50;
  * maxKm from the city center, not used yet. Groups are searched in turn
  * and their results interleaved, so each interest gets a look in. A farm is
  * only taken when Google also calls it a tourist attraction — plenty of
- * farms aren't open to visitors.
+ * farms aren't open to visitors. `accept` turns a place down for the next
+ * one in the same order — out of season (climate.ts), or in a town the
+ * route already stays in; it's only asked about the places actually reached.
  */
 export async function findSuburbPlace(
   center: { lat: number; lng: number },
   apiKey: string,
   groups: SuburbGroup[],
   maxKm: number,
-  usedPlaceIds: Set<string>
+  usedPlaceIds: Set<string>,
+  accept: (place: PlaceCandidate) => Promise<boolean> = async () => true
 ): Promise<{ place: PlaceCandidate; group: SuburbGroup } | undefined> {
   const pools = await Promise.all(
     groups.map(async (group) => {
@@ -79,9 +82,17 @@ export async function findSuburbPlace(
     })
   );
   for (let i = 0; i < Math.max(0, ...pools.map((p) => p.length)); i++) {
-    for (const pool of pools) if (pool[i]) return pool[i];
+    for (const pool of pools) if (pool[i] && (await accept(pool[i].place))) return pool[i];
   }
   return undefined;
+}
+
+// A suburb place this close to another city on the route is a visit to that
+// city, which already gets its own days (a Sapporo day trip went to 小樽's
+// harbor, on a route staying 2 nights in 小樽).
+const OTHER_CITY_KM = 15;
+export function isInOtherCity(place: { lat: number; lng: number }, otherCityCenters: { lat: number; lng: number }[]): boolean {
+  return otherCityCenters.some((c) => haversineKm(c.lat, c.lng, place.lat, place.lng) <= OTHER_CITY_KM);
 }
 
 const DAY_TRIP_MINUTES = 300;

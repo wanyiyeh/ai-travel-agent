@@ -20,8 +20,10 @@ export default defineConfig({
     // wrote to the cache). .env never overrides a variable already set:
     // - no Google key: lookups skip themselves (tests stub one when needed);
     // - a fake OpenAI key: openai.ts needs one at import, and it can't bill;
-    // - a database file that doesn't exist: any query fails loudly.
+    // - a database file that doesn't exist: any query fails loudly;
+    // - no weather lookups: Open-Meteo has no key to blank (climate.ts).
     env: {
+      CLIMATE_LOOKUPS: "off",
       GOOGLE_PLACES_API_KEY: "",
       OPENAI_API_KEY: "unit-tests-never-call-openai",
       DATABASE_URL: "file:./unit-tests-must-not-use-a-database.db",
