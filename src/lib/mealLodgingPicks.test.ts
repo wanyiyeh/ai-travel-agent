@@ -28,6 +28,7 @@ const pools: MealLodgingPools = {
   main: [place("Ramen X"), place("Sushi Y"), place("Izakaya Z")],
   snack: [place("Gelato Q")],
   lodging: [place("Hotel H", 3)],
+  nightcap: [],
 };
 
 describe("formatCandidateLists", () => {
@@ -131,7 +132,7 @@ describe("applyCandidatePicks", () => {
   });
 
   it("keeps the LLM's own entry only when there is no candidate at all", () => {
-    const empty: MealLodgingPools = { breakfast: [], main: [], snack: [], lodging: [] };
+    const empty: MealLodgingPools = { breakfast: [], main: [], snack: [], lodging: [], nightcap: [] };
     const result = applyCandidatePicks({ meals: [{ lunch: { id: null, name: "Some Place" } }] }, empty, 1, "JPY");
     expect(result.mealsByDay[0]).toEqual({ lunch: { name: "Some Place" } });
   });
@@ -164,6 +165,7 @@ describe("repeats once the pool is used up", () => {
       main: Array.from({ length: 6 }, (_, i) => place(`M${i}`)),
       snack: [place("S1"), place("S2"), place("S3")],
       lodging: [],
+      nightcap: [],
     };
     const meals = applyCandidatePicks({ meals: [] }, many, 9, "JPY").mealsByDay as Array<
       Record<string, Record<string, unknown>>

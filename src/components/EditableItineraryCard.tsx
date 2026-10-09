@@ -1385,9 +1385,12 @@ export default function EditableItineraryCard({
               {!isCollapsed && (() => {
                 let lastTimeOfDay: string | undefined = undefined;
                 // A day with no meals object (transit days) gets no meal slots;
-                // otherwise every meal type gets a slot, empty ones as null.
+                // otherwise every meal type gets a slot, empty ones as null —
+                // except 小酌, which only a traveler who picked 酒 has.
                 const dayMeals: Partial<Record<MealType, Meal | null>> = day.meals
-                  ? Object.fromEntries(MEAL_TYPES.map((t) => [t, day.meals?.[t] ?? null]))
+                  ? Object.fromEntries(
+                      MEAL_TYPES.filter((t) => t !== "nightcap" || day.meals?.nightcap).map((t) => [t, day.meals?.[t] ?? null])
+                    )
                   : {};
                 const timeline = buildDayTimeline(day.stops, dayMeals, (s) => s.time_of_day);
                 const timeHeader = (timeOfDay: string | undefined) => {

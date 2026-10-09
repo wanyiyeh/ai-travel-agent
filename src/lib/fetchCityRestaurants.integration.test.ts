@@ -322,3 +322,41 @@ describe("searchTextCandidates for drinks", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });
+
+// Story: a Shinjuku bar search by includedTypes came back with 2 bars in 20 —
+// the rest were a mall, nightclubs, hotels and a burger chain that merely
+// have a bar.
+describe("fetchNearbyPlaceCandidates matching the main type only", () => {
+  const coords = { lat: 37 + (Date.now() % 100000) / 1e6, lng: 50 };
+  const reply = () => new Response(JSON.stringify({ places: [{ id: "bar1", displayName: { text: "Bar" }, location: { latitude: 0, longitude: 0 } }] }), { status: 200 });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  afterAll(async () => {
+    await prisma.nearbyPlaceCandidatesCache.deleteMany({ where: { cacheKey: { startsWith: `${coords.lat.toFixed(4)},` } } });
+  });
+
+  it("sends includedPrimaryTypes instead of includedTypes", async () => {
+    const fetchMock = vi.fn(async () => reply());
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fetchNearbyPlaceCandidates(coords, "key", ["bar"], 3000, 20, "pro", "primary");
+
+    const body = JSON.parse(((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body as string));
+    expect(body.includedPrimaryTypes).toEqual(["bar"]);
+    expect(body.includedTypes).toBeUndefined();
+  });
+
+  it("doesn't answer a main-type search from an any-type pool for the same types", async () => {
+    const town = { lat: coords.lat, lng: 51 };
+    const fetchMock = vi.fn(async () => reply());
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fetchNearbyPlaceCandidates(town, "key", ["bar"], 3000, 20, "pro");
+    await fetchNearbyPlaceCandidates(town, "key", ["bar"], 3000, 20, "pro", "primary");
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});

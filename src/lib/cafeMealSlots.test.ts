@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fitsCafeMealSlot, fitsMainMeal, splitCafePool } from "./cafeMealSlots";
+import { fitsCafeMealSlot, fitsMainMeal, fitsMealSlot, splitCafePool } from "./cafeMealSlots";
 
 const at = (name: string, primary?: string) => ({ name, types: primary ? [primary, "food"] : undefined });
 
@@ -49,5 +49,23 @@ describe("splitCafePool", () => {
 
     expect(breakfast.map((p) => p.name)).toEqual(["Cafe 1", "Cafe 2", "Brunch"]);
     expect(snack.map((p) => p.name)).toEqual(["Cafe 1", "Gelato", "Cafe 2"]);
+  });
+});
+
+describe("fitsMealSlot", () => {
+  // Bars aren't "food places" by type, so the 換一家 picker had dropped them all.
+  it("takes bars and izakaya for the 小酌", () => {
+    expect(fitsMealSlot(at("Bar Benfiddich", "cocktail_bar"), "nightcap")).toBe(true);
+    expect(fitsMealSlot(at("鳥貴族", "japanese_izakaya_restaurant"), "nightcap")).toBe(true);
+  });
+
+  // In Japan a スナック is a hostess bar.
+  it("leaves cafés and snack bars out of the 小酌", () => {
+    expect(fitsMealSlot(at("Cafe A", "cafe"), "nightcap")).toBe(false);
+    expect(fitsMealSlot(at("スナック", "snack_bar"), "nightcap")).toBe(false);
+  });
+
+  it("keeps a bar out of the afternoon snack", () => {
+    expect(fitsMealSlot(at("Bar A", "bar"), "snack")).toBe(false);
   });
 });

@@ -44,3 +44,16 @@ describe("buildDayTimeline", () => {
     expect(labels(build([], allMeals))).toEqual(["breakfast", "lunch", "snack", "dinner"]);
   });
 });
+
+describe("buildDayTimeline — 小酌", () => {
+  it("puts the 小酌 after dinner", () => {
+    expect(labels(build([{ name: "Temple", tod: "morning" }], { ...allMeals, nightcap: "N" }))).toEqual([
+      "breakfast",
+      "Temple",
+      "lunch",
+      "snack",
+      "dinner",
+      "nightcap",
+    ]);
+  });
+});

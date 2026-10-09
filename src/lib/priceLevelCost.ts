@@ -3,7 +3,7 @@
 // from Google can override the LLM's initial guess instead of it being the
 // only source of truth for the whole trip.
 
-type MealType = "breakfast" | "lunch" | "dinner" | "snack";
+type MealType = "breakfast" | "lunch" | "dinner" | "snack" | "nightcap";
 type Range = [number, number];
 
 // Same reference ranges embedded as prose in itineraryGen.ts's system prompt
@@ -11,26 +11,27 @@ type Range = [number, number];
 // priceLevel → amount lookup, not just LLM guidance text. snack (a coffee +
 // dessert stop) is priced at ~60% of that currency's breakfast range — same
 // venue types (cafe/bakery), typically a lighter order than a full breakfast.
+// nightcap (a drink or two after dinner, 小酌) is about half a dinner.
 export const MEAL_PRICE_RANGES: Record<string, Record<MealType, Range>> = {
-  JPY: { breakfast: [500, 1000], lunch: [1000, 2000], dinner: [2000, 5000], snack: [300, 600] },
-  EUR: { breakfast: [8, 15], lunch: [15, 25], dinner: [30, 60], snack: [5, 10] },
-  GBP: { breakfast: [8, 15], lunch: [15, 25], dinner: [30, 60], snack: [5, 10] },
-  CHF: { breakfast: [15, 25], lunch: [25, 40], dinner: [50, 100], snack: [10, 15] },
-  AUD: { breakfast: [15, 25], lunch: [20, 35], dinner: [40, 80], snack: [10, 15] },
-  NZD: { breakfast: [15, 25], lunch: [20, 35], dinner: [40, 80], snack: [10, 15] },
-  USD: { breakfast: [10, 20], lunch: [15, 30], dinner: [30, 60], snack: [6, 12] },
-  TWD: { breakfast: [50, 120], lunch: [120, 250], dinner: [250, 600], snack: [30, 80] },
-  KRW: { breakfast: [5000, 10000], lunch: [8000, 15000], dinner: [15000, 40000], snack: [3000, 6000] },
-  THB: { breakfast: [60, 150], lunch: [100, 250], dinner: [200, 600], snack: [40, 90] },
-  SGD: { breakfast: [4, 10], lunch: [10, 20], dinner: [20, 50], snack: [3, 6] },
-  HKD: { breakfast: [30, 80], lunch: [60, 130], dinner: [150, 350], snack: [20, 50] },
-  VND: { breakfast: [30000, 80000], lunch: [60000, 150000], dinner: [100000, 300000], snack: [20000, 50000] },
-  MYR: { breakfast: [5, 15], lunch: [10, 25], dinner: [20, 60], snack: [3, 10] },
-  IDR: { breakfast: [20000, 50000], lunch: [40000, 100000], dinner: [80000, 250000], snack: [15000, 30000] },
-  SEK: { breakfast: [80, 150], lunch: [150, 280], dinner: [350, 800], snack: [50, 100] },
-  DKK: { breakfast: [60, 120], lunch: [120, 220], dinner: [280, 650], snack: [40, 80] },
-  NOK: { breakfast: [90, 160], lunch: [160, 280], dinner: [350, 850], snack: [60, 100] },
-  ZAR: { breakfast: [80, 150], lunch: [150, 300], dinner: [300, 700], snack: [50, 100] },
+  JPY: { breakfast: [500, 1000], lunch: [1000, 2000], dinner: [2000, 5000], snack: [300, 600], nightcap: [1500, 3000] },
+  EUR: { breakfast: [8, 15], lunch: [15, 25], dinner: [30, 60], snack: [5, 10], nightcap: [10, 25] },
+  GBP: { breakfast: [8, 15], lunch: [15, 25], dinner: [30, 60], snack: [5, 10], nightcap: [10, 25] },
+  CHF: { breakfast: [15, 25], lunch: [25, 40], dinner: [50, 100], snack: [10, 15], nightcap: [20, 40] },
+  AUD: { breakfast: [15, 25], lunch: [20, 35], dinner: [40, 80], snack: [10, 15], nightcap: [15, 35] },
+  NZD: { breakfast: [15, 25], lunch: [20, 35], dinner: [40, 80], snack: [10, 15], nightcap: [15, 35] },
+  USD: { breakfast: [10, 20], lunch: [15, 30], dinner: [30, 60], snack: [6, 12], nightcap: [12, 30] },
+  TWD: { breakfast: [50, 120], lunch: [120, 250], dinner: [250, 600], snack: [30, 80], nightcap: [200, 500] },
+  KRW: { breakfast: [5000, 10000], lunch: [8000, 15000], dinner: [15000, 40000], snack: [3000, 6000], nightcap: [10000, 25000] },
+  THB: { breakfast: [60, 150], lunch: [100, 250], dinner: [200, 600], snack: [40, 90], nightcap: [150, 400] },
+  SGD: { breakfast: [4, 10], lunch: [10, 20], dinner: [20, 50], snack: [3, 6], nightcap: [15, 35] },
+  HKD: { breakfast: [30, 80], lunch: [60, 130], dinner: [150, 350], snack: [20, 50], nightcap: [80, 200] },
+  VND: { breakfast: [30000, 80000], lunch: [60000, 150000], dinner: [100000, 300000], snack: [20000, 50000], nightcap: [80000, 200000] },
+  MYR: { breakfast: [5, 15], lunch: [10, 25], dinner: [20, 60], snack: [3, 10], nightcap: [20, 50] },
+  IDR: { breakfast: [20000, 50000], lunch: [40000, 100000], dinner: [80000, 250000], snack: [15000, 30000], nightcap: [60000, 150000] },
+  SEK: { breakfast: [80, 150], lunch: [150, 280], dinner: [350, 800], snack: [50, 100], nightcap: [120, 300] },
+  DKK: { breakfast: [60, 120], lunch: [120, 220], dinner: [280, 650], snack: [40, 80], nightcap: [90, 220] },
+  NOK: { breakfast: [90, 160], lunch: [160, 280], dinner: [350, 850], snack: [60, 100], nightcap: [130, 320] },
+  ZAR: { breakfast: [80, 150], lunch: [150, 300], dinner: [300, 700], snack: [50, 100], nightcap: [80, 200] },
 };
 
 // Typical single-visit admission fee by currency, at Google's "moderate"
@@ -130,6 +131,21 @@ export function estimateMealCost(
   if (priceLevel === 2) return Math.round((low + high) / 2);
   if (priceLevel === 3) return high;
   return Math.round(high * 1.6);
+}
+
+/**
+ * estimateMealCost, except a 小酌 with no price data still gets the middle
+ * of its range: bars come from a Pro-field search, which never has a
+ * priceLevel, and a night's drinks shouldn't count as free.
+ */
+export function estimateSlotCost(
+  currency: string | undefined,
+  mealType: MealType,
+  priceLevel: number | null | undefined,
+): number | undefined {
+  const estimate = estimateMealCost(currency, mealType, priceLevel);
+  if (estimate !== undefined || mealType !== "nightcap") return estimate;
+  return estimateMealCost(currency, mealType, 2);
 }
 
 /**

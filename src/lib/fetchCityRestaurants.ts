@@ -4,6 +4,8 @@ import { prisma, j } from "@/lib/db";
 import { googleFetch } from "@/lib/googleFetch";
 import { isBudgetLodging, isLuxuryLodging, rankLodgingByBudget } from "@/lib/lodgingTiers";
 import { CAFE_MEAL_TYPES } from "@/lib/cafeMealSlots";
+import { NIGHTCAP_TYPES } from "@/lib/drinkPlaces";
+import type { MealType } from "@/types/itinerary";
 
 const NEARBY_SEARCH_URL = "https://places.googleapis.com/v1/places:searchNearby";
 
@@ -118,8 +120,9 @@ function getMainMealTypes(budget?: BudgetLevel): string[] {
  * dinner use the budget-aware main-meal types. BREAKFAST_TYPES/SNACK_TYPES
  * above are only for the old full-LLM flow's prompt hints.
  */
-export function getMealPlaceTypes(mealType: "breakfast" | "lunch" | "dinner" | "snack", budget?: BudgetLevel): string[] {
+export function getMealPlaceTypes(mealType: MealType, budget?: BudgetLevel): string[] {
   if (mealType === "breakfast" || mealType === "snack") return CAFE_MEAL_TYPES;
+  if (mealType === "nightcap") return NIGHTCAP_TYPES;
   return getMainMealTypes(budget);
 }
 
@@ -343,11 +346,22 @@ function buildCandidatesCacheKey(
   radius: number,
   maxCount: number,
   tier: FieldTier,
+  match: TypeMatch = "any",
 ): string {
   const sortedTypes = [...types].sort().join(",");
   const base = `${roundCoord(coords.lat)},${roundCoord(coords.lng)}:${radius}:${maxCount}:${sortedTypes}:`;
-  return tier === "pro" ? `${base}:pro` : base;
+  const tiered = tier === "pro" ? `${base}:pro` : base;
+  return match === "primary" ? `${tiered}:primary` : tiered;
 }
+
+/**
+ * How Nearby Search matches `types`: "any" (includedTypes) takes a place
+ * that lists one of them anywhere, "primary" (includedPrimaryTypes) only a
+ * place whose main type is one. A bar search by "any" came back with 2 bars
+ * in 20 — the rest were famous places that merely have a bar (a mall,
+ * nightclubs, hotels, a burger chain).
+ */
+export type TypeMatch = "any" | "primary";
 
 // Nearby Search bills per request, not per result, so every call fetches
 // Google's max and slices locally. Callers asking for different counts
@@ -375,20 +389,21 @@ export async function fetchNearbyPlaceCandidates(
   radius: number,
   maxCount = 8,
   tier: FieldTier = "pro",
+  match: TypeMatch = "any",
 ): Promise<PlaceCandidate[]> {
   // Key keeps the maxCount slot (fixed at NEARBY_FETCH_COUNT) so rows
   // already cached by maxCount=20 callers stay valid.
-  const cacheKey = buildCandidatesCacheKey(coords, types, radius, NEARBY_FETCH_COUNT, tier);
+  const cacheKey = buildCandidatesCacheKey(coords, types, radius, NEARBY_FETCH_COUNT, tier, match);
   // An Enterprise pool has every Pro field too, so a Pro caller can reuse one
   // rather than paying again for the same places.
   const cached =
     (await readFreshCandidates(cacheKey)) ??
     (tier === "pro"
-      ? await readFreshCandidates(buildCandidatesCacheKey(coords, types, radius, NEARBY_FETCH_COUNT, "enterprise"))
+      ? await readFreshCandidates(buildCandidatesCacheKey(coords, types, radius, NEARBY_FETCH_COUNT, "enterprise", match))
       : null);
   if (cached) return cached.slice(0, maxCount);
 
-  const candidates = await fetchNearbyPlaceCandidatesUncached(coords, apiKey, types, radius, NEARBY_FETCH_COUNT, tier);
+  const candidates = await fetchNearbyPlaceCandidatesUncached(coords, apiKey, types, radius, NEARBY_FETCH_COUNT, tier, match);
   // Don't cache an empty pool — could be a transient API failure rather than
   // a genuinely sparse area, so let the next call retry instead of pinning it.
   if (candidates.length > 0) {
@@ -420,6 +435,7 @@ async function fetchNearbyPlaceCandidatesUncached(
   radius: number,
   maxCount: number,
   tier: FieldTier,
+  match: TypeMatch,
 ): Promise<PlaceCandidate[]> {
   try {
     const res = await googleFetch(NEARBY_SEARCH_URL, {
@@ -430,7 +446,7 @@ async function fetchNearbyPlaceCandidatesUncached(
         "X-Goog-FieldMask": tier === "enterprise" ? ENTERPRISE_FIELD_MASK : PRO_FIELD_MASK,
       },
       body: JSON.stringify({
-        includedTypes: types,
+        ...(match === "primary" ? { includedPrimaryTypes: types } : { includedTypes: types }),
         maxResultCount: maxCount,
         languageCode: "zh-TW",
         locationRestriction: {

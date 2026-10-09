@@ -1,4 +1,7 @@
 import type { PlaceCandidate } from "@/lib/fetchCityRestaurants";
+import type { MealType } from "@/types/itinerary";
+import { isFoodPlace } from "@/lib/foodPlace";
+import { isNightcapPlace } from "@/lib/drinkPlaces";
 
 // Breakfast and snack draw from the same kinds of places (cafés, bakeries),
 // so they share one Nearby Search instead of two (plan/form-preference-
@@ -72,4 +75,16 @@ export function splitCafePool<T extends Pick<PlaceCandidate, "types">>(
     breakfast: pool.filter((p) => fitsCafeMealSlot(p, "breakfast")),
     snack: pool.filter((p) => fitsCafeMealSlot(p, "snack")),
   };
+}
+
+/**
+ * Whether a place from a meal search suits `mealType` — the 換一家 picker's
+ * filter. Bars and izakaya aren't "food places" by Google's type, so the
+ * 小酌 has its own check.
+ */
+export function fitsMealSlot(place: Pick<PlaceCandidate, "types">, mealType: MealType): boolean {
+  if (mealType === "nightcap") return isNightcapPlace(place);
+  if (!isFoodPlace(place)) return false;
+  if (mealType === "lunch" || mealType === "dinner") return fitsMainMeal(place);
+  return fitsCafeMealSlot(place, mealType);
 }

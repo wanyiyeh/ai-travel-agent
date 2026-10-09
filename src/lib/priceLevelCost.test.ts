@@ -4,6 +4,7 @@ import {
   estimateLodgingCostPerNight,
   estimateLodgingCostRange,
   estimateMealCost,
+  estimateSlotCost,
 } from "@/lib/priceLevelCost";
 
 describe("estimateMealCost", () => {
@@ -96,5 +97,17 @@ describe("estimateLodgingCostPerNight", () => {
   it("returns undefined when the underlying range can't be resolved", () => {
     expect(estimateLodgingCostPerNight("XXX", 2)).toBeUndefined();
     expect(estimateLodgingCostPerNight("JPY", null)).toBeUndefined();
+  });
+});
+
+describe("estimateSlotCost", () => {
+  // Story: bars come from a Pro-field search with no priceLevel, so every
+  // 小酌 would have counted as free in the day's total.
+  it("gives a 小酌 with no price data the middle of its range (JPY 1,500-3,000)", () => {
+    expect(estimateSlotCost("JPY", "nightcap", undefined)).toBe(2250);
+  });
+
+  it("leaves other meals without price data unestimated, as before", () => {
+    expect(estimateSlotCost("JPY", "dinner", undefined)).toBeUndefined();
   });
 });

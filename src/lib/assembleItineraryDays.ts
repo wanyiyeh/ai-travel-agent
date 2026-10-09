@@ -51,6 +51,13 @@ function withoutBreakfast(meals: Record<string, unknown> | undefined): Record<st
   return rest;
 }
 
+// The return day ends at the airport, so no 小酌 after dinner.
+function withoutNightcap(meals: Record<string, unknown> | undefined): Record<string, unknown> {
+  const rest = { ...(meals ?? {}) };
+  delete rest.nightcap;
+  return rest;
+}
+
 const emptyMealsAndAccommodation = (nights: number) => ({
   accommodation: {} as Record<string, unknown>,
   mealsByDay: Array.from({ length: nights }, () => ({}) as Record<string, unknown>),
@@ -88,7 +95,7 @@ export async function assembleItineraryDays(
 
   const budget = preferences?.budget as BudgetLevel | undefined;
   const preferenceIntent = mergePreferenceIntent(preferences, parsedIntent);
-  const mealPreferences = { ...mealPreferencesOf(preferenceIntent), drinks: preferences?.drinks };
+  const mealPreferences = mealPreferencesOf(preferenceIntent, preferences?.drinks);
 
   const arrivalMinute = flightInfo.arrivalTime
     ? parseTimeString(flightInfo.arrivalTime, DEFAULT_ARRIVAL_MINUTE_FALLBACK)
@@ -224,7 +231,7 @@ export async function assembleItineraryDays(
         // The last day is a departure day — no accommodation, matching the
         // existing big-prompt rule (itineraryGen.ts buildSystemPrompt rule 7).
         accommodation: null,
-        meals: mealsAndAccommodation.mealsByDay[transitMealDays + sightseeingCount] ?? {},
+        meals: withoutNightcap(mealsAndAccommodation.mealsByDay[transitMealDays + sightseeingCount]),
       });
     }
   }

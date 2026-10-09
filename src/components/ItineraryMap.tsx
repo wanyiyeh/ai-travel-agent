@@ -8,7 +8,7 @@ import {
   InfoWindow,
   useMap,
 } from "@vis.gl/react-google-maps";
-import type { Day } from "@/types/itinerary";
+import { MEAL_TYPES, type Day, type MealType } from "@/types/itinerary";
 import { buildPlaceMapsUrl, buildDirectionsUrl } from "@/lib/googleMapsUrl";
 import { buildDayTimeline } from "@/lib/dayTimeline";
 
@@ -48,7 +48,6 @@ interface MapAccommodation {
   dayIndex: number;
 }
 
-type MealType = "breakfast" | "lunch" | "dinner" | "snack";
 
 interface MapMeal {
   dayId: string;
@@ -66,6 +65,7 @@ const MEAL_META: Record<MealType, { icon: string; label: string }> = {
   lunch: { icon: "☀️", label: "午餐" },
   snack: { icon: "🍰", label: "點心" },
   dinner: { icon: "🌙", label: "晚餐" },
+  nightcap: { icon: "🍷", label: "小酌" },
 };
 
 interface ItineraryMapProps {
@@ -402,7 +402,7 @@ export default function ItineraryMap({
       // Collect meals with lat/lng already available
       days.forEach((day, dayIndex) => {
         if (!day.id || !day.meals) return;
-        (["breakfast", "lunch", "dinner", "snack"] as const).forEach((mealType) => {
+        MEAL_TYPES.forEach((mealType) => {
           const meal = day.meals?.[mealType];
           if (!meal || !meal.lat || !meal.lng) return;
           setMapMeals((prev) => {

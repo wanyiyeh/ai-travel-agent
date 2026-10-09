@@ -45,6 +45,7 @@ type DrinkTag = NonNullable<TripPreferences["drinks"]>[number];
 const DRINK_OPTIONS: { value: DrinkTag; label: string }[] = [
   { value: "coffee", label: "咖啡" },
   { value: "tea", label: "抹茶／茶" },
+  { value: "alcohol", label: "酒" },
 ];
 
 const INTEREST_OPTIONS: { value: NonNullable<TripPreferences["interests"]>[number]; label: string }[] = [
