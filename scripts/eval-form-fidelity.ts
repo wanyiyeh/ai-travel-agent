@@ -287,16 +287,18 @@ const CHECKS: Check[] = [
     detail: (r) => `對照組 ${r.get("tokyo-baseline")?.taxiLegs ?? "—"} 段計程車`,
   },
   {
-    title: "固定行程：第 2 天演唱會排在當天最後，第 3 天午餐換成訂位的店",
+    title: "固定行程：第 2 天演唱會排在當天最後、晚餐在場館 1 km 內，第 3 天午餐換成訂位的店",
     pass: (r) => {
       const f = r.get("tokyo-fixed")?.fixedEvents;
       if (!f) return null;
       const concert = f.find((e) => e.as === "stop" && e.day === 2);
       const lunch = f.find((e) => e.as === "lunch" && e.day === 3);
-      return Boolean(concert?.lastStop && lunch);
+      return Boolean(concert?.lastStop && (concert.dinnerKm ?? Infinity) <= 1 && lunch);
     },
     detail: (r) =>
-      r.get("tokyo-fixed")?.fixedEvents.map((e) => `第 ${e.day} 天 ${e.name}（${e.as === "stop" ? (e.lastStop ? "最後一站" : "景點") : e.as}）`).join("、") ?? "—",
+      r.get("tokyo-fixed")?.fixedEvents
+        .map((e) => `第 ${e.day} 天 ${e.name}（${e.as === "stop" ? `${e.lastStop ? "最後一站" : "景點"}，晚餐距離 ${e.dinnerKm ?? "?"} km` : e.as}）`)
+        .join("、") ?? "—",
   },
   {
     title: "出門時間：晚起每天景點數 < 對照組",

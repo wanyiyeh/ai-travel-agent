@@ -3,6 +3,7 @@ import { MAIN_MEAL_BUDGET_TWD } from "@/lib/mealBudget";
 import { isBudgetLodging, isLuxuryLodging } from "@/lib/lodgingTiers";
 import { mapPlaceTypeToCategory } from "@/lib/scheduler/mapPlaceTypeToCategory";
 import { exposureOf } from "@/lib/indoorOutdoor";
+import { haversineKm } from "@/lib/geo";
 
 // Measures one generated itinerary for scripts/eval-form-fidelity.ts — how
 // much each home-form choice actually changed the trip. Pure: Google types
@@ -32,7 +33,7 @@ export type ItineraryMetrics = {
   /** Legs between sightseeing stops shown as a taxi ride (「搭計程車」). */
   taxiLegs: number;
   /** Where each 固定行程 ended up: a stop (with its position in the day) or the meal it replaced. */
-  fixedEvents: { day: number; name: string; as: string; lastStop?: boolean }[];
+  fixedEvents: { day: number; name: string; as: string; lastStop?: boolean; dinnerKm?: number }[];
   mainMeals: number;
   avgMainMealTwd: number | null;
   /** Share of priced lunches/dinners inside the budget's NT$ range; null without a budget or prices. */
@@ -157,10 +158,20 @@ export function measureItinerary(days: Rec[], ctx: EvalContext): ItineraryMetric
     taxiLegs: stops.filter((s) => str(s.transport_from_prev)?.includes("計程車")).length,
     fixedEvents: days.flatMap((d, i) => {
       const dayStops = asRecords(d.stops);
-      const asStops = dayStops.flatMap((s, k) =>
-        s.fixedEvent ? [{ day: i + 1, name: str(s.name) ?? "", as: "stop", lastStop: k === dayStops.length - 1 }] : []
-      );
       const meals = (d.meals ?? {}) as Rec;
+      const dinner = meals.dinner as Rec | undefined;
+      // How far the day's dinner is from the event — dinner before a show should be near the venue.
+      const dinnerKm = (s: Rec) => {
+        const [a, b, c, e] = [num(s.lat), num(s.lng), num(dinner?.lat), num(dinner?.lng)];
+        return a !== undefined && b !== undefined && c !== undefined && e !== undefined
+          ? Math.round(haversineKm(a, b, c, e) * 10) / 10
+          : undefined;
+      };
+      const asStops = dayStops.flatMap((s, k) =>
+        s.fixedEvent
+          ? [{ day: i + 1, name: str(s.name) ?? "", as: "stop", lastStop: k === dayStops.length - 1, ...(dinnerKm(s) !== undefined ? { dinnerKm: dinnerKm(s) } : {}) }]
+          : []
+      );
       const asMeals = Object.entries(meals).flatMap(([key, m]) =>
         m && typeof m === "object" && (m as Rec).fixedEvent ? [{ day: i + 1, name: str((m as Rec).name) ?? "", as: key }] : []
       );

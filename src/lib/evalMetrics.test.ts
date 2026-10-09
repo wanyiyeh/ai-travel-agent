@@ -102,6 +102,20 @@ describe("measureItinerary", () => {
     ]);
   });
 
+  it("measures how far the day's dinner is from an event", () => {
+    const concertDay = days.map((d, i) =>
+      i === 0
+        ? {
+            ...d,
+            stops: [{ name: "東京巨蛋", lat: 35.7056, lng: 139.7519, fixedEvent: { type: "concert" } }],
+            meals: { ...d.meals, dinner: { name: "Near", lat: 35.7056, lng: 139.7629 } },
+          }
+        : d
+    );
+    // 0.011 degrees of longitude at 35.7N is about 1km.
+    expect(measureItinerary(concertDay, ctx).fixedEvents[0].dinnerKm).toBe(1);
+  });
+
   it("counts legs shown as a taxi ride", () => {
     const withTaxi = days.map((d, i) =>
       i === 0 ? { ...d, stops: [d.stops[0], { ...d.stops[1], transport_from_prev: "搭計程車約 9 分鐘" }] } : d
