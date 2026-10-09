@@ -405,6 +405,15 @@ Google 依請求裡最貴的欄位計費（Pro：每月免費 5,000 次；Enterp
   Nearby Search 不能依評分過濾，所以每種飲品只查一次 Text Search（「specialty coffee」「matcha」），沒有另外查 Nearby。
 - 兩種都選時點心每天輪流，由程式在 AI 挑完後強制；選咖啡時早餐也優先推薦咖啡店。
 
+2026-10-09 2b-2 酒的決定：
+- 時段叫「小酌」🍷，排在晚餐後；除了回程日，每晚都排（交通日也排）。
+- 推薦酒吧類（bar、wine bar、cocktail bar、lounge bar、pub、啤酒花園、精釀酒吧）加上居酒屋；不含 `snack_bar`（日本的スナック是陪酒店）。
+  一次 Nearby Search 查完所有類型，依熱門排序（Text Search 的評分過濾要每種類型各查一次）。晚餐清單裡已有的居酒屋不重複列進小酌。
+  用 `includedPrimaryTypes`（只比對主要類型）：用 `includedTypes` 時新宿 20 個結果只有 2 間是酒吧，其他是商場、夜店、飯店、漢堡店。
+- 酒吧優先：酒吧夠排每一晚時只給 AI 酒吧，不夠才補居酒屋（熱門的居酒屋多半偏吃，評分時排到烏龍麵店つるとんたん和鐵板燒）。
+- 拿不到價格資料時，每人估約晚餐的一半（日本 ¥1,500～3,000、台灣 NT$200～500、歐洲 €10～25），取區間中間值。
+- 順便補上 2b-1 漏掉的兩處：點心「換一家」改成先列飲品店；「重新規劃行程」重建餐點時也帶入飲品選擇。
+
 - 每個選到的偏好，每個城市各多查 1 次 Nearby Search（快取 30 天），併進候選池：
   - 文化歷史：`museum`、`art_museum`、`art_gallery`、`historical_place`、`historical_landmark`、`monument`
   - 自然景觀：`park`、`garden`、`botanical_garden`、`observation_deck`
