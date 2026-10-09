@@ -16,7 +16,7 @@ vi.mock("@/lib/placesTextSearch", () => ({
   getCityCenter: (...args: unknown[]) => cityCenterMock(...args),
 }));
 
-import { closeLoop, planTrip, rebalanceZeroDayCities } from "@/lib/tripPlan";
+import { FixedEventCityError, alignCityDays, cityOnDay, closeLoop, planTrip, rebalanceZeroDayCities } from "@/lib/tripPlan";
 
 function mockContent(content: string) {
   createMock.mockResolvedValueOnce({ choices: [{ message: { content } }] });
@@ -305,5 +305,124 @@ describe("closeLoop", () => {
 
   it("returns null when no stay can spare a day for the way back", () => {
     expect(closeLoop([{ name: "札幌", days: 1 }, { name: "小樽", days: 1 }], "札幌")).toBeNull();
+  });
+});
+
+describe("cityOnDay", () => {
+  // 東京 3 days, then 大阪 3 days starting with the transit day, return day 7.
+  const cities = [{ name: "東京", days: 3 }, { name: "大阪", days: 3 }];
+
+  it.each([
+    [1, "東京"],
+    [3, "東京"],
+    [4, "大阪"], // the transit day into 大阪
+    [6, "大阪"],
+    [7, "大阪"], // the return day
+  ])("day %i is in %s", (day, city) => {
+    expect(cityOnDay(cities, day)).toBe(city);
+  });
+});
+
+// 2d-2: a booked event in another city puts the route there that day.
+describe("planTrip with fixed events in a city", () => {
+  const centers: Record<string, { lat: number; lng: number }> = {
+    東京: { lat: 35.68, lng: 139.76 },
+    大阪: { lat: 34.69, lng: 135.5 },
+    名古屋: { lat: 35.18, lng: 136.9 },
+  };
+  // 05-05 is day 5 of the 05-01 trip.
+  const nagoyaConcert = { fixedEvents: [{ type: "concert" as const, date: "2026-05-05", startTime: "18:00", venueName: "バンテリンドーム", city: "名古屋" }] };
+
+  beforeEach(() => {
+    createMock.mockReset();
+    cityCenterMock.mockReset();
+    vi.stubEnv("GOOGLE_PLACES_API_KEY", "key");
+    cityCenterMock.mockImplementation(async (name: string) => centers[name] ?? null);
+  });
+
+  it("tells the model which day must be in which city", async () => {
+    mockJson({ title: "t", currency: "JPY", cities: [{ name: "東京", days: 3 }, { name: "名古屋", days: 2 }, { name: "大阪", days: 1 }] });
+
+    await planTrip(multiCityFlight, undefined, nagoyaConcert, "gpt-4o-mini");
+
+    expect(createMock.mock.calls[0][0].messages[0].content).toContain("第 5 天：名古屋（演唱會）");
+  });
+
+  it("retries a route that isn't in the event's city that day", async () => {
+    mockJson({ title: "t", currency: "JPY", cities: [{ name: "東京", days: 3 }, { name: "大阪", days: 3 }] });
+    mockJson({ title: "t", currency: "JPY", cities: [{ name: "東京", days: 3 }, { name: "名古屋", days: 2 }, { name: "大阪", days: 1 }] });
+
+    const plan = await planTrip(multiCityFlight, undefined, nagoyaConcert, "gpt-4o-mini");
+
+    expect(plan?.cities.map((c) => c.name)).toEqual(["東京", "名古屋", "大阪"]);
+    expect(createMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("stops with a message to adjust when no attempt fits, instead of planning without it", async () => {
+    const wrong = { title: "t", currency: "JPY", cities: [{ name: "東京", days: 3 }, { name: "大阪", days: 3 }] };
+    mockJson(wrong);
+    mockJson(wrong);
+
+    const error = await planTrip(multiCityFlight, undefined, nagoyaConcert, "gpt-4o-mini").catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(FixedEventCityError);
+    expect((error as Error).message).toContain("第 5 天（05/05）的演唱會在名古屋");
+  });
+
+  it("takes 東京都 and 東京 as the same city without a lookup", async () => {
+    mockJson({ title: "t", currency: "JPY", cities: [{ name: "東京", days: 3 }, { name: "大阪", days: 3 }] });
+    const tokyo = { fixedEvents: [{ ...nagoyaConcert.fixedEvents[0], date: "2026-05-02", city: "東京都" }] };
+
+    const plan = await planTrip(multiCityFlight, undefined, tokyo, "gpt-4o-mini");
+
+    expect(plan).not.toBeNull();
+    expect(cityCenterMock).not.toHaveBeenCalled();
+  });
+});
+
+// Story: a Tokyo-to-Osaka trip with a day-4 concert in 名古屋 failed both
+// attempts — the model counted the transit day wrong.
+describe("alignCityDays", () => {
+  const req = (dayNumber: number, city: string) => ({ dayNumber, date: "", city, label: "演唱會" });
+
+  it("moves a day from the next city when the event day falls just after the city's stay", () => {
+    const cities = [{ name: "東京", days: 2 }, { name: "名古屋", days: 1 }, { name: "大阪", days: 2 }];
+    const aligned = alignCityDays(cities, [req(4, "名古屋")]);
+    expect(aligned).toEqual([{ name: "東京", days: 2 }, { name: "名古屋", days: 2 }, { name: "大阪", days: 1 }]);
+    expect(cityOnDay(aligned, 4)).toBe("名古屋");
+  });
+
+  it("moves days from earlier cities when the event day falls before the city's stay", () => {
+    const cities = [{ name: "東京", days: 3 }, { name: "名古屋", days: 1 }, { name: "大阪", days: 1 }];
+    const aligned = alignCityDays(cities, [req(3, "名古屋")]);
+    expect(cityOnDay(aligned, 3)).toBe("名古屋");
+    expect(aligned.reduce((sum, c) => sum + c.days, 0)).toBe(5);
+  });
+
+  it("never takes a city below one day", () => {
+    const cities = [{ name: "東京", days: 1 }, { name: "名古屋", days: 1 }, { name: "大阪", days: 1 }];
+    expect(alignCityDays(cities, [req(3, "東京")])).toEqual(cities);
+  });
+
+  it("leaves a city that isn't on the route to a retry", () => {
+    const cities = [{ name: "東京", days: 3 }, { name: "大阪", days: 2 }];
+    expect(alignCityDays(cities, [req(4, "名古屋")])).toBe(cities);
+  });
+});
+
+describe("planTrip — fixing a miscounted day", () => {
+  beforeEach(() => {
+    createMock.mockReset();
+    cityCenterMock.mockReset();
+  });
+
+  it("repairs the route instead of retrying when the city is there but a day off", async () => {
+    mockJson({ title: "t", currency: "JPY", cities: [{ name: "東京", days: 2 }, { name: "名古屋", days: 1 }, { name: "大阪", days: 3 }] });
+    const concert = { fixedEvents: [{ type: "concert" as const, date: "2026-05-04", startTime: "18:00", venueName: "X", city: "名古屋" }] };
+
+    const plan = await planTrip(multiCityFlight, undefined, concert, "gpt-4o-mini");
+
+    expect(cityOnDay(plan!.cities, 4)).toBe("名古屋");
+    expect(createMock).toHaveBeenCalledTimes(1);
   });
 });

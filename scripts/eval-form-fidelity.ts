@@ -45,6 +45,7 @@ type Preferences = {
     startTime: string;
     endTime?: string;
     venueName?: string;
+    city?: string;
   }>;
   dietaryRestrictions?: Array<"vegetarian" | "vegan" | "no_seafood" | "no_beef" | "halal" | "no_spicy">;
   drinks?: Array<"coffee" | "tea" | "alcohol">;
@@ -72,6 +73,16 @@ const TOKYO = {
   returnDepartureCity: "NRT",
   departureDate: "2026-11-10",
   returnDate: "2026-11-14",
+};
+// In at Tokyo, out from Osaka, 6 days (5 to allocate + the return day), so
+// a day-4 stop in 名古屋 still leaves day 5 for 大阪. With 11-15 (5 days) the
+// concert fell on the last day to allocate and no route could fit it.
+const TOKYO_TO_OSAKA = {
+  departureCity: "TPE",
+  arrivalCity: "NRT",
+  returnDepartureCity: "KIX",
+  departureDate: "2026-11-10",
+  returnDate: "2026-11-16",
 };
 const SAPPORO_WEEK = {
   departureCity: "TPE",
@@ -118,6 +129,14 @@ const SCENARIOS: Scenario[] = [
     },
   },
   { id: "sapporo-loop", label: "札幌 7 天・想去小樽（環狀多城市）", flightInfo: SAPPORO_WEEK, prompt: "想去小樽" },
+  {
+    id: "multi-city-fixed",
+    label: "東京進大阪出・第 4 天名古屋演唱會（固定行程的城市）",
+    flightInfo: TOKYO_TO_OSAKA,
+    preferences: {
+      fixedEvents: [{ type: "concert", date: "2026-11-13", startTime: "18:00", venueName: "バンテリンドーム ナゴヤ", city: "名古屋" }],
+    },
+  },
 ];
 
 type Metrics = import("../src/lib/evalMetrics").ItineraryMetrics;
@@ -299,6 +318,20 @@ const CHECKS: Check[] = [
       r.get("tokyo-fixed")?.fixedEvents
         .map((e) => `第 ${e.day} 天 ${e.name}（${e.as === "stop" ? `${e.lastStop ? "最後一站" : "景點"}，晚餐距離 ${e.dinnerKm ?? "?"} km` : e.as}）`)
         .join("、") ?? "—",
+  },
+  {
+    title: "固定行程的城市：第 4 天在名古屋，演唱會排在那天",
+    pass: (r) => {
+      const m = r.get("multi-city-fixed");
+      if (!m) return null;
+      const concert = m.fixedEvents.find((e) => e.as === "stop");
+      return concert?.day === 4 && concert.city === "名古屋";
+    },
+    detail: (r) => {
+      const m = r.get("multi-city-fixed");
+      const concert = m?.fixedEvents.find((e) => e.as === "stop");
+      return m ? `路線 ${m.cities.join(" → ")}；演唱會在第 ${concert?.day ?? "?"} 天（${concert?.city ?? "?"}）` : "—";
+    },
   },
   {
     title: "出門時間：晚起每天景點數 < 對照組",

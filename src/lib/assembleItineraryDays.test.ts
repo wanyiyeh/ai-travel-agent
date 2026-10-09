@@ -319,6 +319,35 @@ describe("assembleItineraryDays — fixed events", () => {
     expect(tokyoCall[9]).toEqual([[], [{ block, stop: { id: "concert" } }], []]);
   });
 
+  // 2d-2: a show in 大阪 on the day the trip moves there.
+  it("hands a transit day's events to the transit-day generator, planned in the city being reached", async () => {
+    const osakaShow = { type: "show" as const, date: "2026-12-04", startTime: "19:00", venueName: "大阪城ホール", city: "大阪" };
+    const block = { startMinute: 18 * 60 + 30, endMinute: 21 * 60 + 30 };
+    planEventsMock.mockImplementation(async (events: unknown[]) => ({
+      fixed: events.length ? [{ block, stop: { id: "show" } }] : [],
+      meals: {},
+    }));
+
+    await run(undefined, { fixedEvents: [osakaShow] });
+
+    expect(planEventsMock).toHaveBeenCalledWith([osakaShow], "大阪", undefined, expect.anything());
+    expect(transitStopsMock.mock.calls[0][6]).toEqual([{ block, stop: { id: "show" } }]);
+  });
+
+  it("plans an event booked on the return date on the last day", async () => {
+    // 12-01 to 12-06 is 5 days (12-01..12-05), so 4 to allocate: 東京 3, then
+    // 大阪's transit day; day 5 is the return day. (The shared fixture's
+    // 東京 3 + 大阪 2 doesn't match these dates.)
+    planTripMock.mockResolvedValue({ title: "t", currency: "JPY", cities: [{ name: "東京", days: 3 }, { name: "大阪", days: 1 }] });
+    const lastLunch = { ...lunch, date: "2026-12-06" };
+
+    const result = await run(undefined, { fixedEvents: [lastLunch] });
+
+    expect(result!.days).toHaveLength(5);
+    const lastCall = planEventsMock.mock.calls[planEventsMock.mock.calls.length - 1];
+    expect(lastCall[0]).toEqual([lastLunch]);
+  });
+
   it("lets a reservation replace that day's meal", async () => {
     planEventsMock.mockImplementation(async (events: Array<{ type: string }>) => ({
       fixed: [],

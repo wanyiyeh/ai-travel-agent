@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   blockOf,
-  dateOfDay,
   eventMeal,
   eventNotes,
   eventStop,
@@ -10,6 +9,7 @@ import {
   hasDinnerBefore,
   isDinnerBeforeStop,
   mealSlotOf,
+  tripDayOfDate,
   type FixedEventInfo,
 } from "@/lib/fixedEvents";
 import { FixedEventSchema, type FixedEvent } from "@/lib/schemas";
@@ -49,10 +49,10 @@ describe("mealSlotOf", () => {
   });
 });
 
-describe("dateOfDay", () => {
-  it("counts trip days from the departure date, across a month end", () => {
-    expect(dateOfDay("2026-10-30", 1)).toBe("2026-10-30");
-    expect(dateOfDay("2026-10-30", 3)).toBe("2026-11-01");
+describe("tripDayOfDate across a month end", () => {
+  it("counts trip days from the departure date", () => {
+    expect(tripDayOfDate("2026-10-30", "2026-10-30", "2026-11-03")).toBe(1);
+    expect(tripDayOfDate("2026-11-01", "2026-10-30", "2026-11-03")).toBe(3);
   });
 });
 
@@ -96,7 +96,7 @@ describe("FixedEventSchema", () => {
 });
 
 describe("draftProblem (the form)", () => {
-  const draft = { type: "concert" as const, date: "2026-11-11", startTime: "18:00", endTime: "", venueName: "東京巨蛋", arriveEarly: "" };
+  const draft = { type: "concert" as const, date: "2026-11-11", startTime: "18:00", endTime: "", venueName: "東京巨蛋", arriveEarly: "", city: "" };
 
   it("accepts a complete row inside the trip", () => {
     expect(draftProblem(draft, "2026-11-10", "2026-11-14")).toBeUndefined();
@@ -163,7 +163,7 @@ describe("eventNotes", () => {
 });
 
 describe("toFixedEvent (the form)", () => {
-  const draft = { type: "concert" as const, date: "2026-11-11", startTime: "18:00", endTime: "", venueName: "東京巨蛋", arriveEarly: "" };
+  const draft = { type: "concert" as const, date: "2026-11-11", startTime: "18:00", endTime: "", venueName: "東京巨蛋", arriveEarly: "", city: "" };
 
   it("leaves arriving early to the type's default when not chosen", () => {
     expect(toFixedEvent(draft)).not.toHaveProperty("arriveEarlyMinutes");
@@ -175,5 +175,28 @@ describe("toFixedEvent (the form)", () => {
 
   it("drops it for types that don't arrive early", () => {
     expect(toFixedEvent({ ...draft, type: "reservation", arriveEarly: "60" })).not.toHaveProperty("arriveEarlyMinutes");
+  });
+});
+
+// Day N is departureDate + (N - 1); a 11/10-11/16 trip has 6 days, the last
+// (返程日) dated 11/15.
+describe("tripDayOfDate", () => {
+  it.each([
+    ["2026-11-10", 1],
+    ["2026-11-13", 4],
+    ["2026-11-15", 6],
+  ])("%s is day %i", (date, day) => {
+    expect(tripDayOfDate(date, "2026-11-10", "2026-11-16")).toBe(day);
+  });
+
+  // Story: the form allowed the return date, which matched no day, so an
+  // event booked on it was silently dropped.
+  it("puts an event on the return date on the last day", () => {
+    expect(tripDayOfDate("2026-11-16", "2026-11-10", "2026-11-16")).toBe(6);
+  });
+
+  it("has no day for a date outside the trip", () => {
+    expect(tripDayOfDate("2026-11-09", "2026-11-10", "2026-11-16")).toBeUndefined();
+    expect(tripDayOfDate("2026-11-17", "2026-11-10", "2026-11-16")).toBeUndefined();
   });
 });
