@@ -196,3 +196,28 @@ describe("the LLM's own repeat choice", () => {
     expect(["Sushi Y", "Izakaya Z"]).toContain((day4.lunch as Record<string, unknown>).name);
   });
 });
+
+// Story: a traveler who picked both 咖啡 and 抹茶／茶 should get them on
+// alternate afternoons; the AI doesn't keep to an alternation it's told about.
+describe("applyMealPicks with a snack rotation", () => {
+  const coffee = [place("Coffee 1"), place("Coffee 2")];
+  const tea = [place("Tea 1"), place("Tea 2")];
+  const rotating: MealLodgingPools = { ...pools, snack: [coffee[0], tea[0], coffee[1], tea[1]], snackRotation: [coffee, tea] };
+  const snackNames = (days: Array<Record<string, unknown>>) => days.map((d) => (d.snack as { name: string }).name);
+
+  it("alternates the drinks by day, even when the AI picks coffee every day", () => {
+    const raw = [{ snack: { id: "S1" } }, { snack: { id: "S3" } }, { snack: { id: "S3" } }];
+    const days = applyMealPicks(raw, rotating, 3, "JPY", newPickHistory());
+    expect(snackNames(days)).toEqual(["Coffee 1", "Tea 1", "Coffee 2"]);
+  });
+
+  it("falls back to the whole snack list once the day's drink has nothing left", () => {
+    const short: MealLodgingPools = { ...pools, snack: [coffee[0], place("Gelato Q")], snackRotation: [[coffee[0]]] };
+    const days = applyMealPicks([], short, 2, "JPY", newPickHistory());
+    expect(snackNames(days)).toEqual(["Coffee 1", "Gelato Q"]);
+  });
+
+  it("keeps the rotation in a later chunk's reordered pools", () => {
+    expect(unusedFirst(rotating, newPickHistory()).snackRotation).toBe(rotating.snackRotation);
+  });
+});

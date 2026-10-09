@@ -16,9 +16,16 @@ export type MealLodgingPools = {
   main: PlaceCandidate[]; // shared by lunch and dinner
   snack: PlaceCandidate[];
   lodging: PlaceCandidate[];
+  /**
+   * The traveler's drink places (drinkPlaces.ts), one list per drink: day d's
+   * snack comes from list d % length, so coffee and tea alternate. Each list
+   * is also in `snack`, which the prompt shows; `snack` is the fallback when
+   * the day's list has nothing left.
+   */
+  snackRotation?: PlaceCandidate[][];
 };
 
-type PoolKey = keyof MealLodgingPools;
+type PoolKey = "breakfast" | "main" | "snack" | "lodging";
 
 const ID_PREFIX: Record<PoolKey, string> = { breakfast: "B", main: "M", snack: "S", lodging: "H" };
 const POOL_FOR_MEAL: Record<MealType, PoolKey> = { breakfast: "breakfast", lunch: "main", dinner: "main", snack: "snack" };
@@ -84,7 +91,13 @@ export function unusedFirst(pools: MealLodgingPools, history: PickHistory): Meal
     ...pool.filter((c) => !history.lastDay.has(c)),
     ...pool.filter((c) => history.lastDay.has(c)),
   ];
-  return { breakfast: reorder(pools.breakfast), main: reorder(pools.main), snack: reorder(pools.snack), lodging: pools.lodging };
+  return {
+    breakfast: reorder(pools.breakfast),
+    main: reorder(pools.main),
+    snack: reorder(pools.snack),
+    lodging: pools.lodging,
+    snackRotation: pools.snackRotation,
+  };
 }
 
 const stripId = (raw: RawPick) => {
@@ -137,7 +150,7 @@ function pickForSlot(
   slotIndex: number,
   history: PickHistory,
 ): PlaceCandidate | undefined {
-  if (llmPick && !history.lastDay.has(llmPick)) return llmPick;
+  if (llmPick && pool.includes(llmPick) && !history.lastDay.has(llmPick)) return llmPick;
   const unused = pool.find((c) => !history.lastDay.has(c));
   if (unused) return unused;
   const spaced = (c: PlaceCandidate) => day - (history.lastDay.get(c) ?? -Infinity) >= MIN_REPEAT_GAP_DAYS;
@@ -173,7 +186,13 @@ export function applyMealPicks(
       const raw = rawValue && typeof rawValue === "object" ? (rawValue as RawPick) : undefined;
       const pool = pools[POOL_FOR_MEAL[mealKey]];
       const llmPick = raw ? findCandidate(pools, POOL_FOR_MEAL[mealKey], raw.id) : undefined;
-      const place = pickForSlot(pool, llmPick, dayOfStay, slotIndex, history);
+      const rotation = mealKey === "snack" ? pools.snackRotation : undefined;
+      const dayPool = rotation?.length ? rotation[dayOfStay % rotation.length] : undefined;
+      // The AI doesn't keep to an alternation it's told about, so the day's
+      // drink is enforced here; the full snack list only once it runs dry.
+      const place =
+        (dayPool && pickForSlot(dayPool, llmPick, dayOfStay, slotIndex, history)) ??
+        pickForSlot(pool, llmPick, dayOfStay, slotIndex, history);
       if (!place) {
         if (raw) meals[mealKey] = stripId(raw);
         return;

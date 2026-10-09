@@ -1,6 +1,6 @@
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/lib/db";
-import { fetchLodgingCandidates, fetchLuxuryRestaurants, fetchNearbyPlaceCandidates } from "./fetchCityRestaurants";
+import { fetchLodgingCandidates, fetchLuxuryRestaurants, fetchNearbyPlaceCandidates, searchTextCandidates } from "./fetchCityRestaurants";
 
 // Story: one generation asks for the same city's attractions with different
 // counts (transit day, sightseeing days, departure day). Nearby Search bills
@@ -269,5 +269,56 @@ describe("fetchLodgingCandidates for the budget tier", () => {
 
     expect(typesSearched(fetchMock)[1]).toEqual(["lodging"]);
     expect(result.map((p) => p.placeId)).toEqual(["h1", "hotel1"]);
+  });
+});
+
+describe("searchTextCandidates for drinks", () => {
+  const coords = { lat: 36 + (Date.now() % 100000) / 1e6, lng: 47 };
+  const body = (fetchMock: ReturnType<typeof vi.fn>, call = 0) =>
+    JSON.parse(((fetchMock.mock.calls[call] as unknown as [string, RequestInit])[1].body as string));
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  afterAll(async () => {
+    await prisma.nearbyPlaceCandidatesCache.deleteMany({ where: { cacheKey: { contains: `@${coords.lat.toFixed(4)},` } } });
+  });
+
+  it("asks Google to filter by rating, so no Enterprise rating field is needed", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ places: [] }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await searchTextCandidates("specialty coffee", coords, "key", 3000, undefined, { minRating: 3.5 });
+
+    expect(body(fetchMock).minRating).toBe(3.5);
+    expect((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].headers).not.toMatchObject({
+      "X-Goog-FieldMask": expect.stringContaining("rating"),
+    });
+  });
+
+  // A small town with no matcha café would otherwise pay for the same empty
+  // search on every trip there.
+  it("remembers a search that found nothing", async () => {
+    const town = { lat: coords.lat, lng: 48 };
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({}), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await searchTextCandidates("matcha", town, "key", 3000, undefined, { minRating: 3.5 });
+    const again = await searchTextCandidates("matcha", town, "key", 3000, undefined, { minRating: 3.5 });
+
+    expect(again).toEqual([]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("doesn't remember a failed request", async () => {
+    const town = { lat: coords.lat, lng: 49 };
+    const fetchMock = vi.fn(async () => new Response("quota", { status: 429 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await searchTextCandidates("matcha", town, "key", 3000, undefined, { minRating: 3.5 });
+    await searchTextCandidates("matcha", town, "key", 3000, undefined, { minRating: 3.5 });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });

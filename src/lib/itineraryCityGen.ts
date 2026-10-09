@@ -1,6 +1,6 @@
 import { openai } from "@/lib/openai";
 import { getCityCenter } from "@/lib/placesTextSearch";
-import { fetchNearbyPlaceCandidates, fetchLodgingCandidates, fetchLuxuryRestaurants, getMealPlaceTypes, type RestaurantHint, type BudgetLevel, type PlaceCandidate, type FieldTier } from "@/lib/fetchCityRestaurants";
+import { fetchNearbyPlaceCandidates, fetchLodgingCandidates, fetchLuxuryRestaurants, getMealPlaceTypes, searchTextCandidates, type RestaurantHint, type BudgetLevel, type PlaceCandidate, type FieldTier } from "@/lib/fetchCityRestaurants";
 import {
   applyAccommodationPick,
   applyMealPicks,
@@ -22,8 +22,9 @@ import { estimateAttractionCost } from "@/lib/priceLevelCost";
 import { isFoodPlace } from "@/lib/foodPlace";
 import { getTwdRates } from "@/lib/exchangeRate";
 import { rankMainMealsByBudget } from "@/lib/mealBudget";
-import { fitsMainMeal, splitCafePool } from "@/lib/cafeMealSlots";
+import { fitsCafeMealSlot, fitsMainMeal, splitCafePool } from "@/lib/cafeMealSlots";
 import { stayAreaFor } from "@/lib/stayAreas";
+import { DRINKS, DRINK_MIN_RATING, interleave, selectDrinkPlaces, type DrinkKey } from "@/lib/drinkPlaces";
 import { THEMES, dayThemeKeys, interestWeightsOf, isOnTheme, popularSlots, themesOf, type ThemeKey } from "@/lib/dayThemes";
 import { dietPromptLine, dietRequiredTypes, excludeByDiet } from "@/lib/dietaryFilter";
 
@@ -439,6 +440,8 @@ function uniqueByPlaceId(places: PlaceCandidate[]): PlaceCandidate[] {
 export type MealPreferences = {
   dietaryRestrictions?: string[];
   startTimePreference?: PreferenceIntent["startTimePreference"];
+  /** From the form only — the free-text parse has no drinks. */
+  drinks?: DrinkKey[];
 };
 
 export function mealPreferencesOf(intent: PreferenceIntent): MealPreferences {
@@ -450,7 +453,7 @@ async function fetchMealLodgingPools(
   budget: BudgetLevel | undefined,
   currency: string,
   stayDays: number,
-  { dietaryRestrictions = [], startTimePreference }: MealPreferences
+  { dietaryRestrictions = [], startTimePreference, drinks = [] }: MealPreferences
 ): Promise<MealLodgingPools | null> {
   const apiKey = process.env.GOOGLE_PLACES_API_KEY;
   if (!apiKey) return null;
@@ -471,14 +474,23 @@ async function fetchMealLodgingPools(
   // of exactly that type, put first — a real filter, not just a prompt hint.
   const dietTypes = dietRequiredTypes(dietaryRestrictions);
 
+  // One Text Search per chosen drink (Pro fields; minRating is applied by Google).
+  const searchDrink = async (drink: DrinkKey) => {
+    const places = await searchTextCandidates(DRINKS[drink].query, coords, apiKey, MEAL_LODGING_RADIUS_M, undefined, {
+      minRating: DRINK_MIN_RATING,
+    });
+    return selectDrinkPlaces(excludeByDiet(places.filter(isFoodPlace), dietaryRestrictions), drink);
+  };
+
   // Breakfast and snack share one café search, split locally (cafeMealSlots.ts).
-  const [cafes, main, dietMain, luxuryMain, lodging, twdPerUnit] = await Promise.all([
+  const [cafes, main, dietMain, luxuryMain, lodging, twdPerUnit, ...drinkPools] = await Promise.all([
     search(getMealPlaceTypes("breakfast", budget), "pro", isFoodPlace),
     search(getMealPlaceTypes("lunch", budget), "enterprise", isFoodPlace),
     dietTypes.length > 0 ? search(dietTypes, "enterprise", isFoodPlace) : Promise.resolve([]),
     budget === "luxury" ? fetchLuxuryRestaurants(coords, apiKey, MEAL_LODGING_RADIUS_M) : Promise.resolve([]),
     fetchLodgingCandidates(coords, apiKey, budget, MEAL_LODGING_RADIUS_M, MEAL_LODGING_MAX_COUNT),
     budget ? getTwdRates() : Promise.resolve({}),
+    ...drinks.map(searchDrink),
   ]);
   // One breakfast and one snack per day of the stay.
   const split = splitCafePool(excludeByDiet(cafes, dietaryRestrictions), stayDays);
@@ -496,7 +508,25 @@ async function fetchMealLodgingPools(
     .filter(fitsMainMeal);
   // Lunch + dinner each day draw from the same pool.
   const rankedMain = rankMainMealsByBudget(allMain, budget, currency, twdPerUnit, stayDays * 2);
-  return { breakfast, main: rankedMain, snack: split.snack, lodging };
+  // Coffee and tea alternate by day (mealLodgingPicks.ts enforces it); a
+  // drink with no places in this city just drops out. A coffee lover's
+  // breakfast also starts with the coffee places that serve one.
+  const seenDrink = new Set<string>();
+  const drinkLists = drinkPools.map((pool) => pool.filter((p) => !seenDrink.has(p.placeId) && seenDrink.add(p.placeId)));
+  const snackRotation = drinkLists.filter((pool) => pool.length > 0);
+  const coffee = drinks.includes("coffee") ? drinkLists[drinks.indexOf("coffee")] : [];
+  const coffeeBreakfast = coffee.filter((p) => fitsCafeMealSlot(p, "breakfast"));
+  // Pick history is keyed by object, so a café both searches found must be
+  // one object, or it could be breakfast and snack on the same day.
+  const drinkById = new Map(drinkLists.flat().map((p) => [p.placeId, p]));
+  const canonical = (list: PlaceCandidate[]) => list.map((p) => drinkById.get(p.placeId) ?? p);
+  return {
+    breakfast: uniqueByPlaceId([...coffeeBreakfast, ...canonical(breakfast)]),
+    main: rankedMain,
+    snack: uniqueByPlaceId([...interleave(snackRotation), ...canonical(split.snack)]),
+    lodging,
+    ...(snackRotation.length > 0 ? { snackRotation } : {}),
+  };
 }
 
 export async function generateMealsAndAccommodation(

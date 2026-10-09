@@ -5,6 +5,7 @@ const createMock = vi.fn();
 const nearbyMock = vi.fn();
 const lodgingMock = vi.fn();
 const luxuryMock = vi.fn();
+const textMock = vi.fn();
 
 vi.mock("@/lib/openai", () => ({
   openai: { chat: { completions: { create: (...args: unknown[]) => createMock(...args) } } },
@@ -19,6 +20,7 @@ vi.mock("@/lib/fetchCityRestaurants", async (importOriginal) => ({
   fetchNearbyPlaceCandidates: (...args: unknown[]) => nearbyMock(...args),
   fetchLodgingCandidates: (...args: unknown[]) => lodgingMock(...args),
   fetchLuxuryRestaurants: (...args: unknown[]) => luxuryMock(...args),
+  searchTextCandidates: (...args: unknown[]) => textMock(...args),
 }));
 
 const { generateMealsAndAccommodation } = await import("./itineraryCityGen");
@@ -43,6 +45,8 @@ beforeEach(() => {
   lodgingMock.mockResolvedValue([]);
   luxuryMock.mockReset();
   luxuryMock.mockResolvedValue([]);
+  textMock.mockReset();
+  textMock.mockResolvedValue([]);
 });
 
 afterEach(() => {
@@ -217,5 +221,58 @@ describe("generateMealsAndAccommodation", () => {
 
     expect(nearbyMock).not.toHaveBeenCalled();
     expect(lodgingMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("generateMealsAndAccommodation — 飲品 (drinks)", () => {
+  const typed = (name: string, type: string) => ({ ...place(name), types: [type] });
+  const coffee = [typed("Glitch Coffee", "coffee_shop"), typed("Starbucks Coffee", "coffee_shop"), typed("Onibus", "coffee_shop")];
+  const tea = [typed("中村藤吉", "tea_house"), typed("抹茶甘味処", "dessert_shop")];
+  const byQuery = async (query: string) => (query === "specialty coffee" ? coffee : tea);
+  const snacks = (days: Array<Record<string, unknown>>) => days.map((d) => (d.snack as { name: string }).name);
+
+  it("searches each chosen drink once, with Google's rating filter", async () => {
+    nearbyMock.mockResolvedValue([]);
+    textMock.mockImplementation(byQuery);
+    mockLlm({ accommodation: {}, meals: [] });
+
+    await generateMealsAndAccommodation("京都", 2, "JPY", undefined, { drinks: ["coffee", "tea"] });
+
+    expect(textMock.mock.calls.map((c) => [c[0], c[5]])).toEqual([
+      ["specialty coffee", { minRating: 3.5 }],
+      ["matcha", { minRating: 3.5 }],
+    ]);
+  });
+
+  it("alternates coffee and tea for the snack and leaves out global chains", async () => {
+    nearbyMock.mockResolvedValue([typed("Gelato Q", "ice_cream_shop")]);
+    textMock.mockImplementation(byQuery);
+    mockLlm({ accommodation: {}, meals: [] });
+
+    const result = await generateMealsAndAccommodation("京都", 4, "JPY", undefined, { drinks: ["coffee", "tea"] });
+
+    // Coffee places also lead breakfast, so which coffee place is the snack varies.
+    const kind = (name: string) => (coffee.some((p) => p.name === name) ? "coffee" : tea.some((p) => p.name === name) ? "tea" : name);
+    expect(snacks(result.mealsByDay).map(kind)).toEqual(["coffee", "tea", "coffee", "tea"]);
+    expect(JSON.stringify(result.mealsByDay)).not.toContain("Starbucks");
+  });
+
+  it("puts coffee places first in a coffee lover's breakfast list", async () => {
+    nearbyMock.mockResolvedValue([typed("Bakery B", "bakery")]);
+    textMock.mockImplementation(byQuery);
+    mockLlm({ accommodation: {}, meals: [] });
+
+    await generateMealsAndAccommodation("京都", 1, "JPY", undefined, { drinks: ["coffee"] });
+
+    expect(systemPrompt()).toContain("早餐候選：\nB1: Glitch Coffee");
+  });
+
+  it("makes no drink search when none was chosen", async () => {
+    nearbyMock.mockResolvedValue([]);
+    mockLlm({ accommodation: {}, meals: [] });
+
+    await generateMealsAndAccommodation("京都", 1, "JPY");
+
+    expect(textMock).not.toHaveBeenCalled();
   });
 });

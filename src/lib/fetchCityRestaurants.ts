@@ -485,10 +485,11 @@ export async function searchTextCandidates(
   apiKey: string,
   radius: number,
   includedType?: string,
-  { tier = "pro", priceLevels }: { tier?: FieldTier; priceLevels?: string[] } = {},
+  { tier = "pro", priceLevels, minRating }: { tier?: FieldTier; priceLevels?: string[]; minRating?: number } = {},
 ): Promise<PlaceCandidate[]> {
   const priceKey = priceLevels ? [...priceLevels].sort().join(",") : "";
-  const cacheKey = `text:${query}@${roundCoord(coords.lat)},${roundCoord(coords.lng)}:${radius}:${includedType ?? ""}:${priceKey}:${tier}`;
+  const ratingKey = minRating !== undefined ? `:r${minRating}` : "";
+  const cacheKey = `text:${query}@${roundCoord(coords.lat)},${roundCoord(coords.lng)}:${radius}:${includedType ?? ""}:${priceKey}:${tier}${ratingKey}`;
   const cached = await readFreshCandidates(cacheKey);
   if (cached) return cached;
 
@@ -508,6 +509,8 @@ export async function searchTextCandidates(
         locationBias: { circle: { center: { latitude: coords.lat, longitude: coords.lng }, radius } },
         ...(includedType ? { includedType } : {}),
         ...(priceLevels ? { priceLevels } : {}),
+        // Filtered by Google, so it needs no rating field (stays Pro).
+        ...(minRating !== undefined ? { minRating } : {}),
       }),
     });
     if (!res.ok) {
@@ -534,13 +537,14 @@ export async function searchTextCandidates(
     return [];
   }
 
-  if (candidates.length > 0) {
-    await prisma.nearbyPlaceCandidatesCache.upsert({
-      where: { cacheKey },
-      create: { cacheKey, candidates: j(candidates) },
-      update: { candidates: j(candidates) },
-    });
-  }
+  // Every failed request returned above, so an empty list here is a
+  // confirmed "found nothing" (no matcha café in a small town) — cached too,
+  // or each trip there would pay for the same empty search again.
+  await prisma.nearbyPlaceCandidatesCache.upsert({
+    where: { cacheKey },
+    create: { cacheKey, candidates: j(candidates) },
+    update: { candidates: j(candidates) },
+  });
   return candidates;
 }
 
