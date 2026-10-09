@@ -88,7 +88,7 @@ export async function assembleItineraryDays(
 
   const budget = preferences?.budget as BudgetLevel | undefined;
   const preferenceIntent = mergePreferenceIntent(preferences, parsedIntent);
-  const mealPreferences = mealPreferencesOf(preferenceIntent);
+  const mealPreferences = { ...mealPreferencesOf(preferenceIntent), drinks: preferences?.drinks };
 
   const arrivalMinute = flightInfo.arrivalTime
     ? parseTimeString(flightInfo.arrivalTime, DEFAULT_ARRIVAL_MINUTE_FALLBACK)

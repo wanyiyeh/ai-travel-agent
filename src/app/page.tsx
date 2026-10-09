@@ -41,6 +41,12 @@ const DIET_OPTIONS: { value: DietTag; label: string }[] = [
   { value: "no_spicy", label: "不吃辣" },
 ];
 
+type DrinkTag = NonNullable<TripPreferences["drinks"]>[number];
+const DRINK_OPTIONS: { value: DrinkTag; label: string }[] = [
+  { value: "coffee", label: "咖啡" },
+  { value: "tea", label: "抹茶／茶" },
+];
+
 const INTEREST_OPTIONS: { value: NonNullable<TripPreferences["interests"]>[number]; label: string }[] = [
   { value: "food", label: "美食" },
   { value: "culture", label: "文化歷史" },
@@ -422,6 +428,7 @@ export default function Home() {
   const [interests, setInterests] = useState<NonNullable<TripPreferences["interests"]>>([]);
   const [startTime, setStartTime] = useState<TripPreferences["startTime"]>(undefined);
   const [diet, setDiet] = useState<DietTag[]>([]);
+  const [drinks, setDrinks] = useState<DrinkTag[]>([]);
   const [selectedWaypoints, setSelectedWaypoints] = useState<string[]>([]);
 
   // 進階選項的展開狀態
@@ -446,6 +453,10 @@ export default function Home() {
 
   function toggleDiet(val: DietTag) {
     setDiet((prev) => (prev.includes(val) ? prev.filter((d) => d !== val) : [...prev, val]));
+  }
+
+  function toggleDrink(val: DrinkTag) {
+    setDrinks((prev) => (prev.includes(val) ? prev.filter((d) => d !== val) : [...prev, val]));
   }
 
   function toggleWaypoint(name: string) {
@@ -480,6 +491,7 @@ export default function Home() {
       interests: interests.length ? interests : undefined,
       startTime,
       dietaryRestrictions: diet.length ? diet : undefined,
+      drinks: drinks.length ? drinks : undefined,
     };
 
     const waypointsNote = selectedWaypoints.length > 0
@@ -684,7 +696,7 @@ export default function Home() {
               >
                 <div className="flex flex-col gap-0.5">
                   <span className="text-sm font-medium text-zinc-900 dark:text-zinc-50">更多選項</span>
-                  <span className="text-xs text-zinc-400">航班時間、出門時間、飲食限制、旅遊偏好</span>
+                  <span className="text-xs text-zinc-400">航班時間、出門時間、飲食限制、旅遊偏好、飲品</span>
                 </div>
                 <ChevronIcon direction={moreOpen ? "up" : "down"} />
               </button>
@@ -771,6 +783,7 @@ export default function Home() {
                     />
                     <ChipRow label="飲食限制" options={DIET_OPTIONS} selected={diet} onToggle={toggleDiet} />
                     <ChipRow label="偏好" options={INTEREST_OPTIONS} selected={interests} onToggle={toggleInterest} />
+                    <ChipRow label="飲品" options={DRINK_OPTIONS} selected={drinks} onToggle={toggleDrink} />
                   </div>
                 </div>
               )}

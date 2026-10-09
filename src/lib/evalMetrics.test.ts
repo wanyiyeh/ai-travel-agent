@@ -86,6 +86,11 @@ describe("measureItinerary", () => {
     expect(m.cities).toEqual(["東京", "大阪"]);
   });
 
+  it("lists each day's snack with its primary type", () => {
+    const withSnack = days.map((d, i) => (i === 0 ? { ...d, meals: { ...d.meals, snack: meal("veg") } } : d));
+    expect(measureItinerary(withSnack, ctx).snacks[0]).toEqual({ name: "veg", primaryType: "vegetarian_restaurant" });
+  });
+
   it("lists the sightseeing days' titles", () => {
     const titled = days.map((d, i) => ({ ...d, theme: i === 0 ? "東京 文化巡禮" : undefined }));
     expect(measureItinerary(titled, ctx).dayTitles).toEqual(["東京 文化巡禮", ""]);

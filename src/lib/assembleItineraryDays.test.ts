@@ -240,6 +240,15 @@ describe("assembleItineraryDays — form field wiring", () => {
       expect(call).toContainEqual(expect.objectContaining({ dietaryRestrictions: ["no_seafood"] }));
     }
   });
+
+  it("drinks (飲品) reach the meal generator", async () => {
+    await run(undefined, { drinks: ["coffee", "tea"] });
+
+    expect(mealsMock).toHaveBeenCalled();
+    for (const call of mealsMock.mock.calls) {
+      expect(call).toContainEqual(expect.objectContaining({ drinks: ["coffee", "tea"] }));
+    }
+  });
 });
 
 describe("assembleItineraryDays — themed days", () => {
