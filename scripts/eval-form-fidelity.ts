@@ -38,6 +38,7 @@ type Preferences = {
   budget?: "budget" | "moderate" | "luxury";
   interests?: Array<"food" | "culture" | "nature" | "shopping" | "adventure">;
   startTime?: "early" | "normal" | "late";
+  indoorFirst?: boolean;
   dietaryRestrictions?: Array<"vegetarian" | "vegan" | "no_seafood" | "no_beef" | "halal" | "no_spicy">;
   drinks?: Array<"coffee" | "tea" | "alcohol">;
 };
@@ -97,6 +98,7 @@ const SCENARIOS: Scenario[] = [
   { id: "tokyo-coffee", label: "東京・飲品選咖啡", flightInfo: TOKYO, preferences: { drinks: ["coffee"] } },
   { id: "tokyo-coffee-tea", label: "東京・飲品選咖啡＋抹茶（輪流）", flightInfo: TOKYO, preferences: { drinks: ["coffee", "tea"] } },
   { id: "tokyo-alcohol", label: "東京・飲品選酒（小酌）", flightInfo: TOKYO, preferences: { drinks: ["alcohol"] } },
+  { id: "tokyo-indoor", label: "東京・室內行程為主", flightInfo: TOKYO, preferences: { indoorFirst: true } },
   { id: "sapporo-loop", label: "札幌 7 天・想去小樽（環狀多城市）", flightInfo: SAPPORO_WEEK, prompt: "想去小樽" },
 ];
 
@@ -247,6 +249,16 @@ const CHECKS: Check[] = [
     },
     detail: (r) =>
       r.get("tokyo-alcohol")?.nightcaps.map((x) => (x ? `${x.name}（${x.primaryType ?? "?"}）` : "（沒有）")).join("、") ?? "—",
+  },
+  {
+    title: "室內行程：戶外景點比例低於對照組，每天仍有 2 個以上景點",
+    pass: (r) => {
+      const indoor = r.get("tokyo-indoor");
+      const base = r.get("tokyo-baseline");
+      return indoor && base ? indoor.outdoorShare < base.outdoorShare && indoor.stopsPerDay >= 2 : null;
+    },
+    detail: (r) =>
+      `室內組戶外 ${pct(r.get("tokyo-indoor")?.outdoorShare)}／每天 ${fix1(r.get("tokyo-indoor")?.stopsPerDay)} 個、對照組戶外 ${pct(r.get("tokyo-baseline")?.outdoorShare)}`,
   },
   {
     title: "出門時間：晚起每天景點數 < 對照組",

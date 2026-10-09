@@ -2,6 +2,7 @@ import type { BudgetLevel } from "@/lib/fetchCityRestaurants";
 import { MAIN_MEAL_BUDGET_TWD } from "@/lib/mealBudget";
 import { isBudgetLodging, isLuxuryLodging } from "@/lib/lodgingTiers";
 import { mapPlaceTypeToCategory } from "@/lib/scheduler/mapPlaceTypeToCategory";
+import { exposureOf } from "@/lib/indoorOutdoor";
 
 // Measures one generated itinerary for scripts/eval-form-fidelity.ts — how
 // much each home-form choice actually changed the trip. Pure: Google types
@@ -26,6 +27,8 @@ export type ItineraryMetrics = {
   emptySightseeingDays: number;
   /** Share of sightseeing stops per duration category (museum, park, ...), "other" when unknown. */
   categoryShare: Record<string, number>;
+  /** Share of sightseeing stops that are outdoor (indoorOutdoor.ts). */
+  outdoorShare: number;
   mainMeals: number;
   avgMainMealTwd: number | null;
   /** Share of priced lunches/dinners inside the budget's NT$ range; null without a budget or prices. */
@@ -146,6 +149,7 @@ export function measureItinerary(days: Rec[], ctx: EvalContext): ItineraryMetric
     avgStayMinutes: avg(stops.map((s) => num(s.duration_minutes) ?? 0)),
     emptySightseeingDays: sightseeing.filter((d) => asRecords(d.stops).length === 0).length,
     categoryShare,
+    outdoorShare: stops.filter((s) => exposureOf(typesOf(s.placeId)) === "outdoor").length / Math.max(1, stops.length),
     mainMeals: mainMeals.length,
     avgMainMealTwd: pricedTwd.length ? avg(pricedTwd) : null,
     mainMealsWithinBudget,
