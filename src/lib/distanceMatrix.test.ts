@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { haversineKm, pickModeForDistance } from "@/lib/distanceMatrix";
+import { describeTransport, haversineKm, pickModeForDistance } from "@/lib/distanceMatrix";
 
 describe("haversineKm", () => {
   it("returns 0 for identical coordinates", () => {
@@ -36,5 +36,12 @@ describe("pickModeForDistance", () => {
   it("takes transit sooner with a shorter walk limit", () => {
     expect(pickModeForDistance(0.8, 0.5)).toBe("transit");
     expect(pickModeForDistance(0.4, 0.5)).toBe("walking");
+  });
+});
+
+describe("describeTransport", () => {
+  it("calls a driving leg a taxi, or 開車 for a self-driver", () => {
+    expect(describeTransport("driving", 600)).toBe("搭計程車約 10 分鐘");
+    expect(describeTransport("driving", 600, false, true)).toBe("開車約 10 分鐘");
   });
 });

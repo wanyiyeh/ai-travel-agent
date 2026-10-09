@@ -1,0 +1,17 @@
+import { describe, expect, it } from "vitest";
+import { modePickerFor } from "@/lib/travelMode";
+
+describe("modePickerFor", () => {
+  it.each([
+    ["public transport", {}, 1.0, "walking"],
+    ["public transport", {}, 3, "transit"],
+    ["public transport", {}, 40, "driving"],
+    ["indoor first", { indoorFirst: true }, 0.8, "transit"],
+    // 自駕: short hops on foot rather than re-parking, the rental car beyond.
+    ["self-drive", { selfDrive: true }, 0.8, "walking"],
+    ["self-drive", { selfDrive: true }, 1.5, "driving"],
+    ["self-drive, indoor first", { selfDrive: true, indoorFirst: true }, 0.8, "driving"],
+  ] as const)("%s, %skm leg", (_who, prefs, km, mode) => {
+    expect(modePickerFor(prefs)(km)).toBe(mode);
+  });
+});
