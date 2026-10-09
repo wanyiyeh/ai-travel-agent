@@ -397,6 +397,14 @@ Google 依請求裡最貴的欄位計費（Pro：每月免費 5,000 次；Enterp
 - 文化歷史的主題池不查寺廟、神社（會查到大量小神社），但熱門景點池裡的寺廟、神社、城堡算文化主題。
 - 交通日、回程日沒有主題，沿用 1.5 倍加權偏向偏好的類型。
 
+2026-10-09 2b 再拆成 2b-1 咖啡、茶（`feat/drinks`）和 2b-2 酒（`feat/drinks-bar`，新增小酌時段）。2b-1 的決定：
+- 表單「更多選項」加「飲品」：咖啡、抹茶／茶。
+- 只排除到處都有的國際連鎖（星巴克、麥當勞、Costa 等，加上台灣的路易莎、85度C）；星巴克臻選烘焙工坊例外。
+  當地連鎖（Komeda、Doutor、星乃珈琲等）保留，但同一品牌只推薦一次。
+- 評分門檻 3.5（日本的 Google 評分普遍偏低），由 Text Search 的 `minRating` 在伺服器端過濾，維持 Pro 計費。
+  Nearby Search 不能依評分過濾，所以每種飲品只查一次 Text Search（「specialty coffee」「matcha」），沒有另外查 Nearby。
+- 兩種都選時點心每天輪流，由程式在 AI 挑完後強制；選咖啡時早餐也優先推薦咖啡店。
+
 - 每個選到的偏好，每個城市各多查 1 次 Nearby Search（快取 30 天），併進候選池：
   - 文化歷史：`museum`、`art_museum`、`art_gallery`、`historical_place`、`historical_landmark`、`monument`
   - 自然景觀：`park`、`garden`、`botanical_garden`、`observation_deck`
