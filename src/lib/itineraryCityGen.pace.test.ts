@@ -325,3 +325,44 @@ describe("generateThemedDayStops — 室內行程為主 (indoor first)", () => {
     expect(distancesMock.mock.calls[0][1](0.8)).toBe("walking");
   });
 });
+
+// 固定行程: the booked time is locked and the day is planned around it.
+describe("generateThemedDayStops — fixed events", () => {
+  const concertStop = { id: "concert", name: "東京巨蛋", lat: 35.7056, lng: 139.7519, fixedEvent: { type: "concert", startTime: "15:00", endTime: "18:00" } };
+  const concert = { block: { startMinute: 15 * 60, endMinute: 18 * 60 }, stop: concertStop };
+  const moderate = { ...NEUTRAL_PREFERENCE_INTENT, pace: "moderate" as const };
+
+  it("slots the event in by time, after the stops that fit before it", async () => {
+    const { stopsByDay } = await generateThemedDayStops("東京", 1, "JPY", [], undefined, moderate, undefined, undefined, 0, [[concert]]);
+
+    const day = stopsByDay[0];
+    expect(day[day.length - 1].id).toBe("concert");
+    expect(day.length).toBeGreaterThan(1);
+  });
+
+  it("leaves fewer stops on a day with an event than on a free one", async () => {
+    const free = await generateThemedDayStops("東京", 1, "JPY", [], undefined, moderate);
+    const withConcert = await generateThemedDayStops("東京", 1, "JPY", [], undefined, moderate, undefined, undefined, 0, [[concert]]);
+
+    // Minus the event itself.
+    expect(withConcert.stopsByDay[0].length - 1).toBeLessThan(free.stopsByDay[0].length);
+  });
+
+  it("works out transport to and from the event in its place in the day", async () => {
+    await generateThemedDayStops("東京", 1, "JPY", [], undefined, moderate, undefined, undefined, 0, [[concert]]);
+
+    const points = distancesMock.mock.calls[0][0] as Array<{ id: string }>;
+    expect(points[points.length - 1].id).toBe("concert");
+  });
+});
+
+describe("generateDepartureDayStops — fixed events", () => {
+  it("still shows a booked lunch on a return day with no time for anything else", async () => {
+    const lunch = { block: { startMinute: 12 * 60, endMinute: 13 * 60 }, stop: { id: "booked", name: "Booked" } };
+
+    // An 11:00 flight leaves no time for stops.
+    const stops = await generateDepartureDayStops("東京", "JPY", "11:00", undefined, NEUTRAL_PREFERENCE_INTENT, [], undefined, [lunch]);
+
+    expect(stops.map((s) => s.id)).toEqual(["booked"]);
+  });
+});

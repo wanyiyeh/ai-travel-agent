@@ -37,6 +37,7 @@ import {
   type DrinkKey,
 } from "@/lib/drinkPlaces";
 import { INDOOR_FIRST_WALK_LIMIT_KM, exposureOf, indoorFirstPool } from "@/lib/indoorOutdoor";
+import type { DayFixedEvents } from "@/lib/fixedEvents";
 import { THEMES, dayThemeKeys, interestWeightsOf, isOnTheme, popularSlots, themesOf, type ThemeKey } from "@/lib/dayThemes";
 import { dietPromptLine, dietRequiredTypes, excludeByDiet } from "@/lib/dietaryFilter";
 
@@ -369,7 +370,9 @@ export async function generateDepartureDayStops(
   // landmark can get suggested twice in the same trip.
   lockedPlaceIds: string[] = [],
   // Where the traveler stayed; scores and routes from here. Defaults to the city center.
-  lodging?: { lat: number; lng: number }
+  lodging?: { lat: number; lng: number },
+  // The day's 固定行程 — kept clear of other stops and slotted in by time.
+  fixed: DayFixedEvents = []
 ): Promise<Array<Record<string, unknown>>> {
   try {
     const dayStartMinute = dayStartFor(preferenceIntent);
@@ -377,18 +380,18 @@ export async function generateDepartureDayStops(
       ? parseTimeString(returnDepartureTime, DEFAULT_ARRIVAL_MINUTE)
       : undefined;
     const { cutoffMinute, estimatedCount } = computeDepartureDayBudget(returnDepartureMinute, dayStartMinute);
-    if (estimatedCount === 0) return [];
+    if (estimatedCount === 0) return fixedEventStopsOnly(fixed);
 
     const apiKey = process.env.GOOGLE_PLACES_API_KEY!;
     const coords = await getCityCenter(cityName, apiKey);
-    if (!coords) return [];
+    if (!coords) return fixedEventStopsOnly(fixed);
 
     // The full pool, not just the top few: the most popular places are the
     // ones earlier days already used, so slicing before excluding them left
     // the return day empty (Stockholm day 14, Sapporo day 7). Same cost — the
     // cache always holds 20.
     const places = await fetchNearbyPlaceCandidates(coords, apiKey, ["tourist_attraction"], 10000, 20);
-    if (places.length === 0) return [];
+    if (places.length === 0) return fixedEventStopsOnly(fixed);
 
     const lockedIds = new Set(lockedPlaceIds);
     const pool = await withSupplementalAttractions(
@@ -399,7 +402,7 @@ export async function generateDepartureDayStops(
       estimatedCount
     );
     const { candidates, candidateById } = placeCandidatesToStopCandidates(pool);
-    if (candidates.length === 0) return [];
+    if (candidates.length === 0) return fixedEventStopsOnly(fixed);
 
     const anchor = lodging ?? coords;
     const shelter = shelterFor(preferenceIntent, candidateById);
@@ -413,12 +416,13 @@ export async function generateDepartureDayStops(
       anchor,
       origin: anchor,
       isOutdoor: shelter.isOutdoor,
+      fixedBlocks: fixed.map((e) => e.block),
     });
 
     // assignTimeSlots schedules strictly in order, so filtering by cutoff
     // only ever trims a trailing overrun — never leaves a gap mid-day.
     const withinCutoff = skeleton.filter((s) => s.endMinute <= cutoffMinute);
-    if (withinCutoff.length === 0) return [];
+    if (withinCutoff.length === 0) return fixedEventStopsOnly(fixed);
 
     const hintById = new Map<string, RestaurantHint>();
     for (const [id, place] of candidateById) {
@@ -426,18 +430,17 @@ export async function generateDepartureDayStops(
     }
 
     const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
-    const [copy, distances] = await Promise.all([
+    return await stopsWithFixedEvents(
+      withinCutoff,
+      fixed,
       generateSkeletonCopy(withinCutoff, hintById, preferenceIntent, model, cityName),
-      getDistancesForStopPairs(
-        withinCutoff.map((s) => ({ id: s.id, lat: s.lat, lng: s.lng })),
-        shelter.pickMode
-      ),
-    ]);
-
-    return assembleScheduledStops(withinCutoff, candidateById, copy, distances, currency);
+      candidateById,
+      currency,
+      shelter.pickMode
+    );
   } catch (err) {
     console.warn("[generateDepartureDayStops] returning no extra stops:", err);
-    return [];
+    return fixedEventStopsOnly(fixed);
   }
 }
 
@@ -909,6 +912,52 @@ function assembleScheduledStops(
   });
 }
 
+
+/**
+ * A day's scheduled stops with its fixed-event stops (固定行程) slotted in by
+ * start time, and transport worked out along that order — the stop after a
+ * concert is reached from the concert, not from the stop before it.
+ */
+async function stopsWithFixedEvents(
+  skeleton: SkeletonStop[],
+  events: DayFixedEvents,
+  copy: Promise<Awaited<ReturnType<typeof generateSkeletonCopy>>>,
+  candidateById: Map<string, PlaceCandidate>,
+  currency: string,
+  pickMode: (km: number) => ReturnType<typeof pickModeForDistance>
+): Promise<Array<Record<string, unknown>>> {
+  type Item = { start: number; point: { id: string; lat?: number; lng?: number }; skeletonIndex?: number; stop?: Record<string, unknown> };
+  const items: Item[] = [
+    ...skeleton.map((s, skeletonIndex) => ({ start: s.startMinute, point: { id: s.id, lat: s.lat, lng: s.lng }, skeletonIndex })),
+    ...events.flatMap((e) =>
+      e.stop
+        ? [{
+            start: e.block.startMinute,
+            point: { id: String(e.stop.id), lat: e.stop.lat as number | undefined, lng: e.stop.lng as number | undefined },
+            stop: e.stop,
+          }]
+        : []
+    ),
+  ].sort((a, b) => a.start - b.start);
+
+  const [stopCopy, distances] = await Promise.all([copy, getDistancesForStopPairs(items.map((i) => i.point), pickMode)]);
+  const scheduled = assembleScheduledStops(skeleton, candidateById, stopCopy, skeleton.map(() => null), currency);
+  return items.map((item, k) => {
+    const dist = k > 0 ? distances[k - 1] : null;
+    const base = item.skeletonIndex !== undefined ? scheduled[item.skeletonIndex] : { ...item.stop };
+    delete base.transport_from_prev;
+    return dist ? { ...base, transport_from_prev: describeTransport(dist.mode, dist.durationSeconds, dist.estimated) } : base;
+  });
+}
+
+/** Just the day's fixed-event stops, for a day with no room or no pool for anything else. */
+function fixedEventStopsOnly(events: DayFixedEvents): Array<Record<string, unknown>> {
+  return events
+    .filter((e) => e.stop)
+    .sort((a, b) => a.block.startMinute - b.block.startMinute)
+    .map((e) => ({ ...e.stop! }));
+}
+
 /**
  * Rule-engine path for generateDayStops (plan/hybrid-rule-engine-scheduling.md
  * Phase 3, section 0.1 point 6's京都 end-to-end chain, now wired into a real
@@ -927,7 +976,8 @@ async function generateDayStopsViaScheduler(
   preferenceIntent: PreferenceIntent,
   firstDayStartMinute: number | undefined,
   lodging: { lat: number; lng: number } | undefined,
-  firstThemeIndex: number
+  firstThemeIndex: number,
+  fixedByDay: DayFixedEvents[]
 ): Promise<ThemedDayStops | null> {
   try {
     const apiKey = process.env.GOOGLE_PLACES_API_KEY!;
@@ -966,11 +1016,18 @@ async function generateDayStopsViaScheduler(
     // museums, which cut the estimate to 2 stops a day, while the places
     // actually picked near the lodging were 2-hour sights — culture days ended
     // by 15:00. Longer days than estimated get trimmed at the day's end anyway.
+    const blocksOf = (dayIdx: number) => (fixedByDay[dayIdx] ?? []).map((e) => e.block);
     const capacitiesFor = (pool: PlaceCandidate[]) => {
       const estimateFrom = pool.filter((p) => !themeOnlyIds.has(p.placeId));
       const candidateTypes = placeCandidatesToStopCandidates(estimateFrom).candidates.map((c) => c.type);
-      return dayStarts.map((start) =>
-        estimateStopCapacity({ pace, dayStartMinute: start, dayEndMinute: SIGHTSEEING_DAY_END_MINUTE, candidateTypes })
+      return dayStarts.map((start, dayIdx) =>
+        estimateStopCapacity({
+          pace,
+          dayStartMinute: start,
+          dayEndMinute: SIGHTSEEING_DAY_END_MINUTE,
+          candidateTypes,
+          fixedBlocks: blocksOf(dayIdx),
+        })
       );
     };
 
@@ -1015,6 +1072,7 @@ async function generateDayStopsViaScheduler(
               anchor,
               origin: anchor,
               isOutdoor: shelter.isOutdoor,
+              fixedBlocks: blocksOf(dayIdx),
             }),
             SIGHTSEEING_DAY_END_MINUTE
           )
@@ -1022,26 +1080,21 @@ async function generateDayStopsViaScheduler(
     );
 
     const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
-    const [copies, distancesByDay] = await Promise.all([
-      Promise.all(
-        skeletonsByDay.map((skeleton) =>
-          generateSkeletonCopy(skeleton, hintById, preferenceIntent, model, cityName)
+    const stopsByDay = await Promise.all(
+      skeletonsByDay.map((skeleton, dayIdx) =>
+        stopsWithFixedEvents(
+          skeleton,
+          fixedByDay[dayIdx] ?? [],
+          generateSkeletonCopy(skeleton, hintById, preferenceIntent, model, cityName),
+          candidateById,
+          currency,
+          shelter.pickMode
         )
-      ),
-      Promise.all(
-        skeletonsByDay.map((skeleton) =>
-          getDistancesForStopPairs(
-            skeleton.map((s) => ({ id: s.id, lat: s.lat, lng: s.lng })),
-            shelter.pickMode
-          )
-        )
-      ),
-    ]);
+      )
+    );
 
     return {
-      stopsByDay: skeletonsByDay.map((skeleton, dayIdx) =>
-        assembleScheduledStops(skeleton, candidateById, copies[dayIdx], distancesByDay[dayIdx], currency)
-      ),
+      stopsByDay,
       // A day only claims its theme when it actually got an on-theme stop.
       themeByDay: skeletonsByDay.map((skeleton, dayIdx) => {
         const theme = dayThemes[dayIdx];
@@ -1082,7 +1135,9 @@ export async function generateThemedDayStops(
   lodging?: { lat: number; lng: number },
   // Where the theme rotation continues from — the trip's sightseeing days so
   // far, so each city doesn't restart at the first theme.
-  firstThemeIndex = 0
+  firstThemeIndex = 0,
+  // Each day's 固定行程 — kept clear of other stops and slotted in by time.
+  fixedByDay: DayFixedEvents[] = []
 ): Promise<ThemedDayStops> {
   const scheduled = await generateDayStopsViaScheduler(
     cityName,
@@ -1093,10 +1148,13 @@ export async function generateThemedDayStops(
     preferenceIntent,
     firstDayStartMinute,
     lodging,
-    firstThemeIndex
+    firstThemeIndex,
+    fixedByDay
   );
   if (scheduled) return scheduled;
-  const stopsByDay = await generateDayStopsWithLLM(cityName, stayDays, currency);
+  const llmDays = await generateDayStopsWithLLM(cityName, stayDays, currency);
+  // The fallback can't plan around them, but the booked events still show.
+  const stopsByDay = llmDays.map((stops, dayIdx) => [...stops, ...fixedEventStopsOnly(fixedByDay[dayIdx] ?? [])]);
   return { stopsByDay, themeByDay: stopsByDay.map(() => undefined) };
 }
 

@@ -18,6 +18,7 @@ const transitStopsMock = vi.fn();
 const departureStopsMock = vi.fn();
 const mealsMock = vi.fn();
 const parseIntentMock = vi.fn();
+const planEventsMock = vi.fn();
 
 vi.mock("@/lib/openai", () => ({ openai: {} }));
 vi.mock("@/lib/tripPlan", () => ({
@@ -35,6 +36,10 @@ vi.mock("@/lib/itineraryCityGen", async (importOriginal) => ({
   generateTransitDayStops: (...args: unknown[]) => transitStopsMock(...args),
   generateDepartureDayStops: (...args: unknown[]) => departureStopsMock(...args),
   generateMealsAndAccommodation: (...args: unknown[]) => mealsMock(...args),
+}));
+
+vi.mock("@/lib/fixedEventVenues", () => ({
+  planDayEvents: (...args: unknown[]) => planEventsMock(...args),
 }));
 
 const { assembleItineraryDays } = await import("./assembleItineraryDays");
@@ -100,6 +105,7 @@ beforeEach(() => {
     mealsByDay: Array.from({ length: nights }, () => ({})),
   }));
   parseIntentMock.mockResolvedValue(NEUTRAL_PREFERENCE_INTENT);
+  planEventsMock.mockImplementation(async () => ({ fixed: [], meals: {} }));
 });
 
 describe("assembleItineraryDays — form field wiring", () => {
@@ -284,5 +290,48 @@ describe("assembleItineraryDays — themed days", () => {
 
     // 東京 has 3 sightseeing days, so 大阪's first day is the trip's 4th.
     expect(dayStopsMock.mock.calls.map((c) => c[DAY_STOPS_FIRST_THEME])).toEqual([0, 3]);
+  });
+});
+
+// 固定行程: each event reaches the day it falls on.
+describe("assembleItineraryDays — fixed events", () => {
+  const concert = { type: "concert" as const, date: "2026-12-02", startTime: "18:00", venueName: "東京巨蛋" };
+  const lunch = { type: "reservation" as const, date: "2026-12-03", startTime: "12:00", venueName: "叙々苑" };
+
+  it("plans each event on the trip day its date falls on", async () => {
+    await run(undefined, { fixedEvents: [concert, lunch] });
+
+    // Trip starts 12-01: 東京 days 1-3 are 12-01..12-03.
+    const tokyoDays = planEventsMock.mock.calls.filter((c) => c[1] === "東京").map((c) => c[0]);
+    expect(tokyoDays).toEqual([[], [concert], [lunch]]);
+  });
+
+  it("hands each sightseeing day's planned events to the scheduler", async () => {
+    const block = { startMinute: 18 * 60, endMinute: 21 * 60 };
+    planEventsMock.mockImplementation(async (events: unknown[]) => ({
+      fixed: events.length ? [{ block, stop: { id: "concert" } }] : [],
+      meals: {},
+    }));
+
+    await run(undefined, { fixedEvents: [concert] });
+
+    const tokyoCall = dayStopsMock.mock.calls.find((c) => c[0] === "東京")!;
+    expect(tokyoCall[9]).toEqual([[], [{ block, stop: { id: "concert" } }], []]);
+  });
+
+  it("lets a reservation replace that day's meal", async () => {
+    planEventsMock.mockImplementation(async (events: Array<{ type: string }>) => ({
+      fixed: [],
+      meals: events.some((e) => e.type === "reservation") ? { lunch: { name: "叙々苑", fixedEvent: { type: "reservation" } } } : {},
+    }));
+    mealsMock.mockImplementation(async (_city: string, nights: number) => ({
+      accommodation: { name: "Hotel" },
+      mealsByDay: Array.from({ length: nights }, () => ({ lunch: { name: "Ramen" }, dinner: { name: "Sushi" } })),
+    }));
+
+    const result = await run(undefined, { fixedEvents: [lunch] });
+
+    const day3 = result!.days.find((d) => d.day === 3)!;
+    expect(day3.meals).toMatchObject({ lunch: { name: "叙々苑" }, dinner: { name: "Sushi" } });
   });
 });

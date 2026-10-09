@@ -233,6 +233,7 @@ export function SortableStop({
           <>
             <div className="flex items-start gap-1.5 mb-1">
               <p className="font-semibold text-zinc-900 dark:text-zinc-50 leading-snug">
+                {stop.fixedEvent && <span aria-label="固定行程">📌 </span>}
                 {stop.name}
               </p>
               {stop.suspicious && (
@@ -282,10 +283,16 @@ export function SortableStop({
                 )}
               </div>
             )}
-            {stop.duration_minutes > 0 && (
+            {stop.fixedEvent ? (
               <p className="text-xs text-blue-600 dark:text-blue-400 font-medium">
-                ⏱ {formatDuration(stop.duration_minutes)}
+                🕒 {stop.fixedEvent.startTime}～{stop.fixedEvent.endTime}
               </p>
+            ) : (
+              stop.duration_minutes > 0 && (
+                <p className="text-xs text-blue-600 dark:text-blue-400 font-medium">
+                  ⏱ {formatDuration(stop.duration_minutes)}
+                </p>
+              )
             )}
             {stop.estimated_cost !== undefined && (
               <p className="mt-0.5 text-xs text-emerald-600 dark:text-emerald-400 font-medium">
@@ -337,7 +344,8 @@ export function SortableStop({
                   />
                 </svg>
               </button>
-              {onSwap && (
+              {/* A booked event can't be swapped for another place. */}
+              {onSwap && !stop.fixedEvent && (
                 <button
                   onClick={() => onSwap(stop)}
                   disabled={isLoading || editingStop !== null || isPicking}

@@ -1,5 +1,6 @@
 // Shared TypeScript types for Itinerary data structures
 
+import type { FixedEventInfo } from "@/lib/fixedEvents";
 import type { EnrichFailure } from "@/lib/enrichFailure";
 
 export type Stop = {
@@ -23,6 +24,8 @@ export type Stop = {
   // Last failed Text Search attempt — enrich routes skip re-querying while
   // it's recent and the query is unchanged (see lib/enrichFailure.ts).
   enrichFailure?: EnrichFailure;
+  /** Set on a 固定行程 (lib/fixedEvents.ts): pinned, with its booked time, and no 換一個. */
+  fixedEvent?: FixedEventInfo;
 };
 
 export type Accommodation = {
@@ -67,6 +70,8 @@ export type Meal = {
   // Last failed Text Search attempt — enrich routes skip re-querying while
   // it's recent and the query is unchanged (see lib/enrichFailure.ts).
   enrichFailure?: EnrichFailure;
+  /** Set on a reservation (固定行程) standing in for this meal: no 換一家. */
+  fixedEvent?: FixedEventInfo;
 };
 
 export type DayMeals = {

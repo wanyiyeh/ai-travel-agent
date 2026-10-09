@@ -13,6 +13,8 @@ import { parsePreferenceIntent } from "@/lib/preferenceIntent";
 import { mergePreferenceIntent } from "@/lib/mergePreferenceIntent";
 import { computeArrivalDayStartMinute } from "@/lib/scheduler/arrivalDayStart";
 import { THEMES } from "@/lib/dayThemes";
+import { dateOfDay } from "@/lib/fixedEvents";
+import { planDayEvents, type PlannedDayEvents } from "@/lib/fixedEventVenues";
 
 const DEFAULT_ARRIVAL_MINUTE_FALLBACK = 14 * 60;
 
@@ -113,6 +115,10 @@ export async function assembleItineraryDays(
   const usedPlaceIdsByCity = new Map<string, Set<string>>();
   // Sightseeing days so far, so the theme rotation runs across the whole trip.
   let themedDaysSoFar = 0;
+  // 固定行程 (plan/form-preference-wiring.md 1.11) by the trip day they fall on.
+  const eventsOn = (dayNumber: number) =>
+    (preferences?.fixedEvents ?? []).filter((e) => e.date === dateOfDay(flightInfo.departureDate, dayNumber));
+  const eventStops = (planned: PlannedDayEvents) => planned.fixed.flatMap((e) => (e.stop ? [e.stop] : []));
   for (let cityIdx = 0; cityIdx < plan.cities.length; cityIdx++) {
     const city = plan.cities[cityIdx];
     const isFirst = cityIdx === 0;
@@ -161,19 +167,25 @@ export async function assembleItineraryDays(
       for (const placeId of extractPlaceIds(transitStops)) usedPlaceIds.add(placeId);
 
       const hasAccommodation = Object.keys(mealsAndAccommodation.accommodation).length > 0;
+      // Not planned around yet (multi-city events are a later step) — just shown.
+      const transitEvents = await planDayEvents(
+        eventsOn(nextDayNumber),
+        city.name,
+        locationOf(hasAccommodation ? mealsAndAccommodation.accommodation : undefined)
+      );
       pushDay({
         id: crypto.randomUUID(),
         theme: `移動日：前往${city.name}`,
         isTransitDay: true,
         transitTo: city.name,
         waypointCity: prevCity.name,
-        stops: transitStops,
+        stops: [...transitStops, ...eventStops(transitEvents)],
         // The transit day's own night is spent in the destination city —
         // same accommodation as the sightseeing days that follow it.
         accommodation: hasAccommodation ? mealsAndAccommodation.accommodation : undefined,
         // Breakfast is still in the city being left — usually the transit
         // plan's own station breakfast — so only the meals after arriving.
-        meals: withoutBreakfast(mealsAndAccommodation.mealsByDay[0]),
+        meals: { ...withoutBreakfast(mealsAndAccommodation.mealsByDay[0]), ...transitEvents.meals },
       });
     }
 
@@ -181,6 +193,14 @@ export async function assembleItineraryDays(
     const hasAccommodation = Object.keys(mealsAndAccommodation.accommodation).length > 0;
     const accommodation = hasAccommodation ? mealsAndAccommodation.accommodation : undefined;
     const lodging = locationOf(accommodation);
+
+    const sightseeingEvents = await Promise.all(
+      Array.from({ length: sightseeingCount }, (_, i) => planDayEvents(eventsOn(nextDayNumber + i), city.name, lodging))
+    );
+    // A concert at 東京巨蛋 shouldn't also turn up as a sightseeing stop there.
+    for (const stop of sightseeingEvents.flatMap(eventStops)) {
+      if (typeof stop.placeId === "string") usedPlaceIds.add(stop.placeId);
+    }
 
     const { stopsByDay: sightseeingStops, themeByDay } =
       sightseeingCount > 0
@@ -193,7 +213,8 @@ export async function assembleItineraryDays(
             preferenceIntent,
             isFirst ? arrivalDayStartMinute : undefined,
             lodging,
-            themedDaysSoFar
+            themedDaysSoFar,
+            sightseeingEvents.map((e) => e.fixed)
           )
         : { stopsByDay: [], themeByDay: [] };
     themedDaysSoFar += sightseeingCount;
@@ -209,11 +230,15 @@ export async function assembleItineraryDays(
         waypointCity: city.name,
         stops: sightseeingStops[i],
         accommodation,
-        meals: mealsAndAccommodation.mealsByDay[transitMealDays + i] ?? {},
+        meals: { ...(mealsAndAccommodation.mealsByDay[transitMealDays + i] ?? {}), ...sightseeingEvents[i].meals },
       });
     }
 
     if (isLast) {
+      const departureEvents = await planDayEvents(eventsOn(nextDayNumber), city.name, lodging);
+      for (const stop of eventStops(departureEvents)) {
+        if (typeof stop.placeId === "string") usedPlaceIds.add(stop.placeId);
+      }
       const departureStops = await generateDepartureDayStops(
         city.name,
         plan.currency,
@@ -221,7 +246,8 @@ export async function assembleItineraryDays(
         budget,
         preferenceIntent,
         Array.from(usedPlaceIds),
-        lodging
+        lodging,
+        departureEvents.fixed
       );
       pushDay({
         id: crypto.randomUUID(),
@@ -231,7 +257,10 @@ export async function assembleItineraryDays(
         // The last day is a departure day — no accommodation, matching the
         // existing big-prompt rule (itineraryGen.ts buildSystemPrompt rule 7).
         accommodation: null,
-        meals: withoutNightcap(mealsAndAccommodation.mealsByDay[transitMealDays + sightseeingCount]),
+        meals: {
+          ...withoutNightcap(mealsAndAccommodation.mealsByDay[transitMealDays + sightseeingCount]),
+          ...departureEvents.meals,
+        },
       });
     }
   }
