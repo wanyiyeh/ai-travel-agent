@@ -58,6 +58,9 @@ export const TripPreferencesSchema = z.object({
   // 飲品 (plan/form-preference-wiring.md 1.8): coffee or tea places for the
   // snack; alcohol adds a 小酌 after dinner.
   drinks: z.array(z.enum(["coffee", "tea", "alcohol"])).max(3).optional(),
+  // 室內行程為主 (plan/form-preference-wiring.md 1.9): indoor places first,
+  // outdoor ones kept off 11:00-15:00, transit beyond a short walk.
+  indoorFirst: z.boolean().optional(),
 });
 
 export type TripPreferences = z.infer<typeof TripPreferencesSchema>;
@@ -79,6 +82,8 @@ export const PreferenceIntentSchema = z.object({
   interestBoost: z.array(z.string()),
   dietaryRestrictions: z.array(z.string()),
   avoid: z.array(z.string()),
+  // From the form only (mergePreferenceIntent); the free-text parse never sets it.
+  indoorFirst: z.boolean().optional(),
 });
 
 export type PreferenceIntent = z.infer<typeof PreferenceIntentSchema>;

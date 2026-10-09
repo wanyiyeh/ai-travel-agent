@@ -198,9 +198,10 @@ function formatDurationZh(seconds: number): string {
 
 // Picks a plausible mode from straight-line distance so we don't have to
 // query every mode for every leg. Thresholds are rough tourist-itinerary
-// heuristics, not routing logic.
-export function pickModeForDistance(km: number): TravelMode {
-  if (km < 1.2) return "walking";
+// heuristics, not routing logic. An indoor-first traveler walks less
+// (indoorOutdoor.ts INDOOR_FIRST_WALK_LIMIT_KM).
+export function pickModeForDistance(km: number, walkLimitKm = 1.2): TravelMode {
+  if (km < walkLimitKm) return "walking";
   if (km < 30) return "transit";
   return "driving";
 }
