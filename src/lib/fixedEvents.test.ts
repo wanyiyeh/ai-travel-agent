@@ -1,7 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { blockOf, dateOfDay, eventMeal, eventStop, eventWindow, mealSlotOf } from "@/lib/fixedEvents";
+import {
+  blockOf,
+  dateOfDay,
+  eventMeal,
+  eventNotes,
+  eventStop,
+  eventWindow,
+  fixedEventInfo,
+  hasDinnerBefore,
+  isDinnerBeforeStop,
+  mealSlotOf,
+  type FixedEventInfo,
+} from "@/lib/fixedEvents";
 import { FixedEventSchema, type FixedEvent } from "@/lib/schemas";
-import { draftProblem } from "@/components/FixedEventsEditor";
+import { draftProblem, toFixedEvent } from "@/components/FixedEventsEditor";
 
 const concert: FixedEvent = { type: "concert", date: "2026-11-11", startTime: "18:00", venueName: "東京巨蛋" };
 
@@ -84,7 +96,7 @@ describe("FixedEventSchema", () => {
 });
 
 describe("draftProblem (the form)", () => {
-  const draft = { type: "concert" as const, date: "2026-11-11", startTime: "18:00", endTime: "", venueName: "東京巨蛋" };
+  const draft = { type: "concert" as const, date: "2026-11-11", startTime: "18:00", endTime: "", venueName: "東京巨蛋", arriveEarly: "" };
 
   it("accepts a complete row inside the trip", () => {
     expect(draftProblem(draft, "2026-11-10", "2026-11-14")).toBeUndefined();
@@ -92,5 +104,76 @@ describe("draftProblem (the form)", () => {
 
   it("flags a date outside the trip", () => {
     expect(draftProblem({ ...draft, date: "2026-11-20" }, "2026-11-10", "2026-11-14")).toBe("日期要在旅程期間內");
+  });
+});
+
+// 2d-3: concerts, games and shows.
+describe("arriving early", () => {
+  it("blocks from 2 hours before a concert by default", () => {
+    expect(blockOf(concert)).toEqual({ startMinute: 16 * 60, endMinute: 21 * 60 });
+    expect(fixedEventInfo(concert).arriveBy).toBe("16:00");
+  });
+
+  it("uses the traveler's own choice, including not arriving early", () => {
+    expect(blockOf({ ...concert, arriveEarlyMinutes: 30 }).startMinute).toBe(17 * 60 + 30);
+    expect(fixedEventInfo({ ...concert, arriveEarlyMinutes: 0 })).not.toHaveProperty("arriveBy");
+  });
+
+  it("doesn't apply to work or reservations", () => {
+    const work: FixedEvent = { type: "work", date: "2026-11-11", startTime: "14:00", endTime: "17:00", arriveEarlyMinutes: 60 };
+    expect(blockOf(work).startMinute).toBe(14 * 60);
+  });
+
+  it("says when to be there on the stop", () => {
+    expect(eventStop(concert, undefined).description).toBe("固定行程：演唱會 18:00～21:00，16:00 前到場");
+  });
+});
+
+describe("dinner before a show", () => {
+  it.each([
+    ["18:00", true],
+    ["16:00", true],
+    ["13:00", false],
+    ["21:30", false],
+  ])("a concert at %s: %s", (startTime, expected) => {
+    expect(hasDinnerBefore({ type: "concert", startTime })).toBe(expected);
+  });
+
+  it("doesn't apply to a work meeting in the evening", () => {
+    expect(hasDinnerBefore({ type: "work", startTime: "18:00" })).toBe(false);
+  });
+
+  it("marks the stop made from an evening show for the timeline", () => {
+    expect(isDinnerBeforeStop(eventStop(concert, undefined) as { fixedEvent?: FixedEventInfo })).toBe(true);
+  });
+});
+
+describe("eventNotes", () => {
+  it("reminds about the last train after a late finish", () => {
+    expect(eventNotes({ ...concert, startTime: "19:30" }, undefined)).toEqual(["散場較晚，請留意末班車"]);
+  });
+
+  it("warns when the venue is far from the lodging", () => {
+    expect(eventNotes(concert, 23.4)).toEqual(["場館離住宿約 23 km，散場回住宿較遠"]);
+  });
+
+  it("says nothing for an early finish near the lodging", () => {
+    expect(eventNotes(concert, 3)).toEqual([]);
+  });
+});
+
+describe("toFixedEvent (the form)", () => {
+  const draft = { type: "concert" as const, date: "2026-11-11", startTime: "18:00", endTime: "", venueName: "東京巨蛋", arriveEarly: "" };
+
+  it("leaves arriving early to the type's default when not chosen", () => {
+    expect(toFixedEvent(draft)).not.toHaveProperty("arriveEarlyMinutes");
+  });
+
+  it("sends the chosen time, including 0", () => {
+    expect(toFixedEvent({ ...draft, arriveEarly: "0" }).arriveEarlyMinutes).toBe(0);
+  });
+
+  it("drops it for types that don't arrive early", () => {
+    expect(toFixedEvent({ ...draft, type: "reservation", arriveEarly: "60" })).not.toHaveProperty("arriveEarlyMinutes");
   });
 });

@@ -53,6 +53,9 @@ export const FixedEventSchema = z
     endTime: z.string().regex(HHMM).optional(),
     // Optional only for work: no place means working from the lodging.
     venueName: z.string().max(200).optional(),
+    // Concerts, games, shows: how long before the start to be there (queue,
+    // merch, dinner nearby). Defaults by type (fixedEvents.ts).
+    arriveEarlyMinutes: z.number().int().min(0).max(240).optional(),
   })
   .refine((e) => e.type !== "work" || e.endTime, { message: "工作需要結束時間", path: ["endTime"] })
   .refine((e) => e.type === "work" || (e.venueName ?? "").trim().length > 0, { message: "請填地點", path: ["venueName"] })

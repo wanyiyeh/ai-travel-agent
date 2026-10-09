@@ -1,6 +1,6 @@
 "use client";
 
-import { FIXED_EVENT_TYPES } from "@/lib/fixedEvents";
+import { ARRIVE_EARLY_DEFAULT_MINUTES, FIXED_EVENT_TYPES, isShowEvent } from "@/lib/fixedEvents";
 import { FIXED_EVENT_TYPE_VALUES, FixedEventSchema, type FixedEvent, type FixedEventType } from "@/lib/schemas";
 
 // 固定行程 (plan/form-preference-wiring.md 1.11): what the traveler already
@@ -13,12 +13,18 @@ export type FixedEventDraft = {
   startTime: string;
   endTime: string;
   venueName: string;
+  /** Minutes as typed, "" for the type's default (concerts, games, shows only). */
+  arriveEarly: string;
 };
+
+const ARRIVE_EARLY_CHOICES = [0, 30, 60, 90, 120, 180];
+
+const hoursLabel = (minutes: number) => (minutes === 0 ? "不用提早" : `提早 ${minutes / 60} 小時到場`);
 
 export const MAX_FIXED_EVENTS = 10;
 
 export function emptyDraft(date: string): FixedEventDraft {
-  return { type: "concert", date, startTime: "", endTime: "", venueName: "" };
+  return { type: "concert", date, startTime: "", endTime: "", venueName: "", arriveEarly: "" };
 }
 
 export function toFixedEvent(draft: FixedEventDraft): FixedEvent {
@@ -28,6 +34,7 @@ export function toFixedEvent(draft: FixedEventDraft): FixedEvent {
     startTime: draft.startTime,
     ...(draft.endTime ? { endTime: draft.endTime } : {}),
     ...(draft.venueName.trim() ? { venueName: draft.venueName.trim() } : {}),
+    ...(isShowEvent(draft) && draft.arriveEarly !== "" ? { arriveEarlyMinutes: Number(draft.arriveEarly) } : {}),
   };
 }
 
@@ -118,6 +125,23 @@ export function FixedEventsEditor({
               placeholder={isWork ? "地點（選填，沒填就在住宿工作）" : "地點，例：東京巨蛋、すきやばし次郎"}
               className={`${INPUT_CLASS} w-full`}
             />
+            {isShowEvent(draft) && (
+              <select
+                aria-label="提早到場"
+                value={draft.arriveEarly}
+                onChange={(e) => update(index, { arriveEarly: e.target.value })}
+                className={INPUT_CLASS}
+              >
+                <option value="">
+                  {hoursLabel(ARRIVE_EARLY_DEFAULT_MINUTES[draft.type] ?? 0)}（預設，排隊、周邊、晚餐）
+                </option>
+                {ARRIVE_EARLY_CHOICES.map((minutes) => (
+                  <option key={minutes} value={String(minutes)}>
+                    {hoursLabel(minutes)}
+                  </option>
+                ))}
+              </select>
+            )}
             {problem && <p className="text-xs text-red-600 dark:text-red-400">{problem}</p>}
           </div>
         );

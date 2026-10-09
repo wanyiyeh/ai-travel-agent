@@ -31,6 +31,7 @@ import { calculateStopsCost, calculateDayTotalCost } from "@/lib/costCalculation
 import { buildPlaceMapsUrl, buildDirectionsUrl, buildSearchMapsUrl } from "@/lib/googleMapsUrl";
 import { formatDuration } from "@/types/itinerary";
 import { MEAL_TYPES } from "@/types/itinerary";
+import { isDinnerBeforeStop } from "@/lib/fixedEvents";
 import type { Itinerary, Day, Stop, Meal, MealType, Accommodation, StopCandidate } from "@/types/itinerary";
 import { buildDayTimeline, MEAL_TIME_OF_DAY } from "@/lib/dayTimeline";
 import { findRepeatedMeals, slotKey } from "@/lib/mealRepeats";
@@ -244,7 +245,7 @@ export default function EditableItineraryCard({
   // Same stop/meal order as the day card's timeline. Meals add their address
   // since a restaurant name alone is often ambiguous to Google Maps.
   const buildGoogleMapsUrl = (day: Day, origin?: string) => {
-    const timeline = buildDayTimeline(day.stops, day.meals ?? {}, (s) => s.time_of_day);
+    const timeline = buildDayTimeline(day.stops, day.meals ?? {}, (s) => s.time_of_day, isDinnerBeforeStop);
     const points = [
       origin,
       ...timeline.map((item) =>
@@ -1392,7 +1393,7 @@ export default function EditableItineraryCard({
                       MEAL_TYPES.filter((t) => t !== "nightcap" || day.meals?.nightcap).map((t) => [t, day.meals?.[t] ?? null])
                     )
                   : {};
-                const timeline = buildDayTimeline(day.stops, dayMeals, (s) => s.time_of_day);
+                const timeline = buildDayTimeline(day.stops, dayMeals, (s) => s.time_of_day, isDinnerBeforeStop);
                 const timeHeader = (timeOfDay: string | undefined) => {
                   if (timeOfDay === undefined || timeOfDay === lastTimeOfDay) return null;
                   lastTimeOfDay = timeOfDay;

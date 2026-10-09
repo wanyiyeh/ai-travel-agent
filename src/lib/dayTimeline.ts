@@ -28,7 +28,10 @@ export const MEAL_TIME_OF_DAY: Record<MealType, TimeOfDay> = {
 export function buildDayTimeline<S, M>(
   stops: readonly S[],
   meals: Partial<Record<MealType, M>>,
-  getTimeOfDay: (stop: S) => TimeOfDay | undefined
+  getTimeOfDay: (stop: S) => TimeOfDay | undefined,
+  // A stop that dinner comes right before: an evening show, eaten near the
+  // venue (fixedEvents.ts hasDinnerBefore) instead of after a 21:00 finish.
+  dinnerBefore?: (stop: S) => boolean
 ): DayTimelineItem<S, M>[] {
   const mealItem = (mealType: MealType): DayTimelineItem<S, M>[] =>
     mealType in meals ? [{ kind: "meal", mealType, meal: meals[mealType] as M }] : [];
@@ -41,5 +44,10 @@ export function buildDayTimeline<S, M>(
     middle.splice(at, 0, ...lunch);
   }
 
+  const show = dinnerBefore ? middle.findIndex((item) => item.kind === "stop" && dinnerBefore(item.stop)) : -1;
+  if (show >= 0) {
+    middle.splice(show, 0, ...mealItem("snack"), ...mealItem("dinner"));
+    return [...mealItem("breakfast"), ...middle, ...mealItem("nightcap")];
+  }
   return [...mealItem("breakfast"), ...middle, ...mealItem("snack"), ...mealItem("dinner"), ...mealItem("nightcap")];
 }

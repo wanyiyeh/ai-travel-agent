@@ -54,7 +54,8 @@ const LOCAL_CHAINS: BrandNames[] = [
   { latin: ["tsujiri"], cjk: ["辻利"] },
 ];
 
-function isGlobalChain(name: string): boolean {
+/** A chain found in any city (Starbucks, McDonald's, ...), not worth a traveler's meal or coffee — flagship roasteries aside. */
+export function isGlobalChain(name: string): boolean {
   return matchesBrand(name, GLOBAL_CHAINS) && !matchesBrand(name, FLAGSHIP);
 }
 

@@ -11,6 +11,7 @@ import {
 import { MEAL_TYPES, type Day, type MealType } from "@/types/itinerary";
 import { buildPlaceMapsUrl, buildDirectionsUrl } from "@/lib/googleMapsUrl";
 import { buildDayTimeline } from "@/lib/dayTimeline";
+import { isDinnerBeforeStop } from "@/lib/fixedEvents";
 
 const DAY_COLORS = [
   "#3b82f6",
@@ -34,6 +35,8 @@ interface MapStop {
   dayIndex: number;
   stopIndex: number;
   timeOfDay?: "morning" | "afternoon" | "evening";
+  /** An evening show: dinner comes right before it in the day's route (fixedEvents.ts). */
+  dinnerBefore?: boolean;
 }
 
 interface MapAccommodation {
@@ -134,7 +137,7 @@ function MapContent({
       const meals = Object.fromEntries(
         visibleMeals.filter((m) => m.dayIndex === dayIndex).map((m) => [m.mealType, m])
       ) as Partial<Record<MealType, MapMeal>>;
-      const ordered: Array<MapStop | MapMeal> = buildDayTimeline(sorted, meals, (s) => s.timeOfDay).map((item) =>
+      const ordered: Array<MapStop | MapMeal> = buildDayTimeline(sorted, meals, (s) => s.timeOfDay, (s) => Boolean(s.dinnerBefore)).map((item) =>
         item.kind === "stop" ? item.stop : item.meal
       );
 
@@ -363,6 +366,7 @@ export default function ItineraryMap({
         dayIndex: number;
         stopIndex: number;
         timeOfDay?: "morning" | "afternoon" | "evening";
+        dinnerBefore?: boolean;
       }> = [];
 
       setMapAccommodations([]);
@@ -383,6 +387,7 @@ export default function ItineraryMap({
               dayIndex,
               stopIndex,
               timeOfDay: stop.time_of_day,
+              dinnerBefore: isDinnerBeforeStop(stop),
             });
           } else {
             needsEnrich.push({
@@ -392,6 +397,7 @@ export default function ItineraryMap({
               dayIndex,
               stopIndex,
               timeOfDay: stop.time_of_day,
+              dinnerBefore: isDinnerBeforeStop(stop),
             });
           }
         });
@@ -521,6 +527,7 @@ export default function ItineraryMap({
                   dayIndex: stop.dayIndex,
                   stopIndex: stop.stopIndex,
                   timeOfDay: stop.timeOfDay,
+                  dinnerBefore: stop.dinnerBefore,
                 },
               ];
             });

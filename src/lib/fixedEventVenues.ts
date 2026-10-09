@@ -1,15 +1,28 @@
-import { searchTextCandidates } from "@/lib/fetchCityRestaurants";
+import {
+  fetchNearbyPlaceCandidates,
+  getMealPlaceTypes,
+  searchTextCandidates,
+  type BudgetLevel,
+} from "@/lib/fetchCityRestaurants";
 import { getCityCenter } from "@/lib/placesTextSearch";
 import {
   blockOf,
   eventMeal,
+  eventNotes,
   eventStop,
+  hasDinnerBefore,
   isMealEvent,
   mealSlotOf,
   type DayFixedEvents,
   type Venue,
 } from "@/lib/fixedEvents";
 import type { FixedEvent } from "@/lib/schemas";
+import { haversineKm } from "@/lib/geo";
+import { isFoodPlace } from "@/lib/foodPlace";
+import { fitsMainMeal } from "@/lib/cafeMealSlots";
+import { excludeByDiet } from "@/lib/dietaryFilter";
+import { estimateSlotCost } from "@/lib/priceLevelCost";
+import { isGlobalChain } from "@/lib/drinkPlaces";
 
 // A venue the traveler typed can be anywhere in or around the city (a
 // stadium in the suburbs), so the bias circle is wide.
@@ -30,24 +43,73 @@ export async function resolveVenue(name: string, cityName: string): Promise<Venu
   return place ? { placeId: place.placeId, name: place.name, lat: place.lat, lng: place.lng, address: place.address } : undefined;
 }
 
+// Dinner before a show: somewhere a short walk from the venue.
+const DINNER_NEAR_VENUE_RADIUS_M = 800;
+const LODGING_TYPES = new Set(["hotel", "lodging", "resort_hotel", "inn", "ryokan", "japanese_inn", "motel", "hostel"]);
+
+/** What a dinner near the venue has to respect — the same as the trip's other meals. */
+export type MealContext = { budget?: BudgetLevel; dietaryRestrictions?: string[]; currency?: string };
+
+/**
+ * A restaurant near a show's venue for dinner before it, or undefined (no
+ * coordinates, nothing nearby). One Nearby Search per venue, Pro fields,
+ * cached like any meal pool.
+ */
+async function dinnerNearVenue(venue: Venue, context: MealContext): Promise<Record<string, unknown> | undefined> {
+  const apiKey = process.env.GOOGLE_PLACES_API_KEY;
+  if (!apiKey) return undefined;
+  const places = await fetchNearbyPlaceCandidates(
+    { lat: venue.lat, lng: venue.lng },
+    apiKey,
+    getMealPlaceTypes("dinner", context.budget),
+    DINNER_NEAR_VENUE_RADIUS_M,
+    20,
+    "pro"
+  );
+  // The search takes a place with a restaurant type anywhere in its list, so
+  // near 東京巨蛋 the most popular "restaurants" were hotels with a dining
+  // room (Hotel Kizankan was picked) and a McDonald's.
+  const [place] = excludeByDiet(places, context.dietaryRestrictions ?? [])
+    .filter(isFoodPlace)
+    .filter(fitsMainMeal)
+    .filter((p) => !p.types?.some((t) => LODGING_TYPES.has(t)) && !isGlobalChain(p.name));
+  if (!place) return undefined;
+  const cost = estimateSlotCost(context.currency, "dinner", place.priceLevel);
+  return {
+    name: place.name,
+    description: `開場前在${venue.name}附近用餐`,
+    placeId: place.placeId,
+    lat: place.lat,
+    lng: place.lng,
+    address: place.address,
+    rating: place.rating ?? null,
+    photoName: place.photoName ?? null,
+    ...(cost !== undefined ? { estimated_cost: cost } : {}),
+  };
+}
+
 export type PlannedDayEvents = {
   /** Events that become stops, plus every event's blocked time. */
   fixed: DayFixedEvents;
-  /** Reservations, by the meal they replace. */
+  /** Meals the events set, by slot: reservations, and dinner near an evening show's venue. */
   meals: Record<string, Record<string, unknown>>;
 };
 
 /**
  * One day's fixed events, ready for the scheduler and the meal list. Work
- * with no place given happens at the lodging.
+ * with no place given happens at the lodging. A show in the evening brings
+ * dinner near the venue before it (unless a reservation already covers
+ * dinner), plus reminders for a late finish or a long way back.
  */
 export async function planDayEvents(
   events: FixedEvent[],
   cityName: string,
-  lodging: { lat: number; lng: number; name?: string } | undefined
+  lodging: { lat: number; lng: number; name?: string } | undefined,
+  mealContext: MealContext = {}
 ): Promise<PlannedDayEvents> {
   const fixed: DayFixedEvents = [];
   const meals: Record<string, Record<string, unknown>> = {};
+  let dinnerBefore: Record<string, unknown> | undefined;
   for (const event of events) {
     const typed = event.venueName?.trim();
     const venue: Venue | undefined = typed
@@ -58,9 +120,15 @@ export async function planDayEvents(
     if (isMealEvent(event)) {
       fixed.push({ block: blockOf(event) });
       meals[mealSlotOf(event)] = eventMeal(event, venue);
-    } else {
-      fixed.push({ block: blockOf(event), stop: eventStop(event, venue) });
+      continue;
+    }
+    const km = venue && lodging ? haversineKm(lodging.lat, lodging.lng, venue.lat, venue.lng) : undefined;
+    fixed.push({ block: blockOf(event), stop: eventStop(event, venue, eventNotes(event, km)) });
+    if (venue && !dinnerBefore && hasDinnerBefore(event)) {
+      dinnerBefore = await dinnerNearVenue(venue, mealContext).catch(() => undefined);
     }
   }
+  // A dinner reservation the traveler made wins over a suggestion.
+  if (dinnerBefore && !meals.dinner) meals.dinner = dinnerBefore;
   return { fixed, meals };
 }
