@@ -91,6 +91,15 @@ describe("measureItinerary", () => {
     expect(measureItinerary(withSnack, ctx).snacks[0]).toEqual({ name: "veg", primaryType: "vegetarian_restaurant" });
   });
 
+  it("lists each night's 小酌 except the return day's", () => {
+    const withBar = days.map((d, i) => (i === 0 ? { ...d, meals: { ...d.meals, nightcap: meal("veg") } } : d));
+    expect(measureItinerary(withBar, ctx).nightcaps).toEqual([
+      { name: "veg", primaryType: "vegetarian_restaurant" },
+      null,
+      null,
+    ]);
+  });
+
   it("lists the sightseeing days' titles", () => {
     const titled = days.map((d, i) => ({ ...d, theme: i === 0 ? "東京 文化巡禮" : undefined }));
     expect(measureItinerary(titled, ctx).dayTitles).toEqual(["東京 文化巡禮", ""]);
