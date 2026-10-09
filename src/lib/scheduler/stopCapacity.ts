@@ -1,4 +1,11 @@
-import { BUFFER_MINUTES_BY_PACE, LUNCH, typicalStopMinutes, type Pace } from "@/lib/scheduler/assignTimeSlots";
+import {
+  BUFFER_MINUTES_BY_PACE,
+  LUNCH,
+  hasLunchBlock,
+  typicalStopMinutes,
+  type FixedBlock,
+  type Pace,
+} from "@/lib/scheduler/assignTimeSlots";
 
 // Even at intensive pace a day of 8+ stops (~53 min each on real pools)
 // leaves no room to eat or rest — plan/form-preference-wiring.md 1.2 caps it.
@@ -10,6 +17,8 @@ export type StopCapacityOptions = {
   dayEndMinute: number;
   /** Categories of the candidates this day will pick from; their average stay sets the per-stop cost. */
   candidateTypes: (string | undefined)[];
+  /** Committed time (固定行程) that isn't available for stops. */
+  fixedBlocks?: FixedBlock[];
 };
 
 /**
@@ -20,10 +29,21 @@ export type StopCapacityOptions = {
  * since the lunch-break push in assignTimeSlots can waste more than the
  * hour subtracted here.
  */
-export function estimateStopCapacity({ pace, dayStartMinute, dayEndMinute, candidateTypes }: StopCapacityOptions): number {
-  // assignTimeSlots takes the lunch hour unless the day starts after its latest start.
-  const lunch = dayStartMinute <= LUNCH.latestStartMinute ? LUNCH.durationMinutes : 0;
-  const available = dayEndMinute - dayStartMinute - lunch;
+export function estimateStopCapacity({
+  pace,
+  dayStartMinute,
+  dayEndMinute,
+  candidateTypes,
+  fixedBlocks = [],
+}: StopCapacityOptions): number {
+  // assignTimeSlots takes the lunch hour unless the day starts after its
+  // latest start — or a lunch reservation already covers it.
+  const lunch = dayStartMinute <= LUNCH.latestStartMinute && !hasLunchBlock(fixedBlocks) ? LUNCH.durationMinutes : 0;
+  const blocked = fixedBlocks.reduce(
+    (sum, b) => sum + Math.max(0, Math.min(dayEndMinute, b.endMinute) - Math.max(dayStartMinute, b.startMinute)),
+    0
+  );
+  const available = dayEndMinute - dayStartMinute - lunch - blocked;
   if (available <= 0) return 0;
 
   const durations = candidateTypes.length > 0

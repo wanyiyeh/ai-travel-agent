@@ -28,8 +28,18 @@ export type ScheduledStop = SchedulableStop & {
   endMinute: number;
 };
 
+/**
+ * A stretch of the day the traveler has already committed (固定行程: a
+ * concert, a reservation, a meeting — plan/form-preference-wiring.md 1.11).
+ * No stop overlaps it; `meal` blocks (a lunch reservation) also stand in for
+ * the lunch hour.
+ */
+export type FixedBlock = { startMinute: number; endMinute: number; meal?: boolean };
+
 export type AssignTimeSlotsOptions = {
   pace?: Pace;
+  /** Committed time no stop may overlap; stops that would are moved after it. */
+  fixedBlocks?: FixedBlock[];
   /** Minutes since midnight the day's first stop can start at. Default 08:00. */
   dayStartMinute?: number;
   /**
@@ -120,14 +130,23 @@ function estimateDuration(stop: SchedulableStop, pace: Pace): number {
   return typicalStopMinutes(stop.type, pace);
 }
 
+/** True when a meal block (a reservation) starts within the window lunch can start in. */
+export function hasLunchBlock(blocks: FixedBlock[]): boolean {
+  return blocks.some(
+    (b) => b.meal && b.startMinute >= LUNCH.earliestStartMinute && b.startMinute <= LUNCH.latestStartMinute
+  );
+}
+
 function layOut(
   stops: SchedulableStop[],
   dayStartMinute: number,
   buffer: number,
-  pace: Pace
+  pace: Pace,
+  fixedBlocks: FixedBlock[]
 ): ScheduledStop[] {
-  let lunchDone = stops.some((s) => s.isMeal);
+  let lunchDone = stops.some((s) => s.isMeal) || hasLunchBlock(fixedBlocks);
   let cursor = dayStartMinute;
+  const blocks = [...fixedBlocks].sort((a, b) => a.startMinute - b.startMinute);
 
   return stops.map((stop, index) => {
     const duration = estimateDuration(stop, pace);
@@ -147,6 +166,13 @@ function layOut(
         // Too late to start before lunch, or it would end too late to eat after it.
         startMinute = Math.max(cursor, LUNCH.earliestStartMinute) + LUNCH.durationMinutes;
         lunchDone = true;
+      }
+    }
+
+    // Blocks are sorted, so one pass moves the stop past every one it would overlap.
+    for (const block of blocks) {
+      if (startMinute < block.endMinute && startMinute + duration > block.startMinute) {
+        startMinute = block.endMinute + buffer;
       }
     }
 
@@ -186,15 +212,16 @@ export function assignTimeSlots(
   const pace = options.pace ?? "moderate";
   const buffer = BUFFER_MINUTES_BY_PACE[pace];
   const dayStartMinute = options.dayStartMinute ?? DEFAULT_DAY_START_MINUTE;
+  const fixedBlocks = options.fixedBlocks ?? [];
 
-  let scheduled = layOut(stops, dayStartMinute, buffer, pace);
+  let scheduled = layOut(stops, dayStartMinute, buffer, pace, fixedBlocks);
   const { dayEndMinute } = options;
   if (dayEndMinute == null || scheduled.length < 2) return scheduled;
 
   // End time only ever grows with the extra gap, so the first step that
   // fits, counting down from the cap, is the largest one.
   for (let extra = MAX_STRETCH_MINUTES; extra > 0; extra -= STRETCH_STEP_MINUTES) {
-    const stretched = layOut(stops, dayStartMinute, buffer + extra, pace);
+    const stretched = layOut(stops, dayStartMinute, buffer + extra, pace, fixedBlocks);
     if (stretched[stretched.length - 1].endMinute <= dayEndMinute) {
       scheduled = stretched;
       break;

@@ -39,6 +39,27 @@ export const FlightInfoSchema = z
 
 export type FlightInfo = z.infer<typeof FlightInfoSchema>;
 
+// 固定行程 (plan/form-preference-wiring.md 1.11): already-booked things the
+// day is planned around.
+export const FIXED_EVENT_TYPE_VALUES = ["concert", "sports", "show", "reservation", "work", "other"] as const;
+export type FixedEventType = (typeof FIXED_EVENT_TYPE_VALUES)[number];
+const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+export const FixedEventSchema = z
+  .object({
+    type: z.enum(FIXED_EVENT_TYPE_VALUES),
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    startTime: z.string().regex(HHMM),
+    endTime: z.string().regex(HHMM).optional(),
+    // Optional only for work: no place means working from the lodging.
+    venueName: z.string().max(200).optional(),
+  })
+  .refine((e) => e.type !== "work" || e.endTime, { message: "工作需要結束時間", path: ["endTime"] })
+  .refine((e) => e.type === "work" || (e.venueName ?? "").trim().length > 0, { message: "請填地點", path: ["venueName"] })
+  .refine((e) => !e.endTime || e.endTime > e.startTime, { message: "結束時間要晚於開始時間", path: ["endTime"] });
+
+export type FixedEvent = z.infer<typeof FixedEventSchema>;
+
 export const TripPreferencesSchema = z.object({
   pace: z.enum(["relaxed", "moderate", "intensive"]).optional(),
   budget: z.enum(["budget", "moderate", "luxury"]).optional(),
@@ -61,6 +82,7 @@ export const TripPreferencesSchema = z.object({
   // 室內行程為主 (plan/form-preference-wiring.md 1.9): indoor places first,
   // outdoor ones kept off 11:00-15:00, transit beyond a short walk.
   indoorFirst: z.boolean().optional(),
+  fixedEvents: z.array(FixedEventSchema).max(10).optional(),
 });
 
 export type TripPreferences = z.infer<typeof TripPreferencesSchema>;

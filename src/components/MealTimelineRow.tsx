@@ -63,9 +63,13 @@ export function MealTimelineRow({
                     </span>
                   )}
                 </p>
-                <p className="font-semibold text-zinc-800 dark:text-zinc-200 leading-snug">{meal.name}</p>
+                <p className="font-semibold text-zinc-800 dark:text-zinc-200 leading-snug">
+                  {meal.fixedEvent && <span aria-label="固定行程">📌 </span>}
+                  {meal.name}
+                </p>
               </div>
-              {editable && !isPicking && (
+              {/* A reservation the traveler made isn't swapped for another place. */}
+              {editable && !isPicking && !meal.fixedEvent && (
                 <button
                   onClick={onPick}
                   className="shrink-0 text-xs text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 transition-colors"

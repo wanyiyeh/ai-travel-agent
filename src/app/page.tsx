@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { FixedEventsEditor, draftProblem, toFixedEvent, type FixedEventDraft } from "@/components/FixedEventsEditor";
 import { useStreamingGenerate } from "@/hooks/useStreamingGenerate";
 import TurnstileWidget from "@/components/TurnstileWidget";
 import StreamingPreview from "@/components/StreamingPreview";
@@ -431,6 +432,7 @@ export default function Home() {
   const [prompt, setPrompt] = useState("");
   const [pace, setPace] = useState<TripPreferences["pace"]>(undefined);
   const [budget, setBudget] = useState<TripPreferences["budget"]>(undefined);
+  const [fixedEventDrafts, setFixedEventDrafts] = useState<FixedEventDraft[]>([]);
   const [interests, setInterests] = useState<NonNullable<TripPreferences["interests"]>>([]);
   const [startTime, setStartTime] = useState<TripPreferences["startTime"]>(undefined);
   const [indoor, setIndoor] = useState<"indoor" | undefined>(undefined);
@@ -498,6 +500,7 @@ export default function Home() {
       interests: interests.length ? interests : undefined,
       startTime,
       indoorFirst: indoor === "indoor" ? true : undefined,
+      fixedEvents: fixedEventDrafts.length ? fixedEventDrafts.map(toFixedEvent) : undefined,
       dietaryRestrictions: diet.length ? diet : undefined,
       drinks: drinks.length ? drinks : undefined,
     };
@@ -518,7 +521,8 @@ export default function Home() {
     departureDate &&
     returnDate &&
     days > 0 &&
-    days <= MAX_TRIP_DAYS;
+    days <= MAX_TRIP_DAYS &&
+    fixedEventDrafts.every((d) => !draftProblem(d, departureDate, returnDate));
 
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 py-16 px-4">
@@ -674,6 +678,19 @@ export default function Home() {
             <div className="space-y-3">
               <ChoiceRow label="步調" options={PACE_OPTIONS} value={pace} onChange={setPace} emptyHint="未選擇時以「適中」安排" />
               <ChoiceRow label="預算" options={BUDGET_OPTIONS} value={budget} onChange={setBudget} emptyHint="未選擇時不限預算" />
+            </div>
+
+            {/* 固定行程 — 已經訂好的事，其他行程繞著它排 */}
+            <div>
+              <p className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                固定行程 <span className="font-normal text-zinc-400">（選填）</span>
+              </p>
+              <FixedEventsEditor
+                drafts={fixedEventDrafts}
+                onChange={setFixedEventDrafts}
+                tripStart={departureDate}
+                tripEnd={returnDate}
+              />
             </div>
 
             {/* 旅遊描述 — 寫按鈕表達不了的事 */}

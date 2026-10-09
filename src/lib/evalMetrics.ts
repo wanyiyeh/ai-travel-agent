@@ -31,6 +31,8 @@ export type ItineraryMetrics = {
   outdoorShare: number;
   /** Legs between sightseeing stops shown as a taxi ride (「搭計程車」). */
   taxiLegs: number;
+  /** Where each 固定行程 ended up: a stop (with its position in the day) or the meal it replaced. */
+  fixedEvents: { day: number; name: string; as: string; lastStop?: boolean }[];
   mainMeals: number;
   avgMainMealTwd: number | null;
   /** Share of priced lunches/dinners inside the budget's NT$ range; null without a budget or prices. */
@@ -153,6 +155,17 @@ export function measureItinerary(days: Rec[], ctx: EvalContext): ItineraryMetric
     categoryShare,
     outdoorShare: stops.filter((s) => exposureOf(typesOf(s.placeId)) === "outdoor").length / Math.max(1, stops.length),
     taxiLegs: stops.filter((s) => str(s.transport_from_prev)?.includes("計程車")).length,
+    fixedEvents: days.flatMap((d, i) => {
+      const dayStops = asRecords(d.stops);
+      const asStops = dayStops.flatMap((s, k) =>
+        s.fixedEvent ? [{ day: i + 1, name: str(s.name) ?? "", as: "stop", lastStop: k === dayStops.length - 1 }] : []
+      );
+      const meals = (d.meals ?? {}) as Rec;
+      const asMeals = Object.entries(meals).flatMap(([key, m]) =>
+        m && typeof m === "object" && (m as Rec).fixedEvent ? [{ day: i + 1, name: str((m as Rec).name) ?? "", as: key }] : []
+      );
+      return [...asStops, ...asMeals];
+    }),
     mainMeals: mainMeals.length,
     avgMainMealTwd: pricedTwd.length ? avg(pricedTwd) : null,
     mainMealsWithinBudget,

@@ -44,3 +44,20 @@ describe("estimateStopCapacity", () => {
     expect(estimateStopCapacity({ pace: "moderate", ...fullDay, candidateTypes: [] })).toBe(3);
   });
 });
+
+describe("estimateStopCapacity with fixed blocks", () => {
+  // A 3-hour evening concert from 15:00 leaves 9:00-15:00, minus lunch.
+  it("counts only the time outside booked events", () => {
+    const free = estimateStopCapacity({ pace: "moderate", dayStartMinute: 9 * 60, dayEndMinute: 18 * 60, candidateTypes: ["landmark"] });
+    const withConcert = estimateStopCapacity({
+      pace: "moderate",
+      dayStartMinute: 9 * 60,
+      dayEndMinute: 18 * 60,
+      candidateTypes: ["landmark"],
+      fixedBlocks: [{ startMinute: 15 * 60, endMinute: 18 * 60 }],
+    });
+    expect(withConcert).toBeLessThan(free);
+    // 360 - 60 lunch = 300; (300 + 15) / 135 = 2.3
+    expect(withConcert).toBe(2);
+  });
+});
