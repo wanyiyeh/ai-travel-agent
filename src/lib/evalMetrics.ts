@@ -33,7 +33,7 @@ export type ItineraryMetrics = {
   /** Legs between sightseeing stops shown as a taxi ride (「搭計程車」). */
   taxiLegs: number;
   /** Where each 固定行程 ended up: a stop (with its position in the day) or the meal it replaced. */
-  fixedEvents: { day: number; name: string; as: string; lastStop?: boolean; dinnerKm?: number }[];
+  fixedEvents: { day: number; name: string; as: string; lastStop?: boolean; dinnerKm?: number; city?: string }[];
   mainMeals: number;
   avgMainMealTwd: number | null;
   /** Share of priced lunches/dinners inside the budget's NT$ range; null without a budget or prices. */
@@ -167,9 +167,18 @@ export function measureItinerary(days: Rec[], ctx: EvalContext): ItineraryMetric
           ? Math.round(haversineKm(a, b, c, e) * 10) / 10
           : undefined;
       };
+      // The city the traveler is in that day — on a transit day, the one being reached.
+      const city = str(d.isTransitDay === true ? d.transitTo : d.waypointCity);
       const asStops = dayStops.flatMap((s, k) =>
         s.fixedEvent
-          ? [{ day: i + 1, name: str(s.name) ?? "", as: "stop", lastStop: k === dayStops.length - 1, ...(dinnerKm(s) !== undefined ? { dinnerKm: dinnerKm(s) } : {}) }]
+          ? [{
+              day: i + 1,
+              name: str(s.name) ?? "",
+              as: "stop",
+              lastStop: k === dayStops.length - 1,
+              ...(dinnerKm(s) !== undefined ? { dinnerKm: dinnerKm(s) } : {}),
+              ...(city ? { city } : {}),
+            }]
           : []
       );
       const asMeals = Object.entries(meals).flatMap(([key, m]) =>

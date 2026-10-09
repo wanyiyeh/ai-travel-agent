@@ -97,7 +97,7 @@ describe("measureItinerary", () => {
         : d
     );
     expect(measureItinerary(withEvents, ctx).fixedEvents).toEqual([
-      { day: 1, name: "東京巨蛋", as: "stop", lastStop: true },
+      { day: 1, name: "東京巨蛋", as: "stop", lastStop: true, city: "東京" },
       { day: 1, name: "叙々苑", as: "lunch" },
     ]);
   });
