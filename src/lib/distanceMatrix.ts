@@ -1,6 +1,7 @@
 import { prisma, j } from "@/lib/db";
 import { googleFetch } from "@/lib/googleFetch";
 import { haversineKm, centroid, SUSPICIOUS_DISTANCE_KM, MAX_PLAUSIBLE_DISTANCE_KM } from "@/lib/geo";
+import { estimateTransit, isInJapan } from "@/lib/transitEstimate";
 
 // Re-exported so existing server-side importers of this module don't need to
 // change — but browser-facing code should import these from @/lib/geo
@@ -151,15 +152,26 @@ async function fetchDistanceFromRoutesApi(
 export async function getDistancesForStopPairs(
   stops: { id: string; lat?: number | null; lng?: number | null }[],
   mode: TravelMode | ((km: number) => TravelMode) = "driving"
-): Promise<((DistanceResult & { mode: TravelMode }) | null)[]> {
+): Promise<((DistanceResult & { mode: TravelMode; estimated?: boolean }) | null)[]> {
   const results = await Promise.all(
     stops.slice(1).map(async (stop, i) => {
       const prev = stops[i];
       if (!prev.lat || !prev.lng || !stop.lat || !stop.lng) return null;
-      const chosenMode =
-        typeof mode === "function"
-          ? mode(haversineKm(prev.lat, prev.lng, stop.lat, stop.lng))
-          : mode;
+      const km = haversineKm(prev.lat, prev.lng, stop.lat, stop.lng);
+      const chosenMode = typeof mode === "function" ? mode(km) : mode;
+      // Google has no transit routes in Japan (transitEstimate.ts) — estimate
+      // instead of paying for a request that can only fail, then a taxi route.
+      if (chosenMode === "transit" && isInJapan(prev.lat, prev.lng) && isInJapan(stop.lat, stop.lng)) {
+        const { durationSeconds, distanceMeters } = estimateTransit(km);
+        return {
+          distanceText: formatDistanceText(distanceMeters),
+          distanceMeters,
+          durationText: formatDurationText(durationSeconds),
+          durationSeconds,
+          mode: "transit" as const,
+          estimated: true,
+        };
+      }
       let result = await getDistance(
         { lat: prev.lat, lng: prev.lng },
         { lat: stop.lat, lng: stop.lng },
@@ -206,6 +218,6 @@ export function pickModeForDistance(km: number, walkLimitKm = 1.2): TravelMode {
   return "driving";
 }
 
-export function describeTransport(mode: TravelMode, durationSeconds: number): string {
-  return `${TRANSPORT_LABEL_ZH[mode]}約 ${formatDurationZh(durationSeconds)}`;
+export function describeTransport(mode: TravelMode, durationSeconds: number, estimated = false): string {
+  return `${TRANSPORT_LABEL_ZH[mode]}約 ${formatDurationZh(durationSeconds)}${estimated ? "（估計）" : ""}`;
 }

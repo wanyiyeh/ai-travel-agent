@@ -898,7 +898,7 @@ function assembleScheduledStops(
       description,
       duration_minutes: s.estimatedDurationMinutes,
       time_of_day: s.time_of_day,
-      ...(dist ? { transport_from_prev: describeTransport(dist.mode, dist.durationSeconds) } : {}),
+      ...(dist ? { transport_from_prev: describeTransport(dist.mode, dist.durationSeconds, dist.estimated) } : {}),
       estimated_cost: estimateAttractionCost(currency, place.priceLevel),
       lat: s.lat,
       lng: s.lng,
