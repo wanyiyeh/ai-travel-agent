@@ -1,12 +1,13 @@
 import type { BudgetLevel, PlaceCandidate } from "@/lib/fetchCityRestaurants";
+import { matchesBrand, type BrandNames } from "@/lib/brandMatch";
 
 // Hilton/Marriott-tier international brands for the luxury budget
 // (plan/form-preference-wiring.md 1.3). Google has no star-rating field, so
 // brand is the most reliable signal. Searches use languageCode zh-TW, so
 // chains often come back under their Chinese name — both spellings listed.
-// Latin names match as whole words ("Aman" must not match "Yamanote"); the
-// Chinese forms are specific enough to match as substrings, except a few
-// that are also ordinary words (四季, 半島), which need the 酒店 suffix.
+// Matched by brandMatch.ts; the Chinese forms are specific enough to match as
+// substrings, except a few that are also ordinary words (四季, 半島), which
+// need the 酒店 suffix.
 // W Hotels is left out: properties are named just "W <city>", too short to
 // match without false positives.
 const LATIN_LUXURY_BRANDS = [
@@ -20,23 +21,10 @@ const CJK_LUXURY_BRANDS = [
   "凱悅", "君悅", "柏悅", "安達仕", "洲際", "麗晶", "索菲特", "費爾蒙", "萊佛士", "鉑爾曼",
   "四季酒店", "文華東方", "半島酒店", "香格里拉", "悅榕", "安縵", "瑰麗",
 ];
-const isLatinLetter = (ch: string | undefined) => ch !== undefined && ch >= "a" && ch <= "z";
-
-// Whole-word substring match, done by hand rather than by building a RegExp
-// from the brand list, so no brand ever needs escaping.
-function containsWord(text: string, word: string): boolean {
-  for (let i = text.indexOf(word); i !== -1; i = text.indexOf(word, i + 1)) {
-    if (!isLatinLetter(text[i - 1]) && !isLatinLetter(text[i + word.length])) return true;
-  }
-  return false;
-}
+const LUXURY_BRANDS: BrandNames = { latin: LATIN_LUXURY_BRANDS, cjk: CJK_LUXURY_BRANDS };
 
 export function isLuxuryBrand(name: string): boolean {
-  const lower = name.toLowerCase();
-  return (
-    LATIN_LUXURY_BRANDS.some((brand) => containsWord(lower, brand)) ||
-    CJK_LUXURY_BRANDS.some((brand) => lower.includes(brand))
-  );
+  return matchesBrand(name, LUXURY_BRANDS);
 }
 
 /** Brand-name match, or Google's own primary type says resort. */
