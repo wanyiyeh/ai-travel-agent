@@ -291,9 +291,10 @@ export default function ViewContent({ id }: ViewContentProps) {
                       ? "text-blue-700 dark:text-blue-300"
                       : "text-zinc-700 dark:text-zinc-300"
                   }`}>
-                    {code}
+                    {/* A place in Taiwan (國內) has no airport code worth showing. */}
+                    {AIRPORTS[code]?.domestic ? AIRPORTS[code].cityZh : code}
                   </span>
-                  {AIRPORTS[code] && (
+                  {AIRPORTS[code] && !AIRPORTS[code].domestic && (
                     <span className="text-xs text-zinc-400 dark:text-zinc-500">{AIRPORTS[code].cityZh}</span>
                   )}
                 </div>

@@ -30,6 +30,11 @@ const TRANSPORT_OPTIONS: { value: NonNullable<TripPreferences["transport"]>; lab
   { value: "transit", label: "大眾運輸", desc: "步行和搭車" },
   { value: "drive", label: "自駕", desc: "抵達後在機場租車，景點之間開車，回程時在機場還車" },
 ];
+// 國內: Taiwan's trains and buses, or the traveler's own car (domesticTrips.ts).
+const DOMESTIC_TRANSPORT_OPTIONS: typeof TRANSPORT_OPTIONS = [
+  { value: "transit", label: "大眾運輸", desc: "高鐵、台鐵、客運" },
+  { value: "drive", label: "開自己的車", desc: "從家裡開車出發，景點之間開車" },
+];
 
 // A one-option ChoiceRow works as a checkbox with its explanation underneath.
 const INDOOR_OPTIONS: { value: "indoor"; label: string; desc: string }[] = [
@@ -94,8 +99,13 @@ function splitFilmTitles(text: string): string[] | undefined {
 }
 
 const CITY_OPTIONS: { code: string; name: string; country: string }[] = Object.entries(AIRPORTS)
+  .filter(([, airport]) => !airport.domestic)
   .map(([code, airport]) => ({ code, name: airport.cityZh, country: IATA_COUNTRY_ZH[code] ?? "" }))
   .sort((a, b) => a.name.localeCompare(b.name, "zh-Hant"));
+// 國內: places in Taiwan, the islands grouped apart (airports.ts TW-xxx).
+const DOMESTIC_OPTIONS: typeof CITY_OPTIONS = Object.entries(AIRPORTS)
+  .filter(([, airport]) => airport.domestic)
+  .map(([code, airport]) => ({ code, name: airport.cityZh, country: airport.island ? "離島" : "台灣" }));
 
 
 type NearbySuggestion = { name: string; country: string; transitTime: string; mode: string };
@@ -204,12 +214,16 @@ function CityCombobox({
   value,
   onChange,
   placeholder,
+  domestic = false,
 }: {
   label: string;
   value: string;
   onChange: (code: string) => void;
   placeholder: string;
+  /** 國內: places in Taiwan, and no typing an airport code. */
+  domestic?: boolean;
 }) {
+  const options = domestic ? DOMESTIC_OPTIONS : CITY_OPTIONS;
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [manualMode, setManualMode] = useState(false);
@@ -252,17 +266,17 @@ function CityCombobox({
     );
   }
 
-  const selected = CITY_OPTIONS.find((c) => c.code === value);
+  const selected = options.find((c) => c.code === value);
   const matches = (
     query
-      ? CITY_OPTIONS.filter(
+      ? options.filter(
           (c) =>
             c.name.includes(query) ||
             c.country.includes(query) ||
             c.code.includes(query.toUpperCase())
         )
-      : CITY_OPTIONS
-  ).slice(0, 8);
+      : options
+  ).slice(0, domestic ? options.length : 8);
 
   // 依國家分組顯示，讓打國家名稱時能一眼看到該國有哪些城市可選
   const groups: { country: string; cities: typeof matches }[] = [];
@@ -343,7 +357,8 @@ function CityCombobox({
               </div>
             ))}
           </div>
-          {matches.length === 0 && (
+          {/* 國內 lists every place in Taiwan; there's no airport code to type. */}
+          {!domestic && matches.length === 0 && (
             <button
               type="button"
               onClick={() => {
@@ -482,6 +497,21 @@ export default function Home() {
   // 進階選項的展開狀態
   const [moreOpen, setMoreOpen] = useState(false);
   const [returnCityDiffers, setReturnCityDiffers] = useState(false);
+  // 國外 or 國內 (plan/form-preference-wiring.md 1.10). At home, the two time
+  // fields mean leaving home and getting back.
+  const [tripType, setTripType] = useState<"international" | "domestic">("international");
+  const domestic = tripType === "domestic";
+  function switchTripType(next: "international" | "domestic") {
+    if (next === tripType) return;
+    setTripType(next);
+    setDepartureCity("");
+    setArrivalCity("");
+    setReturnDepartureCity("");
+    setReturnArrivalCity("");
+    setReturnCityDiffers(false);
+    // 影劇追星 is for trips abroad (plan 1.10).
+    if (next === "domestic") setInterests((prev) => prev.filter((i) => i !== "film"));
+  }
 
   const { state, partialData, plan, days: liveDays, id, error, retryInfo, generate, reset, isLoading } =
     useStreamingGenerate();
@@ -536,8 +566,13 @@ export default function Home() {
       returnArrivalCity: (returnCityDiffers && returnArrivalCity) || undefined,
       departureDate,
       returnDate,
-      arrivalTime: arrivalTime || undefined,
-      returnDepartureTime: returnDepartureTime || undefined,
+      ...(domestic
+        ? {
+            tripType: "domestic" as const,
+            homeDepartureTime: arrivalTime || undefined,
+            homeArrivalTime: returnDepartureTime || undefined,
+          }
+        : { arrivalTime: arrivalTime || undefined, returnDepartureTime: returnDepartureTime || undefined }),
     };
 
     const preferences: TripPreferences = {
@@ -566,8 +601,8 @@ export default function Home() {
 
   const isStreaming = state === "streaming" || state === "connecting";
   const isFormValid =
-    departureCity.length === 3 &&
-    arrivalCity.length === 3 &&
+    Boolean(AIRPORTS[departureCity]) &&
+    Boolean(AIRPORTS[arrivalCity]) &&
     departureDate &&
     returnDate &&
     days > 0 &&
@@ -601,25 +636,46 @@ export default function Home() {
 
             {/* 機票資訊 – 核心欄位 */}
             <div className="rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-5 space-y-4">
-              <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300 uppercase tracking-wide">
-                機票資訊
-              </h2>
+              <div className="flex items-center justify-between">
+                <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300 uppercase tracking-wide">
+                  {domestic ? "旅程資訊" : "機票資訊"}
+                </h2>
+                <div className="flex rounded-lg border border-zinc-200 dark:border-zinc-700 p-0.5 text-xs" role="group" aria-label="國外或國內">
+                  {(["international", "domestic"] as const).map((t) => (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => switchTripType(t)}
+                      aria-pressed={tripType === t}
+                      className={`rounded-md px-3 py-1 font-medium transition-colors ${
+                        tripType === t
+                          ? "bg-zinc-900 dark:bg-zinc-50 text-white dark:text-zinc-900"
+                          : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100"
+                      }`}
+                    >
+                      {t === "international" ? "國外" : "國內"}
+                    </button>
+                  ))}
+                </div>
+              </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <CityCombobox
-                  label="出發城市"
+                  label={domestic ? "出發地（家）" : "出發城市"}
                   value={departureCity}
                   onChange={setDepartureCity}
                   placeholder="搜尋城市，例如：台北"
+                  domestic={domestic}
                 />
                 <CityCombobox
-                  label="抵達城市"
+                  domestic={domestic}
+                  label={domestic ? "目的地" : "抵達城市"}
                   value={arrivalCity}
                   onChange={(code) => {
                     setArrivalCity(code);
                     if (!returnDepartureCity) setReturnDepartureCity(code);
                   }}
-                  placeholder="搜尋城市，例如：東京"
+                  placeholder={domestic ? "例如：台南、花蓮、澎湖" : "搜尋城市，例如：東京"}
                 />
               </div>
 
@@ -771,7 +827,9 @@ export default function Home() {
               >
                 <div className="flex flex-col gap-0.5">
                   <span className="text-sm font-medium text-zinc-900 dark:text-zinc-50">更多選項</span>
-                  <span className="text-xs text-zinc-400">航班時間、出門時間、飲食限制、旅遊偏好、飲品、室內行程、交通方式</span>
+                  <span className="text-xs text-zinc-400">
+                    {domestic ? "出發與到家時間" : "航班時間"}、出門時間、飲食限制、旅遊偏好、飲品、室內行程、交通方式
+                  </span>
                 </div>
                 <ChevronIcon direction={moreOpen ? "up" : "down"} />
               </button>
@@ -781,7 +839,7 @@ export default function Home() {
                   {/* 航班細節 */}
                   <div className="space-y-2.5">
                     <span className="block text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
-                      航班細節
+                      {domestic ? "出發與到家時間" : "航班細節"}
                     </span>
                     <div className="grid grid-cols-2 gap-2.5">
                       <div>
@@ -789,7 +847,7 @@ export default function Home() {
                           htmlFor="arrivalTime"
                           className="block text-xs text-zinc-500 dark:text-zinc-400 mb-1"
                         >
-                          抵達時間 <span className="text-zinc-400">（選填）</span>
+                          {domestic ? "從家裡出發" : "抵達時間"} <span className="text-zinc-400">（選填）</span>
                         </label>
                         <input
                           id="arrivalTime"
@@ -804,7 +862,7 @@ export default function Home() {
                           htmlFor="returnDepartureTime"
                           className="block text-xs text-zinc-500 dark:text-zinc-400 mb-1"
                         >
-                          回程出發時間 <span className="text-zinc-400">（選填）</span>
+                          {domestic ? "預計到家" : "回程出發時間"} <span className="text-zinc-400">（選填）</span>
                         </label>
                         <input
                           id="returnDepartureTime"
@@ -822,21 +880,23 @@ export default function Home() {
                         onClick={() => setReturnCityDiffers(true)}
                         className="text-xs text-zinc-500 dark:text-zinc-400 underline underline-offset-4 hover:text-zinc-900 dark:hover:text-zinc-100"
                       >
-                        + 回程城市不同？
+                        {domestic ? "+ 從不同的地方回家？" : "+ 回程城市不同？"}
                       </button>
                     ) : (
                       <div className="grid grid-cols-2 gap-2.5 pt-1">
                         <CityCombobox
-                          label="回程出發城市"
+                          label={domestic ? "最後離開的地方" : "回程出發城市"}
                           value={returnDepartureCity}
                           onChange={setReturnDepartureCity}
                           placeholder={AIRPORTS[arrivalCity]?.cityZh || "同抵達城市"}
+                          domestic={domestic}
                         />
                         <CityCombobox
-                          label="回程抵達城市"
+                          label={domestic ? "回到哪裡" : "回程抵達城市"}
                           value={returnArrivalCity}
                           onChange={setReturnArrivalCity}
                           placeholder={AIRPORTS[departureCity]?.cityZh || "同出發城市"}
+                          domestic={domestic}
                         />
                       </div>
                     )}
@@ -857,7 +917,12 @@ export default function Home() {
                       emptyHint="未選擇時 9:00 出門"
                     />
                     <ChipRow label="飲食限制" options={DIET_OPTIONS} selected={diet} onToggle={toggleDiet} />
-                    <ChipRow label="偏好" options={INTEREST_OPTIONS} selected={interests} onToggle={toggleInterest} />
+                    <ChipRow
+                      label="偏好"
+                      options={domestic ? INTEREST_OPTIONS.filter((o) => o.value !== "film") : INTEREST_OPTIONS}
+                      selected={interests}
+                      onToggle={toggleInterest}
+                    />
                     {interests.includes("film") && (
                       <input
                         type="text"
@@ -885,7 +950,7 @@ export default function Home() {
                     />
                     <ChoiceRow
                       label="交通"
-                      options={TRANSPORT_OPTIONS}
+                      options={domestic ? DOMESTIC_TRANSPORT_OPTIONS : TRANSPORT_OPTIONS}
                       value={transport}
                       onChange={setTransport}
                       emptyHint="未選擇時以大眾運輸安排"
