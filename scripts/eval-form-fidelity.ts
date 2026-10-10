@@ -381,16 +381,19 @@ const CHECKS: Check[] = [
     },
   },
   {
-    title: "郊區：東京 4 天的對照組有一天一日遊，地點離東京車站 15～50 km",
+    // 3c-3: a classic town (鎌倉, 箱根, 日光) with 2+ sights, ahead of the nearby outdoors.
+    title: "一日遊：東京 4 天的對照組去經典目的地，離東京車站 40～150 km，當地至少 2 個景點",
     pass: (r) => {
       const trip = r.get("tokyo-baseline")?.suburbDays.find((d) => d.title.includes("一日遊"));
       if (!r.get("tokyo-baseline")) return null;
       const km = tripKm(trip);
-      return km !== undefined && km >= 15 && km <= 50;
+      return km !== undefined && km >= 40 && km <= 150 && (trip?.stops ?? 0) >= 2;
     },
     detail: (r) => {
       const trip = r.get("tokyo-baseline")?.suburbDays[0];
-      return trip ? `第 ${trip.day} 天「${trip.title}」，離東京車站 ${tripKm(trip)?.toFixed(0) ?? "?"} km` : "沒有郊區行程";
+      return trip
+        ? `第 ${trip.day} 天「${trip.title}」，${trip.stops} 個景點，第一站離東京車站 ${tripKm(trip)?.toFixed(0) ?? "?"} km`
+        : "沒有郊區行程";
     },
   },
   {

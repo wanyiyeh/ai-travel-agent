@@ -227,6 +227,15 @@ model SeasonalHighlightCache {
   updatedAt DateTime @updatedAt
 }
 
+// The model's classic day trips from a city (classicDayTrips.ts), before
+// Text Search confirms the towns and sights. Per city, not per month: 鎌倉
+// is a day trip from 東京 all year. A failed call isn't cached.
+model ClassicDayTripCache {
+  city      String   @id
+  list      String   // JSON-encoded TripList
+  updatedAt DateTime @updatedAt
+}
+
 model NearestStationCache {
   cacheKey  String   @id
   station   String?  // JSON-encoded NearestStation, or null = confirmed none found
