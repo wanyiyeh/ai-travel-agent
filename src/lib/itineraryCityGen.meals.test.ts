@@ -379,3 +379,19 @@ describe("generateMealsAndAccommodation — with children", () => {
     expect(systemPrompt()).not.toContain("Dorm Hostel");
   });
 });
+
+describe("generateMealsAndAccommodation — with older relatives", () => {
+  it("leaves hostels out of the lodging", async () => {
+    nearbyMock.mockResolvedValue([]);
+    lodgingMock.mockResolvedValueOnce([
+      { ...place("Dorm Hostel"), types: ["hostel", "lodging"] },
+      { ...place("Quiet Inn"), types: ["japanese_inn", "lodging"] },
+    ]);
+    mockLlm({ accommodation: {}, meals: [] });
+
+    await generateMealsAndAccommodation("東京", 1, "JPY", "budget", { seniors: true });
+
+    expect(systemPrompt()).toContain("Quiet Inn");
+    expect(systemPrompt()).not.toContain("Dorm Hostel");
+  });
+});

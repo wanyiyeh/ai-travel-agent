@@ -12,6 +12,7 @@ import {
   type MealLodgingPools,
 } from "@/lib/mealLodgingPicks";
 import { placeCandidatesToStopCandidates } from "@/lib/scheduler/placeCandidatesToStopCandidates";
+import type { StopCandidate } from "@/lib/scheduler/selectAndOrderStops";
 import { distributeStopsPerDay, partitionCandidatesByDay } from "@/lib/scheduler/partitionCandidatesByDay";
 import { buildDaySkeleton, type SkeletonStop } from "@/lib/scheduler/buildDaySkeleton";
 import { computeDepartureDayBudget } from "@/lib/scheduler/departureDayBudget";
@@ -528,6 +529,8 @@ export type MealPreferences = {
   selfDrive?: boolean;
   /** 親子: child-friendly restaurants first, no hostels. */
   kids?: boolean;
+  /** 長輩: no hostels. */
+  seniors?: boolean;
 };
 
 /**
@@ -542,6 +545,7 @@ export function mealPreferencesOf(intent: PreferenceIntent, drinks?: DrinkChoice
     drinks: intent.kids ? drinks?.filter((d) => d !== "alcohol") : drinks,
     ...(intent.selfDrive ? { selfDrive: true } : {}),
     ...(intent.kids ? { kids: true } : {}),
+    ...(intent.seniors ? { seniors: true } : {}),
   };
 }
 
@@ -572,7 +576,7 @@ async function fetchMealLodgingPools(
   budget: BudgetLevel | undefined,
   currency: string,
   stayDays: number,
-  { dietaryRestrictions = [], startTimePreference, drinks = [], kids = false }: MealPreferences
+  { dietaryRestrictions = [], startTimePreference, drinks = [], kids = false, seniors = false }: MealPreferences
 ): Promise<MealLodgingPools | null> {
   const apiKey = process.env.GOOGLE_PLACES_API_KEY;
   if (!apiKey) return null;
@@ -655,8 +659,8 @@ async function fetchMealLodgingPools(
     breakfast: uniqueByPlaceId([...coffeeBreakfast, ...canonical(breakfast)]),
     main: rankedMain,
     snack: uniqueByPlaceId([...interleave(snackRotation), ...canonical(split.snack)]),
-    // Families stay in a guest house rather than a hostel dorm (plan 1.5).
-    lodging: kids ? lodging.filter((p) => !p.types?.includes("hostel")) : lodging,
+    // Families and older travelers stay in a guest house rather than a hostel dorm (plan 1.5).
+    lodging: kids || seniors ? lodging.filter((p) => !p.types?.includes("hostel")) : lodging,
     // An izakaya can come up in the dinner search too; it's dinner then, not
     // a second visit the same evening.
     nightcap: barsFirst(
@@ -893,7 +897,16 @@ export const SIGHTSEEING_DAY_END_MINUTE = 18 * 60;
 const KIDS_DAY_END_MINUTE = 17 * 60;
 
 export function dayEndFor(preferenceIntent: PreferenceIntent): number {
-  return preferenceIntent.kids ? KIDS_DAY_END_MINUTE : SIGHTSEEING_DAY_END_MINUTE;
+  return preferenceIntent.kids || preferenceIntent.seniors ? KIDS_DAY_END_MINUTE : SIGHTSEEING_DAY_END_MINUTE;
+}
+
+// 長輩 (plan 1.5): an accessible entrance scores a sight up — not a filter,
+// since many places don't say — and a day's places stay closer together.
+const ACCESSIBLE_BOOST = 1.3;
+const SENIORS_SPREAD_KM = 1.5;
+
+function withAccessibleBoost(candidates: StopCandidate[], candidateById: Map<string, PlaceCandidate>): StopCandidate[] {
+  return candidates.map((c) => (candidateById.get(c.id)?.accessibleEntrance ? { ...c, boost: ACCESSIBLE_BOOST } : c));
 }
 
 // How far past SIGHTSEEING_DAY_END_MINUTE the last stop may still end — dinner
@@ -1157,7 +1170,9 @@ async function generateDayStopsViaScheduler(
     const neededStops = capacitiesFor(available).reduce((sum, n) => sum + n, 0);
     const pool = await withSupplementalAttractions(coords, apiKey, available, lockedIds, neededStops);
 
-    const { candidates, candidateById } = placeCandidatesToStopCandidates(pool);
+    const converted = placeCandidatesToStopCandidates(pool);
+    const { candidateById } = converted;
+    const candidates = preferenceIntent.seniors ? withAccessibleBoost(converted.candidates, candidateById) : converted.candidates;
     if (candidates.length === 0) return null;
 
     const hintById = new Map<string, RestaurantHint>();
@@ -1192,6 +1207,7 @@ async function generateDayStopsViaScheduler(
       }),
       isPopular: (c) => popularIds.has(c.id),
       reservedDay: (c) => seasonalDayOf.get(c.id),
+      ...(preferenceIntent.seniors ? { spreadKm: SENIORS_SPREAD_KM } : {}),
     });
     const skeletonsByDay: SkeletonStop[][] = dayGroups.map((group, dayIdx) =>
       group.length > 0

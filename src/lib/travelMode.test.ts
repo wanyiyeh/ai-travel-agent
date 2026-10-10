@@ -12,6 +12,9 @@ describe("modePickerFor", () => {
     ["self-drive", { selfDrive: true }, 0.8, "walking"],
     ["self-drive", { selfDrive: true }, 1.5, "driving"],
     ["self-drive, indoor first", { selfDrive: true, indoorFirst: true }, 0.8, "driving"],
+    // 長輩: no further on foot than indoor first.
+    ["with older relatives", { seniors: true }, 0.8, "transit"],
+    ["with older relatives", { seniors: true }, 0.4, "walking"],
   ] as const)("%s, %skm leg", (_who, prefs, km, mode) => {
     expect(modePickerFor(prefs)(km)).toBe(mode);
   });

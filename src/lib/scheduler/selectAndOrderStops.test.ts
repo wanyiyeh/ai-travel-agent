@@ -104,3 +104,17 @@ describe("selectAndOrderStops with related places", () => {
     expect(result.map((c) => c.id)).toEqual(["temple", "gate", "cafe"]);
   });
 });
+
+describe("scoreCandidate — boost and spread", () => {
+  const near: StopCandidate = { id: "near", lat: 0, lng: 0, rating: 4 };
+  const far: StopCandidate = { id: "far", lat: 0, lng: 0.03, rating: 4 }; // ~3.3km
+
+  it("multiplies the score by a candidate's boost", () => {
+    expect(scoreCandidate({ ...near, boost: 1.3 }, {})).toBeCloseTo(scoreCandidate(near, {}) * 1.3);
+  });
+
+  it("halves the score sooner with a smaller spread", () => {
+    const anchor = { lat: 0, lng: 0 };
+    expect(scoreCandidate(far, {}, anchor, 1.5)).toBeLessThan(scoreCandidate(far, {}, anchor));
+  });
+});

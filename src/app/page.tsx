@@ -64,9 +64,12 @@ const DRINK_OPTIONS: { value: DrinkTag; label: string }[] = [
   { value: "alcohol", label: "酒" },
 ];
 
-// 同行者 (plan/form-preference-wiring.md 1.5). 長輩 and 獨旅 come in their own PRs.
+// 同行者 (plan/form-preference-wiring.md 1.5). 獨旅 comes in its own PR.
 type CompanionTag = NonNullable<TripPreferences["companions"]>[number];
-const COMPANION_OPTIONS: { value: CompanionTag; label: string }[] = [{ value: "kids", label: "親子" }];
+const COMPANION_OPTIONS: { value: CompanionTag; label: string }[] = [
+  { value: "kids", label: "親子" },
+  { value: "seniors", label: "長輩" },
+];
 
 const INTEREST_OPTIONS: { value: NonNullable<TripPreferences["interests"]>[number]; label: string }[] = [
   { value: "food", label: "美食" },

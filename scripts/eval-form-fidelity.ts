@@ -145,6 +145,12 @@ const SCENARIOS: Scenario[] = [
     flightInfo: TOKYO,
     preferences: { companions: ["kids"], budget: "budget", drinks: ["alcohol"] },
   },
+  {
+    id: "tokyo-seniors",
+    label: "東京・長輩＋經濟實惠（沒選步調）",
+    flightInfo: TOKYO,
+    preferences: { companions: ["seniors"], budget: "budget" },
+  },
   { id: "tokyo-june", label: "東京 4 天・6 月（梅雨）", flightInfo: TOKYO_JUNE },
   { id: "tokyo-5-days", label: "東京 5 天・不選任何偏好（兩天一夜）", flightInfo: TOKYO_5_DAYS },
   { id: "sapporo-loop", label: "札幌 7 天・想去小樽（環狀多城市）", flightInfo: SAPPORO_WEEK, prompt: "想去小樽" },
@@ -449,6 +455,22 @@ const CHECKS: Check[] = [
       const m = r.get("tokyo-kids");
       if (!m) return "—";
       return `${m.dayTitles.join("、")}；小酌 ${m.nightcaps.filter(Boolean).length} 次；住宿 ${m.lodging.map((l) => l.name).join("、")}`;
+    },
+  },
+  {
+    // 500m on foot is about 6-7 minutes; the estimate rounds, so 8 allows for that.
+    title: "長輩：沒選步調也是悠閒（每天景點數 ≤ 對照組），走路每段 8 分鐘內，住宿不是青旅",
+    pass: (r) => {
+      const m = r.get("tokyo-seniors");
+      const base = r.get("tokyo-baseline");
+      if (!m) return null;
+      const relaxed = base ? m.stopsPerDay <= base.stopsPerDay : true;
+      return relaxed && m.longestWalkMinutes <= 8 && m.lodging.every((l) => !l.hostel);
+    },
+    detail: (r) => {
+      const m = r.get("tokyo-seniors");
+      if (!m) return "—";
+      return `每天 ${fix1(m.stopsPerDay)} 個（對照 ${fix1(r.get("tokyo-baseline")?.stopsPerDay)}）；最長走路 ${m.longestWalkMinutes} 分鐘；住宿 ${m.lodging.map((l) => l.name).join("、")}`;
     },
   },
   {

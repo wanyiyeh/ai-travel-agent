@@ -60,6 +60,8 @@ export type ItineraryMetrics = {
   adjacentRepeats: number;
   /** Meals without a placeId — names the LLM made up. */
   inventedMeals: number;
+  /** The longest walk between sightseeing stops, minutes, from 「步行約 N 分鐘」; 0 without any. */
+  longestWalkMinutes: number;
   /** Meals at a hotel (Google types include lodging), e.g. Hotel sardonyx ueno as a dinner — should be none. */
   mealsAtLodging: string[];
   /** A transit day's stops that go back to a place already seen in the city it leaves, by name (「小樽運河散步」). */
@@ -262,6 +264,10 @@ export function measureItinerary(days: Rec[], ctx: EvalContext): ItineraryMetric
     mealRepeatRate,
     adjacentRepeats,
     inventedMeals,
+    longestWalkMinutes: Math.max(
+      0,
+      ...stops.map((s) => Number(/步行約\s*(\d+)\s*分鐘/.exec(str(s.transport_from_prev) ?? "")?.[1] ?? 0))
+    ),
     mealsAtLodging: days.flatMap((d) =>
       MEAL_KEYS.map((k) => ((d.meals ?? {}) as Rec)[k])
         .filter((m): m is Rec => Boolean(m) && typeof m === "object")

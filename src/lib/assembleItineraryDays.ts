@@ -151,7 +151,12 @@ export async function assembleItineraryDays(
   const eventStops = (planned: PlannedDayEvents) => planned.fixed.flatMap((e) => (e.stop ? [e.stop] : []));
   const selfDrive = Boolean(preferenceIntent.selfDrive);
   // Which kinds of suburb place, from the traveler's interests and drinks.
-  const suburbGroups = suburbGroupsFor(preferenceIntent.interestBoost, preferences?.drinks ?? [], Boolean(preferenceIntent.kids));
+  const suburbGroups = suburbGroupsFor(
+    preferenceIntent.interestBoost,
+    preferences?.drinks ?? [],
+    Boolean(preferenceIntent.kids),
+    Boolean(preferenceIntent.seniors)
+  );
   const usedSuburbIds = new Set<string>();
   // The route's other cities, which a day trip shouldn't land in.
   const otherCityCenters = async (cityName: string, apiKey: string) => {

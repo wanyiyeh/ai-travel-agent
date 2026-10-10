@@ -133,6 +133,8 @@ export const PreferenceIntentSchema = z.object({
   selfDrive: z.boolean().optional(),
   // Form only: traveling with children (同行者 親子).
   kids: z.boolean().optional(),
+  // Form only: traveling with older relatives (同行者 長輩).
+  seniors: z.boolean().optional(),
 });
 
 export type PreferenceIntent = z.infer<typeof PreferenceIntentSchema>;

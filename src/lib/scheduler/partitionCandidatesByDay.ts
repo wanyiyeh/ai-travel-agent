@@ -39,6 +39,12 @@ export type PartitionOptions = {
   isPopular?: (c: StopCandidate) => boolean;
   /** The one day a candidate may go on (a seasonal highlight); undefined for any day. */
   reservedDay?: (c: StopCandidate) => number | undefined;
+  /**
+   * How far from the day's first place the rest may spread before their
+   * score halves (selectAndOrderStops' DISTANCE_REFERENCE_KM, 3km). Smaller
+   * keeps a 長輩 day in one area.
+   */
+  spreadKm?: number;
 };
 
 /**
@@ -111,7 +117,9 @@ export function partitionCandidatesByDay(
     // lodging, so the day stays in one area. Picking by distance alone undid the
     // interest weights: staying in Shinjuku, the 8 places nearest each seed were
     // the same for 文化歷史, 自然景觀 and no preference at all.
-    remaining.sort((a, b) => scoreCandidate(b, interestWeights, seed) - scoreCandidate(a, interestWeights, seed));
+    remaining.sort(
+      (a, b) => scoreCandidate(b, interestWeights, seed, options.spreadKm) - scoreCandidate(a, interestWeights, seed, options.spreadKm)
+    );
     const fill = (limit: number, wanted: (c: StopCandidate) => boolean) => {
       for (const candidate of [...remaining]) {
         if (day.length >= limit) break;

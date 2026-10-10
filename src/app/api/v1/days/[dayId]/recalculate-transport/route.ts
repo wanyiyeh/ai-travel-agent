@@ -80,12 +80,13 @@ export async function POST(
       })),
     ];
 
-    // Same leg rules as generation: the trip's indoor-first and self-drive choices.
+    // Same leg rules as generation: the trip's indoor-first, self-drive and 長輩 choices.
     const preferences = TripPreferencesSchema.safeParse((itinerary.config as { preferences?: unknown }).preferences).data;
     const selfDrive = preferences?.transport === "drive";
+    const seniors = preferences?.companions?.includes("seniors");
     const distanceResults = await getDistancesForStopPairs(
       distancePoints,
-      modePickerFor({ indoorFirst: preferences?.indoorFirst, selfDrive })
+      modePickerFor({ indoorFirst: preferences?.indoorFirst, selfDrive, seniors })
     );
     // When an origin point was prepended, distanceResults[0] is origin->stops[0],
     // so stop i's incoming leg is at distanceResults[i] instead of distanceResults[i-1].

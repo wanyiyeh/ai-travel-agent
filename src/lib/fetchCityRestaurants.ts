@@ -15,8 +15,11 @@ const NEARBY_SEARCH_URL = "https://places.googleapis.com/v1/places:searchNearby"
 // Only lunch/dinner needs Enterprise — its budget ranking reads priceRange.
 // Nearby Search has no priceLevels filter (only Text Search does): it was
 // silently ignored while still splitting the cache per budget.
+// accessibilityOptions is a Pro field too, for 長輩 (plan 1.5): a wheelchair-
+// accessible entrance scores a sight up. Pools cached before it was asked for
+// lack it until they refresh (30 days).
 export const PRO_FIELD_MASK =
-  "places.id,places.displayName,places.location,places.formattedAddress,places.photos,places.types";
+  "places.id,places.displayName,places.location,places.formattedAddress,places.photos,places.types,places.accessibilityOptions";
 export const ENTERPRISE_FIELD_MASK = `${PRO_FIELD_MASK},places.rating,places.priceLevel,places.priceRange`;
 // 親子 only (plan/form-preference-wiring.md 1.5): whether a restaurant suits
 // children, an Enterprise + Atmosphere field — the costliest tier, so only
@@ -322,6 +325,8 @@ export interface PlaceCandidate {
   /** Kids tier only (KIDS_FIELD_MASK); absent when Google doesn't say. */
   goodForChildren?: boolean;
   menuForChildren?: boolean;
+  /** A wheelchair-accessible entrance; absent when Google doesn't say, or the pool predates the field. */
+  accessibleEntrance?: boolean;
 }
 
 export type PriceRange = { currency: string; start?: number; end?: number };
@@ -437,6 +442,7 @@ type NearbyPlaceResult = {
   types?: string[];
   goodForChildren?: boolean;
   menuForChildren?: boolean;
+  accessibilityOptions?: { wheelchairAccessibleEntrance?: boolean };
 };
 
 async function fetchNearbyPlaceCandidatesUncached(
@@ -490,6 +496,9 @@ async function fetchNearbyPlaceCandidatesUncached(
         types: p.types,
         ...(p.goodForChildren !== undefined ? { goodForChildren: p.goodForChildren } : {}),
         ...(p.menuForChildren !== undefined ? { menuForChildren: p.menuForChildren } : {}),
+        ...(p.accessibilityOptions?.wheelchairAccessibleEntrance !== undefined
+          ? { accessibleEntrance: p.accessibilityOptions.wheelchairAccessibleEntrance }
+          : {}),
       }))
       .filter((c: PlaceCandidate) => c.name.length > 0 && c.placeId.length > 0);
   } catch (err) {

@@ -8,6 +8,8 @@ export type StopCandidate = {
   rating?: number | null;
   /** Shared by parts of one sight listed separately (淺草寺 and 淺草寺 雷門) — scheduled on the same day, back to back. */
   groupId?: string;
+  /** Multiplies the score, e.g. an accessible entrance on a 長輩 trip. */
+  boost?: number;
 };
 
 export type SelectAndOrderStopsOptions = {
@@ -31,9 +33,13 @@ const DEFAULT_RATING = 3.5;
 const DISTANCE_REFERENCE_KM = 3;
 
 /** 1 at the anchor, 0.5 at DISTANCE_REFERENCE_KM, 0.25 at three times that — closer is better, never zero. */
-export function distanceFactor(candidate: StopCandidate, anchor: { lat: number; lng: number }): number {
+export function distanceFactor(
+  candidate: StopCandidate,
+  anchor: { lat: number; lng: number },
+  referenceKm = DISTANCE_REFERENCE_KM
+): number {
   const km = haversineKm(anchor.lat, anchor.lng, candidate.lat, candidate.lng);
-  return 1 / (1 + km / DISTANCE_REFERENCE_KM);
+  return 1 / (1 + km / referenceKm);
 }
 
 /**
@@ -46,11 +52,12 @@ export function distanceFactor(candidate: StopCandidate, anchor: { lat: number; 
 export function scoreCandidate(
   candidate: StopCandidate,
   interestWeights: Record<string, number>,
-  anchor?: { lat: number; lng: number }
+  anchor?: { lat: number; lng: number },
+  referenceKm = DISTANCE_REFERENCE_KM
 ): number {
   const baseRating = candidate.rating ?? DEFAULT_RATING;
   const weight = candidate.type ? (interestWeights[candidate.type] ?? 1) : 1;
-  return baseRating * weight * (anchor ? distanceFactor(candidate, anchor) : 1);
+  return baseRating * weight * (candidate.boost ?? 1) * (anchor ? distanceFactor(candidate, anchor, referenceKm) : 1);
 }
 
 function nearestNeighborOrder(
