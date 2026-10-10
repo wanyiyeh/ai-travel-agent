@@ -20,7 +20,6 @@ import { estimateStopCapacity } from "@/lib/scheduler/stopCapacity";
 import { generateSkeletonCopy } from "@/lib/skeletonCopy";
 import { NEUTRAL_PREFERENCE_INTENT, type PreferenceIntent } from "@/lib/schemas";
 import { getDistancesForStopPairs, pickModeForDistance, describeTransport, modePickerFor } from "@/lib/distanceMatrix";
-import { haversineKm } from "@/lib/geo";
 import { forSoloTraveler, nearStationFirst } from "@/lib/soloTravel";
 import { estimateAttractionCost } from "@/lib/priceLevelCost";
 import { isFoodPlace } from "@/lib/foodPlace";
@@ -554,17 +553,55 @@ export function mealPreferencesOf(intent: PreferenceIntent, drinks?: DrinkChoice
   };
 }
 
+// Ramen is fine with children when the soup is mild: chicken (鶏白湯) or
+// tonkotsu. Google has no broth field, so it's read from the name — 一蘭 and
+// 一風堂 are tonkotsu chains; a spicy name (辣麻味噌, 担々) isn't for children.
+const MILD_RAMEN_NAME = /鶏|雞|鸡|白湯|豚骨|tonkotsu|toripaitan|chicken|一蘭|ichiran|一風堂|ippudo/i;
+const SPICY_NAME = /辣|激辛|担々|擔擔|担担|麻辣|spicy|tantan/i;
+
 /**
  * Restaurants for a trip with children: those Google says suit children
- * first, then those it says nothing about (many places don't fill it in),
- * in their order. Places it says don't suit children and have no children's
- * menu are left out — a ramen bar marked that way was a 親子 return-day lunch.
+ * first — and ramen with a mild soup by its name — then those it says
+ * nothing about (many places don't fill it in), in their order. Left out:
+ * places it says don't suit children and have no children's menu (a ramen
+ * bar marked that way was a 親子 return-day lunch), and spicy-sounding ones.
  */
 export function childFriendlyFirst(places: PlaceCandidate[]): PlaceCandidate[] {
-  const suits = (p: PlaceCandidate) => p.goodForChildren === true || p.menuForChildren === true;
-  const ruledOut = (p: PlaceCandidate) => p.goodForChildren === false && p.menuForChildren !== true;
-  return [...places.filter(suits), ...places.filter((p) => !suits(p) && !ruledOut(p))];
+  const isRamen = (p: PlaceCandidate) => Boolean(p.types?.includes("ramen_restaurant"));
+  const mildRamen = (p: PlaceCandidate) => isRamen(p) && MILD_RAMEN_NAME.test(p.name);
+  const suits = (p: PlaceCandidate) => p.goodForChildren === true || p.menuForChildren === true || mildRamen(p);
+  const ruledOut = (p: PlaceCandidate) =>
+    SPICY_NAME.test(p.name) || (p.goodForChildren === false && p.menuForChildren !== true && !mildRamen(p));
+  const kept = places.filter((p) => !ruledOut(p));
+  return [...kept.filter(suits), ...kept.filter((p) => !suits(p))];
 }
+
+// When the lunch/dinner search runs short: restaurants by their own main
+// type only. The usual search takes any place with a restaurant among its
+// types, and around 新宿 half its 20 were 高島屋, LUMINE, a cinema, hotels
+// and 新宿黃金街 — 8 real restaurants for 8 meals, so a solo or 親子 trip,
+// leaving a few out, repeated day 1's. Only types seen in cached results:
+// one Google doesn't know fails the whole search.
+const MAIN_MEAL_PRIMARY_TYPES = [
+  "ramen_restaurant",
+  "japanese_restaurant",
+  "sushi_restaurant",
+  "japanese_curry_restaurant",
+  "tonkatsu_restaurant",
+  "yakitori_restaurant",
+  "seafood_restaurant",
+  "family_restaurant",
+  "chinese_restaurant",
+  "korean_restaurant",
+  "taiwanese_restaurant",
+  "italian_restaurant",
+  "french_restaurant",
+  "spanish_restaurant",
+  "american_restaurant",
+  "pizza_restaurant",
+  "hamburger_restaurant",
+  "western_restaurant",
+];
 
 const DRINK_DRIVE_NOTE = "開車的話請不要喝酒，可以把車留在住宿";
 
@@ -644,12 +681,21 @@ async function fetchMealLodgingPools(
   // Diet-specific places first (the stronger constraint), then price-filtered
   // luxury places, then the regular popularity pool; budget ranking below
   // still orders them by fit.
-  const allMain = excludeByDiet(uniqueByPlaceId([...dietMain, ...luxuryMain, ...main]), dietaryRestrictions)
-    .filter(isFoodPlace)
-    .filter(fitsMainMeal);
-  // Lunch + dinner each day draw from the same pool.
-  const budgetRanked = rankMainMealsByBudget(allMain, budget, currency, twdPerUnit, stayDays * 2);
-  const rankedMain = kids ? childFriendlyFirst(budgetRanked) : solo ? forSoloTraveler(budgetRanked) : budgetRanked;
+  const mainTier = kids ? "kids" : "enterprise";
+  const usableMain = (found: PlaceCandidate[]) => {
+    const all = excludeByDiet(uniqueByPlaceId(found), dietaryRestrictions).filter(isFoodPlace).filter(fitsMainMeal);
+    // Lunch + dinner each day draw from the same pool.
+    const budgetRanked = rankMainMealsByBudget(all, budget, currency, twdPerUnit, stayDays * 2);
+    return { all, ranked: kids ? childFriendlyFirst(budgetRanked) : solo ? forSoloTraveler(budgetRanked) : budgetRanked };
+  };
+  let mainPools = [...dietMain, ...luxuryMain, ...main];
+  let { all: allMain, ranked: rankedMain } = usableMain(mainPools);
+  // Not enough for every lunch and dinner: one more search, real restaurants only.
+  if (rankedMain.length < stayDays * 2) {
+    const more = await search(MAIN_MEAL_PRIMARY_TYPES, mainTier, isFoodPlace, "primary");
+    mainPools = [...mainPools, ...more];
+    ({ all: allMain, ranked: rankedMain } = usableMain(mainPools));
+  }
   // Coffee and tea alternate by day (mealLodgingPicks.ts enforces it); a
   // drink with no places in this city just drops out. A coffee lover's
   // breakfast also starts with the coffee places that serve one.
@@ -700,7 +746,9 @@ export async function generateMealsAndAccommodation(
 
   const lateRiserRule =
     preferences.startTimePreference === "late" ? "\n- 旅客晚起（約 11:00 出門），早餐請選早午餐" : "";
-  const kidsRule = preferences.kids ? "\n- 有小孩同行：午餐、晚餐優先選適合兒童的店（排在候選前面的），避開居酒屋、酒吧" : "";
+  const kidsRule = preferences.kids
+    ? "\n- 有小孩同行：午餐、晚餐優先選適合兒童的店（排在候選前面的），避開居酒屋、酒吧；拉麵可以，優先雞湯系或豚骨，避開辣的"
+    : "";
   const soloRule = preferences.solo
     ? "\n- 一個人旅行：午餐、晚餐優先選一個人吃也自在的店（拉麵、壽司、定食、有吧檯座位的店，排在候選前面的），避開雙人套餐、大份量火鍋、燒肉吃到飽；住宿優先選排在前面、離車站近的"
     : "";

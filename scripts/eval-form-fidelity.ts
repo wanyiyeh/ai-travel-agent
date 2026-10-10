@@ -466,6 +466,18 @@ const CHECKS: Check[] = [
     },
   },
   {
+    // 新宿's pool was half malls and hotels: 8 restaurants for 8 meals, so trips leaving some out repeated.
+    title: "餐點：東京對照組、獨旅、親子的午晚餐都不重複",
+    pass: (r) => {
+      const trips = ["tokyo-baseline", "tokyo-solo", "tokyo-kids"].map((id) => r.get(id)).filter((m) => m !== undefined);
+      return trips.length ? trips.every((m) => m.repeatedMainMeals.length === 0) : null;
+    },
+    detail: (r) =>
+      ["tokyo-baseline", "tokyo-solo", "tokyo-kids"]
+        .map((id) => `${id}：${r.get(id)?.repeatedMainMeals.join("、") || (r.get(id) ? "沒有重複" : "—")}`)
+        .join("；"),
+  },
+  {
     // The real 《你的名字》 location is 須賀神社's stairs; the model once offered the fictional 「三葉神社」 and the Ghibli Museum.
     title: "影劇追星：選了《你的名字》，有一天「影劇朝聖」，而且排到須賀神社",
     pass: (r) => {

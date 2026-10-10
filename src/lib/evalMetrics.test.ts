@@ -142,6 +142,11 @@ describe("measureItinerary", () => {
     expect(m2.outdoorAfterDarkDays).toBe(1);
   });
 
+  it("lists lunch/dinner places that come up more than once", () => {
+    // the fixture's ramen is lunch on day 1, day 2 and the transit day
+    expect(m.repeatedMainMeals).toEqual(["ramen"]);
+  });
+
   it("measures how many lunches/dinners suit one person", () => {
     // the fixture has ramen and sushi lunches/dinners
     expect(m.soloFriendlyShare).toBeGreaterThan(0);
