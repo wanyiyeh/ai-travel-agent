@@ -18,6 +18,9 @@ import { SUSPICIOUS_DISTANCE_KM as NEAREST_CITY_KM_THRESHOLD, haversineKm } from
 import { iataToCity } from "@/lib/airports";
 import { MAX_CITY_DAYS, MAX_TRIP_DAYS } from "@/lib/inputLimits";
 import { useItinerarySensors } from "@/hooks/useItinerarySensors";
+import { dateOfTripDay } from "@/lib/fixedEvents";
+import { keptSightseeingDayNumber, type LayoutCity } from "@/lib/restructureLayout";
+import { suburbKindFor } from "@/lib/suburbKind";
 import { useSortableItem } from "@/hooks/useSortableItem";
 
 // Same threshold as src/lib/nearestCity.ts's NEAREST_CITY_KM_THRESHOLD —
@@ -37,6 +40,8 @@ export interface RestructureDayLite {
   stopCount: number;
   /** The traveler's booked event that day (固定行程), 「演唱會 11/12」: the day is always kept. */
   bookedEventLabel?: string;
+  /** Its date on the ticket, 2026-11-12: warned about if the day moves off it. */
+  bookedEventDate?: string;
 }
 
 interface LockedAttractionState {
@@ -130,6 +135,8 @@ interface RestructurePanelProps {
   isSingleCity?: boolean;
   existingStops?: string[];
   returnDate?: string;
+  /** Day 1's date, to tell where a booked event's day lands. */
+  departureDate?: string;
 }
 
 // Days carry no date of their own, so growing/shrinking the trip shifts
@@ -267,6 +274,42 @@ export function choosableDayIds(city: CityEntryState): string[] {
   return city.isNew ? [] : city.existingDayIds.filter((id) => !city.structuralDayIds.has(id));
 }
 
+// 「11/13」 from 2026-11-13.
+function monthDay(date: string): string {
+  const [, month, day] = date.split("-").map(Number);
+  return `${month}/${day}`;
+}
+
+// What the AI-planned days will hold — they're planned on apply, so this
+// says what the preferences make likely rather than promising it.
+export function newDaysHint(count: number): string {
+  const kind = suburbKindFor(count);
+  return kind === "day"
+    ? "依你的偏好排主題，通常有一天郊區一日遊"
+    : kind === "half"
+      ? "依你的偏好排主題，通常有一天半日遊"
+      : "依你的偏好排主題";
+}
+
+/**
+ * A booked event whose day would land on another date than the ticket's —
+ * when days are added or removed before it. Undefined when it stays put.
+ */
+export function bookedDateShift(
+  day: RestructureDayLite,
+  cities: LayoutCity[],
+  cityIdx: number,
+  isStructural: (dayId: string) => boolean,
+  lastOriginalDayId: string | undefined,
+  departureDate: string | undefined
+): { dayNumber: number; date: string } | undefined {
+  if (!day.bookedEventDate || !departureDate) return undefined;
+  const dayNumber = keptSightseeingDayNumber(cities, cityIdx, day.id, isStructural, lastOriginalDayId);
+  if (dayNumber === undefined) return undefined;
+  const date = dateOfTripDay(departureDate, dayNumber);
+  return date === day.bookedEventDate ? undefined : { dayNumber, date };
+}
+
 function SortableCityEntry({
   city,
   draggable,
@@ -363,6 +406,7 @@ export default function RestructurePanel({
   isSingleCity = false,
   existingStops,
   returnDate,
+  departureDate,
 }: RestructurePanelProps) {
   const [step, setStep] = useState<1 | 2>(1);
   const [cities, setCities] = useState<CityEntryState[]>(() =>
@@ -437,6 +481,14 @@ export default function RestructurePanel({
   );
 
   const daysById = new Map(days.map((d) => [d.id, d]));
+  // Where each kept day lands once applied (restructureLayout.ts, as the route does it).
+  const structuralIds = computeStructuralDayIds(days);
+  const lastOriginalDayId = days[days.length - 1]?.id;
+  const layoutCities: LayoutCity[] = cities.map((c) => ({
+    isNew: c.isNew,
+    targetDays: c.targetDays,
+    keepDayIds: c.existingDayIds.filter((id) => c.keepDayIds.has(id)),
+  }));
   // The trip's original total day count. Growing or shrinking it is allowed —
   // days carry no date of their own (see shiftDateString above), so the
   // backend shifts flightInfo.returnDate by the same delta on apply to keep
@@ -1041,7 +1093,7 @@ export default function RestructurePanel({
             <p className="text-xs text-zinc-500 dark:text-zinc-400">
               已依你加入的必去景點試算建議天數，可用 +/- 微調每個城市的總天數。移動日、回程日和有固定行程的日子會自動保留。
             </p>
-            {cities.map((city) => {
+            {cities.map((city, cityIdx) => {
               const { removed, keptCount, addedAiDays } = computeCityDiff(city);
               const choosable = choosableDayIds(city);
               const expanded = expandedKeepKeys.has(city.key);
@@ -1085,8 +1137,28 @@ export default function RestructurePanel({
                     </p>
                   )}
                   {addedAiDays > 0 && (
-                    <p className="text-xs text-emerald-600 dark:text-emerald-400">AI 新規劃 {addedAiDays} 天</p>
+                    <p className="text-xs text-emerald-600 dark:text-emerald-400">
+                      AI 新規劃 {addedAiDays} 天（{newDaysHint(addedAiDays)}）
+                    </p>
                   )}
+                  {[...city.bookedDayIds].map((id) => {
+                    const day = daysById.get(id);
+                    const shift =
+                      day &&
+                      bookedDateShift(
+                        day,
+                        layoutCities,
+                        cityIdx,
+                        (dayId) => structuralIds.has(dayId),
+                        lastOriginalDayId,
+                        departureDate
+                      );
+                    return day && shift ? (
+                      <p key={id} className="text-xs font-semibold text-amber-600 dark:text-amber-400">
+                        🔒 {day.bookedEventLabel}會變成第 {shift.dayNumber} 天（{monthDay(shift.date)}），跟票上的日期不同，請調整前面的天數
+                      </p>
+                    ) : null;
+                  })}
                   {city.lockedAttractions.length > 0 && (
                     <p className="text-xs text-purple-600 dark:text-purple-400">
                       🔒 鎖定景點日：{city.lockedAttractions.map((a) => a.name).join("、")}

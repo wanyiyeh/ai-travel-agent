@@ -11,6 +11,7 @@ import {
 } from "@/lib/itineraryCityGen";
 import { buildStayDays, stayContextOf, type StayContext } from "@/lib/cityStayDays";
 import { fillMissingCopy } from "@/lib/missingCopy";
+import { blockStartDays } from "@/lib/restructureLayout";
 import { parsePreferenceIntent } from "@/lib/preferenceIntent";
 import { mergePreferenceIntent } from "@/lib/mergePreferenceIntent";
 import { TripPreferencesSchema, type PreferenceIntent } from "@/lib/schemas";
@@ -467,15 +468,8 @@ export async function POST(
         (d) => keptIds.has(d.id as string) && String((d.accommodation as { reason?: unknown } | null)?.reason ?? "").startsWith("露營")
       ),
     });
-    // The old return day moves to the very end when its city is no longer the
-    // last (below), so every block after that city starts a day earlier.
-    const returnBlock = cities.findIndex((c) => !c.isNew && lastOriginalDayId !== undefined && c.keepDayIds.includes(lastOriginalDayId));
-    const blockStarts = cities.map(
-      (_, idx) =>
-        1 +
-        cities.slice(0, idx).reduce((sum, c) => sum + c.targetDays, 0) -
-        (returnBlock !== -1 && returnBlock < cities.length - 1 && idx > returnBlock ? 1 : 0)
-    );
+    // Each block's first day, the old return day's move included (restructureLayout.ts).
+    const blockStarts = blockStartDays(cities, lastOriginalDayId);
 
     const blocks = await Promise.all(
       cities.map((city, idx) =>
