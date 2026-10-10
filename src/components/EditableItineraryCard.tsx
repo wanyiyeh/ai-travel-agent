@@ -28,7 +28,7 @@ import { StopPicker } from "@/components/StopPicker";
 import { PlacePhotoThumb } from "@/components/PlacePhotoThumb";
 import { haversineKm } from "@/lib/geo";
 import { calculateStopsCost, calculateDayTotalCost } from "@/lib/costCalculations";
-import { buildPlaceMapsUrl, buildDirectionsUrl, buildSearchMapsUrl } from "@/lib/googleMapsUrl";
+import { buildPlaceMapsUrl, buildDirectionsUrl, buildNearbySearchUrl, buildSearchMapsUrl } from "@/lib/googleMapsUrl";
 import { formatDuration } from "@/types/itinerary";
 import { MEAL_TYPES } from "@/types/itinerary";
 import { isDinnerBeforeStop } from "@/lib/fixedEvents";
@@ -1525,6 +1525,21 @@ export default function EditableItineraryCard({
                       <SortableContext items={stopIds} strategy={verticalListSortingStrategy}>
                         {stopsList}
                       </SortableContext>
+                    )}
+                    {/* Free: a Google Maps search around the night's lodging, no Places call. */}
+                    {day.accommodation?.lat != null && day.accommodation?.lng != null && (
+                      <p className="mt-3 text-sm text-zinc-500 dark:text-zinc-400">
+                        🛒{" "}
+                        <a
+                          href={buildNearbySearchUrl("supermarket", day.accommodation.lat, day.accommodation.lng)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-600 dark:text-blue-400 hover:underline"
+                        >
+                          住宿附近的超市
+                        </a>
+                        （想自己煮，或買熟食、便當回住宿吃也可以）
+                      </p>
                     )}
 
                   {bulkEditDayId === day.id && day.id && (

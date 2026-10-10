@@ -15,7 +15,7 @@ function union(a: readonly string[], b: readonly string[]): string[] {
  *   Form interest values double as interestBoost tags (culture/nature/
  *   shopping map to scheduler categories; others simply get no boost).
  * - avoid: free text only, the form has no such field.
- * - indoorFirst, selfDrive, kids, seniors: form only. 親子 also leads the
+ * - indoorFirst, selfDrive, kids, seniors, solo: form only. 親子 also leads the
  *   interests with "kids", so a 親子同樂 day comes first in the theme
  *   rotation; 長輩 makes the pace relaxed unless one was chosen.
  */
@@ -36,5 +36,6 @@ export function mergePreferenceIntent(
     ...(preferences?.transport === "drive" ? { selfDrive: true } : {}),
     ...(preferences?.companions?.includes("kids") ? { kids: true } : {}),
     ...(preferences?.companions?.includes("seniors") ? { seniors: true } : {}),
+    ...(preferences?.companions?.includes("solo") ? { solo: true } : {}),
   };
 }

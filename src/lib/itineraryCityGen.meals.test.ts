@@ -41,6 +41,8 @@ beforeEach(() => {
   vi.stubEnv("GOOGLE_PLACES_API_KEY", "key");
   createMock.mockReset();
   nearbyMock.mockReset();
+  // A search a test didn't set up finds nothing.
+  nearbyMock.mockResolvedValue([]);
   lodgingMock.mockReset();
   lodgingMock.mockResolvedValue([]);
   luxuryMock.mockReset();
@@ -393,5 +395,49 @@ describe("generateMealsAndAccommodation — with older relatives", () => {
 
     expect(systemPrompt()).toContain("Quiet Inn");
     expect(systemPrompt()).not.toContain("Dorm Hostel");
+  });
+});
+
+// 獨旅 (plan 1.5).
+describe("generateMealsAndAccommodation — traveling alone", () => {
+  const typed = (name: string, types: string[], lat = 35, lng = 135.7): PlaceCandidate => ({ ...place(name), types, lat, lng });
+
+  it("offers places easy to eat at alone first, and says so in the prompt", async () => {
+    nearbyMock.mockImplementation(async (_c: unknown, _k: unknown, types: string[]) =>
+      types.includes("ramen_restaurant") || types.includes("restaurant")
+        ? [typed("Hot Pot House", ["hot_pot_restaurant"]), typed("Ramen Bar", ["ramen_restaurant"])]
+        : []
+    );
+    mockLlm({ accommodation: {}, meals: [] });
+
+    await generateMealsAndAccommodation("東京", 1, "JPY", undefined, { solo: true });
+
+    expect(systemPrompt()).toContain("M1: Ramen Bar");
+    expect(systemPrompt()).toContain("一個人旅行");
+  });
+
+  it("searches stations once and puts lodging near one first", async () => {
+    nearbyMock.mockImplementation(async (_c: unknown, _k: unknown, types: string[]) =>
+      types.includes("train_station") ? [{ ...place("Station"), lat: 35.0, lng: 135.7 }] : []
+    );
+    lodgingMock.mockResolvedValueOnce([
+      typed("Far Hotel", ["hotel"], 35.02, 135.7), // ~2.2km from the station
+      typed("Station Hotel", ["hotel"], 35.002, 135.7), // ~220m
+    ]);
+    mockLlm({ accommodation: {}, meals: [] });
+
+    await generateMealsAndAccommodation("東京", 1, "JPY", undefined, { solo: true });
+
+    expect(nearbyMock.mock.calls.filter((c) => (c[2] as string[]).includes("train_station"))).toHaveLength(1);
+    expect(systemPrompt().indexOf("Station Hotel")).toBeLessThan(systemPrompt().indexOf("Far Hotel"));
+  });
+
+  it("looks for no station on other trips", async () => {
+    nearbyMock.mockResolvedValue([]);
+    mockLlm({ accommodation: {}, meals: [] });
+
+    await generateMealsAndAccommodation("東京", 1, "JPY", undefined, {});
+
+    expect(nearbyMock.mock.calls.some((c) => (c[2] as string[]).includes("train_station"))).toBe(false);
   });
 });
