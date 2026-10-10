@@ -599,6 +599,13 @@ Google 依請求裡最貴的欄位計費（Pro：每月免費 5,000 次；Enterp
 - 觀光日、移動日、返程日的景點都經過同一個函式（`withSupplementalAttractions`），在那裡擋一次。
 - 評分：東京所有情境都不能把酒吧街排成景點。
 
+移動日不重複（`fix/transit-day-repeats`）：
+- 移動日「出發前的早晨行程」是 AI 自己寫的、沒有地點 ID，AI 也不知道旅客前幾天在出發城市去過哪裡，所以離開小樽那天又排了
+  「小樽運河散步」。
+- 修法兩層：把出發城市已經去過的地點名稱告訴 AI；AI 還是寫了，就依名稱擋掉（「小樽運河散步」包含「小樽運河」，
+  忽略空白和括號，2 個字以下的名稱不比對）。AI 失敗改走舊流程時也套用同樣的過濾。
+- 評分：札幌環狀和東京 5 天的移動日，不能有名稱跟出發城市前幾天景點重疊的行程。
+
 - 郊區類型的搜尋半徑放寬到 50 公里：
   - 陸上活動：`national_park`、`state_park`、`hiking_area`、`adventure_sports_center`、`ski_resort`
   - 水上活動：`beach`、`marina`、`water_park`、`fishing_charter`
