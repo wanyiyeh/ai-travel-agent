@@ -1196,7 +1196,7 @@ export default function RestructurePanel({
                       );
                     return day && shift ? (
                       <p key={id} className="text-xs font-semibold text-amber-600 dark:text-amber-400">
-                        🔒 {day.bookedEventLabel}會變成第 {shift.dayNumber} 天（{monthDay(shift.date)}），跟票上的日期不同，請調整前面的天數
+                        🔒 {day.bookedEventLabel} 會變成第 {shift.dayNumber} 天（{monthDay(shift.date)}），跟票上的日期不同，請調整前面的天數
                       </p>
                     ) : null;
                   })}
