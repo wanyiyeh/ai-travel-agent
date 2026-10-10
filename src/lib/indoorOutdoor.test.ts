@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { exposureOf, indoorFirstPool, keepOutdoorOffMidday } from "@/lib/indoorOutdoor";
+import { exposureOf, indoorFirstPool, isBarStreet, keepOutdoorOffMidday } from "@/lib/indoorOutdoor";
 
 describe("exposureOf", () => {
   // Types as Google returned them for these Tokyo places (dev.db cache).
@@ -63,5 +63,19 @@ describe("indoorFirstPool", () => {
 
   it("keeps outdoor places to fill in when there aren't enough sheltered ones", () => {
     expect(indoorFirstPool(pool, 3, isOutdoor)).toBe(pool);
+  });
+});
+
+// Types as cached from real searches.
+describe("isBarStreet", () => {
+  it.each([
+    ["新宿黃金街", ["tourist_attraction", "ramen_restaurant", "japanese_restaurant", "bar", "restaurant", "food"], true],
+    ["王權瑪哈納功大廈 (a skywalk)", ["tourist_attraction", "bar", "store"], false],
+    ["巴特西發電站 (a mall)", ["historical_landmark", "food_court", "tourist_attraction", "bar", "shopping_mall", "restaurant", "food"], false],
+    ["空中花園 (a garden)", ["scenic_spot", "garden", "tourist_attraction", "cafe", "bar", "restaurant", "food"], false],
+    ["鈴廣魚板之鄉 (a museum)", ["brewpub", "cafe", "tourist_attraction", "pub", "bar", "museum", "restaurant", "food"], false],
+    ["渋谷スクランブル交差点", ["tourist_attraction", "point_of_interest", "establishment"], false],
+  ])("%s", (_name, types, expected) => {
+    expect(isBarStreet(types)).toBe(expected);
   });
 });

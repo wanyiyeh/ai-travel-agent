@@ -326,6 +326,25 @@ describe("generateThemedDayStops — 室內行程為主 (indoor first)", () => {
   });
 });
 
+// Story: 新宿黃金街 kept landing in the morning, on the return day too.
+describe("generateThemedDayStops — bar streets", () => {
+  it("never schedules a bar street as a daytime sight", async () => {
+    const goldenGai: PlaceCandidate = {
+      ...POOL[0],
+      name: "新宿黃金街",
+      placeId: "golden-gai",
+      rating: 4.9, // the most popular, so it would be picked first
+      types: ["tourist_attraction", "ramen_restaurant", "bar", "japanese_restaurant", "restaurant", "food"],
+    };
+    nearbyMock.mockResolvedValue([goldenGai, ...POOL]);
+
+    const { stopsByDay } = await generateThemedDayStops("東京", 2, "JPY", [], undefined, NEUTRAL_PREFERENCE_INTENT);
+
+    expect(stopsByDay.flat().length).toBeGreaterThan(0);
+    expect(stopsByDay.flat().map((s) => s.placeId)).not.toContain("golden-gai");
+  });
+});
+
 // 日落和天氣 (dayConditions.ts): heat and rain bend the day like 室內行程為主, without its narrower pool.
 describe("generateThemedDayStops — sunset and weather", () => {
   const place = (id: string, type: string, i: number): PlaceCandidate => ({
