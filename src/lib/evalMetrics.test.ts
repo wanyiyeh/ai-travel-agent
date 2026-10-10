@@ -203,6 +203,22 @@ describe("measureItinerary", () => {
     expect(measureItinerary(withFilm, ctx).filmDays).toEqual([{ day: 2, title: "東京 影劇朝聖：《你的名字》", stops: ["須賀神社"] }]);
   });
 
+  it("lists each night's stay with a dog, 毛孩同樂 days and the carrier note", () => {
+    const trip = days.map((d, i) =>
+      i === 0
+        ? {
+            ...d,
+            theme: "台南 毛孩同樂",
+            stops: [{ name: "從台北前往台南", description: "搭高鐵約 1 小時 45 分（估計）。帶寵物搭大眾運輸要裝籠或提袋" }],
+            accommodation: { name: "毛孩民宿" },
+          }
+        : i === 1
+          ? { ...d, accommodation: { name: "", area: "台南", noneFound: true } }
+          : { ...d, accommodation: null }
+    );
+    expect(measureItinerary(trip, ctx).pets).toEqual({ stays: ["毛孩民宿", "找不到"], petDays: 1, carrierNote: true });
+  });
+
   it("picks out night markets, 老街 days, hot springs and camping nights", () => {
     const trip = days.map((d, i) =>
       i === 0
