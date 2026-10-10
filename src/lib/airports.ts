@@ -9,6 +9,14 @@ export interface Airport {
   cityZh: string;
   lat: number;
   lng: number;
+  /**
+   * A place in Taiwan for a 國內 trip (plan/form-preference-wiring.md 1.10,
+   * phase 5): not an airport, a destination or a home town, keyed TW-xxx.
+   * A domestic trip borrows the flight fields for these (domesticTrips.ts).
+   */
+  domestic?: true;
+  /** An outlying island: reached by plane or boat (domesticTrips.ts ISLAND_ACCESS). */
+  island?: true;
 }
 
 export const AIRPORTS: Record<string, Airport> = {
@@ -120,6 +128,34 @@ export const AIRPORTS: Record<string, Airport> = {
   SEA: { cityZh: "西雅圖", lat: 47.6062, lng: -122.3321 },
   YYZ: { cityZh: "多倫多", lat: 43.6532, lng: -79.3832 },
   YVR: { cityZh: "溫哥華", lat: 49.2827, lng: -123.1207 },
+
+  // 國內（台灣）: town centres or the main station, where a day starts.
+  // 台北, 台中, 高雄 repeat the airports' names: cityToIata keeps the airport
+  // (listed first), and the coordinates are the same city either way.
+  "TW-TPE": { cityZh: "台北", lat: 25.0478, lng: 121.517, domestic: true }, // 台北車站
+  "TW-JFN": { cityZh: "九份", lat: 25.1092, lng: 121.8446, domestic: true },
+  "TW-TSU": { cityZh: "淡水", lat: 25.1676, lng: 121.4456, domestic: true },
+  "TW-KEL": { cityZh: "基隆", lat: 25.1316, lng: 121.7392, domestic: true },
+  "TW-TYN": { cityZh: "桃園", lat: 24.9894, lng: 121.3133, domestic: true },
+  "TW-HSZ": { cityZh: "新竹", lat: 24.8016, lng: 120.9716, domestic: true },
+  "TW-TXG": { cityZh: "台中", lat: 24.1369, lng: 120.6852, domestic: true },
+  "TW-SML": { cityZh: "日月潭", lat: 23.8661, lng: 120.9126, domestic: true }, // 水社碼頭
+  "TW-CJG": { cityZh: "清境", lat: 24.0577, lng: 121.1603, domestic: true },
+  "TW-CYI": { cityZh: "嘉義", lat: 23.4792, lng: 120.4411, domestic: true },
+  "TW-ALS": { cityZh: "阿里山", lat: 23.5101, lng: 120.8018, domestic: true },
+  "TW-TNN": { cityZh: "台南", lat: 22.9971, lng: 120.2127, domestic: true },
+  "TW-KHH": { cityZh: "高雄", lat: 22.6394, lng: 120.302, domestic: true },
+  "TW-KTG": { cityZh: "墾丁", lat: 21.9469, lng: 120.7979, domestic: true },
+  "TW-ILA": { cityZh: "宜蘭", lat: 24.7546, lng: 121.758, domestic: true },
+  "TW-HUN": { cityZh: "花蓮", lat: 23.9932, lng: 121.601, domestic: true },
+  "TW-TTT": { cityZh: "台東", lat: 22.7934, lng: 121.1233, domestic: true },
+  // 離島
+  "TW-PEH": { cityZh: "澎湖", lat: 23.5665, lng: 119.5793, domestic: true, island: true }, // 馬公
+  "TW-KNH": { cityZh: "金門", lat: 24.4378, lng: 118.3186, domestic: true, island: true }, // 金城
+  "TW-MZU": { cityZh: "馬祖", lat: 26.157, lng: 119.947, domestic: true, island: true }, // 南竿
+  "TW-GDI": { cityZh: "綠島", lat: 22.6608, lng: 121.4907, domestic: true, island: true },
+  "TW-LYU": { cityZh: "蘭嶼", lat: 22.0446, lng: 121.5482, domestic: true, island: true },
+  "TW-XLQ": { cityZh: "小琉球", lat: 22.3424, lng: 120.37, domestic: true, island: true },
 };
 
 export function iataToCity(iata: string): string {

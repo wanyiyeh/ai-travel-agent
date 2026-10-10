@@ -75,3 +75,20 @@ describe("TripPreferencesSchema — 同行者", () => {
     expect(GenerateRequestSchema.safeParse({ flightInfo, preferences: { companions: ["solo", "seniors"] } }).success).toBe(false);
   });
 });
+
+describe("FlightInfoSchema — 國內", () => {
+  it("takes places in Taiwan and the times at home", () => {
+    const domestic = {
+      tripType: "domestic",
+      departureCity: "TW-TPE",
+      arrivalCity: "TW-PEH",
+      returnDepartureCity: "TW-PEH",
+      departureDate: "2026-07-01",
+      returnDate: "2026-07-04",
+      homeDepartureTime: "07:30",
+      homeArrivalTime: "21:00",
+    };
+    expect(GenerateRequestSchema.safeParse({ flightInfo: domestic }).success).toBe(true);
+    expect(GenerateRequestSchema.safeParse({ flightInfo: { ...domestic, arrivalCity: "TW-XX" } }).success).toBe(false);
+  });
+});
