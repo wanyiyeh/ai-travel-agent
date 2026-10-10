@@ -44,6 +44,8 @@ type Preferences = {
   filmTitles?: string[];
   startTime?: "early" | "normal" | "late";
   indoorFirst?: boolean;
+  /** false turns the 季節限定 day off (the form's 季節 checkbox). */
+  seasonalHighlights?: boolean;
   fixedEvents?: Array<{
     type: "concert" | "sports" | "show" | "reservation" | "work" | "other";
     date: string;
@@ -130,9 +132,11 @@ const SCENARIOS: Scenario[] = [
   { id: "tokyo-nature", label: "東京・偏好自然景觀", flightInfo: TOKYO, preferences: { interests: ["nature"] } },
   {
     id: "tokyo-culture-nature",
-    label: "東京・文化歷史＋自然景觀（主題輪流）",
+    label: "東京・文化歷史＋自然景觀（主題輪流，不排季節限定）",
     flightInfo: TOKYO,
-    preferences: { interests: ["culture", "nature"] },
+    // 4 days in 東京 have 3 sightseeing days; with a day trip and a seasonal
+    // day only one was left to theme, so two themes couldn't alternate.
+    preferences: { interests: ["culture", "nature"], seasonalHighlights: false },
   },
   {
     id: "tokyo-vegetarian",

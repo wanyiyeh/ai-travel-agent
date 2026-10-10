@@ -1,10 +1,7 @@
 import type { FlightInfo, TripPreferences } from "@/lib/schemas";
-import type { BudgetLevel, PlaceCandidate } from "@/lib/fetchCityRestaurants";
+import type { BudgetLevel } from "@/lib/fetchCityRestaurants";
 import { planTrip, type TripPlan } from "@/lib/tripPlan";
 import {
-  generateThemedDayStops,
-  dayStartFor,
-  dayEndFor,
   generateTransitDayStops,
   generateDepartureDayStops,
   generateMealsAndAccommodation,
@@ -14,10 +11,6 @@ import {
 import { parsePreferenceIntent } from "@/lib/preferenceIntent";
 import { mergePreferenceIntent } from "@/lib/mergePreferenceIntent";
 import { computeArrivalDayStartMinute } from "@/lib/scheduler/arrivalDayStart";
-import { THEMES } from "@/lib/dayThemes";
-import { dateOfTripDay, tripDayOfDate } from "@/lib/fixedEvents";
-import { getClimate, isInSeason } from "@/lib/climate";
-import { conditionsOf, weatherNote } from "@/lib/dayConditions";
 import { planDayEvents, type PlannedDayEvents } from "@/lib/fixedEventVenues";
 import { carPickup, carReturnStop, findCarRental } from "@/lib/carRental";
 import {
@@ -26,31 +19,7 @@ import {
   domesticJourneyEvents,
   isDomestic,
 } from "@/lib/domesticTrips";
-import { getCityCenter } from "@/lib/placesTextSearch";
-import {
-  findSuburbPlace,
-  isInOtherCity,
-  MAX_SUBURB_KM,
-  suburbDayIndex,
-  suburbGroupsFor,
-  suburbKindFor,
-  suburbTripEvent,
-  type SuburbKind,
-} from "@/lib/suburbTrips";
-import { restaurantNear } from "@/lib/fixedEventVenues";
-import { findSeasonalDay, nightHighlightEvent, seasonalDayIndex } from "@/lib/seasonalHighlights";
-import { cleanTitles, findFilmDay } from "@/lib/filmLocations";
-import { classicTripEvents, findClassicDayTrip } from "@/lib/classicDayTrips";
-import {
-  campsiteStay,
-  findCampsite,
-  findHotSpringSoak,
-  findNightMarkets,
-  hotSpringSoakEvent,
-  isHotSpringStay,
-  nightMarketDays,
-  nightMarketDinner,
-} from "@/lib/domesticInterests";
+import { buildStayDays, locationOf, stayContextOf } from "@/lib/cityStayDays";
 import { fillMissingCopy } from "@/lib/missingCopy";
 
 const DEFAULT_ARRIVAL_MINUTE_FALLBACK = 14 * 60;
@@ -73,15 +42,6 @@ function extractPlaceIds(stops: Array<Record<string, unknown>>): string[] {
   return stops
     .map((s) => (typeof s.placeId === "string" ? s.placeId : undefined))
     .filter((id): id is string => !!id);
-}
-
-// A lodging picked from real candidates carries coordinates; one the LLM
-// invented (no candidates) doesn't, and the generators then fall back to the
-// city center.
-function locationOf(accommodation: Record<string, unknown> | undefined): { lat: number; lng: number } | undefined {
-  const lat = accommodation?.lat;
-  const lng = accommodation?.lng;
-  return typeof lat === "number" && typeof lng === "number" ? { lat, lng } : undefined;
 }
 
 function withoutBreakfast(meals: Record<string, unknown> | undefined): Record<string, unknown> {
@@ -169,31 +129,21 @@ export async function assembleItineraryDays(
   const usedPlaceIdsByCity = new Map<string, Set<string>>();
   // Sightseeing days so far, so the theme rotation runs across the whole trip.
   let themedDaysSoFar = 0;
+  // What every city's sightseeing days share (cityStayDays.ts).
+  const stay = stayContextOf({
+    preferences,
+    preferenceIntent,
+    mealPreferences,
+    budget,
+    currency: plan.currency,
+    model,
+    departureDate: flightInfo.departureDate,
+    returnDate: flightInfo.returnDate,
+    routeCityNames: plan.cities.map((c) => c.name),
+  });
   // 固定行程 (plan/form-preference-wiring.md 1.11) by the trip day they fall on.
-  const eventsOn = (dayNumber: number) =>
-    (preferences?.fixedEvents ?? []).filter(
-      (e) => tripDayOfDate(e.date, flightInfo.departureDate, flightInfo.returnDate) === dayNumber
-    );
+  const { eventsOn, eventMealContext } = stay;
   const eventStops = (planned: PlannedDayEvents) => planned.fixed.flatMap((e) => (e.stop ? [e.stop] : []));
-  const selfDrive = Boolean(preferenceIntent.selfDrive);
-  // Which kinds of suburb place, from the traveler's interests and drinks.
-  const suburbGroups = suburbGroupsFor(
-    preferenceIntent.interestBoost,
-    preferences?.drinks ?? [],
-    Boolean(preferenceIntent.kids),
-    Boolean(preferenceIntent.seniors)
-  );
-  const usedSuburbIds = new Set<string>();
-  // 國內 interests (domesticInterests.ts): 夜市, 溫泉, 露營 (老街 is a theme day).
-  const wants = (tag: string) => Boolean(preferences?.interests?.includes(tag as never));
-  // One night camping per trip, and only by car: campsites are up in the hills.
-  let campNightPlanned = false;
-  // The route's other cities, which a day trip shouldn't land in.
-  const otherCityCenters = async (cityName: string, apiKey: string) => {
-    const names = [...new Set(plan.cities.map((c) => c.name))].filter((name) => name !== cityName);
-    const centers = await Promise.all(names.map((name) => getCityCenter(name, apiKey).catch(() => null)));
-    return centers.filter((c): c is { lat: number; lng: number } => Boolean(c));
-  };
 
   // 自駕: the rental counters at both airports, looked up once (cached).
   const [pickupRental, returnRental] = rentsCar
@@ -202,12 +152,7 @@ export async function assembleItineraryDays(
         findCarRental(flightInfo.returnDepartureCity).catch(() => undefined),
       ])
     : [undefined, undefined];
-  // Dinner near a show's venue follows the same budget and diet as other meals.
-  const eventMealContext = {
-    budget,
-    dietaryRestrictions: mealPreferences.dietaryRestrictions,
-    currency: plan.currency,
-  };
+
   for (let cityIdx = 0; cityIdx < plan.cities.length; cityIdx++) {
     const city = plan.cities[cityIdx];
     const isFirst = cityIdx === 0;
@@ -292,250 +237,35 @@ export async function assembleItineraryDays(
     const accommodation = hasAccommodation ? mealsAndAccommodation.accommodation : undefined;
     const lodging = locationOf(accommodation);
 
-    const sightseeingEvents = await Promise.all(
-      Array.from({ length: sightseeingCount }, (_, i) =>
-        planDayEvents(eventsOn(nextDayNumber + i), city.name, lodging, eventMealContext)
-      )
+    const { days: sightseeingDays, themedDays } = await buildStayDays(
+      {
+        cityName: city.name,
+        count: sightseeingCount,
+        firstDayNumber: nextDayNumber,
+        accommodation,
+        mealsByDay: mealsAndAccommodation.mealsByDay.slice(transitMealDays, transitMealDays + sightseeingCount),
+        usedPlaceIds,
+        firstThemeIndex: themedDaysSoFar,
+        firstDayStartMinute: isFirst ? arrivalDayStartMinute : undefined,
+        // A self-driver picks up the car first thing on day 1; 國內, the way there opens it.
+        firstDayFixed: isFirst
+          ? [
+              ...(rentsCar
+                ? [
+                    carPickup(pickupRental, arrivalDayStartMinute, {
+                      arrivalIata: flightInfo.arrivalCity,
+                      returnIata: flightInfo.returnDepartureCity,
+                    }),
+                  ]
+                : []),
+              ...(journeyEvents.outbound ? [journeyEvents.outbound] : []),
+            ]
+          : undefined,
+      },
+      stay
     );
-    // 國內: the way there opens day 1.
-    if (isFirst && journeyEvents.outbound && sightseeingEvents.length > 0) {
-      sightseeingEvents[0].fixed.unshift(journeyEvents.outbound);
-    }
-    // A self-driver picks up the car first thing on day 1.
-    if (isFirst && rentsCar && sightseeingEvents.length > 0) {
-      sightseeingEvents[0].fixed.unshift(
-        carPickup(pickupRental, arrivalDayStartMinute, {
-          arrivalIata: flightInfo.arrivalCity,
-          returnIata: flightInfo.returnDepartureCity,
-        })
-      );
-    }
-    // 郊區: a day out of the city when the stay has room (suburbTrips.ts) —
-    // on a day without fixed events, never a city's first.
-    const planSuburbTrip = async (eventCounts: number[]) => {
-      const kind: SuburbKind | undefined = suburbKindFor(sightseeingCount);
-      const dayIndex = suburbDayIndex(eventCounts);
-      const apiKey = process.env.GOOGLE_PLACES_API_KEY;
-      if (!kind || dayIndex === undefined || !apiKey) return undefined;
-      const center = await getCityCenter(city.name, apiKey).catch(() => null);
-      if (!center) return undefined;
-      const tripDate = dateOfTripDay(flightInfo.departureDate, nextDayNumber + dayIndex);
-      const dayStart = dayStartFor(preferenceIntent);
-      // A whole day goes to a classic town first (鎌倉, 箱根, 日光 from 東京,
-      // classicDayTrips.ts); the nearby outdoors when none is found.
-      if (kind === "day") {
-        const classic = await findClassicDayTrip(
-          city.name,
-          center,
-          apiKey,
-          preferenceIntent.interestBoost,
-          model,
-          new Set([...usedPlaceIds, ...usedSuburbIds]),
-          async (town) => !isInOtherCity(town, await otherCityCenters(city.name, apiKey)),
-          (place) => isInSeason(place, tripDate)
-        );
-        if (classic) {
-          const events = classicTripEvents(classic, city.name, dayStart, dayEndFor(preferenceIntent), selfDrive);
-          for (const stop of events.flatMap((e) => (e.stop ? [e.stop] : []))) {
-            usedSuburbIds.add(String(stop.placeId));
-            usedPlaceIds.add(String(stop.placeId));
-          }
-          const first = classic.sights[0];
-          const lunch = await dayTripLunch(
-            { placeId: first.placeId, name: first.name, lat: first.lat, lng: first.lng },
-            eventMealContext,
-            classic.town,
-            `在${classic.town}吃午餐`
-          );
-          return { dayIndex, kind, name: classic.town, events, lunch };
-        }
-      }
-      const found = await findSuburbPlace(
-        center,
-        apiKey,
-        suburbGroups,
-        MAX_SUBURB_KM,
-        new Set([...usedPlaceIds, ...usedSuburbIds]),
-        async (place) => !isInOtherCity(place, await otherCityCenters(city.name, apiKey)) && (await isInSeason(place, tripDate))
-      );
-      if (!found) return undefined;
-      usedSuburbIds.add(found.place.placeId);
-      usedPlaceIds.add(found.place.placeId);
-      const event = suburbTripEvent(found.place, found.group, kind, dayStart, dayEndFor(preferenceIntent), selfDrive);
-      // A day out eats lunch out there, not back downtown.
-      const lunch =
-        kind === "day"
-          ? await dayTripLunch(
-              { placeId: found.place.placeId, name: found.place.name, lat: found.place.lat, lng: found.place.lng },
-              eventMealContext,
-              found.place.name,
-              `在${found.place.name}附近吃午餐`
-            )
-          : undefined;
-      return { dayIndex, kind, name: found.place.name, events: [event], lunch };
-    };
-    const suburbTrip = await planSuburbTrip(sightseeingEvents.map((e) => e.fixed.length));
-    if (suburbTrip) sightseeingEvents[suburbTrip.dayIndex].fixed.push(...suburbTrip.events);
-
-    // 季節限定: a day around what the city is known for this month
-    // (seasonalHighlights.ts), unless the traveler turned it off.
-    const planSeasonalDay = async (eventCounts: number[]) => {
-      if (preferences?.seasonalHighlights === false) return undefined;
-      const dayIndex = seasonalDayIndex(eventCounts, suburbTrip?.dayIndex);
-      const apiKey = process.env.GOOGLE_PLACES_API_KEY;
-      if (dayIndex === undefined || !apiKey) return undefined;
-      const center = await getCityCenter(city.name, apiKey).catch(() => null);
-      if (!center) return undefined;
-      const tripDate = dateOfTripDay(flightInfo.departureDate, nextDayNumber + dayIndex);
-      const day = await findSeasonalDay(city.name, center, apiKey, tripDate, model, usedPlaceIds);
-      return day ? { dayIndex, ...day } : undefined;
-    };
-    const seasonalDay = await planSeasonalDay(sightseeingEvents.map((e) => e.fixed.length));
-    // Illuminations get the evening; the rest go to the scheduler for that day only.
-    const seasonalByDay = sightseeingEvents.map(() => undefined as PlaceCandidate[] | undefined);
-    const seasonalNotes = new Map<string, string>();
-    if (seasonalDay) {
-      for (const h of seasonalDay.highlights) {
-        if (h.night) sightseeingEvents[seasonalDay.dayIndex].fixed.push(nightHighlightEvent(h));
-        else seasonalNotes.set(h.place.placeId, h.note);
-      }
-      seasonalByDay[seasonalDay.dayIndex] = seasonalDay.highlights.filter((h) => !h.night).map((h) => h.place);
-    }
-
-    // 影劇追星: a day at filming locations (filmLocations.ts), kept for that
-    // day like the seasonal highlights, each with a cautious 「據說」 note.
-    const planFilmDay = async (eventCounts: number[]) => {
-      if (!preferences?.interests?.includes("film")) return undefined;
-      const dayIndex = seasonalDayIndex(eventCounts, [suburbTrip?.dayIndex, seasonalDay?.dayIndex]);
-      const apiKey = process.env.GOOGLE_PLACES_API_KEY;
-      if (dayIndex === undefined || !apiKey) return undefined;
-      const center = await getCityCenter(city.name, apiKey).catch(() => null);
-      if (!center) return undefined;
-      // Not a place the seasonal day already keeps (新宿御苑 was both).
-      const seasonalIds = (seasonalDay?.highlights ?? []).map((h) => h.place.placeId);
-      const day = await findFilmDay(
-        city.name,
-        center,
-        apiKey,
-        cleanTitles(preferences.filmTitles),
-        model,
-        new Set([...usedPlaceIds, ...seasonalIds])
-      );
-      return day ? { dayIndex, ...day } : undefined;
-    };
-    const filmDay = await planFilmDay(sightseeingEvents.map((e) => e.fixed.length));
-    if (filmDay) {
-      for (const l of filmDay.locations) seasonalNotes.set(l.place.placeId, l.note);
-      seasonalByDay[filmDay.dayIndex] = filmDay.locations.map((l) => l.place);
-    }
-    // 夜市: dinner at a night market on one evening (two from three nights).
-    const nightMarketByDay = new Map<number, Record<string, unknown>>();
-    // 溫泉 without a hot-spring stay: an early-evening soak, on an evening without a night market.
-    // 露營: one night at a campsite instead of the city's lodging.
-    let campNight: { dayIndex: number; stay: Record<string, unknown> } | undefined;
-    const apiKeyForInterests = process.env.GOOGLE_PLACES_API_KEY;
-    const interestCenter =
-      apiKeyForInterests && sightseeingCount > 0 && (wants("night_market") || wants("hot_spring") || wants("camping"))
-        ? await getCityCenter(city.name, apiKeyForInterests).catch(() => null)
-        : null;
-    if (interestCenter && apiKeyForInterests) {
-      if (wants("night_market")) {
-        const days = nightMarketDays(sightseeingCount);
-        const markets = await findNightMarkets(interestCenter, apiKeyForInterests, days.length, usedPlaceIds);
-        markets.forEach((market, k) => {
-          nightMarketByDay.set(days[k], nightMarketDinner(market));
-          usedPlaceIds.add(market.placeId);
-        });
-      }
-      if (wants("hot_spring") && !isHotSpringStay(accommodation?.name)) {
-        const soak = await findHotSpringSoak(interestCenter, apiKeyForInterests, usedPlaceIds);
-        const free = Array.from({ length: sightseeingCount }, (_, i) => sightseeingCount - 1 - i).find(
-          (i) => !nightMarketByDay.has(i) && suburbTrip?.dayIndex !== i
-        );
-        if (soak && free !== undefined) {
-          sightseeingEvents[free].fixed.push(hotSpringSoakEvent(soak));
-          usedPlaceIds.add(soak.placeId);
-        }
-      }
-      if (wants("camping") && preferenceIntent.selfDrive && !campNightPlanned && sightseeingCount >= 2) {
-        const site = await findCampsite(interestCenter, apiKeyForInterests, city.name);
-        if (site) {
-          campNight = { dayIndex: sightseeingCount - 2, stay: campsiteStay(site, city.name) };
-          campNightPlanned = true;
-        }
-      }
-    }
-    // A concert at 東京巨蛋 shouldn't also turn up as a sightseeing stop there.
-    for (const stop of sightseeingEvents.flatMap(eventStops)) {
-      if (typeof stop.placeId === "string") usedPlaceIds.add(stop.placeId);
-    }
-
-    // 日落和天氣 (dayConditions.ts): each day's sunset, and whether the month
-    // is hot or rainy, from last year's weather at the city center (cached per month).
-    const conditionsByDay = await (async () => {
-      const apiKey = process.env.GOOGLE_PLACES_API_KEY;
-      const center = apiKey && sightseeingCount > 0 ? await getCityCenter(city.name, apiKey).catch(() => null) : null;
-      return Promise.all(
-        Array.from({ length: sightseeingCount }, async (_, i) => {
-          if (!center) return undefined;
-          const tripDate = dateOfTripDay(flightInfo.departureDate, nextDayNumber + i);
-          return conditionsOf(await getClimate(center.lat, center.lng, tripDate), tripDate);
-        })
-      );
-    })();
-
-    const { stopsByDay: sightseeingStops, themeByDay } =
-      sightseeingCount > 0
-        ? await generateThemedDayStops(
-            city.name,
-            sightseeingCount,
-            plan.currency,
-            Array.from(usedPlaceIds),
-            budget,
-            preferenceIntent,
-            isFirst ? arrivalDayStartMinute : undefined,
-            lodging,
-            themedDaysSoFar,
-            sightseeingEvents.map((e) => e.fixed),
-            seasonalByDay,
-            conditionsByDay
-          )
-        : { stopsByDay: [], themeByDay: [] };
-    themedDaysSoFar += sightseeingCount;
-    for (const dayStops of sightseeingStops) {
-      for (const placeId of extractPlaceIds(dayStops)) usedPlaceIds.add(placeId);
-    }
-
-    for (let i = 0; i < sightseeingStops.length; i++) {
-      const dayTheme = themeByDay[i];
-      const trip = suburbTrip?.dayIndex === i ? suburbTrip : undefined;
-      const seasonal = seasonalDay?.dayIndex === i ? seasonalDay : undefined;
-      const film = filmDay?.dayIndex === i ? filmDay : undefined;
-      pushDay({
-        id: crypto.randomUUID(),
-        theme: trip
-          ? `${city.name} ${trip.kind === "day" ? "一日遊" : "半日遊"}：${trip.name}`
-          : seasonal
-            ? `${city.name} 季節限定：${seasonal.label}`
-            : film
-              ? `${city.name} 影劇朝聖：${film.label}`
-              : `${city.name} ${dayTheme ? THEMES[dayTheme].label : "探索"}`,
-        waypointCity: city.name,
-        stops: seasonal || film ? withSeasonalNotes(sightseeingStops[i], seasonalNotes) : sightseeingStops[i],
-        accommodation: campNight?.dayIndex === i ? campNight.stay : accommodation,
-        meals: {
-          ...(mealsAndAccommodation.mealsByDay[transitMealDays + i] ?? {}),
-          ...sightseeingEvents[i].meals,
-          ...(trip?.lunch ? { lunch: trip.lunch } : {}),
-          ...(nightMarketByDay.has(i) ? { dinner: nightMarketByDay.get(i) } : {}),
-        },
-        // A whole day out stays as planned when the trip is restructured.
-        ...(trip?.kind === "day" ? { isLocked: true } : {}),
-        ...(weatherNote(conditionsByDay[i]) ? { weatherNote: weatherNote(conditionsByDay[i]) } : {}),
-        // Places people often visit on a tour (tourLinks.ts): the day trip's town, the seasonal theme.
-        ...(trip ? { tourKeyword: trip.name } : seasonal ? { tourKeyword: `${city.name} ${seasonal.label}` } : {}),
-      });
-    }
+    themedDaysSoFar += themedDays;
+    for (const day of sightseeingDays) pushDay(day);
 
     if (isLast) {
       const departureEvents = await planDayEvents(eventsOn(nextDayNumber), city.name, lodging, eventMealContext);
@@ -579,33 +309,4 @@ export async function assembleItineraryDays(
     currency: plan.currency,
     days,
   };
-}
-
-/** A highlight's timing note after the stop's own description: 「通常在 11 月中下旬最美」. */
-function withSeasonalNotes(stops: Array<Record<string, unknown>>, notes: Map<string, string>): Array<Record<string, unknown>> {
-  return stops.map((stop) => {
-    const note = typeof stop.placeId === "string" ? notes.get(stop.placeId) : undefined;
-    if (!note) return stop;
-    const description = typeof stop.description === "string" && stop.description ? `${stop.description} ${note}` : note;
-    return { ...stop, description };
-  });
-}
-
-/**
- * Lunch on a day out, near where the day is spent: within 3km, then 10km —
- * a national park's coordinate is the middle of the park, and 支笏洞爺國立公園
- * had nothing within 3km, so lunch fell back to a sushi place in 札幌. With
- * nothing either way, the day says to eat out there, not back in town.
- */
-async function dayTripLunch(
-  venue: { placeId: string; name: string; lat: number; lng: number },
-  context: Parameters<typeof restaurantNear>[1],
-  area: string,
-  description: string
-): Promise<Record<string, unknown>> {
-  for (const radius of [3000, 10000]) {
-    const meal = await restaurantNear(venue, context, description, radius).catch(() => undefined);
-    if (meal) return meal;
-  }
-  return { name: `${area}附近用餐`, description: "附近餐廳不多，可以在園區或沿途找地方吃，或自備便當" };
 }

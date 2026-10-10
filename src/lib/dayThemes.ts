@@ -106,10 +106,20 @@ export function themesOf(interestBoost: string[]): ThemeKey[] {
 /**
  * Each day's theme, rotating through `themes`. `firstIndex` continues the
  * rotation across cities, so a two-theme trip of one-day cities doesn't give
- * every city the first theme. With no themes, every day is undefined.
+ * every city the first theme. Days in `ownTitleDays` (a day trip, a seasonal
+ * or film day) have a title of their own and are skipped, so they don't use
+ * up a theme: 文化, 一日遊, 文化 left 自然 out. With no themes, every day is undefined.
  */
-export function dayThemeKeys(themes: ThemeKey[], dayCount: number, firstIndex = 0): (ThemeKey | undefined)[] {
-  return Array.from({ length: dayCount }, (_, i) => (themes.length > 0 ? themes[(firstIndex + i) % themes.length] : undefined));
+export function dayThemeKeys(
+  themes: ThemeKey[],
+  dayCount: number,
+  firstIndex = 0,
+  ownTitleDays: ReadonlySet<number> = new Set()
+): (ThemeKey | undefined)[] {
+  let next = firstIndex;
+  return Array.from({ length: dayCount }, (_, i) =>
+    themes.length > 0 && !ownTitleDays.has(i) ? themes[next++ % themes.length] : undefined
+  );
 }
 
 export function isOnTheme(types: string[] | undefined, theme: ThemeKey, name?: string): boolean {

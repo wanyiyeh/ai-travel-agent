@@ -1253,7 +1253,8 @@ async function generateDayStopsViaScheduler(
   firstThemeIndex: number,
   fixedByDay: DayFixedEvents[],
   seasonalByDay: (PlaceCandidate[] | undefined)[] = [],
-  conditionsByDay: (DayConditions | undefined)[] = []
+  conditionsByDay: (DayConditions | undefined)[] = [],
+  ownTitleDays: ReadonlySet<number> = new Set()
 ): Promise<ThemedDayStops | null> {
   try {
     const apiKey = process.env.GOOGLE_PLACES_API_KEY!;
@@ -1261,7 +1262,7 @@ async function generateDayStopsViaScheduler(
     const coords = await getCityCenter(cityName, apiKey);
     if (!coords) return null;
 
-    const dayThemes = dayThemeKeys(themesOf(preferenceIntent.interestBoost), dayCount, firstThemeIndex);
+    const dayThemes = dayThemeKeys(themesOf(preferenceIntent.interestBoost), dayCount, firstThemeIndex, ownTitleDays);
     const cityThemes = [...new Set(dayThemes.filter((t): t is ThemeKey => t !== undefined))];
 
     // Always the full pool: how many stops a day gets now depends on pace and
@@ -1453,7 +1454,9 @@ export async function generateThemedDayStops(
   // Each day's seasonal highlights to see by day (seasonalHighlights.ts), on that day only.
   seasonalByDay: (PlaceCandidate[] | undefined)[] = [],
   // Each day's sunset, heat and rain (dayConditions.ts).
-  conditionsByDay: (DayConditions | undefined)[] = []
+  conditionsByDay: (DayConditions | undefined)[] = [],
+  // Days titled by something else (a day trip, a seasonal or film day): no theme, and the rotation skips them.
+  ownTitleDays: ReadonlySet<number> = new Set()
 ): Promise<ThemedDayStops> {
   const scheduled = await generateDayStopsViaScheduler(
     cityName,
@@ -1467,7 +1470,8 @@ export async function generateThemedDayStops(
     firstThemeIndex,
     fixedByDay,
     seasonalByDay,
-    conditionsByDay
+    conditionsByDay,
+    ownTitleDays
   );
   if (scheduled) return scheduled;
   const llmDays = await generateDayStopsWithLLM(cityName, stayDays, currency);
