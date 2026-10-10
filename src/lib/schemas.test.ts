@@ -64,3 +64,14 @@ describe("GenerateRequestSchema", () => {
     expect(GenerateRequestSchema.safeParse({ flightInfo, preferences: { interests } }).success).toBe(false);
   });
 });
+
+describe("TripPreferencesSchema — 同行者", () => {
+  it("takes 親子 and 長輩 together", () => {
+    expect(GenerateRequestSchema.safeParse({ flightInfo, preferences: { companions: ["kids", "seniors"] } }).success).toBe(true);
+  });
+
+  it("won't take 獨旅 with 親子 or 長輩", () => {
+    expect(GenerateRequestSchema.safeParse({ flightInfo, preferences: { companions: ["solo", "kids"] } }).success).toBe(false);
+    expect(GenerateRequestSchema.safeParse({ flightInfo, preferences: { companions: ["solo", "seniors"] } }).success).toBe(false);
+  });
+});
