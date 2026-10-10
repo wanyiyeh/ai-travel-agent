@@ -19,7 +19,7 @@ export function pickModeForDistance(km: number, walkLimitKm = 1.2): TravelMode {
 }
 
 /** The form choices that change how a leg between stops is travelled. */
-export type TravelPrefs = { indoorFirst?: boolean; selfDrive?: boolean };
+export type TravelPrefs = { indoorFirst?: boolean; selfDrive?: boolean; seniors?: boolean };
 
 // A self-driver still walks a short hop rather than re-parking.
 const SELF_DRIVE_WALK_LIMIT_KM = 1;
@@ -29,8 +29,9 @@ const SELF_DRIVE_WALK_LIMIT_KM = 1;
  * (500m when avoiding the sun, 1km when driving, else 1.2km), then the
  * rental car for a self-driver, otherwise transit (driving past 60km).
  */
-export function modePickerFor({ indoorFirst, selfDrive }: TravelPrefs): (km: number) => TravelMode {
-  const walkLimitKm = indoorFirst ? INDOOR_FIRST_WALK_LIMIT_KM : selfDrive ? SELF_DRIVE_WALK_LIMIT_KM : undefined;
+export function modePickerFor({ indoorFirst, selfDrive, seniors }: TravelPrefs): (km: number) => TravelMode {
+  // 長輩 walks no further than an indoor-first traveler (plan 1.5).
+  const walkLimitKm = indoorFirst || seniors ? INDOOR_FIRST_WALK_LIMIT_KM : selfDrive ? SELF_DRIVE_WALK_LIMIT_KM : undefined;
   if (selfDrive) return (km) => (km < walkLimitKm! ? "walking" : "driving");
   return (km) => pickModeForDistance(km, walkLimitKm);
 }

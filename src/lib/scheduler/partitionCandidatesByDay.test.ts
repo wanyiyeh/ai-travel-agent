@@ -23,6 +23,17 @@ describe("partitionCandidatesByDay", () => {
     expect(days[0].map((c) => c.id)).toEqual(["a"]);
   });
 
+  it("keeps a day in one area with a smaller spread, even past a better-rated place further off", () => {
+    // 長輩: the second stop stays near the first rather than crossing town
+    const seed = candidate("seed", 0, 0, 4.9);
+    const nearby = candidate("nearby", 0, 0.0135, 4.0); // ~1.5km
+    const across = candidate("across", 0, 0.02, 4.85); // ~2.2km, better rated than nearby
+    const usual = partitionCandidatesByDay([seed, nearby, across], [2]);
+    const compact = partitionCandidatesByDay([seed, nearby, across], [2], {}, undefined, { spreadKm: 1 });
+    expect(usual[0].map((c) => c.id)).toEqual(["seed", "across"]);
+    expect(compact[0].map((c) => c.id)).toEqual(["seed", "nearby"]);
+  });
+
   it("returns one empty group per day for an empty pool", () => {
     expect(partitionCandidatesByDay([], [2, 2])).toEqual([[], []]);
   });
