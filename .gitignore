@@ -13,6 +13,9 @@
 # testing
 /coverage
 /prisma/test.db*
+# unit tests point DATABASE_URL here so a missing mock fails; SQLite creates
+# it empty (vitest.config.mts)
+/prisma/unit-tests-must-not-use-a-database.db*
 
 # local dev DB — holds paid Places/OpenAI cache data; tracking it let branch
 # switches/discards roll the cache back and re-bill the same lookups
