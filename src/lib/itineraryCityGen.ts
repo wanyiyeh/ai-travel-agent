@@ -156,7 +156,8 @@ async function planTransitDay(
   toCity: string,
   currency: string,
   model: string,
-  selfDrive = false
+  selfDrive = false,
+  visitedInFromCity: string[] = []
 ): Promise<TransitPlan | null> {
   try {
     const completion = await openai.chat.completions.create({
@@ -197,7 +198,12 @@ async function planTransitDay(
 }
 
 規則：
-- prepStops：${fromCity ? `${fromCity} 出發前早晨微行程（車站附近早餐或快速景點，09:30 前完成），可以是空陣列` : `出發準備，可以是空陣列`}
+- prepStops：${fromCity ? `${fromCity} 出發前早晨微行程（車站附近早餐或快速景點，09:30 前完成），可以是空陣列` : `出發準備，可以是空陣列`}${
+            visitedInFromCity.length
+              ? `
+- 旅客前幾天已經在 ${fromCity} 去過：${visitedInFromCity.join("、")}。prepStops 不要再排這些地點（包括「XX 散步」這類換個說法的），沒有別的可排就只排早餐或空陣列`
+              : ""
+          }
 - transitStop：交通本身，須填入真實交通工具、正確車程時數，duration_minutes 必須反映真實車程，transport_from_prev 必須包含預估時間（例如「搭乘新幹線約 1 小時30分」），不可只寫交通方式
 - arrivalTime："HH:MM" 格式的 24 小時制時間，代表抵達 ${toCity} 後可以開始活動的時間
 - time_of_day 只能是 "morning"、"afternoon"、"evening" 之一
@@ -223,7 +229,10 @@ async function planTransitDay(
 
     return {
       prepStops: Array.isArray(parsed.prepStops)
-        ? parsed.prepStops.map((s) => ({ ...(s as Record<string, unknown>), id: crypto.randomUUID() }))
+        ? withoutRevisits(
+            parsed.prepStops.map((s) => ({ ...(s as Record<string, unknown>), id: crypto.randomUUID() })),
+            visitedInFromCity
+          )
         : [],
       transitStop: { ...parsed.transitStop, id: crypto.randomUUID() },
       arrivalMinute: parseTimeString(parsed.arrivalTime, DEFAULT_ARRIVAL_MINUTE),
@@ -250,11 +259,12 @@ async function generateTransitDayStopsViaScheduler(
   budget: BudgetLevel | undefined,
   preferenceIntent: PreferenceIntent,
   lockedPlaceIds: string[],
-  fixed: DayFixedEvents
+  fixed: DayFixedEvents,
+  visitedInFromCity: string[]
 ): Promise<Array<Record<string, unknown>> | null> {
   try {
     const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
-    const plan = await planTransitDay(fromCity, toCity, currency, model, preferenceIntent.selfDrive);
+    const plan = await planTransitDay(fromCity, toCity, currency, model, preferenceIntent.selfDrive, visitedInFromCity);
     if (!plan) return null;
 
     // How many arrival-city stops fit is clock arithmetic from the arrival
@@ -345,7 +355,10 @@ export async function generateTransitDayStops(
   // arrival stops repeated day 1's 札幌市時計台.
   lockedPlaceIds: string[] = [],
   // The day's 固定行程 in toCity — arrival stops are planned around them.
-  fixed: DayFixedEvents = []
+  fixed: DayFixedEvents = [],
+  // Names of the places already on the trip in fromCity: the morning before
+  // leaving 小樽 went back to 小樽運河 (「小樽運河散步」) after two days there.
+  visitedInFromCity: string[] = []
 ): Promise<Array<Record<string, unknown>>> {
   const scheduled = await generateTransitDayStopsViaScheduler(
     fromCity,
@@ -354,11 +367,29 @@ export async function generateTransitDayStops(
     budget,
     preferenceIntent,
     lockedPlaceIds,
-    fixed
+    fixed,
+    visitedInFromCity
   );
   if (scheduled) return scheduled;
   // The fallback can't plan around them, but the booked events still show.
-  return [...(await generateTransitDayStopsWithLLM(fromCity, toCity, currency)), ...fixedEventStopsOnly(fixed)];
+  const llmStops = await generateTransitDayStopsWithLLM(fromCity, toCity, currency);
+  return [...withoutRevisits(llmStops, visitedInFromCity), ...fixedEventStopsOnly(fixed)];
+}
+
+const normalizeName = (name: string) => name.replace(/[\s・·()（）「」]/g, "").toLowerCase();
+
+/**
+ * Stops not already visited, judged by name since the model's morning stops
+ * have no placeId: 「小樽運河散步」 contains 「小樽運河」. Names under 2
+ * characters aren't compared — they'd match too much.
+ */
+export function withoutRevisits<T extends Record<string, unknown>>(stops: T[], visited: string[]): T[] {
+  const seen = visited.map(normalizeName).filter((n) => n.length >= 2);
+  if (seen.length === 0) return stops;
+  return stops.filter((stop) => {
+    const name = typeof stop.name === "string" ? normalizeName(stop.name) : "";
+    return name.length < 2 || !seen.some((v) => name.includes(v) || v.includes(name));
+  });
 }
 
 /**

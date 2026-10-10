@@ -146,6 +146,18 @@ beforeEach(() => {
   restaurantNearMock.mockResolvedValue(undefined);
 });
 
+describe("assembleItineraryDays — transit day", () => {
+  it("tells the transit day what was already seen in the city it leaves", async () => {
+    dayStopsMock.mockImplementation(async (city: string, count: number) =>
+      Array.from({ length: count }, (_, i) => (city === "東京" ? [{ name: `東京景點${i}`, placeId: `t${i}` }] : []))
+    );
+
+    await run(undefined, undefined);
+
+    expect(transitStopsMock.mock.calls[0][7]).toEqual(["東京景點0", "東京景點1", "東京景點2"]);
+  });
+});
+
 describe("assembleItineraryDays — missing descriptions", () => {
   it("fills them in for the whole trip once it's assembled", async () => {
     const result = await run(undefined, undefined);

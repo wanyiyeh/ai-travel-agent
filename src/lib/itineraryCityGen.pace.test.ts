@@ -37,7 +37,9 @@ vi.mock("@/lib/distanceMatrix", async () => ({
   describeTransport: () => "",
 }));
 
-const { generateDayStops, generateDepartureDayStops, generateThemedDayStops, generateTransitDayStops } = await import("./itineraryCityGen");
+const { generateDayStops, generateDepartureDayStops, generateThemedDayStops, generateTransitDayStops, withoutRevisits } = await import(
+  "./itineraryCityGen"
+);
 
 // A pool big enough that pool size is never what limits a day's stop count.
 const POOL: PlaceCandidate[] = Array.from({ length: 20 }, (_, i) => ({
@@ -541,5 +543,56 @@ describe("generateTransitDayStops — 自駕", () => {
     await generateTransitDayStops("東京", "大阪", "JPY", undefined, NEUTRAL_PREFERENCE_INTENT);
 
     expect(createMock.mock.calls[0][0].messages[0].content).not.toContain("【旅客自駕】");
+  });
+});
+
+// Story: leaving 小樽 after two days there, the morning went back to 小樽運河.
+describe("generateTransitDayStops — places already visited", () => {
+  const plan = (prepStops: { name: string }[]) =>
+    createMock.mockResolvedValueOnce({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              prepStops: prepStops.map((s) => ({ ...s, description: "d", duration_minutes: 30, time_of_day: "morning" })),
+              transitStop: { name: "搭乘JR快速列車前往札幌", description: "d", duration_minutes: 40 },
+              arrivalTime: "19:00",
+            }),
+          },
+        },
+      ],
+    });
+
+  it("tells the planner what was already seen in the city being left", async () => {
+    plan([]);
+
+    await generateTransitDayStops("小樽", "札幌", "JPY", undefined, NEUTRAL_PREFERENCE_INTENT, [], [], ["小樽運河", "小樽蒸汽鐘"]);
+
+    expect(createMock.mock.calls[0][0].messages[0].content).toContain("已經在 小樽 去過：小樽運河、小樽蒸汽鐘");
+  });
+
+  it("drops a morning stop that goes back to a visited place, under another name too", async () => {
+    plan([{ name: "小樽運河散步" }, { name: "車站附近早餐" }]);
+
+    const stops = await generateTransitDayStops("小樽", "札幌", "JPY", undefined, NEUTRAL_PREFERENCE_INTENT, [], [], ["小樽運河"]);
+
+    const names = stops.map((s) => s.name);
+    expect(names).not.toContain("小樽運河散步");
+    expect(names).toContain("車站附近早餐");
+  });
+
+  it("says nothing when the city hasn't been visited yet", async () => {
+    plan([]);
+
+    await generateTransitDayStops("東京", "大阪", "JPY", undefined, NEUTRAL_PREFERENCE_INTENT);
+
+    expect(createMock.mock.calls[0][0].messages[0].content).not.toContain("已經在");
+  });
+});
+
+describe("withoutRevisits", () => {
+  it("matches by name either way, ignoring spaces and brackets, but not one-character names", () => {
+    const stops = [{ name: "小樽運河 散步" }, { name: "運河" }, { name: "早餐" }, { name: "茶" }];
+    expect(withoutRevisits(stops, ["小樽運河", "茶"]).map((s) => s.name)).toEqual(["早餐", "茶"]);
   });
 });

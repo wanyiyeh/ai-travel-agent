@@ -423,6 +423,17 @@ const CHECKS: Check[] = [
       r.get("tokyo-spring")?.seasonalDays.map((d) => `第 ${d.day} 天「${d.title}」：${d.stops.join("、")}`).join("；") || "沒有季節限定日",
   },
   {
+    title: "移動日：離開一個城市的那天，不再回到前幾天在那裡去過的地點",
+    pass: (r) => {
+      const loops = ["sapporo-loop", "tokyo-5-days"].map((id) => r.get(id)).filter((m) => m !== undefined);
+      return loops.length ? loops.every((m) => m.transitRepeats.length === 0) : null;
+    },
+    detail: (r) => {
+      const found = ["sapporo-loop", "tokyo-5-days"].flatMap((id) => (r.get(id)?.transitRepeats ?? []).map((n) => `${id}：${n}`));
+      return found.length ? found.join("、") : "沒有重複";
+    },
+  },
+  {
     title: "酒吧街：東京的行程不把新宿黃金街這類酒吧街當白天景點（包括返程日）",
     pass: (r) => {
       const tokyo = [...r.entries()].filter(([id]) => id.startsWith("tokyo")).map(([, m]) => m);
