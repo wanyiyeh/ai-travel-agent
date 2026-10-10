@@ -20,6 +20,8 @@ import { estimateStopCapacity } from "@/lib/scheduler/stopCapacity";
 import { generateSkeletonCopy } from "@/lib/skeletonCopy";
 import { NEUTRAL_PREFERENCE_INTENT, type PreferenceIntent } from "@/lib/schemas";
 import { getDistancesForStopPairs, pickModeForDistance, describeTransport, modePickerFor } from "@/lib/distanceMatrix";
+import { haversineKm } from "@/lib/geo";
+import { forSoloTraveler, nearStationFirst } from "@/lib/soloTravel";
 import { estimateAttractionCost } from "@/lib/priceLevelCost";
 import { isFoodPlace } from "@/lib/foodPlace";
 import { getTwdRates } from "@/lib/exchangeRate";
@@ -531,6 +533,8 @@ export type MealPreferences = {
   kids?: boolean;
   /** 長輩: no hostels. */
   seniors?: boolean;
+  /** 獨旅: places easy to eat at alone first, lodging near a station. */
+  solo?: boolean;
 };
 
 /**
@@ -546,6 +550,7 @@ export function mealPreferencesOf(intent: PreferenceIntent, drinks?: DrinkChoice
     ...(intent.selfDrive ? { selfDrive: true } : {}),
     ...(intent.kids ? { kids: true } : {}),
     ...(intent.seniors ? { seniors: true } : {}),
+    ...(intent.solo ? { solo: true } : {}),
   };
 }
 
@@ -576,7 +581,7 @@ async function fetchMealLodgingPools(
   budget: BudgetLevel | undefined,
   currency: string,
   stayDays: number,
-  { dietaryRestrictions = [], startTimePreference, drinks = [], kids = false, seniors = false }: MealPreferences
+  { dietaryRestrictions = [], startTimePreference, drinks = [], kids = false, seniors = false, solo = false }: MealPreferences
 ): Promise<MealLodgingPools | null> {
   const apiKey = process.env.GOOGLE_PLACES_API_KEY;
   if (!apiKey) return null;
@@ -614,7 +619,7 @@ async function fetchMealLodgingPools(
 
   // Breakfast and snack share one café search, split locally (cafeMealSlots.ts).
   const snackDrinks = drinks.filter((d): d is DrinkKey => d !== "alcohol");
-  const [cafes, main, dietMain, luxuryMain, lodging, twdPerUnit, bars, ...drinkPools] = await Promise.all([
+  const [cafes, main, dietMain, luxuryMain, lodging, twdPerUnit, bars, stations, ...drinkPools] = await Promise.all([
     search(getMealPlaceTypes("breakfast", budget), "pro", isFoodPlace),
     search(getMealPlaceTypes("lunch", budget), kids ? "kids" : "enterprise", isFoodPlace),
     dietTypes.length > 0 ? search(dietTypes, kids ? "kids" : "enterprise", isFoodPlace) : Promise.resolve([]),
@@ -624,6 +629,8 @@ async function fetchMealLodgingPools(
     // Bars and izakaya in one Nearby Search (Pro, popularity-ranked) — Text
     // Search's rating filter would need one query per kind.
     drinks.includes("alcohol") ? search(NIGHTCAP_TYPES, "pro", isNightcapPlace, "primary") : Promise.resolve([]),
+    // 獨旅: one station search for the whole stay area, not one per hotel.
+    solo ? search(["train_station", "subway_station"], "pro") : Promise.resolve([]),
     ...snackDrinks.map(searchDrink),
   ]);
   // One breakfast and one snack per day of the stay.
@@ -642,7 +649,7 @@ async function fetchMealLodgingPools(
     .filter(fitsMainMeal);
   // Lunch + dinner each day draw from the same pool.
   const budgetRanked = rankMainMealsByBudget(allMain, budget, currency, twdPerUnit, stayDays * 2);
-  const rankedMain = kids ? childFriendlyFirst(budgetRanked) : budgetRanked;
+  const rankedMain = kids ? childFriendlyFirst(budgetRanked) : solo ? forSoloTraveler(budgetRanked) : budgetRanked;
   // Coffee and tea alternate by day (mealLodgingPicks.ts enforces it); a
   // drink with no places in this city just drops out. A coffee lover's
   // breakfast also starts with the coffee places that serve one.
@@ -660,7 +667,11 @@ async function fetchMealLodgingPools(
     main: rankedMain,
     snack: uniqueByPlaceId([...interleave(snackRotation), ...canonical(split.snack)]),
     // Families and older travelers stay in a guest house rather than a hostel dorm (plan 1.5).
-    lodging: kids || seniors ? lodging.filter((p) => !p.types?.includes("hostel")) : lodging,
+    lodging: kids || seniors
+      ? lodging.filter((p) => !p.types?.includes("hostel"))
+      : solo
+        ? nearStationFirst(lodging, stations)
+        : lodging,
     // An izakaya can come up in the dinner search too; it's dinner then, not
     // a second visit the same evening.
     nightcap: barsFirst(
@@ -690,7 +701,10 @@ export async function generateMealsAndAccommodation(
   const lateRiserRule =
     preferences.startTimePreference === "late" ? "\n- 旅客晚起（約 11:00 出門），早餐請選早午餐" : "";
   const kidsRule = preferences.kids ? "\n- 有小孩同行：午餐、晚餐優先選適合兒童的店（排在候選前面的），避開居酒屋、酒吧" : "";
-  const preferenceRules = dietPromptLine(preferences.dietaryRestrictions ?? []) + lateRiserRule + kidsRule;
+  const soloRule = preferences.solo
+    ? "\n- 一個人旅行：午餐、晚餐優先選一個人吃也自在的店（拉麵、壽司、定食、有吧檯座位的店，排在候選前面的），避開雙人套餐、大份量火鍋、燒肉吃到飽；住宿優先選排在前面、離車站近的"
+    : "";
+  const preferenceRules = dietPromptLine(preferences.dietaryRestrictions ?? []) + lateRiserRule + kidsRule + soloRule;
 
   if (!useCandidates) {
     const parsed = await askMealsAndLodging(model, cityName, stayDays, currency, preferenceRules, null, true);

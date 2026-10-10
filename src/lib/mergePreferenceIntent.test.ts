@@ -83,3 +83,10 @@ describe("mergePreferenceIntent — 同行者 長輩", () => {
     expect(mergePreferenceIntent({ companions: ["seniors"] }, parsed({ pace: "moderate" })).pace).toBe("moderate");
   });
 });
+
+describe("mergePreferenceIntent — 同行者 獨旅", () => {
+  it("marks a trip alone", () => {
+    expect(mergePreferenceIntent({ companions: ["solo"] }, parsed({})).solo).toBe(true);
+    expect(mergePreferenceIntent({}, parsed({}))).not.toHaveProperty("solo");
+  });
+});

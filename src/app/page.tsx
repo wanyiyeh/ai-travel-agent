@@ -64,9 +64,11 @@ const DRINK_OPTIONS: { value: DrinkTag; label: string }[] = [
   { value: "alcohol", label: "酒" },
 ];
 
-// 同行者 (plan/form-preference-wiring.md 1.5). 獨旅 comes in its own PR.
+// 同行者 (plan/form-preference-wiring.md 1.5). 獨旅 can't go with 親子 or 長輩:
+// choosing one side clears the other.
 type CompanionTag = NonNullable<TripPreferences["companions"]>[number];
 const COMPANION_OPTIONS: { value: CompanionTag; label: string }[] = [
+  { value: "solo", label: "獨旅" },
   { value: "kids", label: "親子" },
   { value: "seniors", label: "長輩" },
 ];
@@ -493,7 +495,8 @@ export default function Home() {
   }
 
   function toggleCompanion(val: CompanionTag) {
-    const next = companions.includes(val) ? companions.filter((c) => c !== val) : [...companions, val];
+    const others = val === "solo" ? companions.filter((c) => c === "solo") : companions.filter((c) => c !== "solo");
+    const next = companions.includes(val) ? companions.filter((c) => c !== val) : [...others, val];
     setCompanions(next);
     if (next.includes("kids")) setDrinks((prev) => prev.filter((d) => d !== "alcohol"));
   }
