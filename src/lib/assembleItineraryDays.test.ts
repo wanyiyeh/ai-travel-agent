@@ -57,6 +57,11 @@ vi.mock("@/lib/carRental", async (importOriginal) => ({
   findCarRental: (...args: unknown[]) => findRentalMock(...args),
 }));
 
+const findClassicMock = vi.fn();
+vi.mock("@/lib/classicDayTrips", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/classicDayTrips")>()),
+  findClassicDayTrip: (...args: unknown[]) => findClassicMock(...args),
+}));
 const findSeasonalMock = vi.fn();
 vi.mock("@/lib/seasonalHighlights", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/seasonalHighlights")>()),
@@ -130,6 +135,7 @@ beforeEach(() => {
   // No suburb place or seasonal day unless a test offers one.
   findSuburbMock.mockResolvedValue(undefined);
   findSeasonalMock.mockResolvedValue(undefined);
+  findClassicMock.mockResolvedValue(undefined);
   restaurantNearMock.mockResolvedValue(undefined);
 });
 
@@ -443,6 +449,31 @@ describe("assembleItineraryDays — suburb trips", () => {
     expect((day2.meals as { lunch: { name: string } }).lunch.name).toBe("Takao Soba");
     const blocks = dayStopsMock.mock.calls[0][9][1].map((e: { block: { endMinute: number } }) => e.block.endMinute);
     expect(blocks).toContain(18 * 60);
+  });
+
+  it("spends a whole day in a classic town first, sight by sight, with lunch there", async () => {
+    const at = (placeId: string) => ({ placeId, name: placeId, lat: 35.23, lng: 139.1, address: "", types: ["tourist_attraction"] });
+    findClassicMock.mockResolvedValue({ town: "箱根", km: 78, sights: [at("箱根神社"), at("大涌谷")] });
+
+    const result = await run(undefined, undefined);
+
+    const day2 = result!.days[1];
+    expect(day2.theme).toBe("東京 一日遊：箱根");
+    expect(day2.isLocked).toBe(true);
+    expect(restaurantNearMock.mock.calls[0][2]).toBe("在箱根吃午餐");
+    const events = dayStopsMock.mock.calls[0][9][1] as { stop: { placeId: string }; block: { endMinute: number } }[];
+    expect(events.map((e) => e.stop.placeId)).toEqual(["箱根神社", "大涌谷"]);
+    expect(events.at(-1)!.block.endMinute).toBe(18 * 60);
+    expect(findSuburbMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps a half day nearby, without looking for a classic town", async () => {
+    planTripMock.mockResolvedValue({ title: "t", currency: "JPY", cities: [{ name: "東京", days: 2 }, { name: "大阪", days: 3 }] });
+
+    await run(undefined, undefined);
+
+    // 東京 and 大阪 both get 2 sightseeing days: half days, so no classic search
+    expect(findClassicMock).not.toHaveBeenCalled();
   });
 
   it("checks the season on the day trip's own date", async () => {

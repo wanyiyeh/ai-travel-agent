@@ -32,6 +32,7 @@ import {
 } from "@/lib/suburbTrips";
 import { restaurantNear } from "@/lib/fixedEventVenues";
 import { findSeasonalDay, nightHighlightEvent, seasonalDayIndex } from "@/lib/seasonalHighlights";
+import { classicTripEvents, findClassicDayTrip } from "@/lib/classicDayTrips";
 
 const DEFAULT_ARRIVAL_MINUTE_FALLBACK = 14 * 60;
 
@@ -269,6 +270,36 @@ export async function assembleItineraryDays(
       const center = await getCityCenter(city.name, apiKey).catch(() => null);
       if (!center) return undefined;
       const tripDate = dateOfTripDay(flightInfo.departureDate, nextDayNumber + dayIndex);
+      const dayStart = dayStartFor(preferenceIntent);
+      // A whole day goes to a classic town first (鎌倉, 箱根, 日光 from 東京,
+      // classicDayTrips.ts); the nearby outdoors when none is found.
+      if (kind === "day") {
+        const classic = await findClassicDayTrip(
+          city.name,
+          center,
+          apiKey,
+          preferenceIntent.interestBoost,
+          model,
+          new Set([...usedPlaceIds, ...usedSuburbIds]),
+          async (town) => !isInOtherCity(town, await otherCityCenters(city.name, apiKey)),
+          (place) => isInSeason(place, tripDate)
+        );
+        if (classic) {
+          const events = classicTripEvents(classic, city.name, dayStart, SIGHTSEEING_DAY_END_MINUTE, selfDrive);
+          for (const stop of events.flatMap((e) => (e.stop ? [e.stop] : []))) {
+            usedSuburbIds.add(String(stop.placeId));
+            usedPlaceIds.add(String(stop.placeId));
+          }
+          const first = classic.sights[0];
+          const lunch = await restaurantNear(
+            { placeId: first.placeId, name: first.name, lat: first.lat, lng: first.lng },
+            eventMealContext,
+            `在${classic.town}吃午餐`,
+            3000
+          ).catch(() => undefined);
+          return { dayIndex, kind, name: classic.town, events, lunch };
+        }
+      }
       const found = await findSuburbPlace(
         center,
         apiKey,
@@ -280,7 +311,7 @@ export async function assembleItineraryDays(
       if (!found) return undefined;
       usedSuburbIds.add(found.place.placeId);
       usedPlaceIds.add(found.place.placeId);
-      const event = suburbTripEvent(found.place, found.group, kind, dayStartFor(preferenceIntent), SIGHTSEEING_DAY_END_MINUTE, selfDrive);
+      const event = suburbTripEvent(found.place, found.group, kind, dayStart, SIGHTSEEING_DAY_END_MINUTE, selfDrive);
       // A day out eats lunch out there, not back downtown.
       const lunch =
         kind === "day"
@@ -291,10 +322,10 @@ export async function assembleItineraryDays(
               3000
             ).catch(() => undefined)
           : undefined;
-      return { dayIndex, kind, name: found.place.name, event, lunch };
+      return { dayIndex, kind, name: found.place.name, events: [event], lunch };
     };
     const suburbTrip = await planSuburbTrip(sightseeingEvents.map((e) => e.fixed.length));
-    if (suburbTrip) sightseeingEvents[suburbTrip.dayIndex].fixed.push(suburbTrip.event);
+    if (suburbTrip) sightseeingEvents[suburbTrip.dayIndex].fixed.push(...suburbTrip.events);
 
     // 季節限定: a day around what the city is known for this month
     // (seasonalHighlights.ts), unless the traveler turned it off.
