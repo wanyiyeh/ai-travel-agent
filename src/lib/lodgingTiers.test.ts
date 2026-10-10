@@ -29,6 +29,27 @@ describe("isLuxuryBrand", () => {
   });
 });
 
+describe("isLuxuryBrand — Taiwan (國內)", () => {
+  it("matches Taiwan's own luxury hotels", () => {
+    expect(isLuxuryBrand("台北晶華酒店")).toBe(true);
+    expect(isLuxuryBrand("台南晶英酒店")).toBe(true);
+    expect(isLuxuryBrand("雲品溫泉酒店")).toBe(true);
+    expect(isLuxuryBrand("日勝生加賀屋國際溫泉飯店")).toBe(true);
+    expect(isLuxuryBrand("礁溪老爺酒店")).toBe(true);
+    expect(isLuxuryBrand("台北寒舍艾美酒店")).toBe(true);
+    expect(isLuxuryBrand("The Lalu Sun Moon Lake")).toBe(true);
+  });
+
+  // Names as cached from Google.
+  it("doesn't match a group's mid-range line or a local name with a brand inside", () => {
+    expect(isLuxuryBrand("台南老爺行旅")).toBe(false);
+    expect(isLuxuryBrand("澎湖福朋喜來登酒店")).toBe(false);
+    expect(isLuxuryBrand("Four Points by Sheraton Penghu")).toBe(false);
+    expect(isLuxuryBrand("花蓮潔西艾美渡假酒店")).toBe(false);
+    expect(isLuxuryBrand("台南大飯店")).toBe(false);
+  });
+});
+
 describe("isLuxuryLodging", () => {
   it("also counts a place whose primary type is resort_hotel", () => {
     expect(isLuxuryLodging({ name: "Some Beach Resort", types: ["resort_hotel", "lodging"] })).toBe(true);

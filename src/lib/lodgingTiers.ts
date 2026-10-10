@@ -15,16 +15,26 @@ const LATIN_LUXURY_BRANDS = [
   "westin", "sheraton", "le méridien", "edition", "hyatt", "andaz",
   "intercontinental", "regent", "kimpton", "sofitel", "fairmont", "raffles", "pullman",
   "four seasons", "mandarin oriental", "peninsula", "shangri-la", "banyan tree", "aman", "rosewood",
+  // Taiwan's own (國內, plan/form-preference-wiring.md phase 5d) and 大倉, also in Tokyo.
+  "silks place", "the lalu", "okura", "evergreen laurel", "grand hi-lai", "kagaya",
 ];
 const CJK_LUXURY_BRANDS = [
-  "希爾頓", "康萊德", "華爾道夫", "萬豪", "麗思卡爾頓", "瑞吉", "威斯汀", "喜來登", "艾美",
+  "希爾頓", "康萊德", "華爾道夫", "萬豪", "麗思卡爾頓", "瑞吉", "威斯汀", "喜來登",
   "凱悅", "君悅", "柏悅", "安達仕", "洲際", "麗晶", "索菲特", "費爾蒙", "萊佛士", "鉑爾曼",
-  "四季酒店", "文華東方", "半島酒店", "香格里拉", "悅榕", "安縵", "瑰麗",
+  // 艾美 alone is also in local names: 花蓮潔西艾美渡假酒店 isn't a Le Méridien.
+  "四季酒店", "文華東方", "半島酒店", "香格里拉", "悅榕", "安縵", "瑰麗", "艾美酒店",
+  // Taiwan's own. 老爺 needs the 酒店 (台南老爺行旅 is the group's mid-range line);
+  // 圓山, 漢來 and 國賓 the 大飯店 (also restaurants and places).
+  "晶華", "晶英", "涵碧樓", "雲品", "君品", "寒舍艾麗", "大倉久和", "長榮桂冠", "加賀屋",
+  "老爺酒店", "老爺大酒店", "圓山大飯店", "漢來大飯店", "國賓大飯店", "美福大飯店",
 ];
 const LUXURY_BRANDS: BrandNames = { latin: LATIN_LUXURY_BRANDS, cjk: CJK_LUXURY_BRANDS };
 
+// A luxury group's mid-range line: 澎湖福朋喜來登酒店 is a Four Points, not a Sheraton.
+const MID_RANGE_LINES: BrandNames = { latin: ["four points"], cjk: ["福朋"] };
+
 export function isLuxuryBrand(name: string): boolean {
-  return matchesBrand(name, LUXURY_BRANDS);
+  return matchesBrand(name, LUXURY_BRANDS) && !matchesBrand(name, MID_RANGE_LINES);
 }
 
 /** Brand-name match, or Google's own primary type says resort. */
