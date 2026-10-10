@@ -164,6 +164,7 @@ describe("nightHighlightEvent", () => {
     const event = nightHighlightEvent({ place: eikando, night: true, note: "秋季夜間點燈" });
     expect(event.block).toEqual({ startMinute: 18 * 60 + 30, endMinute: 20 * 60 });
     expect(event.stop?.description).toBe("秋季夜間點燈");
+    expect(event.stop?.copyPending).toBe(true);
   });
 });
 

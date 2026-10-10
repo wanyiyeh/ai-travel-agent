@@ -151,6 +151,7 @@ describe("classicTripEvents", () => {
     expect(events[0].stop?.description).toContain("從東京搭火車約 1.5 小時到箱根");
     expect(events.at(-1)!.stop?.description).toContain("傍晚搭火車回東京");
     expect(classicTripEvents(hakone, "東京", 9 * 60, 18 * 60, true)[0].stop?.description).toContain("開車");
+    expect(events.every((e) => e.stop?.copyPending === true)).toBe(true);
   });
 
   it("drops a sight that doesn't fit after a long ride out, keeping two", () => {

@@ -1,3 +1,4 @@
+import { COPY_PENDING } from "@/lib/copyPending";
 import {
   fetchNearbyPlaceCandidates,
   getMealPlaceTypes,
@@ -83,6 +84,8 @@ export async function restaurantNear(
   return {
     name: place.name,
     description,
+    // 「在鎌倉吃午餐」 says why it's here, not what it is (missingCopy.ts).
+    [COPY_PENDING]: true,
     placeId: place.placeId,
     lat: place.lat,
     lng: place.lng,

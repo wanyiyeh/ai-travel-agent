@@ -61,6 +61,8 @@ vi.mock("@/lib/carRental", async (importOriginal) => ({
   findCarRental: (...args: unknown[]) => findRentalMock(...args),
 }));
 
+const fillCopyMock = vi.fn();
+vi.mock("@/lib/missingCopy", () => ({ fillMissingCopy: (...args: unknown[]) => fillCopyMock(...args) }));
 const findClassicMock = vi.fn();
 vi.mock("@/lib/classicDayTrips", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/classicDayTrips")>()),
@@ -142,6 +144,15 @@ beforeEach(() => {
   findClassicMock.mockResolvedValue(undefined);
   climateMock.mockResolvedValue(undefined);
   restaurantNearMock.mockResolvedValue(undefined);
+});
+
+describe("assembleItineraryDays — missing descriptions", () => {
+  it("fills them in for the whole trip once it's assembled", async () => {
+    const result = await run(undefined, undefined);
+
+    expect(fillCopyMock).toHaveBeenCalledTimes(1);
+    expect(fillCopyMock).toHaveBeenCalledWith(result!.days, "test-model");
+  });
 });
 
 describe("assembleItineraryDays — form field wiring", () => {

@@ -122,6 +122,8 @@ describe("suburbTripEvent", () => {
   it("says how to get there", () => {
     expect(suburbTripEvent(shikotsu, "land", "day", 540, 1080, true).stop?.description).toContain("開車前往");
     expect(suburbTripEvent(shikotsu, "land", "day", 540, 1080, false).stop?.description).toContain("搭火車或巴士當天往返");
+    // only a travel note: missingCopy.ts writes the line about the place
+    expect(suburbTripEvent(shikotsu, "land", "day", 540, 1080, false).stop?.copyPending).toBe(true);
   });
 
   it("reminds a driver at a winery not to taste", () => {
