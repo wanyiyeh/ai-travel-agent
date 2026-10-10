@@ -55,3 +55,11 @@ describe("interestWeightsOf", () => {
     expect(interestWeightsOf(["nature"])).toEqual({ park: 1.5, viewpoint: 1.5 });
   });
 });
+
+describe("親子同樂", () => {
+  it("is a theme of its own, from the kids tag", () => {
+    expect(themesOf(["kids", "culture"])).toEqual(["kids", "culture"]);
+    expect(isOnTheme(["aquarium", "tourist_attraction"], "kids")).toBe(true);
+    expect(isOnTheme(["museum"], "kids")).toBe(false);
+  });
+});

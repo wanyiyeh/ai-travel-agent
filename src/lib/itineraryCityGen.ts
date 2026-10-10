@@ -272,11 +272,12 @@ async function generateTransitDayStopsViaScheduler(
     // with no candidate types first so a late arrival skips the Places call.
     const pace = preferenceIntent.pace ?? "moderate";
     const fixedBlocks = fixed.map((e) => e.block);
+    const dayEndMinute = dayEndFor(preferenceIntent);
     const capacityFor = (candidateTypes: (string | undefined)[]) =>
       estimateStopCapacity({
         pace,
         dayStartMinute: plan.arrivalMinute,
-        dayEndMinute: SIGHTSEEING_DAY_END_MINUTE,
+        dayEndMinute,
         candidateTypes,
         fixedBlocks,
       });
@@ -315,7 +316,7 @@ async function generateTransitDayStopsViaScheduler(
         count,
         pace,
         dayStartMinute: plan.arrivalMinute,
-        dayEndMinute: SIGHTSEEING_DAY_END_MINUTE,
+        dayEndMinute,
         interestWeights,
         // The lodging isn't picked yet when the transit day is planned (it
         // runs alongside meal/lodging generation), so score from the center.
@@ -324,7 +325,7 @@ async function generateTransitDayStopsViaScheduler(
         isOutdoor: shelter.isOutdoor,
         fixedBlocks,
       }),
-      SIGHTSEEING_DAY_END_MINUTE
+      dayEndMinute
     );
 
     // Arrival stops and the day's events, in time order (stopsWithFixedEvents).
@@ -525,16 +526,35 @@ export type MealPreferences = {
   drinks?: DrinkChoice[];
   /** Renting a car: the 小酌 gets a don't-drink-and-drive reminder. */
   selfDrive?: boolean;
+  /** 親子: child-friendly restaurants first, no hostels. */
+  kids?: boolean;
 };
 
-/** `drinks` comes from the stored form preferences — the free-text parse has none. */
+/**
+ * `drinks` comes from the stored form preferences — the free-text parse has
+ * none. A trip with children has no 小酌, whatever the request says: the
+ * form hides 酒 for 親子, and this holds even if it's sent anyway.
+ */
 export function mealPreferencesOf(intent: PreferenceIntent, drinks?: DrinkChoice[]): MealPreferences {
   return {
     dietaryRestrictions: intent.dietaryRestrictions,
     startTimePreference: intent.startTimePreference,
-    drinks,
+    drinks: intent.kids ? drinks?.filter((d) => d !== "alcohol") : drinks,
     ...(intent.selfDrive ? { selfDrive: true } : {}),
+    ...(intent.kids ? { kids: true } : {}),
   };
+}
+
+/**
+ * Restaurants for a trip with children: those Google says suit children
+ * first, then those it says nothing about (many places don't fill it in),
+ * in their order. Places it says don't suit children and have no children's
+ * menu are left out — a ramen bar marked that way was a 親子 return-day lunch.
+ */
+export function childFriendlyFirst(places: PlaceCandidate[]): PlaceCandidate[] {
+  const suits = (p: PlaceCandidate) => p.goodForChildren === true || p.menuForChildren === true;
+  const ruledOut = (p: PlaceCandidate) => p.goodForChildren === false && p.menuForChildren !== true;
+  return [...places.filter(suits), ...places.filter((p) => !suits(p) && !ruledOut(p))];
 }
 
 const DRINK_DRIVE_NOTE = "開車的話請不要喝酒，可以把車留在住宿";
@@ -552,7 +572,7 @@ async function fetchMealLodgingPools(
   budget: BudgetLevel | undefined,
   currency: string,
   stayDays: number,
-  { dietaryRestrictions = [], startTimePreference, drinks = [] }: MealPreferences
+  { dietaryRestrictions = [], startTimePreference, drinks = [], kids = false }: MealPreferences
 ): Promise<MealLodgingPools | null> {
   const apiKey = process.env.GOOGLE_PLACES_API_KEY;
   if (!apiKey) return null;
@@ -592,8 +612,8 @@ async function fetchMealLodgingPools(
   const snackDrinks = drinks.filter((d): d is DrinkKey => d !== "alcohol");
   const [cafes, main, dietMain, luxuryMain, lodging, twdPerUnit, bars, ...drinkPools] = await Promise.all([
     search(getMealPlaceTypes("breakfast", budget), "pro", isFoodPlace),
-    search(getMealPlaceTypes("lunch", budget), "enterprise", isFoodPlace),
-    dietTypes.length > 0 ? search(dietTypes, "enterprise", isFoodPlace) : Promise.resolve([]),
+    search(getMealPlaceTypes("lunch", budget), kids ? "kids" : "enterprise", isFoodPlace),
+    dietTypes.length > 0 ? search(dietTypes, kids ? "kids" : "enterprise", isFoodPlace) : Promise.resolve([]),
     budget === "luxury" ? fetchLuxuryRestaurants(coords, apiKey, MEAL_LODGING_RADIUS_M) : Promise.resolve([]),
     fetchLodgingCandidates(coords, apiKey, budget, MEAL_LODGING_RADIUS_M, MEAL_LODGING_MAX_COUNT),
     budget ? getTwdRates() : Promise.resolve({}),
@@ -617,7 +637,8 @@ async function fetchMealLodgingPools(
     .filter(isFoodPlace)
     .filter(fitsMainMeal);
   // Lunch + dinner each day draw from the same pool.
-  const rankedMain = rankMainMealsByBudget(allMain, budget, currency, twdPerUnit, stayDays * 2);
+  const budgetRanked = rankMainMealsByBudget(allMain, budget, currency, twdPerUnit, stayDays * 2);
+  const rankedMain = kids ? childFriendlyFirst(budgetRanked) : budgetRanked;
   // Coffee and tea alternate by day (mealLodgingPicks.ts enforces it); a
   // drink with no places in this city just drops out. A coffee lover's
   // breakfast also starts with the coffee places that serve one.
@@ -634,7 +655,8 @@ async function fetchMealLodgingPools(
     breakfast: uniqueByPlaceId([...coffeeBreakfast, ...canonical(breakfast)]),
     main: rankedMain,
     snack: uniqueByPlaceId([...interleave(snackRotation), ...canonical(split.snack)]),
-    lodging,
+    // Families stay in a guest house rather than a hostel dorm (plan 1.5).
+    lodging: kids ? lodging.filter((p) => !p.types?.includes("hostel")) : lodging,
     // An izakaya can come up in the dinner search too; it's dinner then, not
     // a second visit the same evening.
     nightcap: barsFirst(
@@ -663,7 +685,8 @@ export async function generateMealsAndAccommodation(
 
   const lateRiserRule =
     preferences.startTimePreference === "late" ? "\n- 旅客晚起（約 11:00 出門），早餐請選早午餐" : "";
-  const preferenceRules = dietPromptLine(preferences.dietaryRestrictions ?? []) + lateRiserRule;
+  const kidsRule = preferences.kids ? "\n- 有小孩同行：午餐、晚餐優先選適合兒童的店（排在候選前面的），避開居酒屋、酒吧" : "";
+  const preferenceRules = dietPromptLine(preferences.dietaryRestrictions ?? []) + lateRiserRule + kidsRule;
 
   if (!useCandidates) {
     const parsed = await askMealsAndLodging(model, cityName, stayDays, currency, preferenceRules, null, true);
@@ -866,6 +889,12 @@ export function dayStartFor(preferenceIntent: PreferenceIntent): number {
 // Sightseeing stops spread out until dinner (assignTimeSlots' dinner window
 // opens at 18:00) instead of all finishing before lunch.
 export const SIGHTSEEING_DAY_END_MINUTE = 18 * 60;
+// With children the day winds down an hour earlier (plan 1.5).
+const KIDS_DAY_END_MINUTE = 17 * 60;
+
+export function dayEndFor(preferenceIntent: PreferenceIntent): number {
+  return preferenceIntent.kids ? KIDS_DAY_END_MINUTE : SIGHTSEEING_DAY_END_MINUTE;
+}
 
 // How far past SIGHTSEEING_DAY_END_MINUTE the last stop may still end — dinner
 // runs until 20:00. Without it, a culture trip lost a 3-hour museum that ran
@@ -1101,6 +1130,7 @@ async function generateDayStopsViaScheduler(
     const lockedIds = new Set(lockedPlaceIds);
     const pace = preferenceIntent.pace ?? "moderate";
     const dayStartMinute = dayStartFor(preferenceIntent);
+    const dayEndMinute = dayEndFor(preferenceIntent);
     const dayStarts = Array.from({ length: dayCount }, (_, dayIdx) =>
       dayIdx === 0 ? (firstDayStartMinute ?? dayStartMinute) : dayStartMinute
     );
@@ -1116,7 +1146,7 @@ async function generateDayStopsViaScheduler(
         estimateStopCapacity({
           pace,
           dayStartMinute: start,
-          dayEndMinute: SIGHTSEEING_DAY_END_MINUTE,
+          dayEndMinute,
           candidateTypes,
           fixedBlocks: blocksOf(dayIdx),
         })
@@ -1170,7 +1200,7 @@ async function generateDayStopsViaScheduler(
               count: group.length,
               pace,
               dayStartMinute: dayStarts[dayIdx],
-              dayEndMinute: SIGHTSEEING_DAY_END_MINUTE,
+              dayEndMinute,
               interestWeights,
               anchor,
               origin: anchor,
@@ -1180,7 +1210,7 @@ async function generateDayStopsViaScheduler(
               sunsetMinute: conditionsByDay[dayIdx]?.sunsetMinute,
               isOutdoorInDark: outdoorOf,
             }),
-            SIGHTSEEING_DAY_END_MINUTE
+            dayEndMinute
           )
         : []
     );

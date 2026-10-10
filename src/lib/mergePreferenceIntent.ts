@@ -15,7 +15,8 @@ function union(a: readonly string[], b: readonly string[]): string[] {
  *   Form interest values double as interestBoost tags (culture/nature/
  *   shopping map to scheduler categories; others simply get no boost).
  * - avoid: free text only, the form has no such field.
- * - indoorFirst, selfDrive: form only.
+ * - indoorFirst, selfDrive, kids: form only. 親子 also leads the interests
+ *   with "kids", so a 親子同樂 day comes first in the theme rotation.
  */
 export function mergePreferenceIntent(
   preferences: TripPreferences | undefined,
@@ -24,10 +25,14 @@ export function mergePreferenceIntent(
   return {
     pace: preferences?.pace ?? parsed.pace,
     startTimePreference: preferences?.startTime ?? parsed.startTimePreference,
-    interestBoost: union(preferences?.interests ?? [], parsed.interestBoost),
+    interestBoost: union(
+      [...(preferences?.companions?.includes("kids") ? ["kids"] : []), ...(preferences?.interests ?? [])],
+      parsed.interestBoost
+    ),
     dietaryRestrictions: union(preferences?.dietaryRestrictions ?? [], parsed.dietaryRestrictions),
     avoid: parsed.avoid,
     ...(preferences?.indoorFirst ? { indoorFirst: true } : {}),
     ...(preferences?.transport === "drive" ? { selfDrive: true } : {}),
+    ...(preferences?.companions?.includes("kids") ? { kids: true } : {}),
   };
 }

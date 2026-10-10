@@ -4,7 +4,7 @@ import { planTrip, type TripPlan } from "@/lib/tripPlan";
 import {
   generateThemedDayStops,
   dayStartFor,
-  SIGHTSEEING_DAY_END_MINUTE,
+  dayEndFor,
   generateTransitDayStops,
   generateDepartureDayStops,
   generateMealsAndAccommodation,
@@ -151,7 +151,7 @@ export async function assembleItineraryDays(
   const eventStops = (planned: PlannedDayEvents) => planned.fixed.flatMap((e) => (e.stop ? [e.stop] : []));
   const selfDrive = Boolean(preferenceIntent.selfDrive);
   // Which kinds of suburb place, from the traveler's interests and drinks.
-  const suburbGroups = suburbGroupsFor(preferenceIntent.interestBoost, preferences?.drinks ?? []);
+  const suburbGroups = suburbGroupsFor(preferenceIntent.interestBoost, preferences?.drinks ?? [], Boolean(preferenceIntent.kids));
   const usedSuburbIds = new Set<string>();
   // The route's other cities, which a day trip shouldn't land in.
   const otherCityCenters = async (cityName: string, apiKey: string) => {
@@ -296,7 +296,7 @@ export async function assembleItineraryDays(
           (place) => isInSeason(place, tripDate)
         );
         if (classic) {
-          const events = classicTripEvents(classic, city.name, dayStart, SIGHTSEEING_DAY_END_MINUTE, selfDrive);
+          const events = classicTripEvents(classic, city.name, dayStart, dayEndFor(preferenceIntent), selfDrive);
           for (const stop of events.flatMap((e) => (e.stop ? [e.stop] : []))) {
             usedSuburbIds.add(String(stop.placeId));
             usedPlaceIds.add(String(stop.placeId));
@@ -322,7 +322,7 @@ export async function assembleItineraryDays(
       if (!found) return undefined;
       usedSuburbIds.add(found.place.placeId);
       usedPlaceIds.add(found.place.placeId);
-      const event = suburbTripEvent(found.place, found.group, kind, dayStart, SIGHTSEEING_DAY_END_MINUTE, selfDrive);
+      const event = suburbTripEvent(found.place, found.group, kind, dayStart, dayEndFor(preferenceIntent), selfDrive);
       // A day out eats lunch out there, not back downtown.
       const lunch =
         kind === "day"

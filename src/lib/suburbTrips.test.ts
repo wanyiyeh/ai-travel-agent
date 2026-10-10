@@ -37,6 +37,11 @@ describe("suburbGroupsFor", () => {
   it("goes for the outdoors when nothing points elsewhere", () => {
     expect(suburbGroupsFor(["culture"])).toEqual(["land", "water"]);
   });
+
+  it("keeps a trip with children off hard trails and out of wineries", () => {
+    expect(suburbGroupsFor(["land"], ["alcohol"], true)).toEqual(["family_land"]);
+    expect(suburbGroupsFor([], [], true)).toEqual(["family_land", "water"]);
+  });
 });
 
 describe("suburbKindFor", () => {

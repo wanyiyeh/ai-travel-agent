@@ -64,6 +64,10 @@ const DRINK_OPTIONS: { value: DrinkTag; label: string }[] = [
   { value: "alcohol", label: "酒" },
 ];
 
+// 同行者 (plan/form-preference-wiring.md 1.5). 長輩 and 獨旅 come in their own PRs.
+type CompanionTag = NonNullable<TripPreferences["companions"]>[number];
+const COMPANION_OPTIONS: { value: CompanionTag; label: string }[] = [{ value: "kids", label: "親子" }];
+
 const INTEREST_OPTIONS: { value: NonNullable<TripPreferences["interests"]>[number]; label: string }[] = [
   { value: "food", label: "美食" },
   { value: "culture", label: "文化歷史" },
@@ -451,6 +455,10 @@ export default function Home() {
   const [transport, setTransport] = useState<TripPreferences["transport"]>(undefined);
   const [diet, setDiet] = useState<DietTag[]>([]);
   const [drinks, setDrinks] = useState<DrinkTag[]>([]);
+  const [companions, setCompanions] = useState<CompanionTag[]>([]);
+  // A trip with children has no 小酌, so 酒 isn't offered.
+  const withKids = companions.includes("kids");
+  const drinkOptions = withKids ? DRINK_OPTIONS.filter((o) => o.value !== "alcohol") : DRINK_OPTIONS;
   const [selectedWaypoints, setSelectedWaypoints] = useState<string[]>([]);
 
   // 進階選項的展開狀態
@@ -479,6 +487,12 @@ export default function Home() {
 
   function toggleDrink(val: DrinkTag) {
     setDrinks((prev) => (prev.includes(val) ? prev.filter((d) => d !== val) : [...prev, val]));
+  }
+
+  function toggleCompanion(val: CompanionTag) {
+    const next = companions.includes(val) ? companions.filter((c) => c !== val) : [...companions, val];
+    setCompanions(next);
+    if (next.includes("kids")) setDrinks((prev) => prev.filter((d) => d !== "alcohol"));
   }
 
   function toggleWaypoint(name: string) {
@@ -518,6 +532,7 @@ export default function Home() {
       fixedEvents: fixedEventDrafts.length ? fixedEventDrafts.map(toFixedEvent) : undefined,
       dietaryRestrictions: diet.length ? diet : undefined,
       drinks: drinks.length ? drinks : undefined,
+      companions: companions.length ? companions : undefined,
     };
 
     const waypointsNote = selectedWaypoints.length > 0
@@ -844,7 +859,8 @@ export default function Home() {
                       onChange={setTransport}
                       emptyHint="未選擇時以大眾運輸安排"
                     />
-                    <ChipRow label="飲品" options={DRINK_OPTIONS} selected={drinks} onToggle={toggleDrink} />
+                    <ChipRow label="同行者" options={COMPANION_OPTIONS} selected={companions} onToggle={toggleCompanion} />
+                    <ChipRow label="飲品" options={drinkOptions} selected={drinks} onToggle={toggleDrink} />
                   </div>
                 </div>
               )}

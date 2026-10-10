@@ -18,10 +18,16 @@ const NEARBY_SEARCH_URL = "https://places.googleapis.com/v1/places:searchNearby"
 export const PRO_FIELD_MASK =
   "places.id,places.displayName,places.location,places.formattedAddress,places.photos,places.types";
 export const ENTERPRISE_FIELD_MASK = `${PRO_FIELD_MASK},places.rating,places.priceLevel,places.priceRange`;
+// 親子 only (plan/form-preference-wiring.md 1.5): whether a restaurant suits
+// children, an Enterprise + Atmosphere field — the costliest tier, so only
+// a trip with children asks, for lunch and dinner, under its own cache key.
+export const KIDS_FIELD_MASK = `${ENTERPRISE_FIELD_MASK},places.goodForChildren,places.menuForChildren`;
+const maskFor = (tier: FieldTier) =>
+  tier === "kids" ? KIDS_FIELD_MASK : tier === "enterprise" ? ENTERPRISE_FIELD_MASK : PRO_FIELD_MASK;
 const HINTS_FIELD_MASK = "places.displayName,places.location,places.types";
 
 /** Which field set a candidate search asks for — see PRO_FIELD_MASK. */
-export type FieldTier = "pro" | "enterprise";
+export type FieldTier = "pro" | "enterprise" | "kids";
 
 // Shared TTL for every Nearby Search cache in this file (city hint lists,
 // candidate pools, nearest-station lookups) — Places results change slowly,
@@ -313,6 +319,9 @@ export interface PlaceCandidate {
   // naturally refresh; every other existing caller here only ever reads the
   // fields above and ignores this one.
   types?: string[];
+  /** Kids tier only (KIDS_FIELD_MASK); absent when Google doesn't say. */
+  goodForChildren?: boolean;
+  menuForChildren?: boolean;
 }
 
 export type PriceRange = { currency: string; start?: number; end?: number };
@@ -350,7 +359,7 @@ function buildCandidatesCacheKey(
 ): string {
   const sortedTypes = [...types].sort().join(",");
   const base = `${roundCoord(coords.lat)},${roundCoord(coords.lng)}:${radius}:${maxCount}:${sortedTypes}:`;
-  const tiered = tier === "pro" ? `${base}:pro` : base;
+  const tiered = tier === "pro" ? `${base}:pro` : tier === "kids" ? `${base}:kids` : base;
   return match === "primary" ? `${tiered}:primary` : tiered;
 }
 
@@ -426,6 +435,8 @@ type NearbyPlaceResult = {
   formattedAddress?: string;
   photos?: { name: string }[];
   types?: string[];
+  goodForChildren?: boolean;
+  menuForChildren?: boolean;
 };
 
 async function fetchNearbyPlaceCandidatesUncached(
@@ -443,7 +454,7 @@ async function fetchNearbyPlaceCandidatesUncached(
       headers: {
         "Content-Type": "application/json",
         "X-Goog-Api-Key": apiKey,
-        "X-Goog-FieldMask": tier === "enterprise" ? ENTERPRISE_FIELD_MASK : PRO_FIELD_MASK,
+        "X-Goog-FieldMask": maskFor(tier),
       },
       body: JSON.stringify({
         ...(match === "primary" ? { includedPrimaryTypes: types } : { includedTypes: types }),
@@ -477,6 +488,8 @@ async function fetchNearbyPlaceCandidatesUncached(
         address: p.formattedAddress ?? "",
         photoName: p.photos?.[0]?.name ?? null,
         types: p.types,
+        ...(p.goodForChildren !== undefined ? { goodForChildren: p.goodForChildren } : {}),
+        ...(p.menuForChildren !== undefined ? { menuForChildren: p.menuForChildren } : {}),
       }))
       .filter((c: PlaceCandidate) => c.name.length > 0 && c.placeId.length > 0);
   } catch (err) {
@@ -517,7 +530,7 @@ export async function searchTextCandidates(
       headers: {
         "Content-Type": "application/json",
         "X-Goog-Api-Key": apiKey,
-        "X-Goog-FieldMask": tier === "enterprise" ? ENTERPRISE_FIELD_MASK : PRO_FIELD_MASK,
+        "X-Goog-FieldMask": maskFor(tier),
       },
       body: JSON.stringify({
         textQuery: query,

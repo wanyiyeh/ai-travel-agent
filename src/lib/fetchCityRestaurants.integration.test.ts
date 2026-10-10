@@ -92,6 +92,20 @@ describe("fetchNearbyPlaceCandidates billing tiers", () => {
     expect(place.rating).toBe(4.4);
   });
 
+  it("asks whether a restaurant suits children only on the kids tier, cached apart", async () => {
+    const kidsPlaces = [{ ...places[0], goodForChildren: true, menuForChildren: false }];
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ places: kidsPlaces }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fetchNearbyPlaceCandidates(coords, "key", ["ramen_restaurant"], 5000, 10, "enterprise");
+    const [kid] = await fetchNearbyPlaceCandidates(coords, "key", ["ramen_restaurant"], 5000, 10, "kids");
+
+    expect(maskOf(request(fetchMock, 0))).not.toContain("goodForChildren");
+    expect(maskOf(request(fetchMock, 1))).toContain("places.goodForChildren,places.menuForChildren");
+    expect(fetchMock).toHaveBeenCalledTimes(2); // the Enterprise pool has no child fields to reuse
+    expect(kid).toMatchObject({ goodForChildren: true, menuForChildren: false });
+  });
+
   it("lets a Pro search reuse a cached Enterprise pool instead of paying again", async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({ places }), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);

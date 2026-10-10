@@ -98,6 +98,14 @@ export const TripPreferencesSchema = z.object({
   // 季節限定景點 (plan/form-preference-wiring.md 1.12): on unless the
   // traveler unticks it, so only `false` turns it off.
   seasonalHighlights: z.boolean().optional(),
+  // 同行者 (plan/form-preference-wiring.md 1.5): 獨旅 can't go with 親子 or 長輩.
+  companions: z
+    .array(z.enum(["solo", "kids", "seniors"]))
+    .max(3)
+    .refine((c) => !(c.includes("solo") && (c.includes("kids") || c.includes("seniors"))), {
+      message: "獨旅不能跟親子、長輩一起選",
+    })
+    .optional(),
 });
 
 export type TripPreferences = z.infer<typeof TripPreferencesSchema>;
@@ -123,6 +131,8 @@ export const PreferenceIntentSchema = z.object({
   indoorFirst: z.boolean().optional(),
   // Form only, like indoorFirst: renting a car (transport "drive").
   selfDrive: z.boolean().optional(),
+  // Form only: traveling with children (同行者 親子).
+  kids: z.boolean().optional(),
 });
 
 export type PreferenceIntent = z.infer<typeof PreferenceIntentSchema>;

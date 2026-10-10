@@ -596,3 +596,41 @@ describe("withoutRevisits", () => {
     expect(withoutRevisits(stops, ["小樽運河", "茶"]).map((s) => s.name)).toEqual(["早餐", "茶"]);
   });
 });
+
+// 親子: the day winds down at 17:00, an hour before everyone else's.
+describe("generateDayStops — with children", () => {
+  it("ends the day by 17:00", async () => {
+    const kidsIntent = { ...NEUTRAL_PREFERENCE_INTENT, pace: "intensive" as const, kids: true };
+    const kidsDays = await generateDayStops("東京", 1, "JPY", [], undefined, kidsIntent);
+    const usual = await generateDayStops("東京", 1, "JPY", [], undefined, { ...kidsIntent, kids: undefined });
+
+    expect(kidsDays[0].length).toBeLessThan(usual[0].length);
+  });
+});
+
+describe("親子 helpers", () => {
+  it("drops 小酌 for a trip with children, even if 酒 was sent", async () => {
+    const { mealPreferencesOf } = await import("./itineraryCityGen");
+    const prefs = mealPreferencesOf({ ...NEUTRAL_PREFERENCE_INTENT, kids: true }, ["coffee", "alcohol"]);
+    expect(prefs).toMatchObject({ drinks: ["coffee"], kids: true });
+    expect(mealPreferencesOf(NEUTRAL_PREFERENCE_INTENT, ["alcohol"]).drinks).toEqual(["alcohol"]);
+  });
+
+  it("puts places Google says suit children first, keeps the unknown, drops the ruled out", async () => {
+    const { childFriendlyFirst } = await import("./itineraryCityGen");
+    const [a, b, c, d] = POOL;
+    const ordered = childFriendlyFirst([
+      a, // says nothing
+      { ...b, menuForChildren: true },
+      { ...c, goodForChildren: false, menuForChildren: false }, // Ramen Kamo to Negi
+      { ...d, goodForChildren: false, menuForChildren: true }, // 一蘭: not "for children", but has a kids' menu
+    ]);
+    expect(ordered.map((p) => p.placeId)).toEqual([b.placeId, d.placeId, a.placeId]);
+  });
+
+  it("ends a day with children at 17:00", async () => {
+    const { dayEndFor } = await import("./itineraryCityGen");
+    expect(dayEndFor({ ...NEUTRAL_PREFERENCE_INTENT, kids: true })).toBe(17 * 60);
+    expect(dayEndFor(NEUTRAL_PREFERENCE_INTENT)).toBe(18 * 60);
+  });
+});

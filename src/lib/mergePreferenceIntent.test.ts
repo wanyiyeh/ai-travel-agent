@@ -58,3 +58,15 @@ describe("mergePreferenceIntent — 交通方式", () => {
     expect(mergePreferenceIntent({ transport: "transit" }, parsed({}))).not.toHaveProperty("selfDrive");
   });
 });
+
+describe("mergePreferenceIntent — 同行者 親子", () => {
+  it("marks a trip with children and leads the themes with 親子同樂", () => {
+    const merged = mergePreferenceIntent({ companions: ["kids"], interests: ["culture"] }, parsed({ interestBoost: ["art"] }));
+    expect(merged.kids).toBe(true);
+    expect(merged.interestBoost).toEqual(["kids", "culture", "art"]);
+  });
+
+  it("adds nothing without children", () => {
+    expect(mergePreferenceIntent({}, parsed({}))).not.toHaveProperty("kids");
+  });
+});
