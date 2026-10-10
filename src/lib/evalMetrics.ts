@@ -37,6 +37,8 @@ export type ItineraryMetrics = {
   legModes: { walk: number; transit: number; drive: number; taxi: number };
   /** The trip's very first and very last stop — a self-driver's car pickup and return. */
   tripEnds: { first?: string; last?: string; firstNote?: string; lastNote?: string };
+  /** 國內 interests (domesticInterests.ts): night-market dinners, 老街 days, the hot spring, camping nights. */
+  domesticInterests: { nightMarketDinners: string[]; oldStreetDays: number; hotSprings: string[]; campNights: string[] };
   /** Stops or transit steps that mention an airport or a flight — none on a mainland 國內 trip. */
   flightMentions: string[];
   /** 季節限定 days (seasonalHighlights.ts): the title and every stop's name. */
@@ -227,6 +229,23 @@ export function measureItinerary(days: Rec[], ctx: EvalContext): ItineraryMetric
       last: str(asRecords(days[lastIdx]?.stops).at(-1)?.name),
       firstNote: str(asRecords(days[0]?.stops)[0]?.description),
       lastNote: str(asRecords(days[lastIdx]?.stops).at(-1)?.description),
+    },
+    domesticInterests: {
+      nightMarketDinners: days
+        .map((d) => str((((d.meals ?? {}) as Rec).dinner as Rec | undefined)?.name) ?? "")
+        .filter((n) => n.includes("夜市")),
+      oldStreetDays: days.filter((d) => (str(d.theme) ?? "").includes("老街巡禮")).length,
+      // A hot-spring stay, or a soak on the way.
+      hotSprings: [
+        ...new Set([
+          ...days.map((d) => str((d.accommodation as Rec | null | undefined)?.name) ?? ""),
+          ...days.flatMap((d) => asRecords(d.stops).map((s) => str(s.name) ?? "")),
+        ]),
+      ].filter((n) => /溫泉|温泉|湯/.test(n)),
+      campNights: days
+        .map((d) => d.accommodation as Rec | null | undefined)
+        .filter((a) => (str(a?.reason) ?? "").startsWith("露營"))
+        .map((a) => str(a?.name) ?? ""),
     },
     flightMentions: days.flatMap((d) =>
       asRecords(d.stops)
