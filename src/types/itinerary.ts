@@ -146,6 +146,8 @@ export type Day = {
   isLocked?: boolean;
   // 「日落約 16:30・這個月常下雨，記得帶傘」, from last year's weather (dayConditions.ts).
   weatherNote?: string;
+  // A day trip's town or a seasonal day's theme, to find tours for (tourLinks.ts).
+  tourKeyword?: string;
 };
 
 export type Itinerary = {
