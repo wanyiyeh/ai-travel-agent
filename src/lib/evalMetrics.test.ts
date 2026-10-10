@@ -142,6 +142,18 @@ describe("measureItinerary", () => {
     expect(m2.outdoorAfterDarkDays).toBe(1);
   });
 
+  it("lists places with no description, bookings aside", () => {
+    // the fixture's meals have no descriptions; its stops neither
+    const described = days.map((d) => ({
+      ...d,
+      stops: d.stops.map((s) => ({ ...s, description: "寫好了" })),
+      meals: Object.fromEntries(Object.entries(d.meals).map(([k, m]) => [k, { ...m, description: "寫好了" }])),
+    }));
+    expect(measureItinerary(described, ctx).missingDescriptions).toEqual([]);
+    const oneBlank = described.map((d, i) => (i === 0 ? { ...d, meals: { ...d.meals, snack: { name: "Cafe", placeId: "c" } } } : d));
+    expect(measureItinerary(oneBlank, ctx).missingDescriptions).toEqual(["Cafe"]);
+  });
+
   it("lists the seasonal days with their stops", () => {
     const stops = [{ name: "新宿御苑" }, { name: "千鳥淵", time_of_day: "evening" }];
     const withSeason = days.map((d, i) => (i === 1 ? { ...d, theme: "東京 季節限定：賞櫻", stops } : d));

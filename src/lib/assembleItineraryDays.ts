@@ -34,6 +34,7 @@ import {
 import { restaurantNear } from "@/lib/fixedEventVenues";
 import { findSeasonalDay, nightHighlightEvent, seasonalDayIndex } from "@/lib/seasonalHighlights";
 import { classicTripEvents, findClassicDayTrip } from "@/lib/classicDayTrips";
+import { fillMissingCopy } from "@/lib/missingCopy";
 
 const DEFAULT_ARRIVAL_MINUTE_FALLBACK = 14 * 60;
 
@@ -449,6 +450,9 @@ export async function assembleItineraryDays(
       });
     }
   }
+
+  // Places the program put in itself get their description now, in one call (missingCopy.ts).
+  await fillMissingCopy(days, model);
 
   return {
     title: plan.title,

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { COPY_PENDING } from "@/lib/copyPending";
 import { openai } from "@/lib/openai";
 import { prisma } from "@/lib/db";
 import { searchTextCandidates, type PlaceCandidate } from "@/lib/fetchCityRestaurants";
@@ -172,6 +173,7 @@ export function nightHighlightEvent(h: SeasonalHighlight): DayFixedEvents[number
       placeId: h.place.placeId,
       name: h.place.name,
       description: h.note || "晚上點燈後最美",
+      [COPY_PENDING]: true,
       duration_minutes: NIGHT_MINUTES,
       time_of_day: "evening",
       lat: h.place.lat,

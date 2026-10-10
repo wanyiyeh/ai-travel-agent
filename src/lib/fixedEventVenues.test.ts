@@ -75,7 +75,7 @@ describe("planDayEvents — dinner before a show", () => {
     const { meals } = await planDayEvents([concert], "東京", undefined, { currency: "JPY" });
 
     expect(nearbyMock.mock.calls[0][0]).toEqual({ lat: dome.lat, lng: dome.lng });
-    expect(meals.dinner).toMatchObject({ name: "Ramen Near Dome", description: "開場前在東京巨蛋附近用餐" });
+    expect(meals.dinner).toMatchObject({ name: "Ramen Near Dome", description: "開場前在東京巨蛋附近用餐", copyPending: true });
   });
 
   // Story: near 東京巨蛋 the top "restaurants" were hotels with a dining room

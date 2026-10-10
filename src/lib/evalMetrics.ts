@@ -60,6 +60,8 @@ export type ItineraryMetrics = {
   adjacentRepeats: number;
   /** Meals without a placeId — names the LLM made up. */
   inventedMeals: number;
+  /** Stops and meals at a real place with no description (bookings aside) — missingCopy.ts should leave none. */
+  missingDescriptions: string[];
   /** Cities in order, consecutive duplicates merged. */
   cities: string[];
   /** Where each night is spent, consecutive nights in one city merged (a transit day's night is in the city it goes to). */
@@ -249,6 +251,13 @@ export function measureItinerary(days: Rec[], ctx: EvalContext): ItineraryMetric
     mealRepeatRate,
     adjacentRepeats,
     inventedMeals,
+    missingDescriptions: days.flatMap((d) => {
+      const meals = (d.meals ?? {}) as Rec;
+      const items = [...asRecords(d.stops), ...MEAL_KEYS.map((k) => meals[k]).filter((m): m is Rec => Boolean(m) && typeof m === "object")];
+      return items
+        .filter((x) => str(x.placeId) && !x.fixedEvent && !(str(x.description) ?? "").trim())
+        .map((x) => str(x.name) ?? "");
+    }),
     cities,
     nightStays,
     dayTitles: sightseeing.map((d) => str(d.theme) ?? ""),
