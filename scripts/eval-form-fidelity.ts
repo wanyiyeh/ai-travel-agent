@@ -466,6 +466,18 @@ const CHECKS: Check[] = [
     },
   },
   {
+    // A maid café is typed a plain café; only its name tells.
+    title: "親子：點心沒有女僕、主題咖啡廳，而且多半是甜點",
+    pass: (r) => {
+      const snacks = r.get("tokyo-kids")?.snacks;
+      if (!snacks) return null;
+      const concept = snacks.some((s) => /maid|メイド|めいど|女僕|at-?home ?cafe|@ほぉ|maidreamin/i.test(s.name));
+      const sweets = snacks.filter((s) => /dessert|ice_cream|bakery|pastry|cake|donut|chocolate|confectionery|tea_house/.test(s.primaryType ?? "")).length;
+      return !concept && sweets * 2 >= snacks.length;
+    },
+    detail: (r) => r.get("tokyo-kids")?.snacks.map((s) => `${s.name}（${s.primaryType ?? "?"}）`).join("、") || "—",
+  },
+  {
     // 新宿's pool was half malls and hotels: 8 restaurants for 8 meals, so trips leaving some out repeated.
     title: "餐點：東京對照組、獨旅、親子的午晚餐都不重複",
     pass: (r) => {
