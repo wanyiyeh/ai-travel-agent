@@ -2,11 +2,12 @@ import { fetchNearbyPlaceCandidates, type PlaceCandidate } from "@/lib/fetchCity
 import { COPY_PENDING } from "@/lib/copyPending";
 import { haversineKm } from "@/lib/geo";
 import type { DayFixedEvents } from "@/lib/fixedEvents";
+import type { SuburbKind } from "@/lib/suburbKind";
+
+export { suburbKindFor, type SuburbKind } from "@/lib/suburbKind";
 
 // 郊區的一日遊和半日遊 (plan/form-preference-wiring.md 1.4, phase 3b): one
 // day out of the city for a stay long enough to spare it.
-
-export type SuburbKind = "day" | "half";
 
 // Google types per interest. Each group is its own Nearby Search: one type
 // Google doesn't know makes it reject the whole request, and `vineyard` /
@@ -40,17 +41,6 @@ export function suburbGroupsFor(
   if (interests.includes("food")) groups.push("food");
   if (drinks.includes("alcohol") && !kids) groups.push("alcohol");
   return groups.length > 0 ? groups : [land, "water"];
-}
-
-/**
- * The kind of trip a city's stay has room for: 3+ sightseeing days get a
- * day trip, 2 a half day, 1 none. By car or by train — a day out and back by
- * rail is as normal as driving.
- */
-export function suburbKindFor(sightseeingDays: number): SuburbKind | undefined {
-  if (sightseeingDays >= 3) return "day";
-  if (sightseeingDays >= 2) return "half";
-  return undefined;
 }
 
 // Out of town, but within about an hour or an hour and a half by train or

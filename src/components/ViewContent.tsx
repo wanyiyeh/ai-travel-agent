@@ -392,7 +392,7 @@ export default function ViewContent({ id }: ViewContentProps) {
         isLocked: d.isLocked === true,
         waypointCity: d.waypointCity as string | undefined,
         stopCount: Array.isArray(d.stops) ? d.stops.length : 0,
-        ...(booked ? { bookedEventLabel: bookedEventLabel(booked) } : {}),
+        ...(booked ? { bookedEventLabel: bookedEventLabel(booked), bookedEventDate: booked.date } : {}),
       };
     });
     return (
@@ -407,6 +407,7 @@ export default function ViewContent({ id }: ViewContentProps) {
           existingStops={restructureRecommendationProps?.existingStops}
           isSingleCity={restructureRecommendationProps?.isSingleCity}
           returnDate={data.config?.flightInfo?.returnDate}
+          departureDate={data.config?.flightInfo?.departureDate}
         />
       </div>
     );

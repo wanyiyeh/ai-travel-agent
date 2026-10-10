@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  bookedDateShift,
   computeCityDiff,
+  newDaysHint,
   computeStructuralDayIds,
   groupExistingDays,
   minCityDays,
@@ -38,5 +40,30 @@ describe("restructure wizard — a booked event's day", () => {
     const diff = computeCityDiff(syncKeepDaysForTarget({ ...tokyo(), targetDays: 2 }));
     expect(diff.removed).toEqual(["d1", "d3"]);
     expect(diff.addedAiDays).toBe(0);
+  });
+});
+
+describe("restructure wizard — hints", () => {
+  const layout = (c: CityEntryState) => ({ isNew: c.isNew, targetDays: c.targetDays, keepDayIds: [...c.keepDayIds] });
+  const isStructural = (id: string) => id === "d4";
+  const concertDay = { ...days[1], bookedEventDate: "2026-11-12" };
+
+  it("says nothing when the concert stays on its date", () => {
+    // Departing 11/11: day 2 is 11/12.
+    expect(bookedDateShift(concertDay, [layout(tokyo())], 0, isStructural, "d4", "2026-11-11")).toBeUndefined();
+  });
+
+  it("warns when a new city before it moves the concert to another date", () => {
+    const kyoto = { isNew: true, targetDays: 2, keepDayIds: [] };
+    expect(bookedDateShift(concertDay, [kyoto, layout({ ...tokyo(), targetDays: 5 })], 1, isStructural, "d4", "2026-11-11")).toEqual({
+      dayNumber: 5, // 京都 days 1-2, the transit day 3, d1 day 4, d2 day 5
+      date: "2026-11-15",
+    });
+  });
+
+  it("says what the new days will likely hold", () => {
+    expect(newDaysHint(1)).toBe("依你的偏好排主題");
+    expect(newDaysHint(2)).toBe("依你的偏好排主題，通常有一天半日遊");
+    expect(newDaysHint(3)).toBe("依你的偏好排主題，通常有一天郊區一日遊");
   });
 });
