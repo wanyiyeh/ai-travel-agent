@@ -38,7 +38,9 @@ const MODEL = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
 type Preferences = {
   pace?: "relaxed" | "moderate" | "intensive";
   budget?: "budget" | "moderate" | "luxury";
-  interests?: Array<"food" | "culture" | "nature" | "shopping" | "water" | "land" | "adventure" | "film">;
+  interests?: Array<
+    "food" | "culture" | "nature" | "shopping" | "water" | "land" | "adventure" | "film" | "night_market" | "old_street" | "hot_spring" | "camping"
+  >;
   filmTitles?: string[];
   startTime?: "early" | "normal" | "late";
   indoorFirst?: boolean;
@@ -168,6 +170,12 @@ const SCENARIOS: Scenario[] = [
     label: "國內・台北 → 花蓮 3 天（開自己的車）",
     flightInfo: domesticTrip("TW-TPE", "TW-HUN"),
     preferences: { transport: "drive" },
+  },
+  {
+    id: "domestic-yilan-interests",
+    label: "國內・台北 → 宜蘭 3 天，開車，夜市＋老街＋溫泉＋露營",
+    flightInfo: domesticTrip("TW-TPE", "TW-ILA"),
+    preferences: { transport: "drive", interests: ["night_market", "old_street", "hot_spring", "camping"] },
   },
   { id: "domestic-penghu", label: "國內・高雄 → 澎湖 3 天（離島）", flightInfo: domesticTrip("TW-KHH", "TW-PEH") },
   {
@@ -545,6 +553,20 @@ const CHECKS: Check[] = [
     detail: (r) => {
       const m = r.get("domestic-hualien-drive");
       return m ? `第一站「${m.tripEnds.first}：${m.tripEnds.firstNote}」；提到機場或航班：${m.flightMentions.join("、") || "沒有"}` : "—";
+    },
+  },
+  {
+    title: "國內偏好：宜蘭有夜市晚餐、一天老街巡禮、溫泉（住宿或泡湯）、一晚露營",
+    pass: (r) => {
+      const d = r.get("domestic-yilan-interests")?.domesticInterests;
+      if (!d) return null;
+      return d.nightMarketDinners.length >= 1 && d.oldStreetDays >= 1 && d.hotSprings.length >= 1 && d.campNights.length === 1;
+    },
+    detail: (r) => {
+      const d = r.get("domestic-yilan-interests")?.domesticInterests;
+      return d
+        ? `夜市：${d.nightMarketDinners.join("、") || "沒有"}；老街巡禮 ${d.oldStreetDays} 天；溫泉：${d.hotSprings.join("、") || "沒有"}；露營：${d.campNights.join("、") || "沒有"}`
+        : "—";
     },
   },
   {

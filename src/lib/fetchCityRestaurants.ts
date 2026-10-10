@@ -394,9 +394,15 @@ async function readFreshCandidates(cacheKey: string): Promise<PlaceCandidate[] |
 // 加LINE官方好友享優惠)」, 「又一村文創（各店家詳細營業時間請見粉專）」.
 const PROMO_IN_BRACKETS = /\s*[(（][^()（）]*(優惠|LINE|預約|營業時間|粉專|官方|折扣|免費)[^()（）]*[)）]/gi;
 
-/** A place's name without an advertisement in brackets. */
+// Others stuff it with search keywords: 「烏龜島咖啡甜點伴手禮|宜蘭名產|採現場後位…」.
+// One bar can be a branch (「店名 | 信義店」), so only two or more count.
+const KEYWORD_BARS = /[|｜]/g;
+const KEYWORDS_START = /\s*[|｜《]/;
+
+/** A place's name without an advertisement in brackets or a list of keywords. */
 export function cleanPlaceName(name: string): string {
-  const cleaned = name.replace(PROMO_IN_BRACKETS, "").trim();
+  const unstuffed = (name.match(KEYWORD_BARS)?.length ?? 0) >= 2 ? name.split(KEYWORDS_START)[0] : name;
+  const cleaned = unstuffed.replace(PROMO_IN_BRACKETS, "").trim();
   return cleaned || name;
 }
 

@@ -21,6 +21,8 @@ import { generateSkeletonCopy } from "@/lib/skeletonCopy";
 import { NEUTRAL_PREFERENCE_INTENT, type PreferenceIntent } from "@/lib/schemas";
 import { getDistancesForStopPairs, pickModeForDistance, describeTransport, modePickerFor } from "@/lib/distanceMatrix";
 import { forSoloTraveler, nearStationFirst } from "@/lib/soloTravel";
+import { haversineKm } from "@/lib/geo";
+import { findHotSpringLodging } from "@/lib/domesticInterests";
 import { estimateAttractionCost } from "@/lib/priceLevelCost";
 import { isFoodPlace } from "@/lib/foodPlace";
 import { getTwdRates } from "@/lib/exchangeRate";
@@ -556,6 +558,8 @@ export type MealPreferences = {
   seniors?: boolean;
   /** 獨旅: places easy to eat at alone first, lodging near a station. */
   solo?: boolean;
+  /** 溫泉 (國內): hot-spring hotels first (domesticInterests.ts). */
+  hotSpring?: boolean;
 };
 
 /**
@@ -572,6 +576,7 @@ export function mealPreferencesOf(intent: PreferenceIntent, drinks?: DrinkChoice
     ...(intent.kids ? { kids: true } : {}),
     ...(intent.seniors ? { seniors: true } : {}),
     ...(intent.solo ? { solo: true } : {}),
+    ...(intent.interestBoost.includes("hot_spring") ? { hotSpring: true } : {}),
   };
 }
 
@@ -655,7 +660,7 @@ async function fetchMealLodgingPools(
   budget: BudgetLevel | undefined,
   currency: string,
   stayDays: number,
-  { dietaryRestrictions = [], startTimePreference, drinks = [], kids = false, seniors = false, solo = false }: MealPreferences
+  { dietaryRestrictions = [], startTimePreference, drinks = [], kids = false, seniors = false, solo = false, hotSpring = false }: MealPreferences
 ): Promise<MealLodgingPools | null> {
   const apiKey = process.env.GOOGLE_PLACES_API_KEY;
   if (!apiKey) return null;
@@ -693,7 +698,7 @@ async function fetchMealLodgingPools(
 
   // Breakfast and snack share one café search, split locally (cafeMealSlots.ts).
   const snackDrinks = drinks.filter((d): d is DrinkKey => d !== "alcohol");
-  const [cafes, main, dietMain, luxuryMain, lodging, twdPerUnit, bars, stations, ...drinkPools] = await Promise.all([
+  const [cafes, main, dietMain, luxuryMain, stayPool, twdPerUnit, bars, stations, hotSprings, ...drinkPools] = await Promise.all([
     search(getMealPlaceTypes("breakfast", budget), "pro", isFoodPlace),
     search(getMealPlaceTypes("lunch", budget), kids ? "kids" : "enterprise", isFoodPlace),
     dietTypes.length > 0 ? search(dietTypes, kids ? "kids" : "enterprise", isFoodPlace) : Promise.resolve([]),
@@ -705,8 +710,11 @@ async function fetchMealLodgingPools(
     drinks.includes("alcohol") ? search(NIGHTCAP_TYPES, "pro", isNightcapPlace, "primary") : Promise.resolve([]),
     // 獨旅: one station search for the whole stay area, not one per hotel.
     solo ? search(["train_station", "subway_station"], "pro") : Promise.resolve([]),
+    // 溫泉: one text search for hot-spring hotels, which can sit outside town (北投, 礁溪).
+    hotSpring ? findHotSpringLodging(coords, apiKey) : Promise.resolve([] as PlaceCandidate[]),
     ...snackDrinks.map(searchDrink),
   ]);
+  const lodging = hotSpring ? uniqueByPlaceId([...hotSprings, ...stayPool]) : stayPool;
   // One breakfast and one snack per day of the stay.
   const split = splitCafePool(excludeByDiet(cafes, dietaryRestrictions), stayDays);
   // Getting up late means brunch, so brunch places lead the breakfast list.
@@ -784,13 +792,14 @@ export async function generateMealsAndAccommodation(
 
   const lateRiserRule =
     preferences.startTimePreference === "late" ? "\n- 旅客晚起（約 11:00 出門），早餐請選早午餐" : "";
+  const hotSpringRule = preferences.hotSpring ? "\n- 旅客想泡溫泉：住宿優先選排在前面的溫泉飯店" : "";
   const kidsRule = preferences.kids
     ? "\n- 有小孩同行：午餐、晚餐優先選適合兒童的店（排在候選前面的），避開居酒屋、酒吧；拉麵可以，優先雞湯系或豚骨，避開辣的"
     : "";
   const soloRule = preferences.solo
     ? "\n- 一個人旅行：午餐、晚餐優先選一個人吃也自在的店（拉麵、壽司、定食、有吧檯座位的店，排在候選前面的），避開雙人套餐、大份量火鍋、燒肉吃到飽；住宿優先選排在前面、離車站近的"
     : "";
-  const preferenceRules = dietPromptLine(preferences.dietaryRestrictions ?? []) + lateRiserRule + kidsRule + soloRule;
+  const preferenceRules = dietPromptLine(preferences.dietaryRestrictions ?? []) + lateRiserRule + kidsRule + soloRule + hotSpringRule;
 
   if (!useCandidates) {
     const parsed = await askMealsAndLodging(model, cityName, stayDays, currency, preferenceRules, null, true);
@@ -1031,6 +1040,9 @@ const SUPPLEMENT_ATTRACTION_TYPES = ["museum", "art_gallery", "park", "historica
  * for the evening — a 酒 traveler's 小酌 can still go to one — and stations
  * and information centres aren't sights at all.
  */
+// How far a text-searched theme's places may be (老街 in the surrounding townships).
+const THEME_TEXT_KM = 20;
+
 async function withSupplementalAttractions(
   coords: { lat: number; lng: number },
   apiKey: string,
@@ -1227,7 +1239,17 @@ async function generateDayStopsViaScheduler(
     // Each theme used in this city adds its own pool (cached like any other).
     const [places, ...themePools] = await Promise.all([
       fetchNearbyPlaceCandidates(coords, apiKey, ["tourist_attraction"], 10000, 20),
-      ...cityThemes.map((theme) => fetchNearbyPlaceCandidates(coords, apiKey, THEMES[theme].searchTypes, 10000, 20)),
+      ...cityThemes.map((theme) => {
+        const { searchQuery, searchTypes } = THEMES[theme];
+        // Text Search only biases towards the circle (宜蘭's 老街 search came back with
+        // 新竹's 湖口老街), so its results are held to THEME_TEXT_KM — wider than
+        // the Nearby pools' 10km: 頭城老街 is 16km from 宜蘭's centre.
+        return searchQuery
+          ? searchTextCandidates(searchQuery(cityName), coords, apiKey, THEME_TEXT_KM * 1000)
+              .then((found) => found.filter((p) => haversineKm(coords.lat, coords.lng, p.lat, p.lng) <= THEME_TEXT_KM))
+              .catch(() => [] as PlaceCandidate[])
+          : fetchNearbyPlaceCandidates(coords, apiKey, searchTypes, 10000, 20);
+      }),
     ]);
     if (places.length === 0) return null;
     const popularIds = new Set(places.map((p) => p.placeId));
@@ -1297,7 +1319,10 @@ async function generateDayStopsViaScheduler(
     // Highlights stay even on an indoor-first trip: the traveler kept 季節限定 on.
     const dayCandidates = [...sheltered, ...candidates.filter((c) => seasonalDayOf.has(c.id) && !sheltered.includes(c))];
     const counts = distributeStopsPerDay(dayCandidates.length, capacities);
-    const onTheme = (theme: ThemeKey) => (c: { id: string }) => isOnTheme(candidateById.get(c.id)?.types, theme);
+    const onTheme = (theme: ThemeKey) => (c: { id: string }) => {
+      const place = candidateById.get(c.id);
+      return isOnTheme(place?.types, theme, place?.name);
+    };
     const dayGroups = partitionCandidatesByDay(dayCandidates, counts, interestWeights, anchor, {
       themes: dayThemes.map((theme, dayIdx) => {
         const highlights = seasonalByDay[dayIdx];

@@ -5,15 +5,19 @@ import type { DurationCategory } from "@/lib/scheduler/assignTimeSlots";
 // candidate pool (one extra Nearby Search per city, cached) and most of the
 // day's stops come from it; the rest stay popular sights.
 
-export type ThemeKey = "culture" | "nature" | "shopping" | "food" | "kids";
+export type ThemeKey = "culture" | "nature" | "shopping" | "food" | "kids" | "old_street";
 
 type Theme = {
   /** Day title after the city name: 「東京 文化巡禮」. */
   label: string;
   /** Nearby Search includedTypes for the theme's own pool. */
   searchTypes: string[];
-  /** A place is on theme when any of its Google types is here. */
+  /** A theme Google has no type for searches by text instead, naming the city (「宜蘭 老街」). */
+  searchQuery?: (city: string) => string;
+  /** A place is on theme when any of its Google types is here... */
   matchTypes: string[];
+  /** ...or its name matches. */
+  matchName?: RegExp;
   /** Duration categories boosted on unthemed days (transit, return day). */
   boostCategories: DurationCategory[];
 };
@@ -51,6 +55,16 @@ export const THEMES: Record<ThemeKey, Theme> = {
     matchTypes: ["zoo", "aquarium", "amusement_park", "water_park", "playground", "indoor_playground"],
     boostCategories: ["park"],
   },
+  // 國內 (plan 1.10): no Google type for an old street, so a text search and the name.
+  old_street: {
+    label: "老街巡禮",
+    searchTypes: [],
+    // A bare 「老街」 near 宜蘭 came back with 深坑 and 湖口 only, neither in 宜蘭.
+    searchQuery: (city) => `${city} 老街`,
+    matchTypes: [],
+    matchName: /老街/,
+    boostCategories: ["shopping"],
+  },
   food: {
     label: "市場美食",
     searchTypes: ["market", "farmers_market", "food_court"],
@@ -71,6 +85,7 @@ const TAG_TO_THEME: Record<string, ThemeKey> = {
   shopping: "shopping",
   food: "food",
   kids: "kids",
+  old_street: "old_street",
   // water / land have no city theme: they pick the suburb trip (suburbTrips.ts).
 };
 
@@ -89,8 +104,9 @@ export function dayThemeKeys(themes: ThemeKey[], dayCount: number, firstIndex = 
   return Array.from({ length: dayCount }, (_, i) => (themes.length > 0 ? themes[(firstIndex + i) % themes.length] : undefined));
 }
 
-export function isOnTheme(types: string[] | undefined, theme: ThemeKey): boolean {
-  return (types ?? []).some((t) => THEMES[theme].matchTypes.includes(t));
+export function isOnTheme(types: string[] | undefined, theme: ThemeKey, name?: string): boolean {
+  const { matchTypes, matchName } = THEMES[theme];
+  return (types ?? []).some((t) => matchTypes.includes(t)) || Boolean(name && matchName?.test(name));
 }
 
 /**

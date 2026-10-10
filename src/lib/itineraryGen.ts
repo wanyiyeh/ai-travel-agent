@@ -25,6 +25,11 @@ export const interestMap: Record<string, string> = {
   water: "水上活動（海灘、碼頭、水上樂園）",
   land: "陸上活動（國家公園、步道、滑雪）",
   adventure: "冒險戶外活動",
+  film: "影劇追星（拍攝地朝聖）",
+  night_market: "夜市",
+  old_street: "老街",
+  hot_spring: "溫泉",
+  camping: "露營",
 };
 
 export function calcDays(departureDate: string, returnDate: string): number {

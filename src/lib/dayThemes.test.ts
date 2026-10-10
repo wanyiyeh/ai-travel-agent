@@ -63,3 +63,11 @@ describe("親子同樂", () => {
     expect(isOnTheme(["museum"], "kids")).toBe(false);
   });
 });
+
+describe("老街巡禮", () => {
+  it("is a theme searched by text and known by name, Google having no type for it", () => {
+    expect(themesOf(["old_street"])).toEqual(["old_street"]);
+    expect(isOnTheme(["tourist_attraction"], "old_street", "安平老街")).toBe(true);
+    expect(isOnTheme(["tourist_attraction"], "old_street", "赤崁樓")).toBe(false);
+  });
+});

@@ -547,3 +547,21 @@ describe("generateMealsAndAccommodation — snacks with children", () => {
     expect(systemPrompt()).toContain("at-home cafe");
   });
 });
+
+// 溫泉 (國內, domesticInterests.ts).
+describe("generateMealsAndAccommodation — hot springs", () => {
+  it("offers hot-spring hotels first", async () => {
+    nearbyMock.mockResolvedValue([]);
+    textMock.mockImplementation(async (query: string) =>
+      query === "溫泉飯店" ? [{ ...place("北投老爺酒店"), lat: 35, lng: 135.7, types: ["hotel", "lodging"] }] : []
+    );
+    lodgingMock.mockResolvedValueOnce([{ ...place("City Hotel"), types: ["hotel", "lodging"] }]);
+    mockLlm({ accommodation: {}, meals: [] });
+
+    await generateMealsAndAccommodation("台北", 1, "TWD", undefined, { hotSpring: true });
+
+    const prompt = systemPrompt();
+    expect(prompt.indexOf("北投老爺酒店")).toBeLessThan(prompt.indexOf("City Hotel"));
+    expect(prompt).toContain("想泡溫泉");
+  });
+});

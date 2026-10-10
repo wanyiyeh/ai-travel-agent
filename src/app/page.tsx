@@ -87,6 +87,15 @@ const INTEREST_OPTIONS: { value: NonNullable<TripPreferences["interests"]>[numbe
   { value: "land", label: "陸上活動" },
   { value: "film", label: "影劇追星" },
 ];
+// 國內 only (plan 1.10); 影劇追星 is for trips abroad.
+const DOMESTIC_INTERESTS = new Set<string>(["night_market", "old_street", "hot_spring", "camping"]);
+const DOMESTIC_INTEREST_OPTIONS: typeof INTEREST_OPTIONS = [
+  ...INTEREST_OPTIONS.filter((o) => o.value !== "film"),
+  { value: "night_market", label: "夜市" },
+  { value: "old_street", label: "老街" },
+  { value: "hot_spring", label: "溫泉" },
+  { value: "camping", label: "露營" },
+];
 
 /** 「你的名字, 灌籃高手」 → up to 3 titles; full-width commas and 、 count too. */
 function splitFilmTitles(text: string): string[] | undefined {
@@ -509,8 +518,8 @@ export default function Home() {
     setReturnDepartureCity("");
     setReturnArrivalCity("");
     setReturnCityDiffers(false);
-    // 影劇追星 is for trips abroad (plan 1.10).
-    if (next === "domestic") setInterests((prev) => prev.filter((i) => i !== "film"));
+    // 影劇追星 is for trips abroad, 夜市 and the like for trips at home (plan 1.10).
+    setInterests((prev) => prev.filter((i) => (next === "domestic" ? i !== "film" : !DOMESTIC_INTERESTS.has(i))));
   }
 
   const { state, partialData, plan, days: liveDays, id, error, retryInfo, generate, reset, isLoading } =
@@ -919,10 +928,15 @@ export default function Home() {
                     <ChipRow label="飲食限制" options={DIET_OPTIONS} selected={diet} onToggle={toggleDiet} />
                     <ChipRow
                       label="偏好"
-                      options={domestic ? INTEREST_OPTIONS.filter((o) => o.value !== "film") : INTEREST_OPTIONS}
+                      options={domestic ? DOMESTIC_INTEREST_OPTIONS : INTEREST_OPTIONS}
                       selected={interests}
                       onToggle={toggleInterest}
                     />
+                    {domestic && interests.includes("camping") && transport !== "drive" && (
+                      <p className="text-xs text-amber-600 dark:text-amber-400">
+                        露營區多半在山上，搭大眾運輸很難到，交通方式選「開自己的車」才會排露營
+                      </p>
+                    )}
                     {interests.includes("film") && (
                       <input
                         type="text"

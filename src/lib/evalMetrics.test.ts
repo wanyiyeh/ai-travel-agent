@@ -203,6 +203,22 @@ describe("measureItinerary", () => {
     expect(measureItinerary(withFilm, ctx).filmDays).toEqual([{ day: 2, title: "東京 影劇朝聖：《你的名字》", stops: ["須賀神社"] }]);
   });
 
+  it("picks out night markets, 老街 days, hot springs and camping nights", () => {
+    const trip = days.map((d, i) =>
+      i === 0
+        ? { ...d, theme: "宜蘭 老街巡禮", meals: { dinner: { name: "羅東夜市" } }, accommodation: { name: "礁溪老爺酒店溫泉" } }
+        : i === 1
+          ? { ...d, accommodation: { name: "梅峰露營區", reason: "露營：自備或租借帳篷" } }
+          : d
+    );
+    expect(measureItinerary(trip, ctx).domesticInterests).toEqual({
+      nightMarketDinners: ["羅東夜市"],
+      oldStreetDays: 1,
+      hotSprings: ["礁溪老爺酒店溫泉"],
+      campNights: ["梅峰露營區"],
+    });
+  });
+
   it("lists any mention of airports or flights", () => {
     const withFlight = days.map((d, i) => (i === 3 ? { ...d, stops: [{ name: "前往關西機場", description: "搭機返台" }] } : d));
     expect(measureItinerary(withFlight, ctx).flightMentions).toHaveLength(1);
