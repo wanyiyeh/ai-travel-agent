@@ -70,13 +70,14 @@ const DRINK_OPTIONS: { value: DrinkTag; label: string }[] = [
 ];
 
 // 同行者 (plan/form-preference-wiring.md 1.5). 獨旅 can't go with 親子 or 長輩:
-// choosing one side clears the other.
+// choosing one side clears the other. 寵物 goes with any, at home only.
 type CompanionTag = NonNullable<TripPreferences["companions"]>[number];
 const COMPANION_OPTIONS: { value: CompanionTag; label: string }[] = [
   { value: "solo", label: "獨旅" },
   { value: "kids", label: "親子" },
   { value: "seniors", label: "長輩" },
 ];
+const DOMESTIC_COMPANION_OPTIONS: typeof COMPANION_OPTIONS = [...COMPANION_OPTIONS, { value: "pets", label: "寵物" }];
 
 const INTEREST_OPTIONS: { value: NonNullable<TripPreferences["interests"]>[number]; label: string }[] = [
   { value: "food", label: "美食" },
@@ -520,6 +521,7 @@ export default function Home() {
     setReturnCityDiffers(false);
     // 影劇追星 is for trips abroad, 夜市 and the like for trips at home (plan 1.10).
     setInterests((prev) => prev.filter((i) => (next === "domestic" ? i !== "film" : !DOMESTIC_INTERESTS.has(i))));
+    if (next === "international") setCompanions((prev) => prev.filter((c) => c !== "pets"));
   }
 
   const { state, partialData, plan, days: liveDays, id, error, retryInfo, generate, reset, isLoading } =
@@ -547,10 +549,17 @@ export default function Home() {
   }
 
   function toggleCompanion(val: CompanionTag) {
-    const others = val === "solo" ? companions.filter((c) => c === "solo") : companions.filter((c) => c !== "solo");
+    const others =
+      val === "solo"
+        ? companions.filter((c) => c !== "kids" && c !== "seniors")
+        : val === "pets"
+          ? companions
+          : companions.filter((c) => c !== "solo");
     const next = companions.includes(val) ? companions.filter((c) => c !== val) : [...others, val];
     setCompanions(next);
     if (next.includes("kids")) setDrinks((prev) => prev.filter((d) => d !== "alcohol"));
+    // Pets ride in a carrier on trains and buses, so driving is the default (plan 1.5).
+    if (val === "pets" && next.includes("pets") && !transport) setTransport("drive");
   }
 
   function toggleWaypoint(name: string) {
@@ -969,7 +978,18 @@ export default function Home() {
                       onChange={setTransport}
                       emptyHint="未選擇時以大眾運輸安排"
                     />
-                    <ChipRow label="同行者" options={COMPANION_OPTIONS} selected={companions} onToggle={toggleCompanion} />
+                    <ChipRow
+                      label="同行者"
+                      options={domestic ? DOMESTIC_COMPANION_OPTIONS : COMPANION_OPTIONS}
+                      selected={companions}
+                      onToggle={toggleCompanion}
+                    />
+                    {companions.includes("pets") && (
+                      <p className="text-xs text-amber-600 dark:text-amber-400">
+                        只排寵物友善的住宿和餐廳；Google 只有「可以帶狗」的資料，帶貓或其他寵物請先向住宿確認
+                        {transport !== "drive" && "。高鐵、台鐵規定寵物要裝籠或提袋"}
+                      </p>
+                    )}
                     <ChipRow label="飲品" options={drinkOptions} selected={drinks} onToggle={toggleDrink} />
                   </div>
                 </div>

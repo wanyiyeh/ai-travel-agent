@@ -129,6 +129,8 @@ interface EditableItineraryCardProps {
   readOnly?: boolean;
   /** Directions links' mode: driving for a self-driver (交通方式), else transit. */
   travelMode?: "driving" | "transit";
+  /** 同行者 寵物: a link to vets near each night's lodging. */
+  withPet?: boolean;
 }
 
 type EditingStop = {
@@ -147,6 +149,7 @@ export default function EditableItineraryCard({
   expandAll = false,
   readOnly = false,
   travelMode = "transit",
+  withPet = false,
 }: EditableItineraryCardProps) {
   const [itinerary, setItinerary] = useState(data.data);
   const [editingStop, setEditingStop] = useState<EditingStop | null>(null);
@@ -934,7 +937,7 @@ export default function EditableItineraryCard({
       // to it yet when this effect runs in the same commit, so it would still
       // point at the pre-restructure days and skip enriching the new ones.
       for (const day of data.data.days) {
-        if (!day.id || !day.accommodation || day.accommodation.placeId) continue;
+        if (!day.id || !day.accommodation || day.accommodation.placeId || day.accommodation.noneFound) continue;
         try {
           const res = await fetch(`/api/v1/days/${day.id}/accommodation/enrich`, {
             method: "POST",
@@ -1559,6 +1562,19 @@ export default function EditableItineraryCard({
                           住宿附近的超市
                         </a>
                         （想自己煮，或買熟食、便當回住宿吃也可以）
+                      </p>
+                    )}
+                    {withPet && day.accommodation?.lat != null && day.accommodation?.lng != null && (
+                      <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+                        🐾{" "}
+                        <a
+                          href={buildNearbySearchUrl("動物醫院", day.accommodation.lat, day.accommodation.lng)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-600 dark:text-blue-400 hover:underline"
+                        >
+                          住宿附近的動物醫院
+                        </a>
                       </p>
                     )}
 

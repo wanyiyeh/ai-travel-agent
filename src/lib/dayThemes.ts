@@ -5,7 +5,7 @@ import type { DurationCategory } from "@/lib/scheduler/assignTimeSlots";
 // candidate pool (one extra Nearby Search per city, cached) and most of the
 // day's stops come from it; the rest stay popular sights.
 
-export type ThemeKey = "culture" | "nature" | "shopping" | "food" | "kids" | "old_street";
+export type ThemeKey = "culture" | "nature" | "shopping" | "food" | "kids" | "old_street" | "pets";
 
 type Theme = {
   /** Day title after the city name: 「東京 文化巡禮」. */
@@ -55,6 +55,13 @@ export const THEMES: Record<ThemeKey, Theme> = {
     matchTypes: ["zoo", "aquarium", "amusement_park", "water_park", "playground", "indoor_playground"],
     boostCategories: ["park"],
   },
+  // 寵物 (國內, plan 1.5): both types came up in cached results.
+  pets: {
+    label: "毛孩同樂",
+    searchTypes: ["dog_park", "dog_cafe"],
+    matchTypes: ["dog_park", "dog_cafe"],
+    boostCategories: ["park"],
+  },
   // 國內 (plan 1.10): no Google type for an old street, so a text search and the name.
   old_street: {
     label: "老街巡禮",
@@ -86,6 +93,7 @@ const TAG_TO_THEME: Record<string, ThemeKey> = {
   food: "food",
   kids: "kids",
   old_street: "old_street",
+  pets: "pets",
   // water / land have no city theme: they pick the suburb trip (suburbTrips.ts).
 };
 

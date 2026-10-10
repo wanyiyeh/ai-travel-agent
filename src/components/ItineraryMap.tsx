@@ -465,7 +465,7 @@ export default function ItineraryMap({
       // Enrich accommodations that lack lat/lng
       const needsAccEnrich = days
         .map((day, dayIndex) => ({ day, dayIndex }))
-        .filter(({ day }) => day.id && day.accommodation && !day.accommodation.lat);
+        .filter(({ day }) => day.id && day.accommodation && !day.accommodation.lat && !day.accommodation.noneFound);
 
       for (const { day, dayIndex } of needsAccEnrich) {
         try {

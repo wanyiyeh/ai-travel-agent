@@ -112,7 +112,7 @@ export const TripPreferencesSchema = z.object({
   seasonalHighlights: z.boolean().optional(),
   // 同行者 (plan/form-preference-wiring.md 1.5): 獨旅 can't go with 親子 or 長輩.
   companions: z
-    .array(z.enum(["solo", "kids", "seniors"]))
+    .array(z.enum(["solo", "kids", "seniors", "pets"]))
     .max(3)
     .refine((c) => !(c.includes("solo") && (c.includes("kids") || c.includes("seniors"))), {
       message: "獨旅不能跟親子、長輩一起選",
@@ -149,6 +149,8 @@ export const PreferenceIntentSchema = z.object({
   seniors: z.boolean().optional(),
   // Form only: traveling alone (同行者 獨旅).
   solo: z.boolean().optional(),
+  // Form only: traveling with a dog (同行者 寵物, 國內 only).
+  pets: z.boolean().optional(),
   // A 國內 trip (domesticTrips.ts): no rental car, trains and buses between towns.
   domestic: z.boolean().optional(),
 });
@@ -206,6 +208,8 @@ export const AccommodationSchema = z.object({
     .nullable()
     .optional(),
   photoName: z.string().nullable().optional(),
+  // No stay to suggest (petFriendly.ts noPetLodging): nothing to look up on Google.
+  noneFound: z.literal(true).optional(),
 });
 
 export const StopSchema = z.object({

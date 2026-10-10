@@ -146,7 +146,7 @@ export async function assembleItineraryDays(
     domestic ? DOMESTIC_ARRIVAL_BUFFER_MINUTES : undefined
   );
   // 國內: the way there and home, blocked on the first and last day.
-  const journeyEvents = domesticJourneyEvents(flightInfo, Boolean(preferenceIntent.selfDrive));
+  const journeyEvents = domesticJourneyEvents(flightInfo, Boolean(preferenceIntent.selfDrive), Boolean(preferenceIntent.pets));
   // Abroad, a self-driver rents at the airport; at home they drive their own car.
   const rentsCar = Boolean(preferenceIntent.selfDrive) && !domestic;
 

@@ -15,9 +15,10 @@ function union(a: readonly string[], b: readonly string[]): string[] {
  *   Form interest values double as interestBoost tags (culture/nature/
  *   shopping map to scheduler categories; others simply get no boost).
  * - avoid: free text only, the form has no such field.
- * - indoorFirst, selfDrive, kids, seniors, solo: form only. 親子 also leads the
+ * - indoorFirst, selfDrive, kids, seniors, solo, pets: form only. 親子 also leads the
  *   interests with "kids", so a 親子同樂 day comes first in the theme
- *   rotation; 長輩 makes the pace relaxed unless one was chosen.
+ *   rotation; 長輩 makes the pace relaxed unless one was chosen; 寵物 adds
+ *   a 毛孩同樂 day to the rotation.
  */
 export function mergePreferenceIntent(
   preferences: TripPreferences | undefined,
@@ -27,7 +28,11 @@ export function mergePreferenceIntent(
     pace: preferences?.pace ?? parsed.pace ?? (preferences?.companions?.includes("seniors") ? "relaxed" : null),
     startTimePreference: preferences?.startTime ?? parsed.startTimePreference,
     interestBoost: union(
-      [...(preferences?.companions?.includes("kids") ? ["kids"] : []), ...(preferences?.interests ?? [])],
+      [
+        ...(preferences?.companions?.includes("kids") ? ["kids"] : []),
+        ...(preferences?.interests ?? []),
+        ...(preferences?.companions?.includes("pets") ? ["pets"] : []),
+      ],
       parsed.interestBoost
     ),
     dietaryRestrictions: union(preferences?.dietaryRestrictions ?? [], parsed.dietaryRestrictions),
@@ -37,5 +42,6 @@ export function mergePreferenceIntent(
     ...(preferences?.companions?.includes("kids") ? { kids: true } : {}),
     ...(preferences?.companions?.includes("seniors") ? { seniors: true } : {}),
     ...(preferences?.companions?.includes("solo") ? { solo: true } : {}),
+    ...(preferences?.companions?.includes("pets") ? { pets: true } : {}),
   };
 }

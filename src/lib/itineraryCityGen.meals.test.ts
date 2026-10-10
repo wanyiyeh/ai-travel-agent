@@ -565,3 +565,41 @@ describe("generateMealsAndAccommodation — hot springs", () => {
     expect(prompt).toContain("想泡溫泉");
   });
 });
+
+// 寵物 (國內, petFriendly.ts).
+describe("generateMealsAndAccommodation — with a dog", () => {
+  const nearCenter = (name: string, types: string[]) => ({ ...place(name), lat: 35.01, lng: 135.77, types });
+
+  it("offers only lodging that takes dogs, and pet-friendly restaurants first", async () => {
+    nearbyMock.mockImplementation(async (_c: unknown, _k: unknown, types: string[]) =>
+      types.includes("cafe") ? [] : [nearCenter("Plain Diner", ["restaurant"])]
+    );
+    textMock.mockImplementation(async (query: string) =>
+      query === "寵物友善住宿"
+        ? [nearCenter("毛孩民宿", ["lodging"])]
+        : query === "寵物友善餐廳"
+          ? [nearCenter("汪汪食堂", ["restaurant"])]
+          : []
+    );
+    lodgingMock.mockResolvedValueOnce([{ ...place("City Hotel"), types: ["hotel", "lodging"] }]);
+    mockLlm({ accommodation: { id: "H1" }, meals: [] });
+
+    const { accommodation } = await generateMealsAndAccommodation("宜蘭", 1, "TWD", undefined, { pets: true });
+
+    const prompt = systemPrompt();
+    expect(prompt).not.toContain("City Hotel");
+    expect(prompt.indexOf("汪汪食堂")).toBeLessThan(prompt.indexOf("Plain Diner"));
+    expect(prompt).toContain("帶狗同行");
+    expect(accommodation.name).toBe("毛孩民宿");
+  });
+
+  it("suggests no stay when none nearby takes dogs", async () => {
+    nearbyMock.mockResolvedValue([nearCenter("Plain Diner", ["restaurant"])]);
+    lodgingMock.mockResolvedValueOnce([{ ...place("City Hotel"), types: ["hotel", "lodging"] }]);
+    mockLlm({ accommodation: { id: null, name: "Some Hotel" }, meals: [] });
+
+    const { accommodation } = await generateMealsAndAccommodation("宜蘭", 1, "TWD", undefined, { pets: true });
+
+    expect(accommodation).toMatchObject({ name: "", area: "宜蘭", noneFound: true });
+  });
+});

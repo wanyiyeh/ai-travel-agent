@@ -58,7 +58,9 @@ export async function POST(
       return NextResponse.json({ error: "No accommodation for this day" }, { status: 404 });
     }
 
-    if (accommodation.placeId) {
+    // noneFound: no stay was suggested (no pet-friendly lodging nearby) —
+    // looking up the area's name would put any hotel there.
+    if (accommodation.placeId || accommodation.noneFound) {
       return NextResponse.json({ success: true, accommodation });
     }
 
