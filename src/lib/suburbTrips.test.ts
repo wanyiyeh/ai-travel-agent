@@ -38,6 +38,10 @@ describe("suburbGroupsFor", () => {
     expect(suburbGroupsFor(["culture"])).toEqual(["land", "water"]);
   });
 
+  it("keeps older relatives off hard trails, wineries still fine", () => {
+    expect(suburbGroupsFor(["land"], ["alcohol"], false, true)).toEqual(["family_land", "alcohol"]);
+  });
+
   it("keeps a trip with children off hard trails and out of wineries", () => {
     expect(suburbGroupsFor(["land"], ["alcohol"], true)).toEqual(["family_land"]);
     expect(suburbGroupsFor([], [], true)).toEqual(["family_land", "water"]);

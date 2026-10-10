@@ -634,3 +634,23 @@ describe("親子 helpers", () => {
     expect(dayEndFor(NEUTRAL_PREFERENCE_INTENT)).toBe(18 * 60);
   });
 });
+
+// 長輩 (plan 1.5).
+describe("generateThemedDayStops — with older relatives", () => {
+  it("prefers a sight with an accessible entrance over an equally rated one", async () => {
+    // the same rating and spot as the first plain place, listed last; only the entrance differs
+    const plain = POOL.slice(0, 10).map((p) => ({ ...p, rating: 4.5 }));
+    const accessible = { ...POOL[0], placeId: "ramp", name: "Ramp", rating: 4.5, accessibleEntrance: true };
+    nearbyMock.mockResolvedValue([...plain, accessible]);
+    const seniors = { ...NEUTRAL_PREFERENCE_INTENT, pace: "relaxed" as const, seniors: true };
+
+    const { stopsByDay } = await generateThemedDayStops("東京", 1, "JPY", [], undefined, seniors);
+
+    expect(stopsByDay[0].map((s) => s.placeId)).toContain("ramp");
+  });
+
+  it("ends the day at 17:00 like a trip with children", async () => {
+    const { dayEndFor } = await import("./itineraryCityGen");
+    expect(dayEndFor({ ...NEUTRAL_PREFERENCE_INTENT, seniors: true })).toBe(17 * 60);
+  });
+});

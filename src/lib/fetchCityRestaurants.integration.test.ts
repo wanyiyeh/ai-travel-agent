@@ -92,6 +92,17 @@ describe("fetchNearbyPlaceCandidates billing tiers", () => {
     expect(place.rating).toBe(4.4);
   });
 
+  it("asks for accessible entrances on every tier (a Pro field) and reads them", async () => {
+    const withRamp = [{ ...places[0], id: "ramp", accessibilityOptions: { wheelchairAccessibleEntrance: true } }];
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ places: withRamp }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const [place] = await fetchNearbyPlaceCandidates(coords, "key", ["park"], 5000, 10);
+
+    expect(maskOf(request(fetchMock))).toContain("places.accessibilityOptions");
+    expect(place.accessibleEntrance).toBe(true);
+  });
+
   it("asks whether a restaurant suits children only on the kids tier, cached apart", async () => {
     const kidsPlaces = [{ ...places[0], goodForChildren: true, menuForChildren: false }];
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({ places: kidsPlaces }), { status: 200 }));

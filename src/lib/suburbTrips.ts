@@ -13,7 +13,7 @@ export type SuburbKind = "day" | "half";
 // `brewery` couldn't be confirmed, so 酒 is wineries only.
 const SUBURB_GROUPS = {
   land: ["national_park", "state_park", "hiking_area", "adventure_sports_center", "ski_resort"],
-  // 親子: no hard trails or adventure sports (plan 1.5).
+  // 親子 and 長輩: no hard trails or adventure sports (plan 1.5).
   family_land: ["national_park", "state_park", "ski_resort"],
   water: ["beach", "marina", "water_park", "fishing_charter"],
   food: ["farm", "ranch"],
@@ -27,8 +27,13 @@ export type SuburbGroup = keyof typeof SUBURB_GROUPS;
  * sight" search near the city mostly returns downtown places instead.
  * The old 冒險戶外 counts as land.
  */
-export function suburbGroupsFor(interests: string[], drinks: string[] = [], kids = false): SuburbGroup[] {
-  const land: SuburbGroup = kids ? "family_land" : "land";
+export function suburbGroupsFor(
+  interests: string[],
+  drinks: string[] = [],
+  kids = false,
+  seniors = false
+): SuburbGroup[] {
+  const land: SuburbGroup = kids || seniors ? "family_land" : "land";
   const groups: SuburbGroup[] = [];
   if (interests.includes("land") || interests.includes("adventure")) groups.push(land);
   if (interests.includes("water")) groups.push("water");

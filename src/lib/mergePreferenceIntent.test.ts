@@ -70,3 +70,16 @@ describe("mergePreferenceIntent — 同行者 親子", () => {
     expect(mergePreferenceIntent({}, parsed({}))).not.toHaveProperty("kids");
   });
 });
+
+describe("mergePreferenceIntent — 同行者 長輩", () => {
+  it("marks the trip and makes the pace relaxed when none was chosen", () => {
+    const merged = mergePreferenceIntent({ companions: ["seniors"] }, parsed({}));
+    expect(merged.seniors).toBe(true);
+    expect(merged.pace).toBe("relaxed");
+  });
+
+  it("keeps a pace the traveler chose", () => {
+    expect(mergePreferenceIntent({ companions: ["seniors"], pace: "intensive" }, parsed({})).pace).toBe("intensive");
+    expect(mergePreferenceIntent({ companions: ["seniors"] }, parsed({ pace: "moderate" })).pace).toBe("moderate");
+  });
+});
