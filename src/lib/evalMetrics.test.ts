@@ -134,6 +134,14 @@ describe("measureItinerary", () => {
     expect(m2.tripEnds.first).toBe("機場取車");
   });
 
+  it("lists the seasonal days with their stops", () => {
+    const stops = [{ name: "新宿御苑" }, { name: "千鳥淵", time_of_day: "evening" }];
+    const withSeason = days.map((d, i) => (i === 1 ? { ...d, theme: "東京 季節限定：賞櫻", stops } : d));
+    expect(measureItinerary(withSeason, ctx).seasonalDays).toEqual([
+      { day: 2, title: "東京 季節限定：賞櫻", stops: ["新宿御苑", "千鳥淵"], eveningStops: 1 },
+    ]);
+  });
+
   it("lists the days out of the city", () => {
     const withTrip = days.map((d, i) => (i === 1 ? { ...d, theme: "東京 一日遊：高尾山", stops: [{ name: "高尾山", lat: 35.62, lng: 139.24 }] } : d));
     expect(measureItinerary(withTrip, ctx).suburbDays).toEqual([
