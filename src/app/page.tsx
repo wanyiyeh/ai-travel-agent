@@ -80,7 +80,18 @@ const INTEREST_OPTIONS: { value: NonNullable<TripPreferences["interests"]>[numbe
   { value: "shopping", label: "購物" },
   { value: "water", label: "水上活動" },
   { value: "land", label: "陸上活動" },
+  { value: "film", label: "影劇追星" },
 ];
+
+/** 「你的名字, 灌籃高手」 → up to 3 titles; full-width commas and 、 count too. */
+function splitFilmTitles(text: string): string[] | undefined {
+  const titles = text
+    .split(/[,，、]/)
+    .map((t) => t.trim().slice(0, 60))
+    .filter(Boolean)
+    .slice(0, 3);
+  return titles.length ? titles : undefined;
+}
 
 const CITY_OPTIONS: { code: string; name: string; country: string }[] = Object.entries(AIRPORTS)
   .map(([code, airport]) => ({ code, name: airport.cityZh, country: IATA_COUNTRY_ZH[code] ?? "" }))
@@ -454,6 +465,8 @@ export default function Home() {
   const [budget, setBudget] = useState<TripPreferences["budget"]>(undefined);
   const [fixedEventDrafts, setFixedEventDrafts] = useState<FixedEventDraft[]>([]);
   const [interests, setInterests] = useState<NonNullable<TripPreferences["interests"]>>([]);
+  // 影劇追星: up to 3 works, comma-separated; empty means the city's best-known ones.
+  const [filmTitles, setFilmTitles] = useState("");
   const [startTime, setStartTime] = useState<TripPreferences["startTime"]>(undefined);
   const [indoor, setIndoor] = useState<"indoor" | undefined>(undefined);
   const [seasonal, setSeasonal] = useState<"seasonal" | undefined>("seasonal");
@@ -539,6 +552,7 @@ export default function Home() {
       dietaryRestrictions: diet.length ? diet : undefined,
       drinks: drinks.length ? drinks : undefined,
       companions: companions.length ? companions : undefined,
+      filmTitles: interests.includes("film") ? splitFilmTitles(filmTitles) : undefined,
     };
 
     const waypointsNote = selectedWaypoints.length > 0
@@ -844,6 +858,17 @@ export default function Home() {
                     />
                     <ChipRow label="飲食限制" options={DIET_OPTIONS} selected={diet} onToggle={toggleDiet} />
                     <ChipRow label="偏好" options={INTEREST_OPTIONS} selected={interests} onToggle={toggleInterest} />
+                    {interests.includes("film") && (
+                      <input
+                        type="text"
+                        value={filmTitles}
+                        onChange={(e) => setFilmTitles(e.target.value)}
+                        maxLength={190}
+                        placeholder="想朝聖的作品（選填，最多 3 部，用逗號分開；不填就推薦當地最有名的）"
+                        aria-label="想朝聖的作品"
+                        className="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-3 py-2.5 text-zinc-900 dark:text-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-100 text-sm"
+                      />
+                    )}
                     <ChoiceRow
                       label="室內"
                       options={INDOOR_OPTIONS}
