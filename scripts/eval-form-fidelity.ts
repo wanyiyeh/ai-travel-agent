@@ -55,7 +55,7 @@ type Preferences = {
   transport?: "transit" | "drive";
   dietaryRestrictions?: Array<"vegetarian" | "vegan" | "no_seafood" | "no_beef" | "halal" | "no_spicy">;
   drinks?: Array<"coffee" | "tea" | "alcohol">;
-  companions?: Array<"solo" | "kids" | "seniors">;
+  companions?: Array<"solo" | "kids" | "seniors" | "pets">;
 };
 
 type Scenario = {
@@ -165,6 +165,12 @@ const SCENARIOS: Scenario[] = [
     preferences: { companions: ["kids"], budget: "budget", drinks: ["alcohol"] },
   },
   { id: "domestic-tainan", label: "國內・台北 → 台南 3 天（大眾運輸）", flightInfo: domesticTrip("TW-TPE", "TW-TNN") },
+  {
+    id: "domestic-tainan-pets",
+    label: "國內・台北 → 台南 3 天（大眾運輸），帶寵物",
+    flightInfo: domesticTrip("TW-TPE", "TW-TNN"),
+    preferences: { transport: "transit", companions: ["pets"] },
+  },
   {
     id: "domestic-hualien-drive",
     label: "國內・台北 → 花蓮 3 天（開自己的車）",
@@ -553,6 +559,20 @@ const CHECKS: Check[] = [
     detail: (r) => {
       const m = r.get("domestic-hualien-drive");
       return m ? `第一站「${m.tripEnds.first}：${m.tripEnds.firstNote}」；提到機場或航班：${m.flightMentions.join("、") || "沒有"}` : "—";
+    },
+  },
+  {
+    title: "寵物：台南每晚住寵物友善的住宿（或寫明找不到），搭高鐵提醒裝籠",
+    pass: (r) => {
+      const p = r.get("domestic-tainan-pets")?.pets;
+      if (!p) return null;
+      return p.carrierNote && p.stays.length >= 1 && p.stays.every((s) => s.length > 0);
+    },
+    detail: (r) => {
+      const p = r.get("domestic-tainan-pets")?.pets;
+      return p
+        ? `住宿：${[...new Set(p.stays)].join("、") || "沒有"}；毛孩同樂 ${p.petDays} 天；裝籠提醒：${p.carrierNote ? "有" : "沒有"}`
+        : "—";
     },
   },
   {

@@ -33,6 +33,7 @@ export default function ViewContent({ id }: ViewContentProps) {
   const [view, setView] = useState<"list" | "map">("list");
   // Navigation links follow the trip's 交通方式: driving directions for a self-driver.
   const travelMode: "driving" | "transit" = data?.config?.preferences?.transport === "drive" ? "driving" : "transit";
+  const withPet = Boolean(data?.config?.preferences?.companions?.includes("pets"));
   const [exchangeRate, setExchangeRate] = useState(35);
   const [showRestructure, setShowRestructure] = useState(false);
   const [showTrash, setShowTrash] = useState(false);
@@ -509,6 +510,7 @@ export default function ViewContent({ id }: ViewContentProps) {
                   <EditableItineraryCard
                     data={data}
                     travelMode={travelMode}
+                    withPet={withPet}
                     onUpdate={fetchData}
                     onExploreBorder={openRestructurePanel}
                     hideCostSummary

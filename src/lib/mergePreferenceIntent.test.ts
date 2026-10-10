@@ -90,3 +90,11 @@ describe("mergePreferenceIntent — 同行者 獨旅", () => {
     expect(mergePreferenceIntent({}, parsed({}))).not.toHaveProperty("solo");
   });
 });
+
+describe("mergePreferenceIntent — 同行者 寵物", () => {
+  it("marks a trip with a dog and adds a 毛孩同樂 day after the chosen interests", () => {
+    const intent = mergePreferenceIntent({ companions: ["pets"], interests: ["night_market"] }, parsed({}));
+    expect(intent.pets).toBe(true);
+    expect(intent.interestBoost).toEqual(["night_market", "pets"]);
+  });
+});

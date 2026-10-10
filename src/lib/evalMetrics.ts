@@ -39,6 +39,8 @@ export type ItineraryMetrics = {
   tripEnds: { first?: string; last?: string; firstNote?: string; lastNote?: string };
   /** 國內 interests (domesticInterests.ts): night-market dinners, 老街 days, the hot spring, camping nights. */
   domesticInterests: { nightMarketDinners: string[]; oldStreetDays: number; hotSprings: string[]; campNights: string[] };
+  /** 寵物 (petFriendly.ts): each night's stay (「找不到」 when none takes dogs), 毛孩同樂 days, the carrier note on the way. */
+  pets: { stays: string[]; petDays: number; carrierNote: boolean };
   /** Stops or transit steps that mention an airport or a flight — none on a mainland 國內 trip. */
   flightMentions: string[];
   /** 季節限定 days (seasonalHighlights.ts): the title and every stop's name. */
@@ -246,6 +248,14 @@ export function measureItinerary(days: Rec[], ctx: EvalContext): ItineraryMetric
         .map((d) => d.accommodation as Rec | null | undefined)
         .filter((a) => (str(a?.reason) ?? "").startsWith("露營"))
         .map((a) => str(a?.name) ?? ""),
+    },
+    pets: {
+      stays: days
+        .map((d) => d.accommodation as Rec | null | undefined)
+        .filter((a): a is Rec => Boolean(a))
+        .map((a) => (a.noneFound ? "找不到" : (str(a.name) ?? ""))),
+      petDays: days.filter((d) => (str(d.theme) ?? "").includes("毛孩同樂")).length,
+      carrierNote: (str(asRecords(days[0]?.stops)[0]?.description) ?? "").includes("裝籠"),
     },
     flightMentions: days.flatMap((d) =>
       asRecords(d.stops)

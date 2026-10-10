@@ -22,7 +22,8 @@ import { NEUTRAL_PREFERENCE_INTENT, type PreferenceIntent } from "@/lib/schemas"
 import { getDistancesForStopPairs, pickModeForDistance, describeTransport, modePickerFor } from "@/lib/distanceMatrix";
 import { forSoloTraveler, nearStationFirst } from "@/lib/soloTravel";
 import { haversineKm } from "@/lib/geo";
-import { findHotSpringLodging } from "@/lib/domesticInterests";
+import { findHotSpringLodging, isHotSpringStay } from "@/lib/domesticInterests";
+import { findPetFriendlyLodging, findPetFriendlyRestaurants, noPetLodging } from "@/lib/petFriendly";
 import { estimateAttractionCost } from "@/lib/priceLevelCost";
 import { isFoodPlace } from "@/lib/foodPlace";
 import { getTwdRates } from "@/lib/exchangeRate";
@@ -560,6 +561,8 @@ export type MealPreferences = {
   solo?: boolean;
   /** 溫泉 (國內): hot-spring hotels first (domesticInterests.ts). */
   hotSpring?: boolean;
+  /** 寵物 (國內): pet-friendly lodging only, pet-friendly restaurants first (petFriendly.ts). */
+  pets?: boolean;
 };
 
 /**
@@ -577,6 +580,7 @@ export function mealPreferencesOf(intent: PreferenceIntent, drinks?: DrinkChoice
     ...(intent.seniors ? { seniors: true } : {}),
     ...(intent.solo ? { solo: true } : {}),
     ...(intent.interestBoost.includes("hot_spring") ? { hotSpring: true } : {}),
+    ...(intent.pets ? { pets: true } : {}),
   };
 }
 
@@ -660,7 +664,16 @@ async function fetchMealLodgingPools(
   budget: BudgetLevel | undefined,
   currency: string,
   stayDays: number,
-  { dietaryRestrictions = [], startTimePreference, drinks = [], kids = false, seniors = false, solo = false, hotSpring = false }: MealPreferences
+  {
+    dietaryRestrictions = [],
+    startTimePreference,
+    drinks = [],
+    kids = false,
+    seniors = false,
+    solo = false,
+    hotSpring = false,
+    pets = false,
+  }: MealPreferences
 ): Promise<MealLodgingPools | null> {
   const apiKey = process.env.GOOGLE_PLACES_API_KEY;
   if (!apiKey) return null;
@@ -698,7 +711,9 @@ async function fetchMealLodgingPools(
 
   // Breakfast and snack share one café search, split locally (cafeMealSlots.ts).
   const snackDrinks = drinks.filter((d): d is DrinkKey => d !== "alcohol");
-  const [cafes, main, dietMain, luxuryMain, stayPool, twdPerUnit, bars, stations, hotSprings, ...drinkPools] = await Promise.all([
+  const mainTier = kids ? "kids" : "enterprise";
+  const [cafes, main, dietMain, luxuryMain, stayPool, twdPerUnit, bars, stations, hotSprings, petStays, petMain, ...drinkPools] =
+    await Promise.all([
     search(getMealPlaceTypes("breakfast", budget), "pro", isFoodPlace),
     search(getMealPlaceTypes("lunch", budget), kids ? "kids" : "enterprise", isFoodPlace),
     dietTypes.length > 0 ? search(dietTypes, kids ? "kids" : "enterprise", isFoodPlace) : Promise.resolve([]),
@@ -712,9 +727,17 @@ async function fetchMealLodgingPools(
     solo ? search(["train_station", "subway_station"], "pro") : Promise.resolve([]),
     // 溫泉: one text search for hot-spring hotels, which can sit outside town (北投, 礁溪).
     hotSpring ? findHotSpringLodging(coords, apiKey) : Promise.resolve([] as PlaceCandidate[]),
+    // 寵物: lodging and restaurants that take dogs, one text search each.
+    pets ? findPetFriendlyLodging(coords, apiKey) : Promise.resolve([] as PlaceCandidate[]),
+    pets ? findPetFriendlyRestaurants(coords, apiKey, mainTier) : Promise.resolve([] as PlaceCandidate[]),
     ...snackDrinks.map(searchDrink),
   ]);
-  const lodging = hotSpring ? uniqueByPlaceId([...hotSprings, ...stayPool]) : stayPool;
+  // With a dog, only stays that take one — a hot-spring one among them first.
+  const lodging = pets
+    ? [...petStays.filter((p) => isHotSpringStay(p.name) && hotSpring), ...petStays.filter((p) => !(isHotSpringStay(p.name) && hotSpring))]
+    : hotSpring
+      ? uniqueByPlaceId([...hotSprings, ...stayPool])
+      : stayPool;
   // One breakfast and one snack per day of the stay.
   const split = splitCafePool(excludeByDiet(cafes, dietaryRestrictions), stayDays);
   // Getting up late means brunch, so brunch places lead the breakfast list.
@@ -726,7 +749,6 @@ async function fetchMealLodgingPools(
   // Diet-specific places first (the stronger constraint), then price-filtered
   // luxury places, then the regular popularity pool; budget ranking below
   // still orders them by fit.
-  const mainTier = kids ? "kids" : "enterprise";
   const kidsOnly = <T extends PlaceCandidate>(list: T[], sweetsFirst = false) => (kids ? forChildren(list, sweetsFirst) : list);
   const usableMain = (found: PlaceCandidate[]) => {
     const all = excludeByDiet(uniqueByPlaceId(found), dietaryRestrictions).filter(isFoodPlace).filter(fitsMainMeal);
@@ -734,7 +756,7 @@ async function fetchMealLodgingPools(
     const budgetRanked = rankMainMealsByBudget(all, budget, currency, twdPerUnit, stayDays * 2);
     return { all, ranked: kids ? childFriendlyFirst(budgetRanked) : solo ? forSoloTraveler(budgetRanked) : budgetRanked };
   };
-  let mainPools = [...dietMain, ...luxuryMain, ...main];
+  let mainPools = [...dietMain, ...petMain, ...luxuryMain, ...main];
   let { all: allMain, ranked: rankedMain } = usableMain(mainPools);
   // Not enough for every lunch and dinner: one more search, real restaurants only.
   if (rankedMain.length < stayDays * 2) {
@@ -799,7 +821,9 @@ export async function generateMealsAndAccommodation(
   const soloRule = preferences.solo
     ? "\n- 一個人旅行：午餐、晚餐優先選一個人吃也自在的店（拉麵、壽司、定食、有吧檯座位的店，排在候選前面的），避開雙人套餐、大份量火鍋、燒肉吃到飽；住宿優先選排在前面、離車站近的"
     : "";
-  const preferenceRules = dietPromptLine(preferences.dietaryRestrictions ?? []) + lateRiserRule + kidsRule + soloRule + hotSpringRule;
+  const petsRule = preferences.pets ? "\n- 帶狗同行：午餐、晚餐優先選排在前面的寵物友善餐廳" : "";
+  const preferenceRules =
+    dietPromptLine(preferences.dietaryRestrictions ?? []) + lateRiserRule + kidsRule + soloRule + hotSpringRule + petsRule;
 
   if (!useCandidates) {
     const parsed = await askMealsAndLodging(model, cityName, stayDays, currency, preferenceRules, null, true);
@@ -828,7 +852,14 @@ export async function generateMealsAndAccommodation(
         return {} as ParsedMealsReply;
       }
     );
-    if (isFirst) accommodation = applyAccommodationPick(parsed.accommodation, chunkPools, currency);
+    if (isFirst) {
+      // With a dog and no stay that takes one, none is suggested: the LLM
+      // would otherwise name any hotel for an empty list.
+      accommodation =
+        preferences.pets && pools.lodging.length === 0
+          ? noPetLodging(cityName)
+          : applyAccommodationPick(parsed.accommodation, chunkPools, currency);
+    }
     mealsByDay.push(...applyMealPicks(parsed.meals, chunkPools, days, currency, history, start));
   }
   return { accommodation, mealsByDay: preferences.selfDrive ? mealsByDay.map(withDrinkDriveNote) : mealsByDay };

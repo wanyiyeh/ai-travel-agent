@@ -74,6 +74,11 @@ describe("TripPreferencesSchema — 同行者", () => {
     expect(GenerateRequestSchema.safeParse({ flightInfo, preferences: { companions: ["solo", "kids"] } }).success).toBe(false);
     expect(GenerateRequestSchema.safeParse({ flightInfo, preferences: { companions: ["solo", "seniors"] } }).success).toBe(false);
   });
+
+  it("takes 寵物 with any of them", () => {
+    expect(GenerateRequestSchema.safeParse({ flightInfo, preferences: { companions: ["solo", "pets"] } }).success).toBe(true);
+    expect(GenerateRequestSchema.safeParse({ flightInfo, preferences: { companions: ["kids", "seniors", "pets"] } }).success).toBe(true);
+  });
 });
 
 describe("FlightInfoSchema — 國內", () => {

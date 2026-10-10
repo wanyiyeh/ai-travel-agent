@@ -391,8 +391,9 @@ async function readFreshCandidates(cacheKey: string): Promise<PlaceCandidate[] |
 }
 
 // Some businesses put an ad in their Google name: 「花蓮將軍府1936(免預約入園，
-// 加LINE官方好友享優惠)」, 「又一村文創（各店家詳細營業時間請見粉專）」.
-const PROMO_IN_BRACKETS = /\s*[(（][^()（）]*(優惠|LINE|預約|營業時間|粉專|官方|折扣|免費)[^()（）]*[)）]/gi;
+// 加LINE官方好友享優惠)」, 「又一村文創（各店家詳細營業時間請見粉專）」,
+// 「找樂子義式料理（結束營業前90分鐘不再收客）」.
+const PROMO_IN_BRACKETS = /\s*[(（][^()（）]*(優惠|LINE|預約|營業|收客|粉專|官方|折扣|免費)[^()（）]*[)）]/gi;
 
 // Others stuff it with search keywords: 「烏龜島咖啡甜點伴手禮|宜蘭名產|採現場後位…」.
 // One bar can be a branch (「店名 | 信義店」), so only two or more count.

@@ -71,3 +71,11 @@ describe("老街巡禮", () => {
     expect(isOnTheme(["tourist_attraction"], "old_street", "赤崁樓")).toBe(false);
   });
 });
+
+describe("毛孩同樂", () => {
+  it("is the 寵物 theme, with dog parks and dog cafés", () => {
+    expect(themesOf(["pets"])).toEqual(["pets"]);
+    expect(isOnTheme(["dog_cafe", "cafe"], "pets")).toBe(true);
+    expect(isOnTheme(["park"], "pets")).toBe(false);
+  });
+});

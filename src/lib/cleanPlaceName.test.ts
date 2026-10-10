@@ -9,6 +9,12 @@ describe("cleanPlaceName", () => {
     );
   });
 
+  it("drops a notice about opening hours", () => {
+    expect(cleanPlaceName("找樂子義式料理（小北店）-寵物友善餐廳（結束營業前90分鐘不再收客）")).toBe(
+      "找樂子義式料理（小北店）-寵物友善餐廳"
+    );
+  });
+
   it("drops a list of search keywords", () => {
     expect(cleanPlaceName("烏龜島咖啡甜點伴手禮|宜蘭名產|採現場後位最後出餐17:00")).toBe("烏龜島咖啡甜點伴手禮");
     expect(cleanPlaceName("鬥伙駅-大洲車站 《宜蘭縣三星鄉美食》寵物友善｜咖啡館｜知名人氣甜點｜早午餐景點")).toBe("鬥伙駅-大洲車站");

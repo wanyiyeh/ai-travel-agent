@@ -20,6 +20,8 @@ describe("isFoodPlace", () => {
     ["Flipper's", ["brunch_restaurant", "cafe"]],
     ["Cafe Aaliya", ["cafe", "food"]],
     ["NUMBER SUGAR", ["pastry_shop", "dessert_shop", "bakery"]],
+    // 登別: a plain restaurant first, cuisines after
+    ["Hotto Motto", ["restaurant", "fast_food_restaurant", "japanese_curry_restaurant", "meal_takeaway", "food"]],
   ])("keeps %s", (_name, types) => {
     expect(isFoodPlace({ types })).toBe(true);
   });

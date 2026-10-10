@@ -48,6 +48,8 @@ export type Accommodation = {
   // Last failed Text Search attempt — enrich routes skip re-querying while
   // it's recent and the query is unchanged (see lib/enrichFailure.ts).
   enrichFailure?: EnrichFailure;
+  // No stay to suggest (no pet-friendly lodging nearby): enrich leaves it alone.
+  noneFound?: true;
 };
 
 // Candidates always come from a real Google Places result, so unlike the

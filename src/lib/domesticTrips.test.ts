@@ -76,6 +76,12 @@ describe("domesticJourneyEvents", () => {
     expect(homebound?.stop?.name).toBe("從台南前往台北");
   });
 
+  it("says a pet rides in a carrier on trains and buses, but not by car", () => {
+    expect(domesticJourneyEvents(trip, false, true).outbound?.stop?.description).toContain("帶寵物搭大眾運輸要裝籠或提袋");
+    expect(domesticJourneyEvents(trip, true, true).outbound?.stop?.description).not.toContain("裝籠");
+    expect(domesticJourneyEvents(trip, false).outbound?.stop?.description).not.toContain("裝籠");
+  });
+
   it("says to check the boats for an island, and winter seas for 綠島", () => {
     const { outbound } = domesticJourneyEvents({ ...trip, arrivalCity: "TW-GDI", returnDepartureCity: "TW-GDI" }, false);
     expect(outbound?.stop?.description).toContain("出發前確認航班、船班，冬天常因東北季風停航");
