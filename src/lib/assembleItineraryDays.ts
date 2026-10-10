@@ -126,6 +126,14 @@ export async function assembleItineraryDays(
 
   const days: Array<Record<string, unknown>> = [];
   let nextDayNumber = 1;
+  // Names of the stops already on the trip in a city, for the morning before leaving it.
+  const visitedIn = (cityName: string) =>
+    days
+      .filter((d) => d.waypointCity === cityName || d.transitTo === cityName)
+      .flatMap((d) => (Array.isArray(d.stops) ? d.stops : []))
+      .map((s) => (s as Record<string, unknown>).name)
+      .filter((name): name is string => typeof name === "string");
+
   function pushDay(day: Record<string, unknown>) {
     const numbered = { ...day, day: nextDayNumber++ };
     days.push(numbered);
@@ -220,7 +228,8 @@ export async function assembleItineraryDays(
           budget,
           preferenceIntent,
           Array.from(usedPlaceIds),
-          transitEvents.fixed
+          transitEvents.fixed,
+          visitedIn(prevCity.name)
         ),
         mealsAndAccommodationPromise,
       ]);
