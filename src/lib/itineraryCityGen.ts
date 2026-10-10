@@ -1027,7 +1027,8 @@ async function generateDayStopsViaScheduler(
   firstDayStartMinute: number | undefined,
   lodging: { lat: number; lng: number } | undefined,
   firstThemeIndex: number,
-  fixedByDay: DayFixedEvents[]
+  fixedByDay: DayFixedEvents[],
+  seasonalByDay: (PlaceCandidate[] | undefined)[] = []
 ): Promise<ThemedDayStops | null> {
   try {
     const apiKey = process.env.GOOGLE_PLACES_API_KEY!;
@@ -1050,7 +1051,10 @@ async function generateDayStopsViaScheduler(
     const popularIds = new Set(places.map((p) => p.placeId));
     const merged = [...places];
     const themeOnlyIds = new Set<string>();
-    for (const place of themePools.flat()) {
+    // A seasonal day's highlights (seasonalHighlights.ts) join the pool, kept for that day only.
+    const seasonalDayOf = new Map<string, number>();
+    seasonalByDay.forEach((highlights, dayIdx) => highlights?.forEach((p) => seasonalDayOf.set(p.placeId, dayIdx)));
+    for (const place of [...themePools.flat(), ...seasonalByDay.flatMap((h) => h ?? [])]) {
       if (merged.some((p) => p.placeId === place.placeId)) continue;
       merged.push(place);
       themeOnlyIds.add(place.placeId);
@@ -1101,14 +1105,22 @@ async function generateDayStopsViaScheduler(
     // city center when the lodging isn't known), and each day's route starts
     // there too.
     const anchor = lodging ?? coords;
-    const dayCandidates = shelter.pool(candidates, capacities.reduce((sum, n) => sum + n, 0));
+    const sheltered = shelter.pool(candidates, capacities.reduce((sum, n) => sum + n, 0));
+    // Highlights stay even on an indoor-first trip: the traveler kept 季節限定 on.
+    const dayCandidates = [...sheltered, ...candidates.filter((c) => seasonalDayOf.has(c.id) && !sheltered.includes(c))];
     const counts = distributeStopsPerDay(dayCandidates.length, capacities);
     const onTheme = (theme: ThemeKey) => (c: { id: string }) => isOnTheme(candidateById.get(c.id)?.types, theme);
     const dayGroups = partitionCandidatesByDay(dayCandidates, counts, interestWeights, anchor, {
-      themes: dayThemes.map((theme, dayIdx) =>
-        theme ? { onTheme: onTheme(theme), themeCount: counts[dayIdx] - popularSlots(counts[dayIdx]) } : undefined
-      ),
+      themes: dayThemes.map((theme, dayIdx) => {
+        const highlights = seasonalByDay[dayIdx];
+        if (highlights?.length) {
+          const ids = new Set(highlights.map((p) => p.placeId));
+          return { onTheme: (c: { id: string }) => ids.has(c.id), themeCount: Math.min(ids.size, counts[dayIdx]) };
+        }
+        return theme ? { onTheme: onTheme(theme), themeCount: counts[dayIdx] - popularSlots(counts[dayIdx]) } : undefined;
+      }),
       isPopular: (c) => popularIds.has(c.id),
+      reservedDay: (c) => seasonalDayOf.get(c.id),
     });
     const skeletonsByDay: SkeletonStop[][] = dayGroups.map((group, dayIdx) =>
       group.length > 0
@@ -1148,7 +1160,8 @@ async function generateDayStopsViaScheduler(
       stopsByDay,
       // A day only claims its theme when it actually got an on-theme stop.
       themeByDay: skeletonsByDay.map((skeleton, dayIdx) => {
-        const theme = dayThemes[dayIdx];
+        // A seasonal day is titled by its highlights, not the rotation.
+        const theme = seasonalByDay[dayIdx]?.length ? undefined : dayThemes[dayIdx];
         return theme && skeleton.some(onTheme(theme)) ? theme : undefined;
       }),
     };
@@ -1188,7 +1201,9 @@ export async function generateThemedDayStops(
   // far, so each city doesn't restart at the first theme.
   firstThemeIndex = 0,
   // Each day's 固定行程 — kept clear of other stops and slotted in by time.
-  fixedByDay: DayFixedEvents[] = []
+  fixedByDay: DayFixedEvents[] = [],
+  // Each day's seasonal highlights to see by day (seasonalHighlights.ts), on that day only.
+  seasonalByDay: (PlaceCandidate[] | undefined)[] = []
 ): Promise<ThemedDayStops> {
   const scheduled = await generateDayStopsViaScheduler(
     cityName,
@@ -1200,7 +1215,8 @@ export async function generateThemedDayStops(
     firstDayStartMinute,
     lodging,
     firstThemeIndex,
-    fixedByDay
+    fixedByDay,
+    seasonalByDay
   );
   if (scheduled) return scheduled;
   const llmDays = await generateDayStopsWithLLM(cityName, stayDays, currency);

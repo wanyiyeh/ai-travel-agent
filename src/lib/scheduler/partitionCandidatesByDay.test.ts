@@ -7,6 +7,22 @@ function candidate(id: string, lat: number, lng: number, rating?: number): StopC
 }
 
 describe("partitionCandidatesByDay", () => {
+  it("keeps a reserved candidate for its own day, even when it scores best", () => {
+    // a seasonal highlight (seasonalHighlights.ts) belongs to the seasonal day
+    const pool = [candidate("highlight", 0, 0, 4.9), candidate("a", 0, 0, 4.0), candidate("b", 0, 0, 4.0), candidate("c", 0, 0, 4.0)];
+    const days = partitionCandidatesByDay(pool, [2, 2], {}, undefined, {
+      reservedDay: (c) => (c.id === "highlight" ? 1 : undefined),
+    });
+    expect(days[0].map((c) => c.id)).not.toContain("highlight");
+    expect(days[1].map((c) => c.id)).toContain("highlight");
+  });
+
+  it("leaves a day short rather than give it another day's reserved candidate", () => {
+    const pool = [candidate("highlight", 0, 0), candidate("a", 0, 0)];
+    const days = partitionCandidatesByDay(pool, [2, 0], {}, undefined, { reservedDay: (c) => (c.id === "highlight" ? 1 : undefined) });
+    expect(days[0].map((c) => c.id)).toEqual(["a"]);
+  });
+
   it("returns one empty group per day for an empty pool", () => {
     expect(partitionCandidatesByDay([], [2, 2])).toEqual([[], []]);
   });

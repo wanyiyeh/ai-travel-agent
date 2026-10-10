@@ -326,6 +326,37 @@ describe("generateThemedDayStops — 室內行程為主 (indoor first)", () => {
   });
 });
 
+// 季節限定 (seasonalHighlights.ts): the highlights go on their day, and only there.
+describe("generateThemedDayStops — seasonal day", () => {
+  const highlight = (id: string, lat: number): PlaceCandidate => ({ ...POOL[0], name: id, placeId: id, lat, types: ["park"] });
+  // Far from the popular pool, so nothing but the reservation would put them on day 2.
+  const ginkgo = highlight("ginkgo", 35.74);
+  const garden = highlight("garden", 35.741);
+  const moderate = { ...NEUTRAL_PREFERENCE_INTENT, pace: "moderate" as const };
+
+  it("puts the highlights on the seasonal day and nowhere else", async () => {
+    const { stopsByDay, themeByDay } = await generateThemedDayStops(
+      "東京", 3, "JPY", [], undefined, moderate, undefined, undefined, 0, [], [undefined, [ginkgo, garden], undefined]
+    );
+
+    const ids = stopsByDay.map((day) => day.map((s) => String(s.placeId)));
+    expect(ids[1]).toEqual(expect.arrayContaining(["ginkgo", "garden"]));
+    expect([...ids[0], ...ids[2]]).not.toContain("ginkgo");
+    expect(themeByDay[1]).toBeUndefined();
+  });
+
+  it("keeps them on an indoor-first trip, which the traveler left 季節限定 on for", async () => {
+    const museums = Array.from({ length: 20 }, (_, i) => ({ ...POOL[i], types: ["tourist_attraction", "museum"] }));
+    nearbyMock.mockResolvedValue(museums);
+
+    const { stopsByDay } = await generateThemedDayStops(
+      "東京", 2, "JPY", [], undefined, { ...moderate, indoorFirst: true }, undefined, undefined, 0, [], [undefined, [ginkgo, garden]]
+    );
+
+    expect(stopsByDay[1].map((s) => String(s.placeId))).toEqual(expect.arrayContaining(["ginkgo", "garden"]));
+  });
+});
+
 // 固定行程: the booked time is locked and the day is planned around it.
 describe("generateThemedDayStops — fixed events", () => {
   const concertStop = { id: "concert", name: "東京巨蛋", lat: 35.7056, lng: 139.7519, fixedEvent: { type: "concert", startTime: "15:00", endTime: "18:00" } };
