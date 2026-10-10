@@ -12,6 +12,11 @@ export function buildSearchMapsUrl(query: string): string {
   return `https://www.google.com/maps/search/${encodeURIComponent(query)}`;
 }
 
+/** A search centered on a point, e.g. supermarkets around the lodging — Google Maps does the looking, no API call. */
+export function buildNearbySearchUrl(query: string, lat: number, lng: number, zoom = 16): string {
+  return `https://www.google.com/maps/search/${encodeURIComponent(query)}/@${lat},${lng},${zoom}z`;
+}
+
 /**
  * A driving-directions link through an ordered list of stops. Each point can
  * be a place name/address or a "lat,lng" string — Google Maps accepts both
