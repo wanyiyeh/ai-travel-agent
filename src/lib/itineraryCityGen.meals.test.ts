@@ -349,3 +349,33 @@ describe("generateMealsAndAccommodation — 自駕", () => {
     expect((result.mealsByDay[0].nightcap as { description: string }).description).toBe("很棒的酒吧。開車的話請不要喝酒，可以把車留在住宿");
   });
 });
+
+// 親子 (plan/form-preference-wiring.md 1.5).
+describe("generateMealsAndAccommodation — with children", () => {
+  const kidsPlace = (name: string): PlaceCandidate => ({ ...place(name), goodForChildren: true });
+
+  it("asks whether lunch/dinner places suit children, and offers those first", async () => {
+    nearbyMock.mockResolvedValueOnce([]).mockResolvedValueOnce([place("Izakaya"), kidsPlace("Family Diner")]);
+    mockLlm({ accommodation: {}, meals: [] });
+
+    await generateMealsAndAccommodation("東京", 1, "JPY", undefined, { kids: true });
+
+    expect(nearbyMock.mock.calls.map((c) => c[5])).toEqual(["pro", "kids"]);
+    expect(systemPrompt()).toContain("M1: Family Diner");
+    expect(systemPrompt()).toContain("有小孩同行");
+  });
+
+  it("leaves hostels out of the lodging", async () => {
+    nearbyMock.mockResolvedValue([]);
+    lodgingMock.mockResolvedValueOnce([
+      { ...place("Dorm Hostel"), types: ["hostel", "lodging"] },
+      { ...place("Family Inn"), types: ["guest_house", "lodging"] },
+    ]);
+    mockLlm({ accommodation: {}, meals: [] });
+
+    await generateMealsAndAccommodation("東京", 1, "JPY", "budget", { kids: true });
+
+    expect(systemPrompt()).toContain("Family Inn");
+    expect(systemPrompt()).not.toContain("Dorm Hostel");
+  });
+});
