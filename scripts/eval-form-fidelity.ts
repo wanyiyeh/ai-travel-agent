@@ -145,6 +145,7 @@ const SCENARIOS: Scenario[] = [
     flightInfo: TOKYO,
     preferences: { companions: ["kids"], budget: "budget", drinks: ["alcohol"] },
   },
+  { id: "tokyo-solo", label: "東京・獨旅", flightInfo: TOKYO, preferences: { companions: ["solo"] } },
   {
     id: "tokyo-seniors",
     label: "東京・長輩＋經濟實惠（沒選步調）",
@@ -456,6 +457,18 @@ const CHECKS: Check[] = [
       if (!m) return "—";
       return `${m.dayTitles.join("、")}；小酌 ${m.nightcaps.filter(Boolean).length} 次；住宿 ${m.lodging.map((l) => l.name).join("、")}`;
     },
+  },
+  {
+    // 新宿 is full of ramen and sushi, so the baseline is already high: at least as high, and no hot pot or yakiniku.
+    title: "獨旅：一個人吃也自在的午晚餐比例不低於對照組，沒有火鍋、燒肉這類多人餐",
+    pass: (r) => {
+      const m = r.get("tokyo-solo");
+      const base = r.get("tokyo-baseline");
+      return m && base ? m.soloFriendlyShare >= base.soloFriendlyShare && m.groupDiningMeals.length === 0 : null;
+    },
+    detail: (r) =>
+      `獨旅 ${pct(r.get("tokyo-solo")?.soloFriendlyShare)}、對照 ${pct(r.get("tokyo-baseline")?.soloFriendlyShare)}；` +
+      `多人餐：${r.get("tokyo-solo")?.groupDiningMeals.join("、") || "沒有"}`,
   },
   {
     // 500m on foot is about 6-7 minutes; the estimate rounds, so 8 allows for that.

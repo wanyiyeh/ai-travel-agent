@@ -142,6 +142,11 @@ describe("measureItinerary", () => {
     expect(m2.outdoorAfterDarkDays).toBe(1);
   });
 
+  it("measures how many lunches/dinners suit one person", () => {
+    // the fixture has ramen and sushi lunches/dinners
+    expect(m.soloFriendlyShare).toBeGreaterThan(0);
+  });
+
   it("finds the longest walk between sightseeing stops", () => {
     const walks = days.map((d, i) =>
       i === 0 ? { ...d, stops: [{ placeId: "museum1" }, { placeId: "park1", transport_from_prev: "步行約 12 分鐘" }] } : d

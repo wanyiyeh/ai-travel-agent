@@ -3,6 +3,7 @@ import { MAIN_MEAL_BUDGET_TWD } from "@/lib/mealBudget";
 import { isBudgetLodging, isLuxuryLodging } from "@/lib/lodgingTiers";
 import { mapPlaceTypeToCategory } from "@/lib/scheduler/mapPlaceTypeToCategory";
 import { exposureOf, isBarStreet } from "@/lib/indoorOutdoor";
+import { isGroupDining, isSoloFriendly } from "@/lib/soloTravel";
 import { haversineKm } from "@/lib/geo";
 
 // Measures one generated itinerary for scripts/eval-form-fidelity.ts — how
@@ -60,6 +61,10 @@ export type ItineraryMetrics = {
   adjacentRepeats: number;
   /** Meals without a placeId — names the LLM made up. */
   inventedMeals: number;
+  /** Share of lunches/dinners at places easy to eat at alone (soloTravel.ts). */
+  soloFriendlyShare: number;
+  /** Lunches/dinners at hot pot, yakiniku and the like — none on a solo trip. */
+  groupDiningMeals: string[];
   /** The longest walk between sightseeing stops, minutes, from 「步行約 N 分鐘」; 0 without any. */
   longestWalkMinutes: number;
   /** Meals at a hotel (Google types include lodging), e.g. Hotel sardonyx ueno as a dinner — should be none. */
@@ -264,6 +269,12 @@ export function measureItinerary(days: Rec[], ctx: EvalContext): ItineraryMetric
     mealRepeatRate,
     adjacentRepeats,
     inventedMeals,
+    soloFriendlyShare: mainMeals.length
+      ? mainMeals.filter((m) => isSoloFriendly({ name: str(m.name), types: typesOf(m.placeId) })).length / mainMeals.length
+      : 0,
+    groupDiningMeals: mainMeals
+      .filter((m) => isGroupDining({ name: str(m.name), types: typesOf(m.placeId) }))
+      .map((m) => str(m.name) ?? ""),
     longestWalkMinutes: Math.max(
       0,
       ...stops.map((s) => Number(/步行約\s*(\d+)\s*分鐘/.exec(str(s.transport_from_prev) ?? "")?.[1] ?? 0))
