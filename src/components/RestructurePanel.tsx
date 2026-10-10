@@ -68,6 +68,13 @@ export interface CityEntryState {
   targetDays: number; // total days for this city, including structural days
   lockedAttractions: LockedAttractionState[];
   fromRecommendation: boolean; // added via the 周邊推薦 cards, counts against the insertion cap
+  // Transit days that move with the neighbours (relinkCities): an existing
+  // city right after a new one gains a leading transit day from it, and one
+  // right before a new one loses its own outbound day — the new city's
+  // leading day replaces it.
+  hasOutboundTransit: boolean;
+  leadingTransit: boolean;
+  outboundReplaced: boolean;
   lat?: number; // used only to place a newly-added city near its geographic
   lng?: number; // neighbor — see findInsertionIndex
 }
@@ -179,6 +186,7 @@ export function groupExistingDays(days: RestructureDayLite[], structuralIds: Set
     const ids = bucketDays.map((d) => d.id);
     const cityStructuralIds = new Set(ids.filter((id) => structuralIds.has(id)));
     const bookedIds = bucketDays.filter((d) => d.bookedEventLabel && !structuralIds.has(d.id)).map((d) => d.id);
+    const hasOutboundTransit = bucketDays.some((d) => d.isTransitDay);
     return {
       key: crypto.randomUUID(),
       name: key === PRIMARY_CITY_KEY ? "" : key,
@@ -191,15 +199,41 @@ export function groupExistingDays(days: RestructureDayLite[], structuralIds: Set
       targetDays: ids.length,
       lockedAttractions: [],
       fromRecommendation: false,
+      hasOutboundTransit,
+      leadingTransit: false,
+      outboundReplaced: false,
     };
+  });
+}
+
+/**
+ * After cities are added, removed or moved: which existing cities gain a
+ * leading transit day (the city before is new) or lose their outbound one
+ * (the city after is new), as restructure/route.ts builds them. The city's
+ * day count moves with it, so every existing day stays: inserting 名古屋
+ * between 東京 and 京都 takes 東京's day to 京都 off 東京 and gives 京都 its
+ * day from 名古屋. Without this, 京都 silently lost a day and 東京 got an AI day.
+ */
+export function relinkCities(cities: CityEntryState[]): CityEntryState[] {
+  return cities.map((c, idx) => {
+    if (c.isNew) return c;
+    const leadingTransit = idx > 0 && cities[idx - 1].isNew;
+    const outboundReplaced = c.hasOutboundTransit && idx < cities.length - 1 && cities[idx + 1].isNew;
+    const delta = (Number(leadingTransit) - Number(c.leadingTransit)) - (Number(outboundReplaced) - Number(c.outboundReplaced));
+    if (delta === 0 && leadingTransit === c.leadingTransit && outboundReplaced === c.outboundReplaced) return c;
+    const relinked = { ...c, leadingTransit, outboundReplaced };
+    return syncKeepDaysForTarget({ ...relinked, targetDays: Math.max(minCityDays(relinked), Math.min(MAX_TARGET_DAYS, c.targetDays + delta)) });
   });
 }
 
 // Number of structural (transit/return) days baked into a city's targetDays:
 // a new city always has exactly 1 (its leading transit day); an existing
-// city has however many of its kept days are structural.
+// city has however many of its kept days are structural, plus a leading
+// transit day from a new city before it, less an outbound day a new city
+// after it replaces (relinkCities).
 function structuralCount(city: CityEntryState): number {
-  return city.isNew ? 1 : city.structuralDayIds.size;
+  if (city.isNew) return 1;
+  return city.structuralDayIds.size + (city.leadingTransit ? 1 : 0) - (city.outboundReplaced ? 1 : 0);
 }
 
 // Total days actually spent on this city block. `targetDays` is the total
@@ -257,7 +291,8 @@ export function syncKeepDaysForTarget(city: CityEntryState): CityEntryState {
 // many new days the AI plans.
 export function computeCityDiff(city: CityEntryState) {
   const removed = city.existingDayIds.filter((id) => !city.keepDayIds.has(id));
-  const keptCount = city.existingDayIds.length - removed.length;
+  // The outbound day a new city's own transit day replaces isn't kept either.
+  const keptCount = city.existingDayIds.length - removed.length - (city.outboundReplaced ? 1 : 0);
   const sightseeingKeptCount = city.existingDayIds.filter(
     (id) => city.keepDayIds.has(id) && !city.structuralDayIds.has(id)
   ).length;
@@ -614,7 +649,7 @@ export default function RestructurePanel({
       const oldIndex = prev.findIndex((c) => c.key === active.id);
       const newIndex = prev.findIndex((c) => c.key === over.id);
       if (oldIndex === -1 || newIndex === -1) return prev;
-      return arrayMove(prev, oldIndex, newIndex);
+      return relinkCities(arrayMove(prev, oldIndex, newIndex));
     });
   };
 
@@ -661,7 +696,7 @@ export default function RestructurePanel({
 
   const removeCity = (key: string) => {
     setDirty(true);
-    setCities((prev) => prev.filter((c) => c.key !== key));
+    setCities((prev) => relinkCities(prev.filter((c) => c.key !== key)));
   };
 
   const addRecommendedCity = (rec: TransitRecommendation, targetDays: number) => {
@@ -681,12 +716,15 @@ export default function RestructurePanel({
         targetDays,
         lockedAttractions: [],
         fromRecommendation: true,
+        hasOutboundTransit: false,
+        leadingTransit: false,
+        outboundReplaced: false,
         lat: rec.lat,
         lng: rec.lng,
       };
       const next = [...prev];
       next.splice(findInsertionIndex(prev, rec.lat, rec.lng), 0, entry);
-      return next;
+      return relinkCities(next);
     });
   };
 
@@ -767,12 +805,15 @@ export default function RestructurePanel({
             targetDays: 3, // 1 transit day + 2 sightseeing days by default
             lockedAttractions: [],
             fromRecommendation: false,
+            hasOutboundTransit: false,
+            leadingTransit: false,
+            outboundReplaced: false,
             lat,
             lng,
           };
           const next = [...prev];
           next.splice(findInsertionIndex(prev, lat, lng), 0, entry);
-          return next;
+          return relinkCities(next);
         });
         setQuery("");
       } else {

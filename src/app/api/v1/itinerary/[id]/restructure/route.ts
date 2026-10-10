@@ -443,7 +443,6 @@ export async function POST(
 
     const daysById = new Map(days.map((d) => [d.id as string, d]));
     const keptIds = new Set(cities.flatMap((c) => c.keepDayIds));
-    const discardedDays = days.filter((d) => !keptIds.has(d.id as string));
     const lastOriginalDayId = days.length > 0 ? (days[days.length - 1].id as string) : undefined;
 
     // The trip's 飲品 choice, so rebuilt meals keep the coffee/tea snack and 小酌.
@@ -515,6 +514,13 @@ export async function POST(
     }
 
     const finalDays = rawFinalDays.map((d, i) => ({ ...d, day: i + 1 }));
+    // Days the rebuild left out go to the trash: those not kept, and a kept
+    // day a city had no room for after all. A replaced transit day doesn't —
+    // a new one describes the same move.
+    const finalIds = new Set(finalDays.map((d) => (d as Record<string, unknown>).id as string));
+    const discardedDays = days.filter(
+      (d) => !finalIds.has(d.id as string) && (!keptIds.has(d.id as string) || d.isTransitDay !== true)
+    );
     // Places the program put in itself (a night market dinner, a soak) get their description (missingCopy.ts).
     await fillMissingCopy(finalDays, model);
 
@@ -564,7 +570,7 @@ export async function POST(
     return NextResponse.json({
       success: true,
       removedDayCount: discardedDays.length,
-      addedDayCount: finalDays.length - keptIds.size,
+      addedDayCount: finalDays.length - days.filter((d) => finalIds.has(d.id as string)).length,
       warnings,
     });
   } catch (error) {
