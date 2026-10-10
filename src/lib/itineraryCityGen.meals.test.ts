@@ -511,3 +511,39 @@ describe("generateMealsAndAccommodation — ramen with children", () => {
     expect(prompt).toContain("雞湯系或豚骨");
   });
 });
+
+// 親子: a maid café came up as a 親子 trip's snack (Google types it a plain café).
+describe("generateMealsAndAccommodation — snacks with children", () => {
+  const typed = (name: string, types: string[]): PlaceCandidate => ({ ...place(name), types });
+
+  it("leaves maid cafés out and offers sweets first", async () => {
+    nearbyMock.mockImplementation(async (_c: unknown, _k: unknown, types: string[]) =>
+      types.includes("cafe")
+        ? [
+            typed("Morning Cafe", ["cafe"]),
+            typed("at-home cafe 秋葉原本店", ["cafe", "food"]),
+            typed("Coffee Stand", ["coffee_shop", "cafe"]),
+            typed("壽壽喜園 淺草本店", ["tea_house", "ice_cream_shop", "dessert_shop"]),
+          ]
+        : []
+    );
+    mockLlm({ accommodation: {}, meals: [] });
+
+    await generateMealsAndAccommodation("東京", 2, "JPY", undefined, { kids: true });
+
+    const prompt = systemPrompt();
+    expect(prompt).not.toContain("at-home cafe");
+    expect(prompt).toContain("S1: 壽壽喜園 淺草本店");
+  });
+
+  it("keeps maid cafés for everyone else", async () => {
+    nearbyMock.mockImplementation(async (_c: unknown, _k: unknown, types: string[]) =>
+      types.includes("cafe") ? [typed("Morning Cafe", ["cafe"]), typed("at-home cafe 秋葉原本店", ["cafe", "food"])] : []
+    );
+    mockLlm({ accommodation: {}, meals: [] });
+
+    await generateMealsAndAccommodation("東京", 1, "JPY", undefined, {});
+
+    expect(systemPrompt()).toContain("at-home cafe");
+  });
+});

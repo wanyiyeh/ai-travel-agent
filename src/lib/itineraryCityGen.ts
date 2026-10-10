@@ -576,6 +576,21 @@ export function childFriendlyFirst(places: PlaceCandidate[]): PlaceCandidate[] {
   return [...kept.filter(suits), ...kept.filter((p) => !suits(p))];
 }
 
+// 親子: a maid or concept café is a grown-up's Tokyo experience, and Google
+// types it as a plain café (at-home cafe 秋葉原本店: [cafe, food]), so only
+// the name gives it away. Everyone else still gets it.
+const CONCEPT_CAFE_NAME = /maid|メイド|めいど|女僕|at-?home ?cafe|@ほぉ|maidreamin/i;
+// Sweets a child wants for the afternoon snack.
+const SWEETS_TYPES = new Set(["dessert_shop", "ice_cream_shop", "bakery", "pastry_shop", "cake_shop", "donut_shop", "chocolate_shop", "confectionery"]);
+
+/** For a trip with children: no maid or concept cafés; for the snack, sweets first. */
+export function forChildren<T extends { name: string; types?: string[] }>(places: T[], sweetsFirst = false): T[] {
+  const kept = places.filter((p) => !CONCEPT_CAFE_NAME.test(p.name));
+  if (!sweetsFirst) return kept;
+  const sweets = (p: T) => Boolean(p.types?.some((t) => SWEETS_TYPES.has(t)));
+  return [...kept.filter(sweets), ...kept.filter((p) => !sweets(p))];
+}
+
 // When the lunch/dinner search runs short: restaurants by their own main
 // type only. The usual search takes any place with a restaurant among its
 // types, and around 新宿 half its 20 were 高島屋, LUMINE, a cinema, hotels
@@ -682,6 +697,7 @@ async function fetchMealLodgingPools(
   // luxury places, then the regular popularity pool; budget ranking below
   // still orders them by fit.
   const mainTier = kids ? "kids" : "enterprise";
+  const kidsOnly = <T extends PlaceCandidate>(list: T[], sweetsFirst = false) => (kids ? forChildren(list, sweetsFirst) : list);
   const usableMain = (found: PlaceCandidate[]) => {
     const all = excludeByDiet(uniqueByPlaceId(found), dietaryRestrictions).filter(isFoodPlace).filter(fitsMainMeal);
     // Lunch + dinner each day draw from the same pool.
@@ -709,9 +725,9 @@ async function fetchMealLodgingPools(
   const drinkById = new Map(drinkLists.flat().map((p) => [p.placeId, p]));
   const canonical = (list: PlaceCandidate[]) => list.map((p) => drinkById.get(p.placeId) ?? p);
   return {
-    breakfast: uniqueByPlaceId([...coffeeBreakfast, ...canonical(breakfast)]),
+    breakfast: kidsOnly(uniqueByPlaceId([...coffeeBreakfast, ...canonical(breakfast)])),
     main: rankedMain,
-    snack: uniqueByPlaceId([...interleave(snackRotation), ...canonical(split.snack)]),
+    snack: kidsOnly(uniqueByPlaceId([...interleave(snackRotation), ...canonical(split.snack)]), true),
     // Families and older travelers stay in a guest house rather than a hostel dorm (plan 1.5).
     lodging: kids || seniors
       ? lodging.filter((p) => !p.types?.includes("hostel"))
@@ -724,7 +740,7 @@ async function fetchMealLodgingPools(
       bars.filter((p) => !allMain.some((m) => m.placeId === p.placeId)),
       stayDays
     ),
-    ...(snackRotation.length > 0 ? { snackRotation } : {}),
+    ...(snackRotation.length > 0 ? { snackRotation: snackRotation.map((pool) => kidsOnly(pool)) } : {}),
   };
 }
 
