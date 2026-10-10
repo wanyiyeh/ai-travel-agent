@@ -166,6 +166,12 @@ const SCENARIOS: Scenario[] = [
   },
   { id: "domestic-tainan", label: "國內・台北 → 台南 3 天（大眾運輸）", flightInfo: domesticTrip("TW-TPE", "TW-TNN") },
   {
+    id: "domestic-kaohsiung-luxury",
+    label: "國內・台北 → 高雄 3 天，高端奢華",
+    flightInfo: domesticTrip("TW-TPE", "TW-KHH"),
+    preferences: { budget: "luxury" },
+  },
+  {
     id: "domestic-tainan-pets",
     label: "國內・台北 → 台南 3 天（大眾運輸），帶寵物",
     flightInfo: domesticTrip("TW-TPE", "TW-TNN"),
@@ -559,6 +565,17 @@ const CHECKS: Check[] = [
     detail: (r) => {
       const m = r.get("domestic-hualien-drive");
       return m ? `第一站「${m.tripEnds.first}：${m.tripEnds.firstNote}」；提到機場或航班：${m.flightMentions.join("、") || "沒有"}` : "—";
+    },
+  },
+  {
+    title: "國內高端：高雄住國際品牌或台灣的高級飯店",
+    pass: (r) => {
+      const m = r.get("domestic-kaohsiung-luxury");
+      return m ? m.lodging.length > 0 && m.lodging.every((l) => l.luxury) : null;
+    },
+    detail: (r) => {
+      const m = r.get("domestic-kaohsiung-luxury");
+      return m ? `住宿 ${m.lodging.map((l) => `${l.name}${l.luxury ? "" : "（不算高端）"}`).join("／")}` : "—";
     },
   },
   {
