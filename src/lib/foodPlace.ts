@@ -4,6 +4,9 @@
 // department_store,…,cafe). Google lists a place's own primary type first in
 // `types`, so judge by that.
 const FOOD_PRIMARY_TYPES = new Set([
+  // A plain restaurant with no cuisine type (Hotto Motto, many places in
+  // Taiwan, most 寵物友善餐廳 results). A hotel restaurant says lodging too.
+  "restaurant",
   "cafe",
   "coffee_shop",
   "coffee_stand",
