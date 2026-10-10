@@ -61,6 +61,30 @@ export function isBarStreet(types: string[] | undefined): boolean {
   return exposureOf(types) === undefined;
 }
 
+// A night market is typed like any market ([tourist_attraction, market]: 台南's
+// 大東夜市, 帕蓬夜市, 東大門夜市), so only the name says it opens at dusk —
+// a 台南 return day had three of them in the morning.
+const NIGHT_MARKET_NAME = /夜市|night market/i;
+// Getting around, not somewhere to go: 花蓮轉運站 ([visitor_center,
+// tourist_information_center, transportation_service, ...]) was a sight.
+const NOT_A_SIGHT_TYPES = new Set([
+  "transit_station",
+  "train_station",
+  "bus_station",
+  "subway_station",
+  "transportation_service",
+  "tourist_information_center",
+]);
+
+/** Not a daytime sight: a bar street, a night market, a station or an information centre. */
+export function isNotADaytimeSight(place: { name: string; types?: string[] }): boolean {
+  return (
+    isBarStreet(place.types) ||
+    NIGHT_MARKET_NAME.test(place.name) ||
+    Boolean(place.types?.some((t) => NOT_A_SIGHT_TYPES.has(t)))
+  );
+}
+
 // The 11:00-15:00 sun an indoor-first traveler wants to spend inside.
 export const MIDDAY_SUN = { startMinute: 11 * 60, endMinute: 15 * 60 };
 
