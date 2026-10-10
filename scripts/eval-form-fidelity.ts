@@ -37,7 +37,8 @@ const MODEL = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
 type Preferences = {
   pace?: "relaxed" | "moderate" | "intensive";
   budget?: "budget" | "moderate" | "luxury";
-  interests?: Array<"food" | "culture" | "nature" | "shopping" | "water" | "land" | "adventure">;
+  interests?: Array<"food" | "culture" | "nature" | "shopping" | "water" | "land" | "adventure" | "film">;
+  filmTitles?: string[];
   startTime?: "early" | "normal" | "late";
   indoorFirst?: boolean;
   fixedEvents?: Array<{
@@ -144,6 +145,12 @@ const SCENARIOS: Scenario[] = [
     label: "東京・親子＋經濟實惠（送出酒，應該被忽略）",
     flightInfo: TOKYO,
     preferences: { companions: ["kids"], budget: "budget", drinks: ["alcohol"] },
+  },
+  {
+    id: "tokyo-film",
+    label: "東京・影劇追星《你的名字》",
+    flightInfo: TOKYO,
+    preferences: { interests: ["film"], filmTitles: ["你的名字"] },
   },
   { id: "tokyo-solo", label: "東京・獨旅", flightInfo: TOKYO, preferences: { companions: ["solo"] } },
   {
@@ -457,6 +464,16 @@ const CHECKS: Check[] = [
       if (!m) return "—";
       return `${m.dayTitles.join("、")}；小酌 ${m.nightcaps.filter(Boolean).length} 次；住宿 ${m.lodging.map((l) => l.name).join("、")}`;
     },
+  },
+  {
+    // The real 《你的名字》 location is 須賀神社's stairs; the model once offered the fictional 「三葉神社」 and the Ghibli Museum.
+    title: "影劇追星：選了《你的名字》，有一天「影劇朝聖」，而且排到須賀神社",
+    pass: (r) => {
+      const days = r.get("tokyo-film")?.filmDays;
+      return days ? days.length === 1 && days[0].stops.some((s) => s.includes("須賀")) : null;
+    },
+    detail: (r) =>
+      r.get("tokyo-film")?.filmDays.map((d) => `第 ${d.day} 天「${d.title}」：${d.stops.join("、")}`).join("；") || "沒有影劇朝聖日",
   },
   {
     // 新宿 is full of ramen and sushi, so the baseline is already high: at least as high, and no hot pot or yakiniku.

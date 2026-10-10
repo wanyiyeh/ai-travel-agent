@@ -39,6 +39,8 @@ export type ItineraryMetrics = {
   tripEnds: { first?: string; last?: string };
   /** 季節限定 days (seasonalHighlights.ts): the title and every stop's name. */
   seasonalDays: { day: number; title: string; stops: string[]; eveningStops: number }[];
+  /** 影劇朝聖 days (filmLocations.ts): the title and every stop's name. */
+  filmDays: { day: number; title: string; stops: string[] }[];
   /** Days out of the city (suburbTrips.ts): the title and where the first stop is. */
   suburbDays: { day: number; title: string; stops: number; first?: { name: string; lat?: number; lng?: number } }[];
   /** Where each 固定行程 ended up: a stop (with its position in the day) or the meal it replaced. */
@@ -211,6 +213,10 @@ export function measureItinerary(days: Rec[], ctx: EvalContext): ItineraryMetric
       first: str(asRecords(days[0]?.stops)[0]?.name),
       last: str(asRecords(days[lastIdx]?.stops).at(-1)?.name),
     },
+    filmDays: days.flatMap((d, i) => {
+      const title = str(d.theme) ?? "";
+      return title.includes("影劇朝聖") ? [{ day: i + 1, title, stops: asRecords(d.stops).map((s) => str(s.name) ?? "") }] : [];
+    }),
     seasonalDays: days.flatMap((d, i) => {
       const title = str(d.theme) ?? "";
       if (!title.includes("季節限定")) return [];

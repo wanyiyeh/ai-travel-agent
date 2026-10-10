@@ -190,6 +190,11 @@ describe("measureItinerary", () => {
     expect(measureItinerary(oneBlank, ctx).missingDescriptions).toEqual(["Cafe"]);
   });
 
+  it("lists the film days with their stops", () => {
+    const withFilm = days.map((d, i) => (i === 1 ? { ...d, theme: "東京 影劇朝聖：《你的名字》", stops: [{ name: "須賀神社" }] } : d));
+    expect(measureItinerary(withFilm, ctx).filmDays).toEqual([{ day: 2, title: "東京 影劇朝聖：《你的名字》", stops: ["須賀神社"] }]);
+  });
+
   it("lists the seasonal days with their stops", () => {
     const stops = [{ name: "新宿御苑" }, { name: "千鳥淵", time_of_day: "evening" }];
     const withSeason = days.map((d, i) => (i === 1 ? { ...d, theme: "東京 季節限定：賞櫻", stops } : d));
