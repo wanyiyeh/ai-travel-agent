@@ -67,6 +67,8 @@ export type ItineraryMetrics = {
   soloFriendlyShare: number;
   /** Lunches/dinners at hot pot, yakiniku and the like — none on a solo trip. */
   groupDiningMeals: string[];
+  /** Lunch/dinner places that come up more than once in the trip. */
+  repeatedMainMeals: string[];
   /** The longest walk between sightseeing stops, minutes, from 「步行約 N 分鐘」; 0 without any. */
   longestWalkMinutes: number;
   /** Meals at a hotel (Google types include lodging), e.g. Hotel sardonyx ueno as a dinner — should be none. */
@@ -278,6 +280,13 @@ export function measureItinerary(days: Rec[], ctx: EvalContext): ItineraryMetric
     soloFriendlyShare: mainMeals.length
       ? mainMeals.filter((m) => isSoloFriendly({ name: str(m.name), types: typesOf(m.placeId) })).length / mainMeals.length
       : 0,
+    repeatedMainMeals: [
+      ...new Set(
+        mainMeals
+          .filter((m, i) => str(m.placeId) && mainMeals.findIndex((o) => o.placeId === m.placeId) !== i)
+          .map((m) => str(m.name) ?? "")
+      ),
+    ],
     groupDiningMeals: mainMeals
       .filter((m) => isGroupDining({ name: str(m.name), types: typesOf(m.placeId) }))
       .map((m) => str(m.name) ?? ""),
