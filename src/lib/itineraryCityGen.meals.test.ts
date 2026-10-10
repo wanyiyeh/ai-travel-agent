@@ -86,9 +86,10 @@ describe("generateMealsAndAccommodation", () => {
     await generateMealsAndAccommodation("小鎮", 1, "JPY", "luxury");
 
     // One café search (breakfast + snack) and one main-meal search (no
-    // price-filter retry: Nearby Search never supported that filter). Tier is
-    // the 6th argument. Lodging goes through fetchLodgingCandidates (Pro-only).
-    expect(nearbyMock.mock.calls.map((c) => c[5])).toEqual(["pro", "enterprise"]);
+    // price-filter retry: Nearby Search never supported that filter); with no
+    // restaurants found, one more by primary type. Tier is the 6th argument.
+    // Lodging goes through fetchLodgingCandidates (Pro-only).
+    expect(nearbyMock.mock.calls.map((c) => c[5])).toEqual(["pro", "enterprise", "enterprise"]);
     expect(lodgingMock.mock.calls[0][2]).toBe("luxury");
   });
 
@@ -439,5 +440,74 @@ describe("generateMealsAndAccommodation — traveling alone", () => {
     await generateMealsAndAccommodation("東京", 1, "JPY", undefined, {});
 
     expect(nearbyMock.mock.calls.some((c) => (c[2] as string[]).includes("train_station"))).toBe(false);
+  });
+});
+
+// Story: around 新宿, half the 20 "restaurants" were malls, a cinema, hotels and
+// 新宿黃金街 — 8 real ones for 8 meals, so 獨旅 and 親子 trips repeated day 1's.
+describe("generateMealsAndAccommodation — too few restaurants", () => {
+  const typed = (name: string, types: string[]): PlaceCandidate => ({ ...place(name), types });
+  const mall = typed("Mall", ["department_store", "restaurant"]);
+
+  it("searches once more, by primary type, when the pool can't cover every lunch and dinner", async () => {
+    nearbyMock.mockImplementation(async (_c: unknown, _k: unknown, types: string[], _r: unknown, _n: unknown, _t: unknown, match?: string) =>
+      match === "primary"
+        ? Array.from({ length: 6 }, (_, i) => typed(`Ramen ${i}`, ["ramen_restaurant"]))
+        : types.includes("restaurant")
+          ? [mall, typed("Sushi", ["sushi_restaurant"])]
+          : []
+    );
+    mockLlm({ accommodation: {}, meals: [] });
+
+    await generateMealsAndAccommodation("東京", 2, "JPY", undefined, {});
+
+    const extra = nearbyMock.mock.calls.find((c) => c[6] === "primary");
+    expect(extra?.[2]).toContain("ramen_restaurant");
+    expect(extra?.[2]).not.toContain("restaurant");
+    expect(systemPrompt()).toContain("Ramen 0");
+    expect(systemPrompt()).not.toContain("Mall");
+  });
+
+  it("doesn't search again when there are enough", async () => {
+    nearbyMock.mockImplementation(async (_c: unknown, _k: unknown, types: string[]) =>
+      types.includes("restaurant") ? Array.from({ length: 4 }, (_, i) => typed(`Sushi ${i}`, ["sushi_restaurant"])) : []
+    );
+    mockLlm({ accommodation: {}, meals: [] });
+
+    await generateMealsAndAccommodation("東京", 2, "JPY", undefined, {});
+
+    expect(nearbyMock.mock.calls.some((c) => c[6] === "primary")).toBe(false);
+  });
+});
+
+// 親子: ramen with a mild soup is fine (chicken or tonkotsu), spicy isn't.
+describe("generateMealsAndAccommodation — ramen with children", () => {
+  const ramen = (name: string, extra: Partial<PlaceCandidate> = {}): PlaceCandidate => ({
+    ...place(name),
+    types: ["ramen_restaurant", "restaurant"],
+    ...extra,
+  });
+
+  it("offers chicken and tonkotsu ramen first, even when Google says no, and drops spicy ones", async () => {
+    nearbyMock.mockImplementation(async (_c: unknown, _k: unknown, types: string[]) =>
+      types.includes("ramen_restaurant") || types.includes("restaurant")
+        ? [
+            ramen("辣麻味噌拉麵 鬼金"),
+            ramen("Ramen Kamo to Negi", { goodForChildren: false, menuForChildren: false }),
+            ramen("鶏白湯ラーメン 鳥の", { goodForChildren: false }),
+            ramen("一蘭 上野店"),
+          ]
+        : []
+    );
+    mockLlm({ accommodation: {}, meals: [] });
+
+    await generateMealsAndAccommodation("東京", 1, "JPY", undefined, { kids: true });
+
+    const prompt = systemPrompt();
+    expect(prompt).toContain("M1: 鶏白湯ラーメン 鳥の");
+    expect(prompt).toContain("M2: 一蘭 上野店");
+    expect(prompt).not.toContain("鬼金");
+    expect(prompt).not.toContain("Kamo to Negi");
+    expect(prompt).toContain("雞湯系或豚骨");
   });
 });
