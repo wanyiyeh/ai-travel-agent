@@ -24,6 +24,10 @@ describe("isFoodPlace", () => {
     expect(isFoodPlace({ types })).toBe(true);
   });
 
+  it("drops a hotel even when its first type says restaurant", () => {
+    expect(isFoodPlace({ types: ["breakfast_restaurant", "hotel", "lodging", "restaurant", "food"] })).toBe(false);
+  });
+
   it("keeps places with no type data", () => {
     expect(isFoodPlace({})).toBe(true);
     expect(isFoodPlace({ types: [] })).toBe(true);

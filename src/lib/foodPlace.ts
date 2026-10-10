@@ -31,10 +31,13 @@ const FOOD_PRIMARY_TYPES = new Set([
 /**
  * Whether a place is primarily somewhere to eat. Places without `types`
  * (cache rows written before types were fetched) are kept — nothing to
- * judge them by.
+ * judge them by. Anywhere that's also lodging isn't: Hotel sardonyx ueno
+ * ([breakfast_restaurant, hotel, lodging, ...]) was picked as a dinner,
+ * its first type saying restaurant.
  */
 export function isFoodPlace(place: { types?: string[] }): boolean {
   const primary = place.types?.[0];
   if (!primary) return true;
+  if (place.types?.includes("lodging")) return false;
   return primary.endsWith("_restaurant") || FOOD_PRIMARY_TYPES.has(primary);
 }
