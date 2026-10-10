@@ -37,7 +37,7 @@ export function validateItinerary(
     issues.push({
       severity: "error",
       code: "DAY_COUNT_MISMATCH",
-      message: `行程有 ${days.length} 天，但航班日期區間應為 ${expectedDays} 天`,
+      message: `行程有 ${days.length} 天，但旅程日期區間應為 ${expectedDays} 天`,
     });
   }
 

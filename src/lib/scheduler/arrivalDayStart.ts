@@ -17,7 +17,11 @@ const DEFAULT_ARRIVAL_DAY_START_MINUTE = 10 * 60;
  * only (assembleItineraryDays.ts). Every other day keeps its own default;
  * this only concerns the literal start of the whole trip.
  */
-export function computeArrivalDayStartMinute(arrivalMinute: number | undefined): number {
+export function computeArrivalDayStartMinute(
+  arrivalMinute: number | undefined,
+  // A 國內 trip arrives at a station or car park, not an airport (domesticTrips.ts).
+  bufferMinutes = ARRIVAL_BUFFER_MINUTES
+): number {
   if (arrivalMinute == null) return DEFAULT_ARRIVAL_DAY_START_MINUTE;
-  return arrivalMinute + ARRIVAL_BUFFER_MINUTES;
+  return arrivalMinute + bufferMinutes;
 }

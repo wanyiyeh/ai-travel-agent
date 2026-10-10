@@ -1,3 +1,4 @@
+import { isDomestic, routeDescription } from "@/lib/domesticTrips";
 import type { FlightInfo, TripPreferences } from "@/lib/schemas";
 import { iataToCity, cityToIata } from "@/lib/iataCity";
 import { getIataCoords } from "@/lib/fetchCityRestaurants";
@@ -33,6 +34,16 @@ export function calcDays(departureDate: string, returnDate: string): number {
 }
 
 export function buildFlightTimePrompt(flightInfo: FlightInfo): string {
+  // 國內: no flights — arriving and leaving were worked out from the times at home (domesticTrips.ts).
+  if (isDomestic(flightInfo)) {
+    const lines = [
+      ...(flightInfo.arrivalTime ? [`預計 ${flightInfo.arrivalTime} 抵達目的地（從家裡出發），第 1 天行程從抵達後開始。`] : []),
+      ...(flightInfo.returnDepartureTime
+        ? [`最後一天預計 ${flightInfo.returnDepartureTime} 離開，回家；行程必須在這之前結束。`]
+        : []),
+    ];
+    return lines.length ? "\n\n時間限制：\n" + lines.join("\n") : "";
+  }
   const lines: string[] = [];
   if (flightInfo.arrivalTime) {
     lines.push(
@@ -69,12 +80,13 @@ export function buildSystemPrompt(
   const returnCityName = iataToCity(flightInfo.returnDepartureCity);
   const isMultiCity = arrivalCityName !== returnCityName;
 
-  const routeDesc = isMultiCity
-    ? `從台灣出發飛往${arrivalCityName}，旅途結束後從${returnCityName}搭機返回`
-    : `從台灣出發飛往${arrivalCityName}來回`;
+  const routeDesc = routeDescription(flightInfo);
+  const domestic = isDomestic(flightInfo);
+  // How the last day ends: a flight home, or the way home in Taiwan.
+  const goingHome = domestic ? `從${returnCityName}回家` : `從${returnCityName}搭機返台`;
 
   const multiCityInstructions = isMultiCity
-    ? `\n\n【重要：跨城市移動安排 — 總天數不得超過 ${days} 天】\n回程從${returnCityName}出發。在 ${days} 天的總行程中，預設情況下只需分配其中一天作為從${arrivalCityName}移動到${returnCityName}的移動日（isTransitDay: true）。移動日應安排在行程中段（第 2 天到第 ${days - 1} 天之間），依實際地理路線自然移動的時機決定；絕對不可放在第 ${days} 天——第 ${days} 天是旅客從${returnCityName}搭機返台的回程日，不是城際移動日。移動日的出發城市必須是「${arrivalCityName}」，stops 的 name 必須寫「搭乘交通工具從${arrivalCityName}前往${returnCityName}」，description 亦須說明從${arrivalCityName}出發。移動日的 transitTo 欄位填寫「${returnCityName}」（城市名稱，不是機場代碼）。移動日不是額外增加的天數，而是 ${days} 天中的一天。最後一天的景點安排在${returnCityName}。\n\n【多段移動（沿路漸進路線）】若行程本質上是沿同一條路線或區域逐站前進（例如沿海岸公路、鐵路幹線由${arrivalCityName}一路開往${returnCityName}，途中在合理的中途城鎮過夜），可以標記不只一天為移動日（isTransitDay: true）——每次實際換城鎮過夜的當天都標記一次，transitTo 填寫該次移動抵達的城鎮名稱；其中**最後一個**移動日的 transitTo 必須是「${returnCityName}」。這種情況下，中途城鎮不算違規新增的額外目的地（仍嚴禁自行加入路線以外的觀光新城市/國家，見規則 6），但每一天都必須誠實填寫 waypointCity 為當天實際所在城鎮，讓行程真實反映漸進路線。\n\n【移動日時機限制】每一個移動日都必須是旅客**第一次**入住其 transitTo 城鎮的當天——即移動日當晚住宿才開始換到新城鎮，之前的住宿都在上一個城鎮；嚴禁在旅客已連續住在某城鎮之後，於後段天次才出現該城鎮的移動日。`
+    ? `\n\n【重要：跨城市移動安排 — 總天數不得超過 ${days} 天】\n回程從${returnCityName}出發。在 ${days} 天的總行程中，預設情況下只需分配其中一天作為從${arrivalCityName}移動到${returnCityName}的移動日（isTransitDay: true）。移動日應安排在行程中段（第 2 天到第 ${days - 1} 天之間），依實際地理路線自然移動的時機決定；絕對不可放在第 ${days} 天——第 ${days} 天是旅客${goingHome}的回程日，不是城際移動日。移動日的出發城市必須是「${arrivalCityName}」，stops 的 name 必須寫「搭乘交通工具從${arrivalCityName}前往${returnCityName}」，description 亦須說明從${arrivalCityName}出發。移動日的 transitTo 欄位填寫「${returnCityName}」（城市名稱，不是機場代碼）。移動日不是額外增加的天數，而是 ${days} 天中的一天。最後一天的景點安排在${returnCityName}。\n\n【多段移動（沿路漸進路線）】若行程本質上是沿同一條路線或區域逐站前進（例如沿海岸公路、鐵路幹線由${arrivalCityName}一路開往${returnCityName}，途中在合理的中途城鎮過夜），可以標記不只一天為移動日（isTransitDay: true）——每次實際換城鎮過夜的當天都標記一次，transitTo 填寫該次移動抵達的城鎮名稱；其中**最後一個**移動日的 transitTo 必須是「${returnCityName}」。這種情況下，中途城鎮不算違規新增的額外目的地（仍嚴禁自行加入路線以外的觀光新城市/國家，見規則 6），但每一天都必須誠實填寫 waypointCity 為當天實際所在城鎮，讓行程真實反映漸進路線。\n\n【移動日時機限制】每一個移動日都必須是旅客**第一次**入住其 transitTo 城鎮的當天——即移動日當晚住宿才開始換到新城鎮，之前的住宿都在上一個城鎮；嚴禁在旅客已連續住在某城鎮之後，於後段天次才出現該城鎮的移動日。`
     : "";
 
   // The transit-day example is only shown for multi-city trips — including it
@@ -120,7 +132,7 @@ export function buildSystemPrompt(
     : "\n\n【單一城市行程】此行程全程只在一個城市，絕對不可在任何一天設定 isTransitDay: true 或填寫 transitTo 欄位——即使某天安排的是郊區一日遊（如國家公園健行、近郊小鎮），當晚仍會返回同一城市過夜，不算移動日，isTransitDay 必須維持省略或 false。";
 
   return `你是專業的旅遊規劃專家。請為用戶規劃 ${days} 天的旅遊行程。
-航班資訊：${routeDesc}。
+${domestic ? "行程資訊" : "航班資訊"}：${routeDesc}。
 出發日期：${flightInfo.departureDate}，回程日期：${flightInfo.returnDate}。
 第 1 天對應 ${flightInfo.departureDate}，以此類推。${multiCityInstructions}${singleCityReminder}${buildFlightTimePrompt(flightInfo)}${buildPreferencePrompt(preferences)}
 

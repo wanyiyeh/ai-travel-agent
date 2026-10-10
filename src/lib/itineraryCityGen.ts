@@ -38,7 +38,7 @@ import {
   type DrinkChoice,
   type DrinkKey,
 } from "@/lib/drinkPlaces";
-import { exposureOf, indoorFirstPool, isBarStreet } from "@/lib/indoorOutdoor";
+import { exposureOf, indoorFirstPool, isNotADaytimeSight } from "@/lib/indoorOutdoor";
 import type { DayConditions } from "@/lib/dayConditions";
 import type { DayFixedEvents } from "@/lib/fixedEvents";
 import { RETURN_CAR_MINUTES } from "@/lib/carRental";
@@ -118,6 +118,16 @@ async function generateTransitDayStopsWithLLM(
   }));
 }
 
+// 國內 (domesticTrips.ts): Taiwan's own trains and buses, the traveler's own car.
+const DOMESTIC_TRANSIT_RULE = `
+
+【台灣國內旅遊】城市之間用高鐵、台鐵或客運（西部城市之間優先高鐵），自駕就是開旅客自己的車；
+去離島（澎湖、金門、馬祖、綠島、蘭嶼、小琉球）要搭飛機或船，transitStop 寫清楚從哪個機場或港口出發，提醒出發前確認航班、船班。
+estimated_cost 用新台幣。`;
+const DOMESTIC_DRIVE_RULE = `
+
+【旅客開自己的車】城市之間開車，transitStop 寫「開車前往○○」，不用租車、取車或還車。`;
+
 type TransitPlan = {
   prepStops: Array<Record<string, unknown>>;
   transitStop: Record<string, unknown>;
@@ -159,7 +169,8 @@ async function planTransitDay(
   currency: string,
   model: string,
   selfDrive = false,
-  visitedInFromCity: string[] = []
+  visitedInFromCity: string[] = [],
+  domestic = false
 ): Promise<TransitPlan | null> {
   try {
     const completion = await openai.chat.completions.create({
@@ -174,7 +185,7 @@ async function planTransitDay(
 - 中程（車程 90 分鐘－4 小時，如維也納→布達佩斯 2.5hr、大阪→廣島 1.5hr）
 - 長程（車程＞4 小時或需過夜，如布達佩斯→捷克克魯姆洛夫 8-11hr）
 
-抵達時間（arrivalTime）必須用「出發時間＋交通時長」實際推算，不可憑感覺。${selfDrive ? SELF_DRIVE_TRANSIT_RULE : ""}
+抵達時間（arrivalTime）必須用「出發時間＋交通時長」實際推算，不可憑感覺。${selfDrive ? (domestic ? DOMESTIC_DRIVE_RULE : SELF_DRIVE_TRANSIT_RULE) : ""}${domestic ? DOMESTIC_TRANSIT_RULE : ""}
 
 回傳嚴格的 JSON 格式（不要其他文字）：
 {
@@ -266,7 +277,15 @@ async function generateTransitDayStopsViaScheduler(
 ): Promise<Array<Record<string, unknown>> | null> {
   try {
     const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
-    const plan = await planTransitDay(fromCity, toCity, currency, model, preferenceIntent.selfDrive, visitedInFromCity);
+    const plan = await planTransitDay(
+      fromCity,
+      toCity,
+      currency,
+      model,
+      preferenceIntent.selfDrive,
+      visitedInFromCity,
+      preferenceIntent.domestic
+    );
     if (!plan) return null;
 
     // How many arrival-city stops fit is clock arithmetic from the arrival
@@ -427,7 +446,9 @@ export async function generateDepartureDayStops(
   dayEvents: DayFixedEvents = [],
   // A self-driver's car return (carRental.ts), made for the time it falls at:
   // right after the stops, 30 minutes earlier than heading to the airport.
-  carReturn?: (startMinute: number) => Record<string, unknown>
+  carReturn?: (startMinute: number) => Record<string, unknown>,
+  // How long before leaving the stops end: 3 hours for a flight; a 國內 trip less.
+  departureBufferMinutes?: number
 ): Promise<Array<Record<string, unknown>>> {
   let fixed = dayEvents;
   try {
@@ -438,7 +459,8 @@ export async function generateDepartureDayStops(
     const { cutoffMinute, estimatedCount } = computeDepartureDayBudget(
       returnDepartureMinute,
       dayStartMinute,
-      carReturn ? RETURN_CAR_MINUTES : 0
+      carReturn ? RETURN_CAR_MINUTES : 0,
+      departureBufferMinutes
     );
     fixed = carReturn
       ? [...dayEvents, { block: { startMinute: cutoffMinute, endMinute: cutoffMinute + RETURN_CAR_MINUTES }, stop: carReturn(cutoffMinute) }]
@@ -1004,8 +1026,10 @@ const SUPPLEMENT_ATTRACTION_TYPES = ["museum", "art_gallery", "park", "historica
  * `places` (already free of used ones) plus, only when fewer than `needed`
  * are left, places from SUPPLEMENT_ATTRACTION_TYPES that aren't in the pool
  * or used yet. Short trips never pay for the extra search. Every day's
- * sights come through here, so it's also where bar streets (新宿黃金街) are
- * left out: they're for the evening, and a 酒 traveler's 小酌 can still go there.
+ * sights come through here, so it's also where what isn't a daytime sight is
+ * left out (indoorOutdoor.ts): bar streets (新宿黃金街) and night markets are
+ * for the evening — a 酒 traveler's 小酌 can still go to one — and stations
+ * and information centres aren't sights at all.
  */
 async function withSupplementalAttractions(
   coords: { lat: number; lng: number },
@@ -1014,11 +1038,11 @@ async function withSupplementalAttractions(
   usedIds: Set<string>,
   needed: number
 ): Promise<PlaceCandidate[]> {
-  const sights = places.filter((p) => !isBarStreet(p.types));
+  const sights = places.filter((p) => !isNotADaytimeSight(p));
   if (sights.length >= needed) return sights;
   const extra = await fetchNearbyPlaceCandidates(coords, apiKey, SUPPLEMENT_ATTRACTION_TYPES, 10000, 20);
   const inPool = new Set(sights.map((p) => p.placeId));
-  return [...sights, ...extra.filter((p) => !inPool.has(p.placeId) && !usedIds.has(p.placeId) && !isBarStreet(p.types))];
+  return [...sights, ...extra.filter((p) => !inPool.has(p.placeId) && !usedIds.has(p.placeId) && !isNotADaytimeSight(p))];
 }
 
 // estimateStopCapacity only approximates how many stops fit (it uses the

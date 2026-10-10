@@ -1,3 +1,4 @@
+import { isDomestic } from "@/lib/domesticTrips";
 import { z } from "zod";
 import { openai } from "@/lib/openai";
 import type { FlightInfo, TripPreferences } from "@/lib/schemas";
@@ -140,7 +141,7 @@ export async function unmetCityRequirements(cities: TripPlan["cities"], requirem
 function describeUnmet(unmet: CityRequirement[]): string {
   return (
     unmet.map((r) => `第 ${r.dayNumber} 天（${r.date.slice(5).replace("-", "/")}）的${r.label}在${r.city}`).join("、") +
-    "，排不進這趟路線。請調整固定行程的日期或城市，或航班的進出城市後再試一次。"
+    "，排不進這趟路線。請調整固定行程的日期或城市，或行程的進出城市後再試一次。"
   );
 }
 
@@ -187,11 +188,17 @@ function buildSystemPrompt(
   const isMultiCity = arrivalCityName !== returnCityName;
   const citiesBudget = totalDays - 1;
   const loopAllowed = !isMultiCity && citiesBudget >= LOOP_MIN_DAYS;
+  // 國內 (domesticTrips.ts): the trip starts and ends in towns, from and back home — no flights.
+  const domestic = isDomestic(flightInfo);
+  const inAndOut = domestic
+    ? `這趟國內旅遊從「${arrivalCityName}」開始，也從「${arrivalCityName}」結束回家`
+    : `航班從「${arrivalCityName}」進、
+也從「${arrivalCityName}」出`;
+  const leavesFrom = domestic ? "因為要從這裡回家" : "因為要從這裡搭機回程";
 
-  const loopRules = `\n\n【同一城市來回：繞一圈，至少一次兩天一夜】航班從「${arrivalCityName}」進、
-也從「${arrivalCityName}」出。這趟天數夠，要從 ${arrivalCityName} 出發，到附近城鎮過夜再回來
+  const loopRules = `\n\n【同一城市來回：繞一圈，至少一次兩天一夜】${inAndOut}。這趟天數夠，要從 ${arrivalCityName} 出發，到附近城鎮過夜再回來
 （${arrivalCityName} → 鄰近城鎮 → ${arrivalCityName}），讓旅客不必每天都待在同一個城市。規則：
-- 第一個和最後一個城市都必須是「${arrivalCityName}」，因為要從這裡搭機回程。回到 ${arrivalCityName} 的
+- 第一個和最後一個城市都必須是「${arrivalCityName}」，${leavesFrom}。回到 ${arrivalCityName} 的
   那一段也要列在 cities 的最後，days 至少 1（回來的移動日），也要算進天數加總
 - 中途的城鎮必須在 ${arrivalCityName} 地面交通 3 小時以內，不可以加入需要搭飛機或很遠的城市
 - 旅客的風格描述若點名了想去的城鎮，優先安排；沒有的話，就安排 ${arrivalCityName} 周邊最值得過夜的城鎮
@@ -202,11 +209,10 @@ function buildSystemPrompt(
   days 等於 ${citiesBudget}），並且在 JSON 多加 "stayReason" 欄位，照抄旅客說的那句話。
   沒有這樣的描述就一定要繞一圈，不要填 stayReason`;
 
-  const singleCityConstraint = `\n\n【重要：這是同一城市來回，絕對只能有一個城市】航班從「${arrivalCityName}」進、
-也從「${arrivalCityName}」出，這不是開口式多城市行程。cities 陣列的長度必須恰好是 1，
+  const singleCityConstraint = `\n\n【重要：這是同一城市來回，絕對只能有一個城市】${inAndOut}，這不是開口式多城市行程。cities 陣列的長度必須恰好是 1，
 只能包含「${arrivalCityName}」這一個城市，絕對不可以自己加入同一國家或地區的其他城市
 （例如自行加入其他知名城市湊成多城市行程）——即使使用者風格描述沒有明確說「只去一個城市」，
-沒有開口式航班就代表整趟行程只在 ${arrivalCityName} 度過。cities[0].days 必須等於 ${citiesBudget}
+起點和終點相同就代表整趟行程只在 ${arrivalCityName} 度過。cities[0].days 必須等於 ${citiesBudget}
 （唯一一個城市，獨吞全部天數）。`;
 
   const daysSumExample = `\n\n【天數加總範例】總天數 ${totalDays} 天扣掉最後一天回程日，
@@ -228,7 +234,7 @@ ${requirements.map((r) => `- 第 ${r.dayNumber} 天：${r.city}（${r.label}）`
   return `你是專業的旅遊規劃專家。請判斷這趟旅程要去哪些城市、每個城市待幾天——
 只需要決定城市清單與天數分配，不需要規劃景點、住宿或餐廳內容。
 
-航班：從 ${arrivalCityName} 進、從 ${returnCityName} 出${isMultiCity ? "（不同城市，開口式行程）" : "（同一城市來回）"}。
+${domestic ? "台灣國內旅遊：從" : "航班：從"} ${arrivalCityName} ${domestic ? "開始" : "進"}、從 ${returnCityName} ${domestic ? "結束回家" : "出"}${isMultiCity ? "（不同城市，開口式行程）" : "（同一城市來回）"}。
 總天數：${totalDays} 天，但最後一天固定是回程日（不計入下面的城市天數分配），
 你只需要分配前 ${citiesBudget} 天。${buildFlightTimePrompt(flightInfo)}${buildPreferencePrompt(preferences)}
 ${!isMultiCity ? (loopAllowed ? loopRules : singleCityConstraint) : ""}${requirementRules}${daysSumExample}${UNTRUSTED_INPUT_RULE}
@@ -254,7 +260,7 @@ ${!isMultiCity ? (loopAllowed ? loopRules : singleCityConstraint) : ""}${require
         : `只能有這一個城市（因為是同一城市來回），見上方【重要】說明，不可以自己加其他城市`
   }
 - 每個城市的 days 是整數，代表這個城市總共會用掉的天數：第一個城市的 days
-  不含移動日（第1天就是航班抵達當天）；其餘城市的 days 包含抵達它的移動日
+  不含移動日（第1天就是抵達當天）；其餘城市的 days 包含抵達它的移動日
 - 所有城市的 days 加總必須剛好等於 ${citiesBudget}，見上方【天數加總範例】
 - 每一個城市的 days 都至少是 1，${
     isMultiCity ? `包括最後一個城市「${returnCityName}」` : "不可以是 0"
