@@ -11,12 +11,20 @@ import { isMockPlaces } from "@/lib/mockPlaces";
 // before this goes commercial. Not a Google service, so it doesn't go through
 // googleFetch: MOCK_PLACES fakes it here, and tests turn it off with
 // CLIMATE_LOOKUPS=off (no key to blank, unlike Google and OpenAI).
+//
+// 3c-4 adds what each day's schedule needs (dayConditions.ts): how often it
+// rains that month and when the sun sets.
 
 export type Climate = {
   /** Mean of the daily high, °C. */
   avgMaxTempC: number;
   /** Mean snow depth on the ground, meters. */
   avgSnowDepthM: number;
+  /** Share of days with any measurable rain (0.1mm+). */
+  rainyDayShare: number;
+  /** Local sunset on the month's first and last day, minutes since midnight. */
+  sunsetFirstMinute: number;
+  sunsetLastMinute: number;
 };
 
 /** Last year's month for a trip date: "2026-11-10" → "2025-11". */
@@ -36,20 +44,49 @@ const avg = (values: (number | null)[]) => {
   return known.length ? known.reduce((a, b) => a + b, 0) / known.length : undefined;
 };
 
+// Any measurable rain. At 1mm, 東京's 6月 (梅雨) had rain on 11-16 of 30
+// days in 2023-2025 — under half — but 18-21 at 0.1mm; 11月 has 10.
+const RAIN_MM = 0.1;
+
+// "2025-06-01T18:51" (local time, timezone=auto) → 1131.
+const minuteOfIso = (iso: string | null | undefined) => {
+  const match = iso ? /T(\d{2}):(\d{2})/.exec(iso) : null;
+  return match ? Number(match[1]) * 60 + Number(match[2]) : undefined;
+};
+
+type ArchiveResponse = {
+  daily?: { temperature_2m_max?: (number | null)[]; precipitation_sum?: (number | null)[]; sunset?: (string | null)[] };
+  hourly?: { snow_depth?: (number | null)[] };
+};
+
 /** The Open-Meteo archive response, reduced to a Climate; undefined when the data is missing. */
 export function parseClimate(json: unknown): Climate | undefined {
-  const data = json as { daily?: { temperature_2m_max?: (number | null)[] }; hourly?: { snow_depth?: (number | null)[] } };
+  const data = json as ArchiveResponse;
   const avgMaxTempC = avg(data.daily?.temperature_2m_max ?? []);
   const avgSnowDepthM = avg(data.hourly?.snow_depth ?? []);
-  return avgMaxTempC === undefined || avgSnowDepthM === undefined ? undefined : { avgMaxTempC, avgSnowDepthM };
+  const rain = (data.daily?.precipitation_sum ?? []).filter((v): v is number => typeof v === "number");
+  const sunsets = data.daily?.sunset ?? [];
+  const sunsetFirstMinute = minuteOfIso(sunsets[0]);
+  const sunsetLastMinute = minuteOfIso(sunsets[sunsets.length - 1]);
+  if (
+    avgMaxTempC === undefined ||
+    avgSnowDepthM === undefined ||
+    rain.length === 0 ||
+    sunsetFirstMinute === undefined ||
+    sunsetLastMinute === undefined
+  ) {
+    return undefined;
+  }
+  const rainyDayShare = rain.filter((mm) => mm >= RAIN_MM).length / rain.length;
+  return { avgMaxTempC, avgSnowDepthM, rainyDayShare, sunsetFirstMinute, sunsetLastMinute };
 }
 
-// Summer warm, winter snowy, the rest mild — enough to click through dev:mock.
+// Summer warm, winter snowy and dark early, the rest mild — enough to click through dev:mock.
 function mockClimate(month: string): Climate {
   const m = Number(month.slice(5));
-  if (m >= 6 && m <= 9) return { avgMaxTempC: 30, avgSnowDepthM: 0 };
-  if (m === 12 || m <= 3) return { avgMaxTempC: 0, avgSnowDepthM: 0.5 };
-  return { avgMaxTempC: 18, avgSnowDepthM: 0 };
+  if (m >= 6 && m <= 9) return { avgMaxTempC: 31, avgSnowDepthM: 0, rainyDayShare: 0.6, sunsetFirstMinute: 1140, sunsetLastMinute: 1140 };
+  if (m === 12 || m <= 3) return { avgMaxTempC: 0, avgSnowDepthM: 0.5, rainyDayShare: 0.3, sunsetFirstMinute: 990, sunsetLastMinute: 990 };
+  return { avgMaxTempC: 18, avgSnowDepthM: 0, rainyDayShare: 0.3, sunsetFirstMinute: 1050, sunsetLastMinute: 1050 };
 }
 
 // Places a tenth of a degree apart (~10km) share a cache row.
@@ -70,10 +107,19 @@ export async function getClimate(lat: number, lng: number, tripDate: string): Pr
   const { start, end } = monthRange(month);
   const url =
     `https://archive-api.open-meteo.com/v1/archive?latitude=${round(lat)}&longitude=${round(lng)}` +
-    `&start_date=${start}&end_date=${end}&daily=temperature_2m_max&hourly=snow_depth&timezone=auto`;
+    `&start_date=${start}&end_date=${end}&daily=temperature_2m_max,precipitation_sum,sunset&hourly=snow_depth&timezone=auto`;
   try {
     const cached = await prisma.climateNormalCache.findUnique({ where: { cacheKey } });
-    if (cached) return { avgMaxTempC: cached.avgMaxTempC, avgSnowDepthM: cached.avgSnowDepthM };
+    // Rows from before 3c-4 have no rain or sunset yet: fetched again and filled in.
+    if (cached && cached.rainyDayShare !== null && cached.sunsetFirstMinute !== null && cached.sunsetLastMinute !== null) {
+      return {
+        avgMaxTempC: cached.avgMaxTempC,
+        avgSnowDepthM: cached.avgSnowDepthM,
+        rainyDayShare: cached.rainyDayShare,
+        sunsetFirstMinute: cached.sunsetFirstMinute,
+        sunsetLastMinute: cached.sunsetLastMinute,
+      };
+    }
 
     const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
     if (!res.ok) {

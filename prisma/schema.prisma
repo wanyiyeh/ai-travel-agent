@@ -215,6 +215,10 @@ model ClimateNormalCache {
   cacheKey      String   @id // "43.1,141.1,2025-11"
   avgMaxTempC   Float
   avgSnowDepthM Float
+  // 3c-4 (dayConditions.ts); null on rows from before it, which are refetched.
+  rainyDayShare     Float?
+  sunsetFirstMinute Int?
+  sunsetLastMinute  Int?
   updatedAt     DateTime @updatedAt
 }
 
