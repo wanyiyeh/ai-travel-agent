@@ -181,6 +181,9 @@ describe("measureItinerary", () => {
     const ctxWithGai = { ...ctx, placeTypes: new Map([...ctx.placeTypes, ["gai", ["tourist_attraction", "bar", "restaurant", "food"]]]) };
     expect(measureItinerary(withGai, ctxWithGai).barStreetStops).toEqual(["新宿黃金街"]);
     expect(measureItinerary(days, ctx).barStreetStops).toEqual([]);
+    expect(measureItinerary(withGai, ctxWithGai).notDaytimeStops).toEqual(["新宿黃金街"]);
+    const withMarket = days.map((d, i) => (i === 3 ? { ...d, stops: [{ name: "大東夜市", placeId: "m" }] } : d));
+    expect(measureItinerary(withMarket, ctx).notDaytimeStops).toEqual(["大東夜市"]);
   });
 
   it("lists places with no description, bookings aside", () => {
@@ -198,6 +201,12 @@ describe("measureItinerary", () => {
   it("lists the film days with their stops", () => {
     const withFilm = days.map((d, i) => (i === 1 ? { ...d, theme: "東京 影劇朝聖：《你的名字》", stops: [{ name: "須賀神社" }] } : d));
     expect(measureItinerary(withFilm, ctx).filmDays).toEqual([{ day: 2, title: "東京 影劇朝聖：《你的名字》", stops: ["須賀神社"] }]);
+  });
+
+  it("lists any mention of airports or flights", () => {
+    const withFlight = days.map((d, i) => (i === 3 ? { ...d, stops: [{ name: "前往關西機場", description: "搭機返台" }] } : d));
+    expect(measureItinerary(withFlight, ctx).flightMentions).toHaveLength(1);
+    expect(measureItinerary(days, ctx).flightMentions).toEqual([]);
   });
 
   it("lists the seasonal days with their stops", () => {
