@@ -60,6 +60,8 @@ export type ItineraryMetrics = {
   adjacentRepeats: number;
   /** Meals without a placeId — names the LLM made up. */
   inventedMeals: number;
+  /** A transit day's stops that go back to a place already seen in the city it leaves, by name (「小樽運河散步」). */
+  transitRepeats: string[];
   /** Stops on any day at a bar street (indoorOutdoor.ts isBarStreet), e.g. 新宿黃金街 — should be none. */
   barStreetStops: string[];
   /** Stops and meals at a real place with no description (bookings aside) — missingCopy.ts should leave none. */
@@ -253,6 +255,18 @@ export function measureItinerary(days: Rec[], ctx: EvalContext): ItineraryMetric
     mealRepeatRate,
     adjacentRepeats,
     inventedMeals,
+    transitRepeats: days.flatMap((d, i) => {
+      if (d.isTransitDay !== true) return [];
+      const from = str(d.waypointCity);
+      const seen = days
+        .slice(0, i)
+        .filter((x) => x.waypointCity === from || x.transitTo === from)
+        .flatMap((x) => asRecords(x.stops).map((s) => str(s.name) ?? ""))
+        .filter((n) => n.length >= 2);
+      return asRecords(d.stops)
+        .map((s) => str(s.name) ?? "")
+        .filter((n) => n.length >= 2 && seen.some((v) => n.includes(v) || v.includes(n)));
+    }),
     barStreetStops: days.flatMap((d) => asRecords(d.stops).filter((s) => isBarStreet(typesOf(s.placeId))).map((s) => str(s.name) ?? "")),
     missingDescriptions: days.flatMap((d) => {
       const meals = (d.meals ?? {}) as Rec;

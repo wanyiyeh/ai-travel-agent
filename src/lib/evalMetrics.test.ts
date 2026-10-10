@@ -142,6 +142,16 @@ describe("measureItinerary", () => {
     expect(m2.outdoorAfterDarkDays).toBe(1);
   });
 
+  it("lists transit-day stops that go back to a place seen in the city being left", () => {
+    const loop = [
+      { waypointCity: "小樽", stops: [{ name: "小樽運河" }], meals: {} },
+      { waypointCity: "小樽", isTransitDay: true, transitTo: "札幌", stops: [{ name: "小樽運河散步" }, { name: "搭乘JR前往札幌" }], meals: {} },
+      { waypointCity: "札幌", stops: [], meals: {} },
+    ];
+    expect(measureItinerary(loop, ctx).transitRepeats).toEqual(["小樽運河散步"]);
+    expect(measureItinerary(days, ctx).transitRepeats).toEqual([]);
+  });
+
   it("lists bar streets scheduled as sights, on any day", () => {
     const withGai = days.map((d, i) => (i === 3 ? { ...d, stops: [{ name: "新宿黃金街", placeId: "gai" }] } : d));
     const ctxWithGai = { ...ctx, placeTypes: new Map([...ctx.placeTypes, ["gai", ["tourist_attraction", "bar", "restaurant", "food"]]]) };
