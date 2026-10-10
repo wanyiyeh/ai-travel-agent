@@ -88,6 +88,8 @@ const TOKYO_TO_OSAKA = {
 };
 // Tokyo at cherry-blossom time, 4 days like TOKYO: the seasonal day should be 賞櫻.
 const TOKYO_SPRING = { ...TOKYO, departureDate: "2027-03-28", returnDate: "2027-04-01" };
+// Tokyo in the rainy season (梅雨): rain on 18-21 of 30 days in 2023-2025.
+const TOKYO_JUNE = { ...TOKYO, departureDate: "2027-06-08", returnDate: "2027-06-12" };
 // Tokyo, 5 days: long enough that the trip should spend a night out of town.
 const TOKYO_5_DAYS = { ...TOKYO, returnDate: "2026-11-15" };
 const SAPPORO_WEEK = {
@@ -135,6 +137,7 @@ const SCENARIOS: Scenario[] = [
     },
   },
   { id: "tokyo-spring", label: "東京 4 天・3 月底（季節限定：賞櫻）", flightInfo: TOKYO_SPRING },
+  { id: "tokyo-june", label: "東京 4 天・6 月（梅雨）", flightInfo: TOKYO_JUNE },
   { id: "tokyo-5-days", label: "東京 5 天・不選任何偏好（兩天一夜）", flightInfo: TOKYO_5_DAYS },
   { id: "sapporo-loop", label: "札幌 7 天・想去小樽（環狀多城市）", flightInfo: SAPPORO_WEEK, prompt: "想去小樽" },
   {
@@ -418,6 +421,29 @@ const CHECKS: Check[] = [
     },
     detail: (r) =>
       r.get("tokyo-spring")?.seasonalDays.map((d) => `第 ${d.day} 天「${d.title}」：${d.stops.join("、")}`).join("；") || "沒有季節限定日",
+  },
+  {
+    title: "日落：11 月的札幌，每個觀光日都有日落時間，天黑得早的日子戶外景點都排在室內景點之前",
+    pass: (r) => {
+      const m = r.get("sapporo-loop");
+      return m ? m.weatherNotes.length > 0 && m.weatherNotes.every((n) => n.startsWith("日落約")) && m.outdoorAfterDarkDays === 0 : null;
+    },
+    detail: (r) => {
+      const m = r.get("sapporo-loop");
+      return m ? `${[...new Set(m.weatherNotes)].join("／")}；戶外排在室內之後的天數 ${m.outdoorAfterDarkDays}` : "—";
+    },
+  },
+  {
+    title: "雨季：6 月的東京提醒帶傘，戶外景點比例低於 11 月的對照組",
+    pass: (r) => {
+      const june = r.get("tokyo-june");
+      const base = r.get("tokyo-baseline");
+      if (!june || !base) return null;
+      return june.weatherNotes.some((n) => n.includes("帶傘")) && june.outdoorShare < base.outdoorShare;
+    },
+    detail: (r) =>
+      `6 月「${r.get("tokyo-june")?.weatherNotes[0] ?? "—"}」，戶外 ${pct(r.get("tokyo-june")?.outdoorShare)}；` +
+      `11 月戶外 ${pct(r.get("tokyo-baseline")?.outdoorShare)}`,
   },
   {
     // Only names to go on: the suburb stop doesn't carry Google's types.

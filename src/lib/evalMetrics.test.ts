@@ -134,6 +134,14 @@ describe("measureItinerary", () => {
     expect(m2.tripEnds.first).toBe("機場取車");
   });
 
+  it("counts early-dark days with an outdoor stop after an indoor one", () => {
+    const dark = (stops: { placeId: string }[]) => ({ waypointCity: "東京", weatherNote: "日落約 16:28", stops, meals: {} });
+    const withNotes = [dark([{ placeId: "park1" }, { placeId: "museum1" }]), dark([{ placeId: "museum1" }, { placeId: "park1" }]), ...days.slice(2)];
+    const m2 = measureItinerary(withNotes, ctx);
+    expect(m2.weatherNotes.slice(0, 2)).toEqual(["日落約 16:28", "日落約 16:28"]);
+    expect(m2.outdoorAfterDarkDays).toBe(1);
+  });
+
   it("lists the seasonal days with their stops", () => {
     const stops = [{ name: "新宿御苑" }, { name: "千鳥淵", time_of_day: "evening" }];
     const withSeason = days.map((d, i) => (i === 1 ? { ...d, theme: "東京 季節限定：賞櫻", stops } : d));
