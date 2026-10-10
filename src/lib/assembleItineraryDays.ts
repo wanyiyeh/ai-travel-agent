@@ -41,6 +41,16 @@ import { restaurantNear } from "@/lib/fixedEventVenues";
 import { findSeasonalDay, nightHighlightEvent, seasonalDayIndex } from "@/lib/seasonalHighlights";
 import { cleanTitles, findFilmDay } from "@/lib/filmLocations";
 import { classicTripEvents, findClassicDayTrip } from "@/lib/classicDayTrips";
+import {
+  campsiteStay,
+  findCampsite,
+  findHotSpringSoak,
+  findNightMarkets,
+  hotSpringSoakEvent,
+  isHotSpringStay,
+  nightMarketDays,
+  nightMarketDinner,
+} from "@/lib/domesticInterests";
 import { fillMissingCopy } from "@/lib/missingCopy";
 
 const DEFAULT_ARRIVAL_MINUTE_FALLBACK = 14 * 60;
@@ -174,6 +184,10 @@ export async function assembleItineraryDays(
     Boolean(preferenceIntent.seniors)
   );
   const usedSuburbIds = new Set<string>();
+  // 國內 interests (domesticInterests.ts): 夜市, 溫泉, 露營 (老街 is a theme day).
+  const wants = (tag: string) => Boolean(preferences?.interests?.includes(tag as never));
+  // One night camping per trip, and only by car: campsites are up in the hills.
+  let campNightPlanned = false;
   // The route's other cities, which a day trip shouldn't land in.
   const otherCityCenters = async (cityName: string, apiKey: string) => {
     const names = [...new Set(plan.cities.map((c) => c.name))].filter((name) => name !== cityName);
@@ -414,6 +428,43 @@ export async function assembleItineraryDays(
       for (const l of filmDay.locations) seasonalNotes.set(l.place.placeId, l.note);
       seasonalByDay[filmDay.dayIndex] = filmDay.locations.map((l) => l.place);
     }
+    // 夜市: dinner at a night market on one evening (two from three nights).
+    const nightMarketByDay = new Map<number, Record<string, unknown>>();
+    // 溫泉 without a hot-spring stay: an early-evening soak, on an evening without a night market.
+    // 露營: one night at a campsite instead of the city's lodging.
+    let campNight: { dayIndex: number; stay: Record<string, unknown> } | undefined;
+    const apiKeyForInterests = process.env.GOOGLE_PLACES_API_KEY;
+    const interestCenter =
+      apiKeyForInterests && sightseeingCount > 0 && (wants("night_market") || wants("hot_spring") || wants("camping"))
+        ? await getCityCenter(city.name, apiKeyForInterests).catch(() => null)
+        : null;
+    if (interestCenter && apiKeyForInterests) {
+      if (wants("night_market")) {
+        const days = nightMarketDays(sightseeingCount);
+        const markets = await findNightMarkets(interestCenter, apiKeyForInterests, days.length, usedPlaceIds);
+        markets.forEach((market, k) => {
+          nightMarketByDay.set(days[k], nightMarketDinner(market));
+          usedPlaceIds.add(market.placeId);
+        });
+      }
+      if (wants("hot_spring") && !isHotSpringStay(accommodation?.name)) {
+        const soak = await findHotSpringSoak(interestCenter, apiKeyForInterests, usedPlaceIds);
+        const free = Array.from({ length: sightseeingCount }, (_, i) => sightseeingCount - 1 - i).find(
+          (i) => !nightMarketByDay.has(i) && suburbTrip?.dayIndex !== i
+        );
+        if (soak && free !== undefined) {
+          sightseeingEvents[free].fixed.push(hotSpringSoakEvent(soak));
+          usedPlaceIds.add(soak.placeId);
+        }
+      }
+      if (wants("camping") && preferenceIntent.selfDrive && !campNightPlanned && sightseeingCount >= 2) {
+        const site = await findCampsite(interestCenter, apiKeyForInterests, city.name);
+        if (site) {
+          campNight = { dayIndex: sightseeingCount - 2, stay: campsiteStay(site, city.name) };
+          campNightPlanned = true;
+        }
+      }
+    }
     // A concert at 東京巨蛋 shouldn't also turn up as a sightseeing stop there.
     for (const stop of sightseeingEvents.flatMap(eventStops)) {
       if (typeof stop.placeId === "string") usedPlaceIds.add(stop.placeId);
@@ -471,11 +522,12 @@ export async function assembleItineraryDays(
               : `${city.name} ${dayTheme ? THEMES[dayTheme].label : "探索"}`,
         waypointCity: city.name,
         stops: seasonal || film ? withSeasonalNotes(sightseeingStops[i], seasonalNotes) : sightseeingStops[i],
-        accommodation,
+        accommodation: campNight?.dayIndex === i ? campNight.stay : accommodation,
         meals: {
           ...(mealsAndAccommodation.mealsByDay[transitMealDays + i] ?? {}),
           ...sightseeingEvents[i].meals,
           ...(trip?.lunch ? { lunch: trip.lunch } : {}),
+          ...(nightMarketByDay.has(i) ? { dinner: nightMarketByDay.get(i) } : {}),
         },
         // A whole day out stays as planned when the trip is restructured.
         ...(trip?.kind === "day" ? { isLocked: true } : {}),

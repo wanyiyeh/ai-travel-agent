@@ -80,8 +80,11 @@ export const TripPreferencesSchema = z.object({
   // form; "adventure" stays valid for older itineraries' stored config and
   // counts as land (suburbTrips.ts).
   interests: z
-    .array(z.enum(["food", "culture", "nature", "shopping", "water", "land", "adventure", "film"]))
-    .max(8)
+    // night_market … camping: 國內 only (plan 1.10).
+    .array(
+      z.enum(["food", "culture", "nature", "shopping", "water", "land", "adventure", "film", "night_market", "old_street", "hot_spring", "camping"])
+    )
+    .max(12)
     .optional(),
   // 影劇追星 (plan 1.3): the works to visit filming locations of; empty for the city's best-known ones.
   filmTitles: z.array(z.string().max(60)).max(3).optional(),

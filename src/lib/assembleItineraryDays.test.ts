@@ -68,6 +68,15 @@ vi.mock("@/lib/classicDayTrips", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/classicDayTrips")>()),
   findClassicDayTrip: (...args: unknown[]) => findClassicMock(...args),
 }));
+const nightMarketsMock = vi.fn();
+const soakMock = vi.fn();
+const campsiteMock = vi.fn();
+vi.mock("@/lib/domesticInterests", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/domesticInterests")>()),
+  findNightMarkets: (...args: unknown[]) => nightMarketsMock(...args),
+  findHotSpringSoak: (...args: unknown[]) => soakMock(...args),
+  findCampsite: (...args: unknown[]) => campsiteMock(...args),
+}));
 const findFilmMock = vi.fn();
 vi.mock("@/lib/filmLocations", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/filmLocations")>()),
@@ -753,5 +762,64 @@ describe("assembleItineraryDays — 國內", () => {
     expect(findRentalMock).not.toHaveBeenCalled();
     expect(departureStopsMock.mock.calls[0][8]).toBeUndefined();
     expect(dayStopsMock.mock.calls[0][DAY_STOPS_INTENT]).toMatchObject({ domestic: true, selfDrive: true });
+  });
+});
+
+// 國內 interests (domesticInterests.ts). 東京 stands in for a city with 3 sightseeing days.
+describe("assembleItineraryDays — 夜市, 溫泉, 露營", () => {
+  const at = (name: string, types: string[] = ["tourist_attraction"]) => ({ placeId: name, name, lat: 35.68, lng: 139.76, address: "", types });
+
+  beforeEach(() => {
+    vi.stubEnv("GOOGLE_PLACES_API_KEY", "key");
+    nightMarketsMock.mockReset();
+    soakMock.mockReset();
+    campsiteMock.mockReset();
+    nightMarketsMock.mockImplementation(async (_c: unknown, _k: unknown, count: number) =>
+      [at("大東夜市"), at("花園夜市")].slice(0, count)
+    );
+    soakMock.mockResolvedValue(at("關子嶺溫泉公共浴池", ["public_bath"]));
+    campsiteMock.mockResolvedValue(at("梅峰露營區", ["campground"]));
+    // the fixture flies to 東京, so driving there rents a car
+    findRentalMock.mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("has dinner at a night market on the first and last evening of a three-day stay", async () => {
+    const result = await run(undefined, { interests: ["night_market"] });
+
+    const dinners = result!.days.slice(0, 3).map((d) => (d.meals as { dinner?: { name: string } }).dinner?.name);
+    expect(dinners[0]).toBe("大東夜市");
+    expect(dinners[2]).toBe("花園夜市");
+  });
+
+  it("adds an early-evening soak when the lodging isn't a hot-spring stay", async () => {
+    await run(undefined, { interests: ["hot_spring"] });
+
+    const events = (dayStopsMock.mock.calls[0][9] as { stop?: { name: string } }[][]).flat();
+    expect(events.map((e) => e.stop?.name)).toContain("關子嶺溫泉公共浴池");
+  });
+
+  it("skips the soak when the stay is a hot-spring hotel", async () => {
+    mealsMock.mockImplementation(async (_city: string, nights: number) => ({
+      accommodation: { name: "礁溪老爺酒店溫泉" },
+      mealsByDay: Array.from({ length: nights }, () => ({})),
+    }));
+
+    await run(undefined, { interests: ["hot_spring"] });
+
+    expect(soakMock).not.toHaveBeenCalled();
+  });
+
+  it("camps one night, by car only", async () => {
+    const byCar = await run(undefined, { interests: ["camping"], transport: "drive" });
+    const stays = byCar!.days.map((d) => (d.accommodation as { name?: string } | undefined)?.name);
+    expect(stays.filter((n) => n === "梅峰露營區")).toHaveLength(1);
+
+    campsiteMock.mockClear();
+    await run(undefined, { interests: ["camping"], transport: "transit" });
+    expect(campsiteMock).not.toHaveBeenCalled();
   });
 });

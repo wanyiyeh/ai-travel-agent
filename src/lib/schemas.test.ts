@@ -59,8 +59,8 @@ describe("GenerateRequestSchema", () => {
   });
 
   it("rejects an oversized interests list", () => {
-    // 8 options on the form (水上 and 陸上 replaced 冒險戶外, then 影劇追星), so 9 is too many.
-    const interests = Array(9).fill("food");
+    // 12 options in all (8 abroad, plus 夜市, 老街, 溫泉, 露營 at home), so 13 is too many.
+    const interests = Array(13).fill("food");
     expect(GenerateRequestSchema.safeParse({ flightInfo, preferences: { interests } }).success).toBe(false);
   });
 });
