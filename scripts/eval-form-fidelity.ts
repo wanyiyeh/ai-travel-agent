@@ -51,6 +51,7 @@ type Preferences = {
   transport?: "transit" | "drive";
   dietaryRestrictions?: Array<"vegetarian" | "vegan" | "no_seafood" | "no_beef" | "halal" | "no_spicy">;
   drinks?: Array<"coffee" | "tea" | "alcohol">;
+  companions?: Array<"solo" | "kids" | "seniors">;
 };
 
 type Scenario = {
@@ -137,6 +138,13 @@ const SCENARIOS: Scenario[] = [
     },
   },
   { id: "tokyo-spring", label: "東京 4 天・3 月底（季節限定：賞櫻）", flightInfo: TOKYO_SPRING },
+  // 酒 is sent on purpose: the form hides it for 親子, the server must ignore it too.
+  {
+    id: "tokyo-kids",
+    label: "東京・親子＋經濟實惠（送出酒，應該被忽略）",
+    flightInfo: TOKYO,
+    preferences: { companions: ["kids"], budget: "budget", drinks: ["alcohol"] },
+  },
   { id: "tokyo-june", label: "東京 4 天・6 月（梅雨）", flightInfo: TOKYO_JUNE },
   { id: "tokyo-5-days", label: "東京 5 天・不選任何偏好（兩天一夜）", flightInfo: TOKYO_5_DAYS },
   { id: "sapporo-loop", label: "札幌 7 天・想去小樽（環狀多城市）", flightInfo: SAPPORO_WEEK, prompt: "想去小樽" },
@@ -421,6 +429,27 @@ const CHECKS: Check[] = [
     },
     detail: (r) =>
       r.get("tokyo-spring")?.seasonalDays.map((d) => `第 ${d.day} 天「${d.title}」：${d.stops.join("、")}`).join("；") || "沒有季節限定日",
+  },
+  {
+    title: "餐點：沒有排在飯店（Google 同時標成餐廳和住宿的地方）",
+    pass: (r) => (r.size ? [...r.values()].every((m) => m.mealsAtLodging.length === 0) : null),
+    detail: (r) => {
+      const found = [...r.entries()].flatMap(([id, m]) => m.mealsAtLodging.map((n) => `${id}：${n}`));
+      return found.length ? found.join("、") : "沒有";
+    },
+  },
+  {
+    title: "親子：有「親子同樂」主題日，沒有小酌，經濟實惠的住宿不是青旅",
+    pass: (r) => {
+      const m = r.get("tokyo-kids");
+      if (!m) return null;
+      return m.dayTitles.some((t) => t.endsWith("親子同樂")) && m.nightcaps.every((n) => n === null) && m.lodging.every((l) => !l.hostel);
+    },
+    detail: (r) => {
+      const m = r.get("tokyo-kids");
+      if (!m) return "—";
+      return `${m.dayTitles.join("、")}；小酌 ${m.nightcaps.filter(Boolean).length} 次；住宿 ${m.lodging.map((l) => l.name).join("、")}`;
+    },
   },
   {
     title: "移動日：離開一個城市的那天，不再回到前幾天在那裡去過的地點",

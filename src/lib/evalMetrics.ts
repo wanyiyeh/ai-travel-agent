@@ -51,7 +51,7 @@ export type ItineraryMetrics = {
   /** Lunches/dinners centred on meat or seafood (steak house, seafood, sushi). */
   meatOrSeafoodMeals: number;
   /** budgetTier: hostel, guest house, B&B, budget inn or motel (lodgingTiers.ts). */
-  lodging: { name: string; budgetTier: boolean; luxury: boolean }[];
+  lodging: { name: string; budgetTier: boolean; luxury: boolean; hostel: boolean }[];
   /** Days (other than the return day) with fewer meals than expected — 3 on a transit day, else 4. */
   daysMissingMeals: number;
   /** 1 − distinct places / meals, over meals that have a placeId. */
@@ -60,6 +60,8 @@ export type ItineraryMetrics = {
   adjacentRepeats: number;
   /** Meals without a placeId — names the LLM made up. */
   inventedMeals: number;
+  /** Meals at a hotel (Google types include lodging), e.g. Hotel sardonyx ueno as a dinner — should be none. */
+  mealsAtLodging: string[];
   /** A transit day's stops that go back to a place already seen in the city it leaves, by name (「小樽運河散步」). */
   transitRepeats: string[];
   /** Stops on any day at a bar street (indoorOutdoor.ts isBarStreet), e.g. 新宿黃金街 — should be none. */
@@ -158,7 +160,12 @@ export function measureItinerary(days: Rec[], ctx: EvalContext): ItineraryMetric
     if (!acc || !name || lodgingSeen.has(name)) continue;
     lodgingSeen.add(name);
     const types = typesOf(acc.placeId);
-    lodging.push({ name, budgetTier: isBudgetLodging({ types }), luxury: isLuxuryLodging({ name, types }) });
+    lodging.push({
+      name,
+      budgetTier: isBudgetLodging({ types }),
+      luxury: isLuxuryLodging({ name, types }),
+      hostel: Boolean(types?.includes("hostel")),
+    });
   }
 
   // --- cities ---
@@ -255,6 +262,12 @@ export function measureItinerary(days: Rec[], ctx: EvalContext): ItineraryMetric
     mealRepeatRate,
     adjacentRepeats,
     inventedMeals,
+    mealsAtLodging: days.flatMap((d) =>
+      MEAL_KEYS.map((k) => ((d.meals ?? {}) as Rec)[k])
+        .filter((m): m is Rec => Boolean(m) && typeof m === "object")
+        .filter((m) => typesOf(m.placeId)?.includes("lodging"))
+        .map((m) => str(m.name) ?? "")
+    ),
     transitRepeats: days.flatMap((d, i) => {
       if (d.isTransitDay !== true) return [];
       const from = str(d.waypointCity);

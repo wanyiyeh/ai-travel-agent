@@ -77,8 +77,8 @@ describe("measureItinerary", () => {
 
   it("classifies each lodging once", () => {
     expect(m.lodging).toEqual([
-      { name: "Backpackers", budgetTier: true, luxury: false },
-      { name: "Hilton Osaka", budgetTier: false, luxury: true },
+      { name: "Backpackers", budgetTier: true, luxury: false, hostel: true },
+      { name: "Hilton Osaka", budgetTier: false, luxury: true, hostel: false },
     ]);
   });
 
@@ -140,6 +140,12 @@ describe("measureItinerary", () => {
     const m2 = measureItinerary(withNotes, ctx);
     expect(m2.weatherNotes.slice(0, 2)).toEqual(["日落約 16:28", "日落約 16:28"]);
     expect(m2.outdoorAfterDarkDays).toBe(1);
+  });
+
+  it("lists meals at a hotel", () => {
+    const withHotel = days.map((d, i) => (i === 0 ? { ...d, meals: { ...d.meals, dinner: { name: "Hotel sardonyx ueno", placeId: "hotelMeal" } } } : d));
+    const ctxHotel = { ...ctx, placeTypes: new Map([...ctx.placeTypes, ["hotelMeal", ["breakfast_restaurant", "hotel", "lodging"]]]) };
+    expect(measureItinerary(withHotel, ctxHotel).mealsAtLodging).toEqual(["Hotel sardonyx ueno"]);
   });
 
   it("lists transit-day stops that go back to a place seen in the city being left", () => {
