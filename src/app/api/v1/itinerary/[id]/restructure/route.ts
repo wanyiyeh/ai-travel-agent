@@ -6,9 +6,11 @@ import { estimateAttractionCost } from "@/lib/priceLevelCost";
 import {
   generateTransitDayStops,
   generateMealsAndAccommodation,
-  generateDayStops,
   mealPreferencesOf,
+  type MealPreferences,
 } from "@/lib/itineraryCityGen";
+import { buildStayDays, stayContextOf, type StayContext } from "@/lib/cityStayDays";
+import { fillMissingCopy } from "@/lib/missingCopy";
 import { parsePreferenceIntent } from "@/lib/preferenceIntent";
 import { mergePreferenceIntent } from "@/lib/mergePreferenceIntent";
 import { TripPreferencesSchema, type PreferenceIntent } from "@/lib/schemas";
@@ -101,6 +103,49 @@ function isStructuralDay(day: Record<string, unknown>, lastOriginalDayId?: strin
   return day.isTransitDay === true || (lastOriginalDayId != null && day.id === lastOriginalDayId);
 }
 
+// Places already on the kept days and the locked ones, so new days don't repeat them.
+function placesIn(kept: Record<string, unknown>[], lockedPlaceIds: string[]): Set<string> {
+  const ids = new Set(lockedPlaceIds);
+  for (const day of kept) {
+    for (const stop of Array.isArray(day.stops) ? day.stops : []) {
+      const placeId = (stop as Record<string, unknown>).placeId;
+      if (typeof placeId === "string") ids.add(placeId);
+    }
+  }
+  return ids;
+}
+
+// A city's new sightseeing days, planned like a freshly generated trip's
+// (cityStayDays.ts): themes, day trips, seasonal days, weather, booked events.
+// The theme rotation continues from the trip's days before them.
+async function newStayDays(
+  cityName: string,
+  count: number,
+  firstDayNumber: number,
+  accommodation: Record<string, unknown> | undefined,
+  mealsByDay: Record<string, unknown>[],
+  usedPlaceIds: Set<string>,
+  stay: StayContext
+): Promise<Record<string, unknown>[]> {
+  if (count <= 0) return [];
+  const { days } = await buildStayDays(
+    { cityName, count, firstDayNumber, accommodation, mealsByDay, usedPlaceIds, firstThemeIndex: firstDayNumber - 1 },
+    stay
+  ).catch((err) => {
+    console.error(`[Restructure] buildStayDays failed for ${cityName} (${count} days):`, err);
+    const fallback: Array<Record<string, unknown>> = Array.from({ length: count }, (_, i) => ({
+      id: crypto.randomUUID(),
+      theme: `${cityName} 探索`,
+      waypointCity: cityName,
+      stops: [],
+      accommodation,
+      meals: mealsByDay[i] ?? {},
+    }));
+    return { days: fallback };
+  });
+  return days.map((d) => ({ ...d, day: 0 }));
+}
+
 async function buildCityBlock(
   city: CityInput,
   idx: number,
@@ -110,13 +155,12 @@ async function buildCityBlock(
   currency: string,
   lastOriginalDayId: string | undefined,
   budget: BudgetLevel | undefined,
-  preferenceIntent: PreferenceIntent
+  preferenceIntent: PreferenceIntent,
+  mealPreferences: MealPreferences,
+  stay: StayContext,
+  // The trip day number this city's block starts on, for each new day's date.
+  blockStartDay: number
 ): Promise<Record<string, unknown>[]> {
-  // The trip's 飲品 choice, so rebuilt meals keep the coffee/tea snack and 小酌.
-  const drinks = TripPreferencesSchema.shape.drinks.safeParse(
-    (config.preferences as { drinks?: unknown } | undefined)?.drinks
-  ).data;
-  const mealPreferences = mealPreferencesOf(preferenceIntent, drinks);
   const lockedCount = city.lockedAttractions.length;
   // Keeps the rule-engine candidate pool (generateDayStopsViaScheduler) from
   // re-suggesting a place the user already locked in as its own full day.
@@ -218,22 +262,28 @@ async function buildCityBlock(
     // kept day's accommodation (if any) still wins, to avoid switching
     // hotels mid-stay for no reason.
     const newDaysNeeded = extraCount + lockedCount;
-    const [extraStops, mealsAndAccommodation] = await Promise.all([
-      extraCount > 0
-        ? generateDayStops(city.name, extraCount, currency, lockedPlaceIds, budget, preferenceIntent).catch((err) => {
-            console.error(`[Restructure] generateDayStops failed for ${city.name} (${extraCount} days):`, err);
-            return Array.from({ length: extraCount }, () => []);
-          })
-        : Promise.resolve([]),
+    const mealsAndAccommodation =
       newDaysNeeded > 0
-        ? generateMealsAndAccommodation(city.name, newDaysNeeded, currency, budget, mealPreferences).catch(() => ({
-            accommodation: {},
-            mealsByDay: Array.from({ length: newDaysNeeded }, () => ({})),
+        ? await generateMealsAndAccommodation(city.name, newDaysNeeded, currency, budget, mealPreferences).catch(() => ({
+            accommodation: {} as Record<string, unknown>,
+            mealsByDay: Array.from({ length: newDaysNeeded }, () => ({}) as Record<string, unknown>),
           }))
-        : Promise.resolve({ accommodation: {}, mealsByDay: [] as Record<string, unknown>[] }),
-    ]);
+        : { accommodation: {} as Record<string, unknown>, mealsByDay: [] as Record<string, unknown>[] };
     const hasGeneratedAccommodation = Object.keys(mealsAndAccommodation.accommodation).length > 0;
-    const accommodation = reusableAccommodation ?? (hasGeneratedAccommodation ? mealsAndAccommodation.accommodation : undefined);
+    const accommodation = (reusableAccommodation ?? (hasGeneratedAccommodation ? mealsAndAccommodation.accommodation : undefined)) as
+      | Record<string, unknown>
+      | undefined;
+
+    // The new days come after the leading-in day and the kept sightseeing days.
+    const extraDays = await newStayDays(
+      city.name,
+      extraCount,
+      blockStartDay + (leadingInDay ? 1 : 0) + sightseeingKept.length,
+      accommodation,
+      mealsAndAccommodation.mealsByDay.slice(0, extraCount),
+      placesIn(kept, lockedPlaceIds),
+      stay
+    );
 
     // leadingInDay was built above, before this city's accommodation was
     // known — the traveler sleeps in `city.name` (this block) that night,
@@ -242,16 +292,6 @@ async function buildCityBlock(
     if (leadingInDay) {
       leadingInDay = { ...leadingInDay, accommodation };
     }
-
-    const extraDays = extraStops.map((stops, i) => ({
-      id: crypto.randomUUID(),
-      day: 0,
-      theme: `${city.name} 探索`,
-      waypointCity: city.name,
-      stops,
-      accommodation,
-      meals: mealsAndAccommodation.mealsByDay[i] ?? {},
-    }));
 
     const lockedDays = city.lockedAttractions.map((attraction, i) => ({
       id: crypto.randomUUID(),
@@ -285,25 +325,29 @@ async function buildCityBlock(
   const aiDayCount = Math.max(0, city.targetDays - 1 - lockedCount);
   const nights = Math.max(1, city.targetDays - 1);
 
-  const [transitStops, sightseeingStops, mealsAndAccommodation] = await Promise.all([
+  const [transitStops, mealsAndAccommodation] = await Promise.all([
     generateTransitDayStops(fromCityName, city.name, currency, budget, preferenceIntent).catch((err) => {
       console.error(`[Restructure] generateTransitDayStops failed for ${fromCityName} -> ${city.name}:`, err);
       return [];
     }),
-    aiDayCount > 0
-      ? generateDayStops(city.name, aiDayCount, currency, lockedPlaceIds, budget, preferenceIntent).catch((err) => {
-          console.error(`[Restructure] generateDayStops failed for ${city.name} (${aiDayCount} days):`, err);
-          return Array.from({ length: aiDayCount }, () => []);
-        })
-      : Promise.resolve([]),
     generateMealsAndAccommodation(city.name, nights, currency, budget, mealPreferences).catch(() => ({
-      accommodation: {},
-      mealsByDay: Array.from({ length: nights }, () => ({})),
+      accommodation: {} as Record<string, unknown>,
+      mealsByDay: Array.from({ length: nights }, () => ({}) as Record<string, unknown>),
     })),
   ]);
 
   const hasAccommodation = Object.keys(mealsAndAccommodation.accommodation).length > 0;
   const accommodation = hasAccommodation ? mealsAndAccommodation.accommodation : undefined;
+  // The transit day opens the block; the sightseeing days follow it.
+  const sightseeingDays = await newStayDays(
+    city.name,
+    aiDayCount,
+    blockStartDay + 1,
+    accommodation,
+    mealsAndAccommodation.mealsByDay.slice(0, aiDayCount),
+    new Set(lockedPlaceIds),
+    stay
+  );
 
   const transitDay = {
     id: crypto.randomUUID(),
@@ -321,16 +365,6 @@ async function buildCityBlock(
     // treats a transit day without this as an error.
     accommodation,
   };
-
-  const sightseeingDays = sightseeingStops.map((stops, i) => ({
-    id: crypto.randomUUID(),
-    day: 0,
-    theme: `${city.name} 探索`,
-    waypointCity: city.name,
-    stops,
-    accommodation,
-    meals: mealsAndAccommodation.mealsByDay[i] ?? {},
-  }));
 
   const lockedDays = city.lockedAttractions.map((attraction, i) => ({
     id: crypto.randomUUID(),
@@ -411,9 +445,54 @@ export async function POST(
     const discardedDays = days.filter((d) => !keptIds.has(d.id as string));
     const lastOriginalDayId = days.length > 0 ? (days[days.length - 1].id as string) : undefined;
 
+    // The trip's 飲品 choice, so rebuilt meals keep the coffee/tea snack and 小酌.
+    const mealPreferences = mealPreferencesOf(preferenceIntent, preferences?.drinks);
+    // New days are planned like a fresh trip's (cityStayDays.ts). Dates come
+    // from where each day lands: a block starts after the cities before it.
+    const fi = config.flightInfo as { departureDate?: string; returnDate?: string } | undefined;
+    const totalAfter = cities.reduce((sum, c) => sum + c.targetDays, 0);
+    const stay = stayContextOf({
+      preferences,
+      preferenceIntent,
+      mealPreferences,
+      budget,
+      currency,
+      model,
+      departureDate: fi?.departureDate ?? "",
+      returnDate: fi?.returnDate ? shiftDateString(fi.returnDate, totalAfter - days.length) : "",
+      routeCityNames: cities.map((c) => c.name),
+      // A booked event already on a kept day isn't placed again on a new one.
+      fixedEvents: bookedEvents.filter((e) => !days.some((d) => keptIds.has(d.id as string) && bookedEventOn(d, [e]))),
+      campNightPlanned: days.some(
+        (d) => keptIds.has(d.id as string) && String((d.accommodation as { reason?: unknown } | null)?.reason ?? "").startsWith("露營")
+      ),
+    });
+    // The old return day moves to the very end when its city is no longer the
+    // last (below), so every block after that city starts a day earlier.
+    const returnBlock = cities.findIndex((c) => !c.isNew && lastOriginalDayId !== undefined && c.keepDayIds.includes(lastOriginalDayId));
+    const blockStarts = cities.map(
+      (_, idx) =>
+        1 +
+        cities.slice(0, idx).reduce((sum, c) => sum + c.targetDays, 0) -
+        (returnBlock !== -1 && returnBlock < cities.length - 1 && idx > returnBlock ? 1 : 0)
+    );
+
     const blocks = await Promise.all(
       cities.map((city, idx) =>
-        buildCityBlock(city, idx, cities, daysById, config, currency, lastOriginalDayId, budget, preferenceIntent)
+        buildCityBlock(
+          city,
+          idx,
+          cities,
+          daysById,
+          config,
+          currency,
+          lastOriginalDayId,
+          budget,
+          preferenceIntent,
+          mealPreferences,
+          stay,
+          blockStarts[idx]
+        )
       )
     );
     const rawFinalDays = blocks.flat();
@@ -442,6 +521,8 @@ export async function POST(
     }
 
     const finalDays = rawFinalDays.map((d, i) => ({ ...d, day: i + 1 }));
+    // Places the program put in itself (a night market dinner, a soak) get their description (missingCopy.ts).
+    await fillMissingCopy(finalDays, model);
 
     const deletedDayRows = discardedDays.map((d) => ({
       itineraryId,

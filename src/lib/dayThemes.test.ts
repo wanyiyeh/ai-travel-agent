@@ -16,6 +16,10 @@ describe("dayThemeKeys", () => {
     expect(dayThemeKeys(["culture", "nature"], 3)).toEqual(["culture", "nature", "culture"]);
   });
 
+  it("skips days with a title of their own, so a day trip doesn't use up a theme", () => {
+    expect(dayThemeKeys(["culture", "nature"], 3, 0, new Set([1]))).toEqual(["culture", undefined, "nature"]);
+  });
+
   it("continues the rotation from firstIndex, so the next city doesn't restart it", () => {
     expect(dayThemeKeys(["culture", "nature"], 2, 3)).toEqual(["nature", "culture"]);
   });
