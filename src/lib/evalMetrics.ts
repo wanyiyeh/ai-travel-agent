@@ -36,6 +36,8 @@ export type ItineraryMetrics = {
   legModes: { walk: number; transit: number; drive: number; taxi: number };
   /** The trip's very first and very last stop — a self-driver's car pickup and return. */
   tripEnds: { first?: string; last?: string };
+  /** 季節限定 days (seasonalHighlights.ts): the title and every stop's name. */
+  seasonalDays: { day: number; title: string; stops: string[]; eveningStops: number }[];
   /** Days out of the city (suburbTrips.ts): the title and where the first stop is. */
   suburbDays: { day: number; title: string; stops: number; first?: { name: string; lat?: number; lng?: number } }[];
   /** Where each 固定行程 ended up: a stop (with its position in the day) or the meal it replaced. */
@@ -185,6 +187,12 @@ export function measureItinerary(days: Rec[], ctx: EvalContext): ItineraryMetric
       first: str(asRecords(days[0]?.stops)[0]?.name),
       last: str(asRecords(days[lastIdx]?.stops).at(-1)?.name),
     },
+    seasonalDays: days.flatMap((d, i) => {
+      const title = str(d.theme) ?? "";
+      if (!title.includes("季節限定")) return [];
+      const stops = asRecords(d.stops);
+      return [{ day: i + 1, title, stops: stops.map((s) => str(s.name) ?? ""), eveningStops: stops.filter((s) => s.time_of_day === "evening").length }];
+    }),
     suburbDays: days.flatMap((d, i) => {
       const title = str(d.theme) ?? "";
       if (!/一日遊|半日遊/.test(title)) return [];

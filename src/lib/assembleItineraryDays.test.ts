@@ -57,6 +57,12 @@ vi.mock("@/lib/carRental", async (importOriginal) => ({
   findCarRental: (...args: unknown[]) => findRentalMock(...args),
 }));
 
+const findSeasonalMock = vi.fn();
+vi.mock("@/lib/seasonalHighlights", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/seasonalHighlights")>()),
+  findSeasonalDay: (...args: unknown[]) => findSeasonalMock(...args),
+}));
+
 const { assembleItineraryDays } = await import("./assembleItineraryDays");
 
 // 東京 3 days -> transit day -> 大阪 2 days (incl. transit) -> return day.
@@ -121,8 +127,9 @@ beforeEach(() => {
   }));
   parseIntentMock.mockResolvedValue(NEUTRAL_PREFERENCE_INTENT);
   planEventsMock.mockImplementation(async () => ({ fixed: [], meals: {} }));
-  // No suburb place unless a test offers one.
+  // No suburb place or seasonal day unless a test offers one.
   findSuburbMock.mockResolvedValue(undefined);
+  findSeasonalMock.mockResolvedValue(undefined);
   restaurantNearMock.mockResolvedValue(undefined);
 });
 
@@ -478,5 +485,56 @@ describe("assembleItineraryDays — suburb trips", () => {
     const result = await run(undefined, { transport: "drive" });
 
     expect(result!.days.map((d) => d.theme)).not.toContainEqual(expect.stringContaining("一日遊"));
+  });
+});
+
+// 3c-2: a day around the month's seasonal places (seasonalHighlights.ts).
+describe("assembleItineraryDays — seasonal day", () => {
+  const place = (placeId: string) => ({ placeId, name: placeId, lat: 35.7, lng: 139.7, address: "", types: ["park"] });
+  const ginkgo = place("神宮外苑銀杏並木");
+  const rikugien = place("六義園");
+  const lights = place("東京中城");
+
+  beforeEach(() => {
+    vi.stubEnv("GOOGLE_PLACES_API_KEY", "key");
+    findSeasonalMock.mockResolvedValue({
+      label: "賞楓",
+      highlights: [
+        { place: ginkgo, night: false, note: "通常在 11 月下旬最美" },
+        { place: rikugien, night: false, note: "" },
+        { place: lights, night: true, note: "冬季點燈" },
+      ],
+    });
+    dayStopsMock.mockImplementation(async (_city: string, count: number) =>
+      Array.from({ length: count }, (_, i) => (i === 1 ? [{ placeId: "神宮外苑銀杏並木", description: "金黃色的銀杏大道。" }] : []))
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("titles the day, keeps its places for that day, and puts the illumination in the evening", async () => {
+    const result = await run(undefined, undefined);
+
+    // the arrival day goes last, so 東京's second day
+    expect(result!.days[1].theme).toBe("東京 季節限定：賞楓");
+    const [call] = dayStopsMock.mock.calls;
+    expect(call[10][1].map((p: { placeId: string }) => p.placeId)).toEqual(["神宮外苑銀杏並木", "六義園"]);
+    expect(call[9][1].map((e: { stop: { placeId: string } }) => e.stop.placeId)).toEqual(["東京中城"]);
+    expect(findSeasonalMock.mock.calls[0][3]).toBe("2026-12-02");
+  });
+
+  it("adds the timing note after the place's own description", async () => {
+    const result = await run(undefined, undefined);
+
+    const stops = result!.days[1].stops as { description: string }[];
+    expect(stops[0].description).toBe("金黃色的銀杏大道。 通常在 11 月下旬最美");
+  });
+
+  it("is skipped when the traveler unticks it", async () => {
+    await run(undefined, { seasonalHighlights: false });
+
+    expect(findSeasonalMock).not.toHaveBeenCalled();
   });
 });

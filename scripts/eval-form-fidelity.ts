@@ -86,6 +86,8 @@ const TOKYO_TO_OSAKA = {
   departureDate: "2026-11-10",
   returnDate: "2026-11-16",
 };
+// Tokyo at cherry-blossom time, 4 days like TOKYO: the seasonal day should be 賞櫻.
+const TOKYO_SPRING = { ...TOKYO, departureDate: "2027-03-28", returnDate: "2027-04-01" };
 // Tokyo, 5 days: long enough that the trip should spend a night out of town.
 const TOKYO_5_DAYS = { ...TOKYO, returnDate: "2026-11-15" };
 const SAPPORO_WEEK = {
@@ -132,6 +134,7 @@ const SCENARIOS: Scenario[] = [
       ],
     },
   },
+  { id: "tokyo-spring", label: "東京 4 天・3 月底（季節限定：賞櫻）", flightInfo: TOKYO_SPRING },
   { id: "tokyo-5-days", label: "東京 5 天・不選任何偏好（兩天一夜）", flightInfo: TOKYO_5_DAYS },
   { id: "sapporo-loop", label: "札幌 7 天・想去小樽（環狀多城市）", flightInfo: SAPPORO_WEEK, prompt: "想去小樽" },
   {
@@ -175,6 +178,9 @@ const fix1 = (x: number | undefined) => (x === undefined ? "—" : x.toFixed(1))
 const both = (r: Map<string, Metrics>, ...ids: string[]) => ids.every((id) => r.has(id));
 
 // Tokyo Station — the city center 東京 trips search from (placesTextSearch.ts).
+// A day trip or a seasonal day takes its own title, outside the interest rotation.
+const isRotatingDay = (title: string) => !/一日遊|半日遊|季節限定/.test(title);
+
 const TOKYO_CENTER = { lat: 35.6812, lng: 139.7671 };
 // 小樽 Station — the sapporo-loop route stays there, so a Sapporo day trip shouldn't.
 const OTARU_CENTER = { lat: 43.1978, lng: 140.9939 };
@@ -252,7 +258,7 @@ const CHECKS: Check[] = [
   {
     title: "主題日：只選文化歷史，每個觀光日都是「文化巡禮」",
     pass: (r) => {
-      const t = r.get("tokyo-culture")?.dayTitles;
+      const t = r.get("tokyo-culture")?.dayTitles.filter(isRotatingDay);
       return t ? t.length > 0 && t.every((title) => title.endsWith("文化巡禮")) : null;
     },
     detail: (r) => r.get("tokyo-culture")?.dayTitles.join("、") ?? "—",
@@ -260,7 +266,7 @@ const CHECKS: Check[] = [
   {
     title: "主題日：選文化＋自然，兩個主題輪流（不連續兩天同主題）",
     pass: (r) => {
-      const t = r.get("tokyo-culture-nature")?.dayTitles;
+      const t = r.get("tokyo-culture-nature")?.dayTitles.filter(isRotatingDay);
       if (!t) return null;
       const hasBoth = t.some((x) => x.endsWith("文化巡禮")) && t.some((x) => x.endsWith("自然漫遊"));
       return hasBoth && t.every((x, i) => i === 0 || x !== t[i - 1]);
@@ -400,6 +406,15 @@ const CHECKS: Check[] = [
       return c ? c.length > 1 && c[0] === "札幌" && c[c.length - 1] === "札幌" && c.includes("小樽") : null;
     },
     detail: (r) => r.get("sapporo-loop")?.cities.join(" → ") ?? "—",
+  },
+  {
+    title: "季節限定：3 月底的東京有一天「季節限定」，至少 2 個景點，晚上最多 1 個",
+    pass: (r) => {
+      const days = r.get("tokyo-spring")?.seasonalDays;
+      return days ? days.length === 1 && days[0].stops.length >= 2 && days[0].eveningStops <= 1 : null;
+    },
+    detail: (r) =>
+      r.get("tokyo-spring")?.seasonalDays.map((d) => `第 ${d.day} 天「${d.title}」：${d.stops.join("、")}`).join("；") || "沒有季節限定日",
   },
   {
     // Only names to go on: the suburb stop doesn't carry Google's types.

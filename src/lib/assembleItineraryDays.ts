@@ -1,5 +1,5 @@
 import type { FlightInfo, TripPreferences } from "@/lib/schemas";
-import type { BudgetLevel } from "@/lib/fetchCityRestaurants";
+import type { BudgetLevel, PlaceCandidate } from "@/lib/fetchCityRestaurants";
 import { planTrip, type TripPlan } from "@/lib/tripPlan";
 import {
   generateThemedDayStops,
@@ -31,6 +31,7 @@ import {
   type SuburbKind,
 } from "@/lib/suburbTrips";
 import { restaurantNear } from "@/lib/fixedEventVenues";
+import { findSeasonalDay, nightHighlightEvent, seasonalDayIndex } from "@/lib/seasonalHighlights";
 
 const DEFAULT_ARRIVAL_MINUTE_FALLBACK = 14 * 60;
 
@@ -294,6 +295,31 @@ export async function assembleItineraryDays(
     };
     const suburbTrip = await planSuburbTrip(sightseeingEvents.map((e) => e.fixed.length));
     if (suburbTrip) sightseeingEvents[suburbTrip.dayIndex].fixed.push(suburbTrip.event);
+
+    // 季節限定: a day around what the city is known for this month
+    // (seasonalHighlights.ts), unless the traveler turned it off.
+    const planSeasonalDay = async (eventCounts: number[]) => {
+      if (preferences?.seasonalHighlights === false) return undefined;
+      const dayIndex = seasonalDayIndex(eventCounts, suburbTrip?.dayIndex);
+      const apiKey = process.env.GOOGLE_PLACES_API_KEY;
+      if (dayIndex === undefined || !apiKey) return undefined;
+      const center = await getCityCenter(city.name, apiKey).catch(() => null);
+      if (!center) return undefined;
+      const tripDate = dateOfTripDay(flightInfo.departureDate, nextDayNumber + dayIndex);
+      const day = await findSeasonalDay(city.name, center, apiKey, tripDate, model, usedPlaceIds);
+      return day ? { dayIndex, ...day } : undefined;
+    };
+    const seasonalDay = await planSeasonalDay(sightseeingEvents.map((e) => e.fixed.length));
+    // Illuminations get the evening; the rest go to the scheduler for that day only.
+    const seasonalByDay = sightseeingEvents.map(() => undefined as PlaceCandidate[] | undefined);
+    const seasonalNotes = new Map<string, string>();
+    if (seasonalDay) {
+      for (const h of seasonalDay.highlights) {
+        if (h.night) sightseeingEvents[seasonalDay.dayIndex].fixed.push(nightHighlightEvent(h));
+        else seasonalNotes.set(h.place.placeId, h.note);
+      }
+      seasonalByDay[seasonalDay.dayIndex] = seasonalDay.highlights.filter((h) => !h.night).map((h) => h.place);
+    }
     // A concert at 東京巨蛋 shouldn't also turn up as a sightseeing stop there.
     for (const stop of sightseeingEvents.flatMap(eventStops)) {
       if (typeof stop.placeId === "string") usedPlaceIds.add(stop.placeId);
@@ -311,7 +337,8 @@ export async function assembleItineraryDays(
             isFirst ? arrivalDayStartMinute : undefined,
             lodging,
             themedDaysSoFar,
-            sightseeingEvents.map((e) => e.fixed)
+            sightseeingEvents.map((e) => e.fixed),
+            seasonalByDay
           )
         : { stopsByDay: [], themeByDay: [] };
     themedDaysSoFar += sightseeingCount;
@@ -322,13 +349,16 @@ export async function assembleItineraryDays(
     for (let i = 0; i < sightseeingStops.length; i++) {
       const dayTheme = themeByDay[i];
       const trip = suburbTrip?.dayIndex === i ? suburbTrip : undefined;
+      const seasonal = seasonalDay?.dayIndex === i ? seasonalDay : undefined;
       pushDay({
         id: crypto.randomUUID(),
         theme: trip
           ? `${city.name} ${trip.kind === "day" ? "一日遊" : "半日遊"}：${trip.name}`
-          : `${city.name} ${dayTheme ? THEMES[dayTheme].label : "探索"}`,
+          : seasonal
+            ? `${city.name} 季節限定：${seasonal.label}`
+            : `${city.name} ${dayTheme ? THEMES[dayTheme].label : "探索"}`,
         waypointCity: city.name,
-        stops: sightseeingStops[i],
+        stops: seasonal ? withSeasonalNotes(sightseeingStops[i], seasonalNotes) : sightseeingStops[i],
         accommodation,
         meals: {
           ...(mealsAndAccommodation.mealsByDay[transitMealDays + i] ?? {}),
@@ -377,4 +407,14 @@ export async function assembleItineraryDays(
     currency: plan.currency,
     days,
   };
+}
+
+/** A highlight's timing note after the stop's own description: 「通常在 11 月中下旬最美」. */
+function withSeasonalNotes(stops: Array<Record<string, unknown>>, notes: Map<string, string>): Array<Record<string, unknown>> {
+  return stops.map((stop) => {
+    const note = typeof stop.placeId === "string" ? notes.get(stop.placeId) : undefined;
+    if (!note) return stop;
+    const description = typeof stop.description === "string" && stop.description ? `${stop.description} ${note}` : note;
+    return { ...stop, description };
+  });
 }

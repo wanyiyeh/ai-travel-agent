@@ -37,6 +37,8 @@ export type PartitionOptions = {
   themes?: (DayThemeSlots | undefined)[];
   /** The popular-sight pool, for a themed day's remaining stops. */
   isPopular?: (c: StopCandidate) => boolean;
+  /** The one day a candidate may go on (a seasonal highlight); undefined for any day. */
+  reservedDay?: (c: StopCandidate) => number | undefined;
 };
 
 /**
@@ -65,6 +67,7 @@ export type PartitionOptions = {
  * `themeCount` stops (seed included) from on-theme places, and the rest from
  * `isPopular` ones — each step falling back to anything left when its kind
  * runs out, so a day is never short just because the theme pool is.
+ * A candidate with `options.reservedDay` only ever goes on that day.
  */
 export function partitionCandidatesByDay(
   candidates: StopCandidate[],
@@ -87,13 +90,21 @@ export function partitionCandidatesByDay(
       return;
     }
     const theme = options.themes?.[dayIdx];
+    const open = (c: StopCandidate) => {
+      const reserved = options.reservedDay?.(c);
+      return reserved === undefined || reserved === dayIdx;
+    };
 
     remaining.sort((a, b) => scoreCandidate(b, interestWeights, anchor) - scoreCandidate(a, interestWeights, anchor));
     // A group (parts of one sight) is taken whole. The seed is the best place
     // whose group fits; one that fits nowhere still goes in whole, not split.
-    const fits = (c: StopCandidate) => groupOf(c).length <= count;
+    const fits = (c: StopCandidate) => open(c) && groupOf(c).length <= count;
     const seed =
-      (theme && remaining.find((c) => theme.onTheme(c) && fits(c))) ?? remaining.find(fits) ?? remaining[0];
+      (theme && remaining.find((c) => theme.onTheme(c) && fits(c))) ?? remaining.find(fits) ?? remaining.find(open);
+    if (!seed) {
+      days.push([]);
+      return;
+    }
     const day = take(groupOf(seed));
 
     // The same score as the seed's, but measured from the seed instead of the
@@ -104,7 +115,7 @@ export function partitionCandidatesByDay(
     const fill = (limit: number, wanted: (c: StopCandidate) => boolean) => {
       for (const candidate of [...remaining]) {
         if (day.length >= limit) break;
-        if (!remaining.includes(candidate) || !wanted(candidate)) continue; // taken with its group, or not wanted
+        if (!remaining.includes(candidate) || !open(candidate) || !wanted(candidate)) continue; // taken with its group, or not wanted
         const group = groupOf(candidate);
         if (day.length + group.length <= limit) day.push(...take(group));
       }

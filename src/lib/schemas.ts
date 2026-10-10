@@ -95,6 +95,9 @@ export const TripPreferencesSchema = z.object({
   // 交通方式 (plan/form-preference-wiring.md 1.7): self-drive means renting a
   // car on arrival for the whole trip. Unset is public transport.
   transport: z.enum(["transit", "drive"]).optional(),
+  // 季節限定景點 (plan/form-preference-wiring.md 1.12): on unless the
+  // traveler unticks it, so only `false` turns it off.
+  seasonalHighlights: z.boolean().optional(),
 });
 
 export type TripPreferences = z.infer<typeof TripPreferencesSchema>;

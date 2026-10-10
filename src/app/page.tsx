@@ -36,6 +36,11 @@ const INDOOR_OPTIONS: { value: "indoor"; label: string; desc: string }[] = [
   { value: "indoor", label: "室內行程為主", desc: "不想曬太陽、下雨也能玩：室內景點優先，戶外景點避開 11:00～15:00" },
 ];
 
+// Ticked by default: untick to leave seasonal places out.
+const SEASONAL_OPTIONS: { value: "seasonal"; label: string; desc: string }[] = [
+  { value: "seasonal", label: "加入季節限定景點", desc: "依出發月份排一天季節主題，例如 11 月賞楓、4 月賞櫻、冬天的點燈" },
+];
+
 const START_TIME_OPTIONS: { value: NonNullable<TripPreferences["startTime"]>; label: string; desc: string }[] = [
   { value: "early", label: "早起", desc: "8:00 前出門" },
   { value: "normal", label: "一般", desc: "9:00 出門" },
@@ -442,6 +447,7 @@ export default function Home() {
   const [interests, setInterests] = useState<NonNullable<TripPreferences["interests"]>>([]);
   const [startTime, setStartTime] = useState<TripPreferences["startTime"]>(undefined);
   const [indoor, setIndoor] = useState<"indoor" | undefined>(undefined);
+  const [seasonal, setSeasonal] = useState<"seasonal" | undefined>("seasonal");
   const [transport, setTransport] = useState<TripPreferences["transport"]>(undefined);
   const [diet, setDiet] = useState<DietTag[]>([]);
   const [drinks, setDrinks] = useState<DrinkTag[]>([]);
@@ -507,6 +513,7 @@ export default function Home() {
       interests: interests.length ? interests : undefined,
       startTime,
       indoorFirst: indoor === "indoor" ? true : undefined,
+      seasonalHighlights: seasonal === "seasonal" ? undefined : false,
       transport,
       fixedEvents: fixedEventDrafts.length ? fixedEventDrafts.map(toFixedEvent) : undefined,
       dietaryRestrictions: diet.length ? diet : undefined,
@@ -822,6 +829,13 @@ export default function Home() {
                       value={indoor}
                       onChange={setIndoor}
                       emptyHint="未勾選時室內、戶外都排"
+                    />
+                    <ChoiceRow
+                      label="季節"
+                      options={SEASONAL_OPTIONS}
+                      value={seasonal}
+                      onChange={setSeasonal}
+                      emptyHint="未勾選時不排季節限定景點"
                     />
                     <ChoiceRow
                       label="交通"

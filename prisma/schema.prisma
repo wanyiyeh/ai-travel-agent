@@ -218,6 +218,15 @@ model ClimateNormalCache {
   updatedAt     DateTime @updatedAt
 }
 
+// The model's seasonal places for a city and month (seasonalHighlights.ts),
+// before Text Search confirms them. An empty list is cached too — "nothing
+// special this month" is an answer; a failed call isn't.
+model SeasonalHighlightCache {
+  cacheKey  String   @id // "京都|11"
+  list      String   // JSON-encoded HighlightList
+  updatedAt DateTime @updatedAt
+}
+
 model NearestStationCache {
   cacheKey  String   @id
   station   String?  // JSON-encoded NearestStation, or null = confirmed none found
