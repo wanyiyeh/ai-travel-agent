@@ -35,6 +35,8 @@ export interface RestructureDayLite {
   isLocked?: boolean;
   waypointCity?: string;
   stopCount: number;
+  /** The traveler's booked event that day (固定行程), 「演唱會 11/12」: the day is always kept. */
+  bookedEventLabel?: string;
 }
 
 interface LockedAttractionState {
@@ -49,12 +51,13 @@ interface LockedAttractionState {
   priceLevel?: number | null;
 }
 
-interface CityEntryState {
+export interface CityEntryState {
   key: string;
   name: string;
   isNew: boolean;
   existingDayIds: string[]; // original day order — empty for new cities
   structuralDayIds: Set<string>; // transit-out / trip-return days — always kept
+  bookedDayIds: Set<string>; // sightseeing days with a booked event (固定行程) — always kept too
   keepDayIds: Set<string>;
   touchedKeep: boolean;
   targetDays: number; // total days for this city, including structural days
@@ -131,7 +134,7 @@ interface RestructurePanelProps {
 
 // Days carry no date of their own, so growing/shrinking the trip shifts
 // returnDate by the same delta server-side — this mirrors that shift purely
-// for the step 2/4 preview text. Keep in sync with shiftDateString in
+// for the step 2 preview text. Keep in sync with shiftDateString in
 // src/app/api/v1/itinerary/[id]/restructure/route.ts.
 function shiftDateString(dateStr: string, deltaDays: number): string {
   const d = new Date(`${dateStr}T00:00:00Z`);
@@ -150,14 +153,14 @@ const HOUR_FILTERS: { label: string; test: (hours: number) => boolean }[] = [
 // A transit day or the trip's very last day doesn't represent a day actually
 // spent sightseeing in its assigned city — mirrors isStructuralDay in the
 // restructure API route.
-function computeStructuralDayIds(days: RestructureDayLite[]): Set<string> {
+export function computeStructuralDayIds(days: RestructureDayLite[]): Set<string> {
   const ids = new Set(days.filter((d) => d.isTransitDay).map((d) => d.id));
   const last = days[days.length - 1];
   if (last) ids.add(last.id);
   return ids;
 }
 
-function groupExistingDays(days: RestructureDayLite[], structuralIds: Set<string>): CityEntryState[] {
+export function groupExistingDays(days: RestructureDayLite[], structuralIds: Set<string>): CityEntryState[] {
   const buckets = new Map<string, RestructureDayLite[]>();
   for (const day of days) {
     const key = day.waypointCity || PRIMARY_CITY_KEY;
@@ -168,12 +171,14 @@ function groupExistingDays(days: RestructureDayLite[], structuralIds: Set<string
   return Array.from(buckets.entries()).map(([key, bucketDays]) => {
     const ids = bucketDays.map((d) => d.id);
     const cityStructuralIds = new Set(ids.filter((id) => structuralIds.has(id)));
+    const bookedIds = bucketDays.filter((d) => d.bookedEventLabel && !structuralIds.has(d.id)).map((d) => d.id);
     return {
       key: crypto.randomUUID(),
       name: key === PRIMARY_CITY_KEY ? "" : key,
       isNew: false,
       existingDayIds: ids,
       structuralDayIds: cityStructuralIds,
+      bookedDayIds: new Set(bookedIds),
       keepDayIds: new Set(ids),
       touchedKeep: false,
       targetDays: ids.length,
@@ -197,10 +202,25 @@ function totalCityDays(city: CityEntryState): number {
   return city.targetDays;
 }
 
-function defaultKeepIds(city: CityEntryState): Set<string> {
-  const sightseeingIds = city.existingDayIds.filter((id) => !city.structuralDayIds.has(id));
-  const cap = Math.max(0, city.targetDays - structuralCount(city) - city.lockedAttractions.length);
-  return new Set([...sightseeingIds.slice(0, cap), ...city.structuralDayIds]);
+// The fewest days a city can have: its structural days, its locked
+// attractions and its booked-event days, none of which can be dropped.
+export function minCityDays(city: CityEntryState): number {
+  return Math.max(1, city.lockedAttractions.length + structuralCount(city) + city.bookedDayIds.size);
+}
+
+// How many existing sightseeing days fit in the city's new total.
+function keepCap(city: CityEntryState): number {
+  return Math.max(0, city.targetDays - structuralCount(city) - city.lockedAttractions.length);
+}
+
+// Booked-event days first: they're kept whatever else has to go.
+function bookedFirst(city: CityEntryState, ids: string[]): string[] {
+  return [...ids.filter((id) => city.bookedDayIds.has(id)), ...ids.filter((id) => !city.bookedDayIds.has(id))];
+}
+
+export function defaultKeepIds(city: CityEntryState): Set<string> {
+  const sightseeingIds = bookedFirst(city, city.existingDayIds.filter((id) => !city.structuralDayIds.has(id)));
+  return new Set([...sightseeingIds.slice(0, keepCap(city)), ...city.structuralDayIds]);
 }
 
 // Reconciles keepDayIds against `city`'s (already-updated) targetDays and
@@ -212,17 +232,39 @@ function defaultKeepIds(city: CityEntryState): Set<string> {
 // panel displays. Without this, shrinking a city after hand-picking which
 // days to keep silently produced more days than targetDays, pushing the
 // trip over its original total.
-function syncKeepDaysForTarget(city: CityEntryState): CityEntryState {
+export function syncKeepDaysForTarget(city: CityEntryState): CityEntryState {
   if (!city.touchedKeep) return { ...city, keepDayIds: defaultKeepIds(city) };
-  const sightseeingKeepOrder = city.existingDayIds.filter(
-    (id) => !city.structuralDayIds.has(id) && city.keepDayIds.has(id)
+  const sightseeingKeepOrder = bookedFirst(
+    city,
+    city.existingDayIds.filter((id) => !city.structuralDayIds.has(id) && city.keepDayIds.has(id))
   );
-  const cap = Math.max(0, city.targetDays - structuralCount(city) - city.lockedAttractions.length);
+  const cap = keepCap(city);
   if (sightseeingKeepOrder.length <= cap) return city;
   return {
     ...city,
     keepDayIds: new Set([...sightseeingKeepOrder.slice(0, cap), ...city.structuralDayIds]),
   };
+}
+
+// What applying will do to one city: which existing days stay or go, and how
+// many new days the AI plans.
+export function computeCityDiff(city: CityEntryState) {
+  const removed = city.existingDayIds.filter((id) => !city.keepDayIds.has(id));
+  const keptCount = city.existingDayIds.length - removed.length;
+  const sightseeingKeptCount = city.existingDayIds.filter(
+    (id) => city.keepDayIds.has(id) && !city.structuralDayIds.has(id)
+  ).length;
+  const addedAiDays = Math.max(
+    0,
+    city.targetDays - structuralCount(city) - sightseeingKeptCount - city.lockedAttractions.length
+  );
+  return { removed, keptCount, sightseeingKeptCount, addedAiDays };
+}
+
+// Existing sightseeing days the traveler could choose between — the cities
+// that get the 「進階：手動選擇要保留哪幾天」 section.
+export function choosableDayIds(city: CityEntryState): string[] {
+  return city.isNew ? [] : city.existingDayIds.filter((id) => !city.structuralDayIds.has(id));
 }
 
 function SortableCityEntry({
@@ -322,7 +364,7 @@ export default function RestructurePanel({
   existingStops,
   returnDate,
 }: RestructurePanelProps) {
-  const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
+  const [step, setStep] = useState<1 | 2>(1);
   const [cities, setCities] = useState<CityEntryState[]>(() =>
     groupExistingDays(days, computeStructuralDayIds(days))
   );
@@ -335,6 +377,10 @@ export default function RestructurePanel({
   const [applyError, setApplyError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
   const [capHint, setCapHint] = useState<{ cityKey: string; text: string } | null>(null);
+  // Cities whose 「進階：手動選擇要保留哪幾天」 is open. Opened automatically
+  // when a change drops one of the city's existing days, and only ever added
+  // to that way: closing it is the traveler's own choice.
+  const [expandedKeepKeys, setExpandedKeepKeys] = useState<Set<string>>(new Set());
 
   // Resolve coordinates for the trip's starting cities once on mount, purely
   // to seed findInsertionIndex — a newly-added city is only ever positioned
@@ -522,7 +568,21 @@ export default function RestructurePanel({
 
   const updateCity = (key: string, updater: (c: CityEntryState) => CityEntryState) => {
     setDirty(true);
+    const before = cities.find((c) => c.key === key);
+    const after = before ? updater(before) : undefined;
+    if (before && after && computeCityDiff(after).sightseeingKeptCount < computeCityDiff(before).sightseeingKeptCount) {
+      setExpandedKeepKeys((prev) => (prev.has(key) ? prev : new Set([...prev, key])));
+    }
     setCities((prev) => prev.map((c) => (c.key === key ? updater(c) : c)));
+  };
+
+  const toggleKeepExpanded = (key: string) => {
+    setExpandedKeepKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
   };
 
   const handleClose = () => {
@@ -541,7 +601,7 @@ export default function RestructurePanel({
   const removeAttraction = (cityKey: string, attractionKey: string) => {
     updateCity(cityKey, (c) => {
       const lockedAttractions = c.lockedAttractions.filter((a) => a.key !== attractionKey);
-      const minDays = Math.max(1, lockedAttractions.length + structuralCount(c));
+      const minDays = minCityDays({ ...c, lockedAttractions });
       const targetDays = Math.max(minDays, c.targetDays - 1);
       return syncKeepDaysForTarget({ ...c, lockedAttractions, targetDays });
     });
@@ -563,6 +623,7 @@ export default function RestructurePanel({
         isNew: true,
         existingDayIds: [],
         structuralDayIds: new Set(),
+        bookedDayIds: new Set(),
         keepDayIds: new Set(),
         touchedKeep: false,
         targetDays,
@@ -579,14 +640,14 @@ export default function RestructurePanel({
 
   const setTargetDays = (key: string, targetDays: number) => {
     updateCity(key, (c) => {
-      const minDays = Math.max(1, c.lockedAttractions.length + structuralCount(c));
+      const minDays = minCityDays(c);
       const clamped = Math.max(minDays, Math.min(MAX_TARGET_DAYS, targetDays));
       let hintText: string | null = null;
 
       if (targetDays > MAX_TARGET_DAYS) {
         hintText = `已達單一城市最多 ${MAX_TARGET_DAYS} 天`;
       } else if (targetDays < minDays) {
-        hintText = "已達最少天數（含鎖定景點與交通日）";
+        hintText = "已達最少天數（含鎖定景點、固定行程與交通日）";
       }
 
       if (hintText) {
@@ -599,6 +660,8 @@ export default function RestructurePanel({
 
   const toggleKeep = (cityKey: string, dayId: string) => {
     updateCity(cityKey, (c) => {
+      // A booked event's day can't be dropped (to cancel the event, edit the form).
+      if (c.bookedDayIds.has(dayId)) return c;
       const keepDayIds = new Set(c.keepDayIds);
       if (keepDayIds.has(dayId)) {
         keepDayIds.delete(dayId);
@@ -646,6 +709,7 @@ export default function RestructurePanel({
             isNew: true,
             existingDayIds: [],
             structuralDayIds: new Set(),
+            bookedDayIds: new Set(),
             keepDayIds: new Set(),
             touchedKeep: false,
             targetDays: 3, // 1 transit day + 2 sightseeing days by default
@@ -757,7 +821,7 @@ export default function RestructurePanel({
       <div className="px-4 py-3 border-b border-indigo-200 dark:border-indigo-800/50 flex items-center justify-between">
         <div>
           <h4 className="text-sm font-bold text-indigo-900 dark:text-indigo-100">重新規劃行程</h4>
-          <p className="text-xs text-indigo-600 dark:text-indigo-400 mt-0.5">第 {step} / 4 步</p>
+          <p className="text-xs text-indigo-600 dark:text-indigo-400 mt-0.5">{step === 1 ? "選城市與景點" : "調整與套用"}</p>
         </div>
         <button
           onClick={handleClose}
@@ -971,136 +1035,47 @@ export default function RestructurePanel({
           </div>
         )}
 
-        {/* Step 2: day counts */}
+        {/* Step 2: day counts, what changes per city, and apply */}
         {step === 2 && (
           <div className="space-y-2">
             <p className="text-xs text-zinc-500 dark:text-zinc-400">
-              已依你加入的必去景點試算建議天數，可用 +/- 微調每個城市的總天數。
+              已依你加入的必去景點試算建議天數，可用 +/- 微調每個城市的總天數。移動日、回程日和有固定行程的日子會自動保留。
             </p>
-            <div
-              className={`flex items-center justify-between rounded-lg border px-3 py-2 text-xs font-semibold ${
-                dayDelta !== 0
-                  ? "border-amber-300 dark:border-amber-800/50 bg-amber-50 dark:bg-amber-950/20 text-amber-700 dark:text-amber-400"
-                  : "border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-300"
-              }`}
-            >
-              <span>總天數（原訂 {totalBefore} 天）</span>
-              <span>{totalAfter} / {totalBefore} 天</span>
-            </div>
-            {newReturnDate && (
-              <p className="text-xs text-amber-600 dark:text-amber-400">
-                {dayDelta > 0
-                  ? `天數增加 ${dayDelta} 天，套用後回程日期將順延至 ${newReturnDate}`
-                  : `天數減少 ${-dayDelta} 天，套用後回程日期將提前至 ${newReturnDate}`}
-              </p>
-            )}
-            {cities.map((city) => (
-              <div key={city.key} className="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-2.5">
-                <div className="flex items-center gap-2">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-50 truncate">{city.name}</p>
-                    {city.lockedAttractions.length > 0 && (
-                      <p className="text-xs text-zinc-400 dark:text-zinc-500 truncate">
-                        含 {city.lockedAttractions.length} 個鎖定景點日
-                      </p>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    <button
-                      onClick={() => setTargetDays(city.key, city.targetDays - 1)}
-                      className="w-6 h-6 flex items-center justify-center rounded border border-zinc-200 dark:border-zinc-700 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-sm transition-colors"
-                    >
-                      −
-                    </button>
-                    <span className="text-sm font-semibold text-zinc-900 dark:text-zinc-50 w-6 text-center">{totalCityDays(city)}</span>
-                    <button
-                      onClick={() => setTargetDays(city.key, city.targetDays + 1)}
-                      disabled={city.targetDays >= MAX_TARGET_DAYS}
-                      title={city.targetDays >= MAX_TARGET_DAYS ? `已達單一城市最多 ${MAX_TARGET_DAYS} 天` : undefined}
-                      className="w-6 h-6 flex items-center justify-center rounded border border-zinc-200 dark:border-zinc-700 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-sm transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent"
-                    >
-                      +
-                    </button>
-                    <span className="text-xs text-zinc-400 ml-0.5">天</span>
-                  </div>
-                </div>
-                {capHint?.cityKey === city.key && (
-                  <p className="text-xs text-amber-600 dark:text-amber-400 mt-1 text-right">{capHint.text}</p>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Step 3: keep/discard checklist for existing cities being shrunk */}
-        {step === 3 && (
-          <div className="space-y-4">
-            <p className="text-xs text-zinc-500 dark:text-zinc-400">
-              移動日／回程日會自動保留，不列在下方清單中。
-            </p>
-            {cities
-              .filter((c) => !c.isNew && c.existingDayIds.some((id) => !c.structuralDayIds.has(id)))
-              .map((city) => (
-              <div key={city.key} className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">{city.name}</p>
-                  <button
-                    onClick={() => resetKeepToRecommended(city.key)}
-                    className="text-xs text-indigo-600 hover:text-indigo-700 dark:text-indigo-400"
-                  >
-                    還原建議勾選
-                  </button>
-                </div>
-                <div className="space-y-1">
-                  {city.existingDayIds.filter((id) => !city.structuralDayIds.has(id)).map((id) => {
-                    const day = daysById.get(id);
-                    if (!day) return null;
-                    return (
-                      <label
-                        key={id}
-                        className="flex items-center gap-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm cursor-pointer"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={city.keepDayIds.has(id)}
-                          onChange={() => toggleKeep(city.key, id)}
-                          className="rounded border-zinc-300 dark:border-zinc-600 text-indigo-600 focus:ring-indigo-500"
-                        />
-                        <span className="text-zinc-700 dark:text-zinc-300">
-                          第 {day.day} 天{day.theme ? `・${day.theme}` : ""}
-                          {day.isLocked && " 🔒"}
-                        </span>
-                        <span className="text-xs text-zinc-400 ml-auto">{day.stopCount} 個景點</span>
-                      </label>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-            {cities.every((c) => c.isNew || c.existingDayIds.every((id) => c.structuralDayIds.has(id))) && (
-              <p className="text-sm text-zinc-400 dark:text-zinc-500">沒有需要保留/捨棄的既有天數。</p>
-            )}
-          </div>
-        )}
-
-        {/* Step 4: diff + confirm */}
-        {step === 4 && (
-          <div className="space-y-3">
             {cities.map((city) => {
-              const removed = city.existingDayIds.filter((id) => !city.keepDayIds.has(id));
-              const keptCount = city.existingDayIds.filter((id) => city.keepDayIds.has(id)).length;
-              const sightseeingKeptCount = city.existingDayIds.filter(
-                (id) => city.keepDayIds.has(id) && !city.structuralDayIds.has(id)
-              ).length;
-              const addedAiDays = Math.max(
-                0,
-                city.targetDays - structuralCount(city) - sightseeingKeptCount - city.lockedAttractions.length
-              );
+              const { removed, keptCount, addedAiDays } = computeCityDiff(city);
+              const choosable = choosableDayIds(city);
+              const expanded = expandedKeepKeys.has(city.key);
               return (
-                <div key={city.key} className="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-3 space-y-1.5">
-                  <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
-                    {city.name} · 共 {totalCityDays(city)} 天
-                  </p>
+                <div
+                  key={city.key}
+                  className="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-2.5 space-y-1.5"
+                >
+                  <div className="flex items-center gap-2">
+                    <p className="flex-1 min-w-0 text-sm font-semibold text-zinc-900 dark:text-zinc-50 truncate">{city.name}</p>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        onClick={() => setTargetDays(city.key, city.targetDays - 1)}
+                        aria-label={`${city.name} 減少一天`}
+                        className="w-6 h-6 flex items-center justify-center rounded border border-zinc-200 dark:border-zinc-700 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-sm transition-colors"
+                      >
+                        −
+                      </button>
+                      <span className="text-sm font-semibold text-zinc-900 dark:text-zinc-50 w-6 text-center">{totalCityDays(city)}</span>
+                      <button
+                        onClick={() => setTargetDays(city.key, city.targetDays + 1)}
+                        disabled={city.targetDays >= MAX_TARGET_DAYS}
+                        aria-label={`${city.name} 增加一天`}
+                        title={city.targetDays >= MAX_TARGET_DAYS ? `已達單一城市最多 ${MAX_TARGET_DAYS} 天` : undefined}
+                        className="w-6 h-6 flex items-center justify-center rounded border border-zinc-200 dark:border-zinc-700 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-sm transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                      >
+                        +
+                      </button>
+                      <span className="text-xs text-zinc-400 ml-0.5">天</span>
+                    </div>
+                  </div>
+                  {capHint?.cityKey === city.key && (
+                    <p className="text-xs text-amber-600 dark:text-amber-400 text-right">{capHint.text}</p>
+                  )}
                   {keptCount > 0 && (
                     <p className="text-xs text-zinc-500 dark:text-zinc-400">保留原本 {keptCount} 天</p>
                   )}
@@ -1116,6 +1091,56 @@ export default function RestructurePanel({
                     <p className="text-xs text-purple-600 dark:text-purple-400">
                       🔒 鎖定景點日：{city.lockedAttractions.map((a) => a.name).join("、")}
                     </p>
+                  )}
+                  {choosable.length > 0 && (
+                    <div>
+                      <button
+                        onClick={() => toggleKeepExpanded(city.key)}
+                        aria-expanded={expanded}
+                        className="text-xs text-indigo-600 hover:text-indigo-700 dark:text-indigo-400"
+                      >
+                        {expanded ? "▾" : "▸"} 進階：手動選擇要保留哪幾天
+                      </button>
+                      {expanded && (
+                        <div className="mt-1.5 space-y-1">
+                          {choosable.map((id) => {
+                            const day = daysById.get(id);
+                            if (!day) return null;
+                            const booked = city.bookedDayIds.has(id);
+                            return (
+                              <label
+                                key={id}
+                                className={`flex items-center gap-2 rounded-lg border border-zinc-200 dark:border-zinc-700 px-3 py-2 text-sm ${
+                                  booked ? "bg-zinc-50 dark:bg-zinc-800/50" : "cursor-pointer"
+                                }`}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={city.keepDayIds.has(id)}
+                                  disabled={booked}
+                                  onChange={() => toggleKeep(city.key, id)}
+                                  className="rounded border-zinc-300 dark:border-zinc-600 text-indigo-600 focus:ring-indigo-500 disabled:opacity-60"
+                                />
+                                <span className="text-zinc-700 dark:text-zinc-300">
+                                  第 {day.day} 天{day.theme ? `・${day.theme}` : ""}
+                                  {day.isLocked && " 🔒"}
+                                  {day.bookedEventLabel && (
+                                    <span className="ml-1 text-xs text-purple-600 dark:text-purple-400">🔒 {day.bookedEventLabel}</span>
+                                  )}
+                                </span>
+                                <span className="text-xs text-zinc-400 ml-auto">{day.stopCount} 個景點</span>
+                              </label>
+                            );
+                          })}
+                          <button
+                            onClick={() => resetKeepToRecommended(city.key)}
+                            className="text-xs text-indigo-600 hover:text-indigo-700 dark:text-indigo-400"
+                          >
+                            還原建議勾選
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   )}
                 </div>
               );
@@ -1136,8 +1161,9 @@ export default function RestructurePanel({
             </div>
             {newReturnDate && (
               <p className="text-xs text-amber-600 dark:text-amber-400 font-semibold">
-                套用後總天數（{totalAfter} 天）與原訂 {totalBefore} 天不同，回程日期將
-                {dayDelta > 0 ? "順延" : "提前"}至 {newReturnDate}。
+                {dayDelta > 0
+                  ? `天數增加 ${dayDelta} 天，套用後回程日期將順延至 ${newReturnDate}`
+                  : `天數減少 ${-dayDelta} 天，套用後回程日期將提前至 ${newReturnDate}`}
               </p>
             )}
             {totalAfter > MAX_TRIP_DAYS && (
@@ -1152,16 +1178,16 @@ export default function RestructurePanel({
         {/* Nav */}
         <div className="flex items-center justify-between pt-2 border-t border-indigo-100 dark:border-indigo-900/40">
           <button
-            onClick={() => setStep((s) => (s > 1 ? ((s - 1) as 1 | 2 | 3) : s))}
+            onClick={() => setStep(1)}
             disabled={step === 1 || applying}
             className="px-3 py-1.5 text-sm text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 disabled:opacity-30 transition-colors"
           >
             上一步
           </button>
-          {step < 4 ? (
+          {step === 1 ? (
             <button
-              onClick={() => setStep((s) => (s < 4 ? ((s + 1) as 2 | 3 | 4) : s))}
-              disabled={step === 1 && !step1Ready}
+              onClick={() => setStep(2)}
+              disabled={!step1Ready}
               className="px-4 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-sm font-semibold transition-colors"
             >
               下一步

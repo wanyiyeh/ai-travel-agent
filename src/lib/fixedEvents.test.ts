@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   blockOf,
+  bookedEventLabel,
+  bookedEventOn,
   eventMeal,
   eventNotes,
   eventStop,
@@ -198,5 +200,28 @@ describe("tripDayOfDate", () => {
   it("has no day for a date outside the trip", () => {
     expect(tripDayOfDate("2026-11-09", "2026-11-10", "2026-11-16")).toBeUndefined();
     expect(tripDayOfDate("2026-11-17", "2026-11-10", "2026-11-16")).toBeUndefined();
+  });
+});
+
+describe("bookedEventOn", () => {
+  const lunch: FixedEvent = { type: "reservation", date: "2026-11-12", startTime: "12:00", venueName: "すきやばし次郎" };
+  const errand: FixedEvent = { type: "other", date: "2026-11-13", startTime: "10:00", venueName: "大使館" };
+
+  it("finds the traveler's event among a day's stops, or as a meal", () => {
+    expect(bookedEventOn({ stops: [{ name: "淺草寺" }, eventStop(concert, undefined)] }, [concert, lunch])).toBe(concert);
+    expect(bookedEventOn({ stops: [], meals: { lunch: eventMeal(lunch, undefined), dinner: null } }, [concert, lunch])).toBe(lunch);
+    expect(bookedEventOn({ stops: [{ name: "淺草寺" }] }, [concert])).toBeUndefined();
+  });
+
+  it("doesn't take the rental counter for an 'other' event at the same time", () => {
+    const pickup = { name: "取車：Times Car 成田機場", fixedEvent: { type: "other", startTime: "10:00", endTime: "10:30" } };
+    expect(bookedEventOn({ stops: [pickup] }, [errand])).toBeUndefined();
+    expect(bookedEventOn({ stops: [eventStop(errand, undefined)] }, [errand])).toBe(errand);
+  });
+});
+
+describe("bookedEventLabel", () => {
+  it("names the event and its date", () => {
+    expect(bookedEventLabel(concert)).toBe("演唱會 11/11");
   });
 });
