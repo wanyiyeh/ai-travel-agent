@@ -279,6 +279,8 @@ export const DaySchema = z.object({
   transitTo: z.string().nullish().transform(v => v ?? undefined),
   waypointCity: z.string().optional(),
   isLocked: z.boolean().optional(),
+  // What to search KKday/Klook for on a day trip or seasonal day (tourLinks.ts): 「鎌倉」「京都 賞楓」.
+  tourKeyword: z.string().optional(),
   // 「日落約 16:30・這個月常下雨，記得帶傘」 (dayConditions.ts).
   weatherNote: z.string().optional(),
 });

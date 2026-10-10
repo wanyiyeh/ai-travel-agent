@@ -430,6 +430,8 @@ export async function assembleItineraryDays(
         // A whole day out stays as planned when the trip is restructured.
         ...(trip?.kind === "day" ? { isLocked: true } : {}),
         ...(weatherNote(conditionsByDay[i]) ? { weatherNote: weatherNote(conditionsByDay[i]) } : {}),
+        // Places people often visit on a tour (tourLinks.ts): the day trip's town, the seasonal theme.
+        ...(trip ? { tourKeyword: trip.name } : seasonal ? { tourKeyword: `${city.name} ${seasonal.label}` } : {}),
       });
     }
 

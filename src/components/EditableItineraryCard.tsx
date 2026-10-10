@@ -31,6 +31,7 @@ import { calculateStopsCost, calculateDayTotalCost } from "@/lib/costCalculation
 import { buildPlaceMapsUrl, buildDirectionsUrl, buildNearbySearchUrl, buildSearchMapsUrl } from "@/lib/googleMapsUrl";
 import { formatDuration } from "@/types/itinerary";
 import { MEAL_TYPES } from "@/types/itinerary";
+import { tourLinks } from "@/lib/tourLinks";
 import { isDinnerBeforeStop } from "@/lib/fixedEvents";
 import type { Itinerary, Day, Stop, Meal, MealType, Accommodation, StopCandidate } from "@/types/itinerary";
 import { buildDayTimeline, MEAL_TIME_OF_DAY } from "@/lib/dayTimeline";
@@ -1468,6 +1469,7 @@ export default function EditableItineraryCard({
                           <SortableStop
                             stop={stop}
                             index={idx}
+                            showTourLinks={!day.tourKeyword}
                             currency={itinerary.currency}
                             editingStop={editingStop}
                             isLoading={loading === stop.id}
@@ -1517,6 +1519,24 @@ export default function EditableItineraryCard({
 
                 return (
                   <div className="p-5">
+                    {day.tourKeyword && (
+                      <p className="mb-3 text-sm text-zinc-500 dark:text-zinc-400">
+                        🎫 也可以跟團去：
+                        {tourLinks(day.tourKeyword).map((link, i) => (
+                          <span key={link.site}>
+                            {i > 0 && "・"}
+                            <a
+                              href={link.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-blue-600 dark:text-blue-400 hover:underline"
+                            >
+                              {link.site}
+                            </a>
+                          </span>
+                        ))}
+                      </p>
+                    )}
                     {day.id ? (
                       <DayStopsZone dayId={day.id} stopIds={stopIds} isTransitDay={isTransitDay}>
                         {stopsList}

@@ -6,6 +6,7 @@ import { formatDuration } from "@/types/itinerary";
 import type { Stop } from "@/types/itinerary";
 import { PlacePhotoThumb } from "@/components/PlacePhotoThumb";
 import { buildPlaceMapsUrl } from "@/lib/googleMapsUrl";
+import { isBigSight, tourLinks } from "@/lib/tourLinks";
 
 const DURATION_STEP = 15;
 const DURATION_PRESETS = [30, 60, 90, 120, 180, 240];
@@ -39,6 +40,8 @@ interface SortableStopProps {
   isPicking?: boolean;
   onMove?: (stop: Stop, targetDayId: string) => void;
   moveTargets?: { id: string; label: string }[];
+  /** False on a day that already links its tours (a day trip, a seasonal day). */
+  showTourLinks?: boolean;
 }
 
 export function SortableStop({
@@ -62,6 +65,7 @@ export function SortableStop({
   isPicking = false,
   onMove,
   moveTargets,
+  showTourLinks = true,
 }: SortableStopProps) {
   const isEditing = editingStop?.id === stop.id;
   const [showMoveMenu, setShowMoveMenu] = useState(false);
@@ -293,6 +297,19 @@ export function SortableStop({
                   ⏱ {formatDuration(stop.duration_minutes)}
                 </p>
               )
+            )}
+            {showTourLinks && isBigSight(stop) && (
+              <p className="mt-0.5 text-xs text-zinc-400 dark:text-zinc-500">
+                🎫 找導覽：
+                {tourLinks(stop.name).map((link, i) => (
+                  <span key={link.site}>
+                    {i > 0 && "・"}
+                    <a href={link.url} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">
+                      {link.site}
+                    </a>
+                  </span>
+                ))}
+              </p>
             )}
             {stop.estimated_cost !== undefined && (
               <p className="mt-0.5 text-xs text-emerald-600 dark:text-emerald-400 font-medium">

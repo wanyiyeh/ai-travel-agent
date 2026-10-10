@@ -493,6 +493,7 @@ describe("assembleItineraryDays — suburb trips", () => {
     expect(events.map((e) => e.stop.placeId)).toEqual(["箱根神社", "大涌谷"]);
     expect(events.at(-1)!.block.endMinute).toBe(18 * 60);
     expect(findSuburbMock).not.toHaveBeenCalled();
+    expect(day2.tourKeyword).toBe("箱根"); // KKday/Klook: tours to 箱根
   });
 
   it("keeps a half day nearby, without looking for a classic town", async () => {
@@ -575,6 +576,7 @@ describe("assembleItineraryDays — seasonal day", () => {
 
   it("titles the day, keeps its places for that day, and puts the illumination in the evening", async () => {
     const result = await run(undefined, undefined);
+    expect(result!.days[1].tourKeyword).toBe("東京 賞楓");
 
     // the arrival day goes last, so 東京's second day
     expect(result!.days[1].theme).toBe("東京 季節限定：賞楓");
