@@ -511,6 +511,29 @@ describe("assembleItineraryDays — suburb trips", () => {
     expect(findClassicMock).not.toHaveBeenCalled();
   });
 
+  it("looks further for a day trip's lunch, then says to eat out there rather than in town", async () => {
+    // 支笏洞爺國立公園: its coordinate is the middle of the park, nothing within 3km
+    restaurantNearMock.mockResolvedValueOnce(undefined).mockResolvedValueOnce({ name: "Lakeside Soba", placeId: "soba" });
+
+    const result = await run(undefined, { transport: "drive" });
+
+    expect(restaurantNearMock.mock.calls.map((c) => c[3])).toEqual([3000, 10000]);
+    expect((result!.days[1].meals as { lunch: { name: string } }).lunch.name).toBe("Lakeside Soba");
+
+    restaurantNearMock.mockReset();
+    restaurantNearMock.mockResolvedValue(undefined);
+    mealsMock.mockImplementation(async (_city: string, nights: number) => ({
+      accommodation: { name: "Hotel" },
+      mealsByDay: Array.from({ length: nights }, () => ({ lunch: { name: "City Sushi", placeId: "city" } })),
+    }));
+
+    const nothingNear = await run(undefined, { transport: "drive" });
+
+    const lunch = (nothingNear!.days[1].meals as { lunch: { name: string; placeId?: string } }).lunch;
+    expect(lunch.name).toBe("高尾山附近用餐");
+    expect(lunch).not.toHaveProperty("placeId");
+  });
+
   it("checks the season on the day trip's own date", async () => {
     await run(undefined, undefined);
 
