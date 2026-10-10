@@ -7,6 +7,10 @@ describe("computeArrivalDayStartMinute", () => {
     expect(computeArrivalDayStartMinute(14 * 60)).toBe(15 * 60 + 30);
   });
 
+  it("takes a shorter buffer when given one (a 國內 trip arriving by train or car)", () => {
+    expect(computeArrivalDayStartMinute(11 * 60, 15)).toBe(11 * 60 + 15);
+  });
+
   it("handles an early morning arrival", () => {
     // 07:00 arrival -> 08:30 start
     expect(computeArrivalDayStartMinute(7 * 60)).toBe(8 * 60 + 30);

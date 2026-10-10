@@ -706,3 +706,52 @@ describe("assembleItineraryDays — film day", () => {
     expect(findFilmMock).not.toHaveBeenCalled();
   });
 });
+
+// 國內 (domesticTrips.ts): 台北 home, 台南 then 高雄, by the traveler's own car.
+describe("assembleItineraryDays — 國內", () => {
+  const domestic: FlightInfo = {
+    tripType: "domestic",
+    departureCity: "TW-TPE",
+    arrivalCity: "TW-TNN",
+    returnDepartureCity: "TW-KHH",
+    departureDate: "2026-12-01",
+    returnDate: "2026-12-06",
+    homeDepartureTime: "08:00",
+    homeArrivalTime: "20:00",
+    // as withDomesticTimes fills them in, in the route
+    arrivalTime: "11:45",
+    returnDepartureTime: "16:30",
+  };
+  const runDomestic = (preferences: TripPreferences | undefined) =>
+    assembleItineraryDays(domestic, undefined, preferences, "test-model");
+
+  beforeEach(() => {
+    findRentalMock.mockReset();
+    planTripMock.mockResolvedValue({ title: "南台灣", currency: "TWD", cities: [{ name: "台南", days: 3 }, { name: "高雄", days: 2 }] });
+  });
+
+  it("opens day 1 with the way there and ends the last day with the way home", async () => {
+    await runDomestic(undefined);
+
+    const firstDayEvents = dayStopsMock.mock.calls[0][9][0];
+    expect(firstDayEvents[0].stop.name).toBe("從台北前往台南");
+    expect(firstDayEvents[0].block.startMinute).toBe(8 * 60);
+    const lastDayEvents = departureStopsMock.mock.calls[0][7] as { stop: { name: string } }[];
+    expect(lastDayEvents.at(-1)!.stop.name).toBe("從高雄前往台北");
+  });
+
+  it("starts sightseeing soon after arriving and stops half an hour before leaving", async () => {
+    await runDomestic(undefined);
+
+    expect(dayStopsMock.mock.calls[0][DAY_STOPS_FIRST_START]).toBe(11 * 60 + 45 + 15);
+    expect(departureStopsMock.mock.calls[0][9]).toBe(30);
+  });
+
+  it("drives the traveler's own car: no rental pickup or return", async () => {
+    await runDomestic({ transport: "drive" });
+
+    expect(findRentalMock).not.toHaveBeenCalled();
+    expect(departureStopsMock.mock.calls[0][8]).toBeUndefined();
+    expect(dayStopsMock.mock.calls[0][DAY_STOPS_INTENT]).toMatchObject({ domestic: true, selfDrive: true });
+  });
+});

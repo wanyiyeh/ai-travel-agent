@@ -384,7 +384,12 @@ export async function POST(
     const budget = preferences?.budget as BudgetLevel | undefined;
     const freeText = (config.generatedWith as string) ?? "";
     const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
-    const preferenceIntent = mergePreferenceIntent(preferences, await parsePreferenceIntent(freeText, model));
+    // 國內 (domesticTrips.ts): rebuilt transit days stay on Taiwan's trains and the traveler's own car.
+    const domestic = (config.flightInfo as { tripType?: string } | undefined)?.tripType === "domestic";
+    const preferenceIntent = {
+      ...mergePreferenceIntent(preferences, await parsePreferenceIntent(freeText, model)),
+      ...(domestic ? { domestic: true } : {}),
+    };
 
     const daysById = new Map(days.map((d) => [d.id as string, d]));
     const keptIds = new Set(cities.flatMap((c) => c.keepDayIds));

@@ -422,6 +422,31 @@ describe("trimLoopTowns", () => {
   });
 });
 
+describe("planTrip — 國內", () => {
+  beforeEach(() => {
+    createMock.mockReset();
+  });
+
+  it("plans from and back home, never by plane", async () => {
+    mockJson({ title: "t", currency: "TWD", cities: [{ name: "台南", days: 2 }] });
+    const domestic: FlightInfo = {
+      tripType: "domestic",
+      departureCity: "TW-TPE",
+      arrivalCity: "TW-TNN",
+      returnDepartureCity: "TW-TNN",
+      departureDate: "2026-05-01",
+      returnDate: "2026-05-04",
+    };
+
+    await planTrip(domestic, undefined, undefined, "m");
+
+    const system = createMock.mock.calls[0][0].messages[0].content as string;
+    expect(system).toContain("台灣國內旅遊：從 台南 開始");
+    expect(system).toContain("從「台南」結束回家");
+    expect(system).not.toContain("航班");
+  });
+});
+
 describe("closeLoop", () => {
   it("leaves a loop that already ends in the arrival city alone", () => {
     const cities = [{ name: "札幌", days: 3 }, { name: "小樽", days: 2 }, { name: "札幌", days: 1 }];

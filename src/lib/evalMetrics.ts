@@ -2,7 +2,7 @@ import type { BudgetLevel } from "@/lib/fetchCityRestaurants";
 import { MAIN_MEAL_BUDGET_TWD } from "@/lib/mealBudget";
 import { isBudgetLodging, isLuxuryLodging } from "@/lib/lodgingTiers";
 import { mapPlaceTypeToCategory } from "@/lib/scheduler/mapPlaceTypeToCategory";
-import { exposureOf, isBarStreet } from "@/lib/indoorOutdoor";
+import { exposureOf, isBarStreet, isNotADaytimeSight } from "@/lib/indoorOutdoor";
 import { isGroupDining, isSoloFriendly } from "@/lib/soloTravel";
 import { haversineKm } from "@/lib/geo";
 
@@ -36,7 +36,9 @@ export type ItineraryMetrics = {
   /** Every leg in the trip by how it's travelled, from its label. */
   legModes: { walk: number; transit: number; drive: number; taxi: number };
   /** The trip's very first and very last stop — a self-driver's car pickup and return. */
-  tripEnds: { first?: string; last?: string };
+  tripEnds: { first?: string; last?: string; firstNote?: string; lastNote?: string };
+  /** Stops or transit steps that mention an airport or a flight — none on a mainland 國內 trip. */
+  flightMentions: string[];
   /** 季節限定 days (seasonalHighlights.ts): the title and every stop's name. */
   seasonalDays: { day: number; title: string; stops: string[]; eveningStops: number }[];
   /** 影劇朝聖 days (filmLocations.ts): the title and every stop's name. */
@@ -84,6 +86,8 @@ export type ItineraryMetrics = {
   transitRepeats: string[];
   /** Stops on any day at a bar street (indoorOutdoor.ts isBarStreet), e.g. 新宿黃金街 — should be none. */
   barStreetStops: string[];
+  /** Stops that aren't a daytime sight (indoorOutdoor.ts isNotADaytimeSight): night markets, stations, bar streets. */
+  notDaytimeStops: string[];
   /** Stops and meals at a real place with no description (bookings aside) — missingCopy.ts should leave none. */
   missingDescriptions: string[];
   /** Cities in order, consecutive duplicates merged. */
@@ -221,7 +225,15 @@ export function measureItinerary(days: Rec[], ctx: EvalContext): ItineraryMetric
     tripEnds: {
       first: str(asRecords(days[0]?.stops)[0]?.name),
       last: str(asRecords(days[lastIdx]?.stops).at(-1)?.name),
+      firstNote: str(asRecords(days[0]?.stops)[0]?.description),
+      lastNote: str(asRecords(days[lastIdx]?.stops).at(-1)?.description),
     },
+    flightMentions: days.flatMap((d) =>
+      asRecords(d.stops)
+        .map((s) => `${str(s.name) ?? ""} ${str(s.description) ?? ""} ${str(s.transport_from_prev) ?? ""}`)
+        .filter((text) => /機場|航班|搭機|登機/.test(text))
+        .map((text) => text.trim().slice(0, 30))
+    ),
     filmDays: days.flatMap((d, i) => {
       const title = str(d.theme) ?? "";
       return title.includes("影劇朝聖") ? [{ day: i + 1, title, stops: asRecords(d.stops).map((s) => str(s.name) ?? "") }] : [];
@@ -326,6 +338,11 @@ export function measureItinerary(days: Rec[], ctx: EvalContext): ItineraryMetric
         .map((s) => str(s.name) ?? "")
         .filter((n) => n.length >= 2 && seen.some((v) => n.includes(v) || v.includes(n)));
     }),
+    notDaytimeStops: days.flatMap((d) =>
+      asRecords(d.stops)
+        .filter((s) => str(s.placeId) && isNotADaytimeSight({ name: str(s.name) ?? "", types: typesOf(s.placeId) }))
+        .map((s) => str(s.name) ?? "")
+    ),
     barStreetStops: days.flatMap((d) => asRecords(d.stops).filter((s) => isBarStreet(typesOf(s.placeId))).map((s) => str(s.name) ?? "")),
     missingDescriptions: days.flatMap((d) => {
       const meals = (d.meals ?? {}) as Rec;

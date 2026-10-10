@@ -20,6 +20,12 @@ import { getClimate, isInSeason } from "@/lib/climate";
 import { conditionsOf, weatherNote } from "@/lib/dayConditions";
 import { planDayEvents, type PlannedDayEvents } from "@/lib/fixedEventVenues";
 import { carPickup, carReturnStop, findCarRental } from "@/lib/carRental";
+import {
+  DOMESTIC_ARRIVAL_BUFFER_MINUTES,
+  DOMESTIC_DEPARTURE_BUFFER_MINUTES,
+  domesticJourneyEvents,
+  isDomestic,
+} from "@/lib/domesticTrips";
 import { getCityCenter } from "@/lib/placesTextSearch";
 import {
   findSuburbPlace,
@@ -117,13 +123,22 @@ export async function assembleItineraryDays(
   onProgress?.({ type: "plan", title: plan.title, currency: plan.currency, cities: plan.cities });
 
   const budget = preferences?.budget as BudgetLevel | undefined;
-  const preferenceIntent = mergePreferenceIntent(preferences, parsedIntent);
+  const domestic = isDomestic(flightInfo);
+  // 國內: the traveler's own car or trains and buses (domesticTrips.ts).
+  const preferenceIntent = { ...mergePreferenceIntent(preferences, parsedIntent), ...(domestic ? { domestic: true } : {}) };
   const mealPreferences = mealPreferencesOf(preferenceIntent, preferences?.drinks);
 
   const arrivalMinute = flightInfo.arrivalTime
     ? parseTimeString(flightInfo.arrivalTime, DEFAULT_ARRIVAL_MINUTE_FALLBACK)
     : undefined;
-  const arrivalDayStartMinute = computeArrivalDayStartMinute(arrivalMinute);
+  const arrivalDayStartMinute = computeArrivalDayStartMinute(
+    arrivalMinute,
+    domestic ? DOMESTIC_ARRIVAL_BUFFER_MINUTES : undefined
+  );
+  // 國內: the way there and home, blocked on the first and last day.
+  const journeyEvents = domesticJourneyEvents(flightInfo, Boolean(preferenceIntent.selfDrive));
+  // Abroad, a self-driver rents at the airport; at home they drive their own car.
+  const rentsCar = Boolean(preferenceIntent.selfDrive) && !domestic;
 
   const days: Array<Record<string, unknown>> = [];
   let nextDayNumber = 1;
@@ -167,7 +182,7 @@ export async function assembleItineraryDays(
   };
 
   // 自駕: the rental counters at both airports, looked up once (cached).
-  const [pickupRental, returnRental] = preferenceIntent.selfDrive
+  const [pickupRental, returnRental] = rentsCar
     ? await Promise.all([
         findCarRental(flightInfo.arrivalCity).catch(() => undefined),
         findCarRental(flightInfo.returnDepartureCity).catch(() => undefined),
@@ -268,8 +283,12 @@ export async function assembleItineraryDays(
         planDayEvents(eventsOn(nextDayNumber + i), city.name, lodging, eventMealContext)
       )
     );
+    // 國內: the way there opens day 1.
+    if (isFirst && journeyEvents.outbound && sightseeingEvents.length > 0) {
+      sightseeingEvents[0].fixed.unshift(journeyEvents.outbound);
+    }
     // A self-driver picks up the car first thing on day 1.
-    if (isFirst && preferenceIntent.selfDrive && sightseeingEvents.length > 0) {
+    if (isFirst && rentsCar && sightseeingEvents.length > 0) {
       sightseeingEvents[0].fixed.unshift(
         carPickup(pickupRental, arrivalDayStartMinute, {
           arrivalIata: flightInfo.arrivalCity,
@@ -479,8 +498,10 @@ export async function assembleItineraryDays(
         preferenceIntent,
         Array.from(usedPlaceIds),
         lodging,
-        departureEvents.fixed,
-        preferenceIntent.selfDrive ? (minute) => carReturnStop(returnRental, minute) : undefined
+        // 國內: the way home closes the last day.
+        journeyEvents.homebound ? [...departureEvents.fixed, journeyEvents.homebound] : departureEvents.fixed,
+        rentsCar ? (minute) => carReturnStop(returnRental, minute) : undefined,
+        domestic ? DOMESTIC_DEPARTURE_BUFFER_MINUTES : undefined
       );
       pushDay({
         id: crypto.randomUUID(),

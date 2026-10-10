@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 import { computeDepartureDayBudget } from "@/lib/scheduler/departureDayBudget";
 
 describe("computeDepartureDayBudget", () => {
+  it("ends the stops half an hour before leaving on a 國內 trip, not 3 hours", () => {
+    expect(computeDepartureDayBudget(16 * 60 + 30, 9 * 60, 0, 30).cutoffMinute).toBe(16 * 60);
+  });
+
   it("fits the max stop count when there's most of a day before the flight", () => {
     // 15:30 flight, 3hr buffer -> cutoff 12:30, default day start 08:00 -> 270min available
     const result = computeDepartureDayBudget(15 * 60 + 30);

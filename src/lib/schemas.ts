@@ -1,9 +1,10 @@
 import { z } from "zod";
 import { MAX_PROMPT_LENGTH, MAX_TRIP_DAYS } from "@/lib/inputLimits";
 
+// An airport's IATA code, or a place in Taiwan for a 國內 trip (airports.ts, TW-xxx).
 const iataCode = z
   .string()
-  .regex(/^[A-Z]{3}$/, "請輸入 3 碼 IATA 機場代號（大寫英文字母，例：TPE）");
+  .regex(/^([A-Z]{3}|TW-[A-Z]{3})$/, "請輸入 3 碼 IATA 機場代號（大寫英文字母，例：TPE）");
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -27,6 +28,12 @@ export const FlightInfoSchema = z
     returnDate: isoDate,          // YYYY-MM-DD
     arrivalTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),         // 去程航班抵達時間 HH:MM
     returnDepartureTime: z.string().regex(/^\d{2}:\d{2}$/).optional(), // 回程航班出發時間 HH:MM
+    // 國內 (domesticTrips.ts): the same fields with TW-xxx places, departureCity
+    // being home. The traveler gives when they leave home and get back; the
+    // server works arrivalTime / returnDepartureTime out from the journey.
+    tripType: z.enum(["international", "domestic"]).optional(),
+    homeDepartureTime: z.string().regex(/^\d{2}:\d{2}$/).optional(), // 從家裡出發 HH:MM
+    homeArrivalTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),   // 預計回到家 HH:MM
   })
   .superRefine(({ departureDate, returnDate }, ctx) => {
     const days = (Date.parse(returnDate) - Date.parse(departureDate)) / DAY_MS;
@@ -139,6 +146,8 @@ export const PreferenceIntentSchema = z.object({
   seniors: z.boolean().optional(),
   // Form only: traveling alone (同行者 獨旅).
   solo: z.boolean().optional(),
+  // A 國內 trip (domesticTrips.ts): no rental car, trains and buses between towns.
+  domestic: z.boolean().optional(),
 });
 
 export type PreferenceIntent = z.infer<typeof PreferenceIntentSchema>;

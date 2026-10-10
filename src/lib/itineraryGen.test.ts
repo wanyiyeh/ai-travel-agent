@@ -191,3 +191,26 @@ describe("repairMissingAccommodation", () => {
     expect(repaired[0].accommodation).toBeNull();
   });
 });
+
+describe("buildFlightTimePrompt / buildSystemPrompt — 國內", () => {
+  const domestic = {
+    tripType: "domestic" as const,
+    departureCity: "TW-TPE",
+    arrivalCity: "TW-TNN",
+    returnDepartureCity: "TW-TNN",
+    departureDate: "2026-12-01",
+    returnDate: "2026-12-03",
+    arrivalTime: "09:45",
+    returnDepartureTime: "18:15",
+  };
+
+  it("talks about leaving home and going back, not flights", async () => {
+    const { buildFlightTimePrompt, buildSystemPrompt } = await import("@/lib/itineraryGen");
+    expect(buildFlightTimePrompt(domestic)).toContain("預計 09:45 抵達目的地（從家裡出發）");
+    const system = buildSystemPrompt(domestic, undefined, 2);
+    expect(system).toContain("行程資訊：台灣國內旅遊：從台北出發前往台南");
+    // The fare guide still mentions flights between cities; the trip itself has none.
+    expect(system).not.toContain("飛往");
+    expect(system).not.toContain("搭機");
+  });
+});

@@ -654,3 +654,27 @@ describe("generateThemedDayStops — with older relatives", () => {
     expect(dayEndFor({ ...NEUTRAL_PREFERENCE_INTENT, seniors: true })).toBe(17 * 60);
   });
 });
+
+describe("generateTransitDayStops — 國內", () => {
+  it("tells the planner about Taiwan's trains and the islands", async () => {
+    createMock.mockResolvedValueOnce({
+      choices: [{ message: { content: JSON.stringify({ prepStops: [], transitStop: { name: "搭高鐵前往高雄", description: "d", duration_minutes: 30 }, arrivalTime: "19:00" }) } }],
+    });
+
+    await generateTransitDayStops("台南", "高雄", "TWD", undefined, { ...NEUTRAL_PREFERENCE_INTENT, domestic: true });
+
+    const system = createMock.mock.calls[0][0].messages[0].content as string;
+    expect(system).toContain("【台灣國內旅遊】");
+    expect(system).not.toContain("【旅客自駕】");
+  });
+
+  it("drives the traveler's own car, with no rental", async () => {
+    createMock.mockResolvedValueOnce({
+      choices: [{ message: { content: JSON.stringify({ prepStops: [], transitStop: { name: "開車前往高雄", description: "d", duration_minutes: 60 }, arrivalTime: "19:00" }) } }],
+    });
+
+    await generateTransitDayStops("台南", "高雄", "TWD", undefined, { ...NEUTRAL_PREFERENCE_INTENT, domestic: true, selfDrive: true });
+
+    expect(createMock.mock.calls[0][0].messages[0].content).toContain("【旅客開自己的車】");
+  });
+});

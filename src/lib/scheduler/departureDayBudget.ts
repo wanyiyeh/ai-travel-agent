@@ -33,11 +33,13 @@ export function computeDepartureDayBudget(
   returnDepartureMinute: number | undefined,
   dayStartMinute = 8 * 60,
   // Time needed before the airport buffer — returning a rental car.
-  extraBufferMinutes = 0
+  extraBufferMinutes = 0,
+  // Time to the airport and check-in; a 國內 trip just heads home (domesticTrips.ts).
+  departureBufferMinutes = DEPARTURE_BUFFER_MINUTES
 ): DepartureDayBudget {
   const cutoffMinute =
     (returnDepartureMinute != null
-      ? returnDepartureMinute - DEPARTURE_BUFFER_MINUTES
+      ? returnDepartureMinute - departureBufferMinutes
       : DEFAULT_DEPARTURE_CUTOFF_MINUTE) - extraBufferMinutes;
 
   const availableMinutes = cutoffMinute - dayStartMinute;

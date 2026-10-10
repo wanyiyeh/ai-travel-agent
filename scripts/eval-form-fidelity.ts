@@ -18,6 +18,7 @@
  * Writes the full results to eval-results/form-fidelity-<timestamp>.json.
  */
 
+import { withDomesticTimes } from "../src/lib/domesticTrips";
 import { mkdirSync, readFileSync, writeFileSync } from "fs";
 import { resolve } from "path";
 // No import-time side effects (unlike openai.ts), so safe before the .env load.
@@ -64,6 +65,9 @@ type Scenario = {
     returnDepartureCity: string;
     departureDate: string;
     returnDate: string;
+    tripType?: "domestic";
+    homeDepartureTime?: string;
+    homeArrivalTime?: string;
   };
   prompt?: string;
   preferences?: Preferences;
@@ -101,6 +105,18 @@ const SAPPORO_WEEK = {
   departureDate: "2026-11-10",
   returnDate: "2026-11-17",
 };
+
+// 國內 (domesticTrips.ts): 3 days, leaving home at 08:00 and back by 20:00.
+const domesticTrip = (home: string, to: string) => ({
+  tripType: "domestic" as const,
+  departureCity: home,
+  arrivalCity: to,
+  returnDepartureCity: to,
+  departureDate: "2026-11-10",
+  returnDate: "2026-11-13",
+  homeDepartureTime: "08:00",
+  homeArrivalTime: "20:00",
+});
 
 const SCENARIOS: Scenario[] = [
   { id: "tokyo-baseline", label: "東京 4 天・不選任何偏好（對照組）", flightInfo: TOKYO },
@@ -146,6 +162,14 @@ const SCENARIOS: Scenario[] = [
     flightInfo: TOKYO,
     preferences: { companions: ["kids"], budget: "budget", drinks: ["alcohol"] },
   },
+  { id: "domestic-tainan", label: "國內・台北 → 台南 3 天（大眾運輸）", flightInfo: domesticTrip("TW-TPE", "TW-TNN") },
+  {
+    id: "domestic-hualien-drive",
+    label: "國內・台北 → 花蓮 3 天（開自己的車）",
+    flightInfo: domesticTrip("TW-TPE", "TW-HUN"),
+    preferences: { transport: "drive" },
+  },
+  { id: "domestic-penghu", label: "國內・高雄 → 澎湖 3 天（離島）", flightInfo: domesticTrip("TW-KHH", "TW-PEH") },
   {
     id: "tokyo-film",
     label: "東京・影劇追星《你的名字》",
@@ -482,6 +506,59 @@ const CHECKS: Check[] = [
         .join("；") || "—",
   },
   {
+    title: "國內：台南行程第一站是從台北搭高鐵過去，最後一站搭回台北，沒有機場或航班",
+    pass: (r) => {
+      const m = r.get("domestic-tainan");
+      if (!m) return null;
+      return (
+        m.tripEnds.first === "從台北前往台南" &&
+        Boolean(m.tripEnds.firstNote?.startsWith("搭高鐵")) &&
+        m.tripEnds.last === "從台南前往台北" &&
+        m.flightMentions.length === 0
+      );
+    },
+    detail: (r) => {
+      const m = r.get("domestic-tainan");
+      return m
+        ? `第一站「${m.tripEnds.first}：${m.tripEnds.firstNote}」、最後一站「${m.tripEnds.last}」；提到機場或航班：${m.flightMentions.join("、") || "沒有"}`
+        : "—";
+    },
+  },
+  {
+    title: "國內：台南、花蓮不把夜市、轉運站排成白天景點",
+    pass: (r) => {
+      const trips = ["domestic-tainan", "domestic-hualien-drive"].map((id) => r.get(id)).filter((m) => m !== undefined);
+      return trips.length ? trips.every((m) => m.notDaytimeStops.length === 0) : null;
+    },
+    detail: (r) => {
+      const found = ["domestic-tainan", "domestic-hualien-drive"].flatMap((id) => (r.get(id)?.notDaytimeStops ?? []).map((n) => `${id}：${n}`));
+      return found.length ? found.join("、") : "沒有";
+    },
+  },
+  {
+    title: "國內：開自己的車去花蓮，不排機場取車還車，第一站開車過去",
+    pass: (r) => {
+      const m = r.get("domestic-hualien-drive");
+      if (!m) return null;
+      return Boolean(m.tripEnds.firstNote?.startsWith("開車")) && m.flightMentions.length === 0;
+    },
+    detail: (r) => {
+      const m = r.get("domestic-hualien-drive");
+      return m ? `第一站「${m.tripEnds.first}：${m.tripEnds.firstNote}」；提到機場或航班：${m.flightMentions.join("、") || "沒有"}` : "—";
+    },
+  },
+  {
+    title: "國內離島：高雄到澎湖搭飛機，提醒出發前確認航班、船班",
+    pass: (r) => {
+      const note = r.get("domestic-penghu")?.tripEnds.firstNote;
+      return note === undefined ? null : note.startsWith("搭飛機") && note.includes("確認航班、船班");
+    },
+    detail: (r) => {
+      const m = r.get("domestic-penghu");
+      return m ? `第一站「${m.tripEnds.first}：${m.tripEnds.firstNote}」` : "—";
+    },
+  },
+  {
     // A maid café is typed a plain café; only its name tells.
     title: "親子：點心沒有女僕、主題咖啡廳，而且多半是甜點",
     pass: (r) => {
@@ -658,7 +735,9 @@ async function main() {
     const result: ScenarioResult = { id: s.id, label: s.label, outcome: "ok", errorCodes: [], warningCodes: [], elapsedMs: 0 };
     try {
       await runMetered(`eval ${s.id}`, async () => {
-        const assembled = await assembleItineraryDays(s.flightInfo as never, s.prompt, s.preferences as never, MODEL);
+        // Same as generate-stream/route.ts: a 國內 trip's arriving and leaving from the times at home.
+        const flightInfo = withDomesticTimes(s.flightInfo as never, s.preferences?.transport === "drive");
+        const assembled = await assembleItineraryDays(flightInfo, s.prompt, s.preferences as never, MODEL);
         if (!assembled) {
           result.outcome = "plan_null";
           return;

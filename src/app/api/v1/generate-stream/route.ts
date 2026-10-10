@@ -1,3 +1,4 @@
+import { withDomesticTimes } from "@/lib/domesticTrips";
 import { openai } from "@/lib/openai";
 import {
   ItinerarySchema,
@@ -93,7 +94,8 @@ export async function POST(request: Request) {
     }
 
     const { prompt, preferences } = parsed.data;
-    const flightInfo: FlightInfo = parsed.data.flightInfo;
+    // 國內: arriving and leaving worked out from the times at home (domesticTrips.ts).
+    const flightInfo: FlightInfo = withDomesticTimes(parsed.data.flightInfo, preferences?.transport === "drive");
     const days = calcDays(flightInfo.departureDate, flightInfo.returnDate);
 
     // One generation at a time per client; released when the stream ends,

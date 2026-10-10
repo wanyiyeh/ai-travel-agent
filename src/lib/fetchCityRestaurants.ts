@@ -198,7 +198,7 @@ async function searchNearbyHints(
     const data = await res.json();
     return (data.places ?? [])
       .map((p: { displayName?: { text?: string }; rating?: number; location?: { latitude?: number; longitude?: number }; types?: string[] }) => ({
-        name: p.displayName?.text ?? "",
+        name: cleanPlaceName(p.displayName?.text ?? ""),
         rating: p.rating,
         lat: p.location?.latitude,
         lng: p.location?.longitude,
@@ -387,7 +387,17 @@ const NEARBY_FETCH_COUNT = 20;
 async function readFreshCandidates(cacheKey: string): Promise<PlaceCandidate[] | null> {
   const cached = await prisma.nearbyPlaceCandidatesCache.findUnique({ where: { cacheKey } });
   if (!cached || Date.now() - cached.updatedAt.getTime() >= NEARBY_CACHE_TTL_MS) return null;
-  return JSON.parse(cached.candidates) as PlaceCandidate[];
+  return (JSON.parse(cached.candidates) as PlaceCandidate[]).map((p) => ({ ...p, name: cleanPlaceName(p.name) }));
+}
+
+// Some businesses put an ad in their Google name: 「花蓮將軍府1936(免預約入園，
+// 加LINE官方好友享優惠)」, 「又一村文創（各店家詳細營業時間請見粉專）」.
+const PROMO_IN_BRACKETS = /\s*[(（][^()（）]*(優惠|LINE|預約|營業時間|粉專|官方|折扣|免費)[^()（）]*[)）]/gi;
+
+/** A place's name without an advertisement in brackets. */
+export function cleanPlaceName(name: string): string {
+  const cleaned = name.replace(PROMO_IN_BRACKETS, "").trim();
+  return cleaned || name;
 }
 
 /**
@@ -484,7 +494,7 @@ async function fetchNearbyPlaceCandidatesUncached(
     const data = await res.json();
     return (data.places ?? [])
       .map((p: NearbyPlaceResult) => ({
-        name: p.displayName?.text ?? "",
+        name: cleanPlaceName(p.displayName?.text ?? ""),
         rating: p.rating,
         priceLevel: p.priceLevel ? (PRICE_LEVEL_MAP[p.priceLevel] ?? null) : null,
         priceRange: parsePriceRange(p.priceRange),
@@ -563,7 +573,7 @@ export async function searchTextCandidates(
     const data = await res.json();
     candidates = (data.places ?? [])
       .map((p: NearbyPlaceResult) => ({
-        name: p.displayName?.text ?? "",
+        name: cleanPlaceName(p.displayName?.text ?? ""),
         rating: p.rating,
         priceLevel: p.priceLevel ? (PRICE_LEVEL_MAP[p.priceLevel] ?? null) : null,
         priceRange: parsePriceRange(p.priceRange),
