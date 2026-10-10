@@ -175,4 +175,9 @@ describe("seasonalDayIndex", () => {
     expect(seasonalDayIndex([0, 1], undefined)).toBe(0);
     expect(seasonalDayIndex([1, 1], undefined)).toBeUndefined();
   });
+
+  it("skips every taken day, for a second themed day", () => {
+    expect(seasonalDayIndex([0, 0, 0, 0], [1, 2])).toBe(3);
+    expect(seasonalDayIndex([0, 0, 0], [1, 2])).toBe(0);
+  });
 });

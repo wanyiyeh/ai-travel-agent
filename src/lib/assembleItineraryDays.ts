@@ -33,6 +33,7 @@ import {
 } from "@/lib/suburbTrips";
 import { restaurantNear } from "@/lib/fixedEventVenues";
 import { findSeasonalDay, nightHighlightEvent, seasonalDayIndex } from "@/lib/seasonalHighlights";
+import { cleanTitles, findFilmDay } from "@/lib/filmLocations";
 import { classicTripEvents, findClassicDayTrip } from "@/lib/classicDayTrips";
 import { fillMissingCopy } from "@/lib/missingCopy";
 
@@ -367,6 +368,33 @@ export async function assembleItineraryDays(
       }
       seasonalByDay[seasonalDay.dayIndex] = seasonalDay.highlights.filter((h) => !h.night).map((h) => h.place);
     }
+
+    // 影劇追星: a day at filming locations (filmLocations.ts), kept for that
+    // day like the seasonal highlights, each with a cautious 「據說」 note.
+    const planFilmDay = async (eventCounts: number[]) => {
+      if (!preferences?.interests?.includes("film")) return undefined;
+      const dayIndex = seasonalDayIndex(eventCounts, [suburbTrip?.dayIndex, seasonalDay?.dayIndex]);
+      const apiKey = process.env.GOOGLE_PLACES_API_KEY;
+      if (dayIndex === undefined || !apiKey) return undefined;
+      const center = await getCityCenter(city.name, apiKey).catch(() => null);
+      if (!center) return undefined;
+      // Not a place the seasonal day already keeps (新宿御苑 was both).
+      const seasonalIds = (seasonalDay?.highlights ?? []).map((h) => h.place.placeId);
+      const day = await findFilmDay(
+        city.name,
+        center,
+        apiKey,
+        cleanTitles(preferences.filmTitles),
+        model,
+        new Set([...usedPlaceIds, ...seasonalIds])
+      );
+      return day ? { dayIndex, ...day } : undefined;
+    };
+    const filmDay = await planFilmDay(sightseeingEvents.map((e) => e.fixed.length));
+    if (filmDay) {
+      for (const l of filmDay.locations) seasonalNotes.set(l.place.placeId, l.note);
+      seasonalByDay[filmDay.dayIndex] = filmDay.locations.map((l) => l.place);
+    }
     // A concert at 東京巨蛋 shouldn't also turn up as a sightseeing stop there.
     for (const stop of sightseeingEvents.flatMap(eventStops)) {
       if (typeof stop.placeId === "string") usedPlaceIds.add(stop.placeId);
@@ -412,15 +440,18 @@ export async function assembleItineraryDays(
       const dayTheme = themeByDay[i];
       const trip = suburbTrip?.dayIndex === i ? suburbTrip : undefined;
       const seasonal = seasonalDay?.dayIndex === i ? seasonalDay : undefined;
+      const film = filmDay?.dayIndex === i ? filmDay : undefined;
       pushDay({
         id: crypto.randomUUID(),
         theme: trip
           ? `${city.name} ${trip.kind === "day" ? "一日遊" : "半日遊"}：${trip.name}`
           : seasonal
             ? `${city.name} 季節限定：${seasonal.label}`
-            : `${city.name} ${dayTheme ? THEMES[dayTheme].label : "探索"}`,
+            : film
+              ? `${city.name} 影劇朝聖：${film.label}`
+              : `${city.name} ${dayTheme ? THEMES[dayTheme].label : "探索"}`,
         waypointCity: city.name,
-        stops: seasonal ? withSeasonalNotes(sightseeingStops[i], seasonalNotes) : sightseeingStops[i],
+        stops: seasonal || film ? withSeasonalNotes(sightseeingStops[i], seasonalNotes) : sightseeingStops[i],
         accommodation,
         meals: {
           ...(mealsAndAccommodation.mealsByDay[transitMealDays + i] ?? {}),

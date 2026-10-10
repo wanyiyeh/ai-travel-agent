@@ -185,8 +185,13 @@ export function nightHighlightEvent(h: SeasonalHighlight): DayFixedEvents[number
   };
 }
 
-/** Which of a city's sightseeing days is the seasonal one: free of fixed events and the day trip, the arrival day last. */
-export function seasonalDayIndex(dayEventCounts: number[], suburbDayIndex: number | undefined): number | undefined {
-  const free = dayEventCounts.map((n, i) => i).filter((i) => dayEventCounts[i] === 0 && i !== suburbDayIndex);
+/**
+ * Which of a city's sightseeing days a themed day (seasonal, film) takes:
+ * free of fixed events and of `taken` days (the day trip, another theme),
+ * the arrival day last.
+ */
+export function seasonalDayIndex(dayEventCounts: number[], taken: number | undefined | (number | undefined)[]): number | undefined {
+  const takenDays = Array.isArray(taken) ? taken : [taken];
+  const free = dayEventCounts.map((n, i) => i).filter((i) => dayEventCounts[i] === 0 && !takenDays.includes(i));
   return free.find((i) => i > 0) ?? free[0];
 }

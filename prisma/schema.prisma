@@ -240,6 +240,15 @@ model ClassicDayTripCache {
   updatedAt DateTime @updatedAt
 }
 
+// A city's best-known filmed works, for 影劇追星 without titles
+// (filmLocations.ts) — Google finds the locations, the model only names the
+// works. An empty list is cached too; a failed call isn't.
+model FilmLocationCache {
+  cacheKey  String   @id // "works:東京"
+  list      String   // JSON-encoded { works: string[] }
+  updatedAt DateTime @updatedAt
+}
+
 model NearestStationCache {
   cacheKey  String   @id
   station   String?  // JSON-encoded NearestStation, or null = confirmed none found

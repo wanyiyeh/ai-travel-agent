@@ -68,6 +68,11 @@ vi.mock("@/lib/classicDayTrips", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/classicDayTrips")>()),
   findClassicDayTrip: (...args: unknown[]) => findClassicMock(...args),
 }));
+const findFilmMock = vi.fn();
+vi.mock("@/lib/filmLocations", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/filmLocations")>()),
+  findFilmDay: (...args: unknown[]) => findFilmMock(...args),
+}));
 const findSeasonalMock = vi.fn();
 vi.mock("@/lib/seasonalHighlights", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/seasonalHighlights")>()),
@@ -141,6 +146,7 @@ beforeEach(() => {
   // No suburb place or seasonal day unless a test offers one.
   findSuburbMock.mockResolvedValue(undefined);
   findSeasonalMock.mockResolvedValue(undefined);
+  findFilmMock.mockResolvedValue(undefined);
   findClassicMock.mockResolvedValue(undefined);
   climateMock.mockResolvedValue(undefined);
   restaurantNearMock.mockResolvedValue(undefined);
@@ -630,5 +636,50 @@ describe("assembleItineraryDays — sunset and weather", () => {
     const result = await run(undefined, undefined);
 
     expect(result!.days[0]).not.toHaveProperty("weatherNote");
+  });
+});
+
+// 影劇追星 (filmLocations.ts): a day at filming locations, on a day of its own.
+describe("assembleItineraryDays — film day", () => {
+  const at = (placeId: string) => ({ placeId, name: placeId, lat: 35.68, lng: 139.72, address: "", types: ["tourist_attraction"] });
+
+  beforeEach(() => {
+    vi.stubEnv("GOOGLE_PLACES_API_KEY", "key");
+    findFilmMock.mockResolvedValue({
+      label: "《你的名字》",
+      locations: [
+        { place: at("須賀神社"), work: "你的名字", note: "《你的名字》據說曾在這裡取景，出發前可以查證" },
+        { place: at("國立新美術館"), work: "你的名字", note: "《你的名字》據說曾在這裡取景，出發前可以查證" },
+      ],
+    });
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("titles the day, keeps its places for it, and passes the titles on", async () => {
+    const result = await run(undefined, { interests: ["film"], filmTitles: ["你的名字"] });
+
+    expect(result!.days[1].theme).toBe("東京 影劇朝聖：《你的名字》");
+    expect(findFilmMock.mock.calls[0][3]).toEqual(["你的名字"]);
+    const reserved = dayStopsMock.mock.calls[0][10][1].map((p: { placeId: string }) => p.placeId);
+    expect(reserved).toEqual(["須賀神社", "國立新美術館"]);
+  });
+
+  it("takes another day than the seasonal one, and none of its places", async () => {
+    findSeasonalMock.mockResolvedValue({ label: "賞楓", highlights: [{ place: at("新宿御苑"), night: false, note: "" }] });
+
+    const result = await run(undefined, { interests: ["film"] });
+
+    expect(result!.days[1].theme).toBe("東京 季節限定：賞楓");
+    expect(result!.days[2].theme).toBe("東京 影劇朝聖：《你的名字》");
+    expect([...(findFilmMock.mock.calls[0][5] as Set<string>)]).toContain("新宿御苑");
+  });
+
+  it("is only planned for a traveler who chose 影劇追星", async () => {
+    await run(undefined, { interests: ["culture"] });
+
+    expect(findFilmMock).not.toHaveBeenCalled();
   });
 });

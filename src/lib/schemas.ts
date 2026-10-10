@@ -73,9 +73,11 @@ export const TripPreferencesSchema = z.object({
   // form; "adventure" stays valid for older itineraries' stored config and
   // counts as land (suburbTrips.ts).
   interests: z
-    .array(z.enum(["food", "culture", "nature", "shopping", "water", "land", "adventure"]))
-    .max(7)
+    .array(z.enum(["food", "culture", "nature", "shopping", "water", "land", "adventure", "film"]))
+    .max(8)
     .optional(),
+  // 影劇追星 (plan 1.3): the works to visit filming locations of; empty for the city's best-known ones.
+  filmTitles: z.array(z.string().max(60)).max(3).optional(),
   // No longer on the form (plan/form-preference-wiring.md 1.1) — kept so
   // older itineraries' stored config still parses.
   travelers: z.number().int().min(1).max(20).optional(),
