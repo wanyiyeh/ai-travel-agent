@@ -144,6 +144,8 @@ export type Day = {
   // A locked day's `stops` holds exactly one full-day attraction; guarded
   // against regeneration/trimming/reordering by every day-mutating route.
   isLocked?: boolean;
+  // 「日落約 16:30・這個月常下雨，記得帶傘」, from last year's weather (dayConditions.ts).
+  weatherNote?: string;
 };
 
 export type Itinerary = {

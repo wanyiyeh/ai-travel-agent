@@ -66,6 +66,10 @@ export type ItineraryMetrics = {
   nightStays: { city: string; nights: number }[];
   /** Each sightseeing day's title, e.g. 「東京 文化巡禮」 (dayThemes.ts). */
   dayTitles: string[];
+  /** Each sightseeing day's weather line, 「日落約 16:28」 (dayConditions.ts); "" without one. */
+  weatherNotes: string[];
+  /** Sightseeing days that get dark before 17:00 with an outdoor stop after an indoor one. */
+  outdoorAfterDarkDays: number;
   /** Each day's snack in order (days without one skipped), with Google's primary type. */
   snacks: { name: string; primaryType?: string }[];
   /** Each night's 小酌 except the return day's, null where there is none. */
@@ -248,6 +252,14 @@ export function measureItinerary(days: Rec[], ctx: EvalContext): ItineraryMetric
     cities,
     nightStays,
     dayTitles: sightseeing.map((d) => str(d.theme) ?? ""),
+    weatherNotes: sightseeing.map((d) => str(d.weatherNote) ?? ""),
+    outdoorAfterDarkDays: sightseeing.filter((d) => {
+      const sunset = /日落約 (\d+):(\d+)/.exec(str(d.weatherNote) ?? "");
+      if (!sunset || Number(sunset[1]) * 60 + Number(sunset[2]) >= 17 * 60) return false;
+      const order = asRecords(d.stops).map((s) => exposureOf(typesOf(s.placeId)));
+      const firstIndoor = order.indexOf("indoor");
+      return firstIndoor >= 0 && order.lastIndexOf("outdoor") > firstIndoor;
+    }).length,
     snacks: days.flatMap((d) => {
       const snack = ((d.meals ?? {}) as Rec).snack as Rec | undefined;
       const name = str(snack?.name);

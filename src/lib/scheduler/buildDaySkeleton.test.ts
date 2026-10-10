@@ -103,3 +103,33 @@ describe("buildDaySkeleton for an indoor-first traveler", () => {
     expect(plain.map((s) => s.id)).toEqual(["museum", "park", "mall"]);
   });
 });
+
+// 3c-4: a day that gets dark before it ends (dayConditions.ts).
+describe("buildDaySkeleton before an early sunset", () => {
+  const near = (id: string, type: string, lng: number): StopCandidate => ({ id, lat: 0, lng, rating: 4.5, type });
+  const isOutdoorInDark = (c: StopCandidate) => c.type === "park";
+  // Route order would be museum, mall, park: the park last, after 16:30 in 12月.
+  const day = [near("museum", "museum", 0), near("mall", "shopping", 0.001), near("park", "park", 0.002)];
+  const options = { count: 3, pace: "moderate" as const, dayStartMinute: 9 * 60, dayEndMinute: 18 * 60, origin: { lat: 0, lng: 0 } };
+
+  it("takes the outdoor places while it's light", () => {
+    const result = buildDaySkeleton(day, { ...options, sunsetMinute: 16 * 60 + 30, isOutdoorInDark });
+
+    expect(result[0].id).toBe("park");
+    expect(result.find((s) => s.id === "park")!.endMinute).toBeLessThanOrEqual(16 * 60 + 30);
+  });
+
+  it("drops an outdoor place that would still run after dark", () => {
+    const parks = [near("park1", "park", 0), near("park2", "park", 0.001), near("park3", "park", 0.002), near("park4", "park", 0.003)];
+
+    const result = buildDaySkeleton(parks, { ...options, count: 4, sunsetMinute: 13 * 60, isOutdoorInDark });
+
+    expect(result.length).toBeLessThan(4);
+    for (const stop of result) expect(stop.endMinute).toBeLessThanOrEqual(13 * 60);
+  });
+
+  it("changes nothing when the sun sets after the day ends", () => {
+    const summer = buildDaySkeleton(day, { ...options, sunsetMinute: 19 * 60, isOutdoorInDark });
+    expect(summer.map((s) => s.id)).toEqual(buildDaySkeleton(day, options).map((s) => s.id));
+  });
+});

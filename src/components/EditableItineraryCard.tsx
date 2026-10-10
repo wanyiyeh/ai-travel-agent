@@ -1333,6 +1333,7 @@ export default function EditableItineraryCard({
                       預估花費：{formatCost(dayCost, itinerary.currency)}
                     </div>
                   )}
+                  {day.weatherNote && <div className="text-sm text-white opacity-90">{day.weatherNote}</div>}
                   <div className="flex items-center gap-2 ml-auto">
                     <button
                       onClick={() => day.id && recalculateTransport(day.id, onUpdate)}

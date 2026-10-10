@@ -16,7 +16,8 @@ import { mergePreferenceIntent } from "@/lib/mergePreferenceIntent";
 import { computeArrivalDayStartMinute } from "@/lib/scheduler/arrivalDayStart";
 import { THEMES } from "@/lib/dayThemes";
 import { dateOfTripDay, tripDayOfDate } from "@/lib/fixedEvents";
-import { isInSeason } from "@/lib/climate";
+import { getClimate, isInSeason } from "@/lib/climate";
+import { conditionsOf, weatherNote } from "@/lib/dayConditions";
 import { planDayEvents, type PlannedDayEvents } from "@/lib/fixedEventVenues";
 import { carPickup, carReturnStop, findCarRental } from "@/lib/carRental";
 import { getCityCenter } from "@/lib/placesTextSearch";
@@ -356,6 +357,20 @@ export async function assembleItineraryDays(
       if (typeof stop.placeId === "string") usedPlaceIds.add(stop.placeId);
     }
 
+    // 日落和天氣 (dayConditions.ts): each day's sunset, and whether the month
+    // is hot or rainy, from last year's weather at the city center (cached per month).
+    const conditionsByDay = await (async () => {
+      const apiKey = process.env.GOOGLE_PLACES_API_KEY;
+      const center = apiKey && sightseeingCount > 0 ? await getCityCenter(city.name, apiKey).catch(() => null) : null;
+      return Promise.all(
+        Array.from({ length: sightseeingCount }, async (_, i) => {
+          if (!center) return undefined;
+          const tripDate = dateOfTripDay(flightInfo.departureDate, nextDayNumber + i);
+          return conditionsOf(await getClimate(center.lat, center.lng, tripDate), tripDate);
+        })
+      );
+    })();
+
     const { stopsByDay: sightseeingStops, themeByDay } =
       sightseeingCount > 0
         ? await generateThemedDayStops(
@@ -369,7 +384,8 @@ export async function assembleItineraryDays(
             lodging,
             themedDaysSoFar,
             sightseeingEvents.map((e) => e.fixed),
-            seasonalByDay
+            seasonalByDay,
+            conditionsByDay
           )
         : { stopsByDay: [], themeByDay: [] };
     themedDaysSoFar += sightseeingCount;
@@ -398,6 +414,7 @@ export async function assembleItineraryDays(
         },
         // A whole day out stays as planned when the trip is restructured.
         ...(trip?.kind === "day" ? { isLocked: true } : {}),
+        ...(weatherNote(conditionsByDay[i]) ? { weatherNote: weatherNote(conditionsByDay[i]) } : {}),
       });
     }
 

@@ -74,6 +74,15 @@ export function keepOutdoorOffMidday<T extends { groupId?: string }>(
 }
 
 /**
+ * A day's stops with the outdoor ones first, each kind in route order, for a
+ * day that gets dark before it ends (dayConditions.ts): parks and gardens
+ * while there's light, museums and observation decks after.
+ */
+export function keepOutdoorBeforeSunset<T>(ordered: T[], isOutdoor: (stop: T) => boolean): T[] {
+  return [...ordered.filter(isOutdoor), ...ordered.filter((s) => !isOutdoor(s))];
+}
+
+/**
  * The candidate pool for an indoor-first trip: everything but outdoor places
  * when that still covers `needed` stops, otherwise all of it (outdoor places
  * then only fill in, kept off midday by keepOutdoorOffMidday).
