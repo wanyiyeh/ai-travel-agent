@@ -17,6 +17,7 @@ import { MAX_CITY_DAYS, MAX_NAME_LENGTH, MAX_TEXT_LENGTH, MAX_TRIP_DAYS } from "
 import { internalErrorResponse } from "@/lib/apiError";
 import { authorizeItinerary } from "@/lib/auth/ownership";
 import { chargePaidEdit } from "@/lib/quota";
+import { bookedEventLabel, bookedEventOn } from "@/lib/fixedEvents";
 
 const LockedAttractionSchema = z.object({
   name: z.string().min(1).max(MAX_NAME_LENGTH),
@@ -370,6 +371,20 @@ export async function POST(
     const access = await authorizeItinerary(itineraryId);
     if (!access.ok) return access.response;
     const { itinerary } = access;
+    // A booked event's day (固定行程) is always kept (plan/restructure-wizard-ux.md).
+    // The wizard never drops one, so a request that does is refused — before it's charged.
+    const bookedEvents =
+      TripPreferencesSchema.safeParse((itinerary.config as Record<string, unknown> | null)?.preferences).data?.fixedEvents ?? [];
+    const requestedKeep = new Set(cities.flatMap((c) => c.keepDayIds));
+    for (const day of itinerary.days as Record<string, unknown>[]) {
+      const booked = requestedKeep.has(day.id as string) ? undefined : bookedEventOn(day, bookedEvents);
+      if (booked) {
+        return NextResponse.json(
+          { error: `第 ${day.day} 天有固定行程（${bookedEventLabel(booked)}），不能移除` },
+          { status: 400 }
+        );
+      }
+    }
     // Paid edit: counts against the caller's daily quota (plan/access-control.md §2).
     const charged = await chargePaidEdit(request, access.actor, itineraryId);
     if (charged) return charged;

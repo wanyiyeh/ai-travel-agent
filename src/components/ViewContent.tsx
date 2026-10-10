@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useEffect, useRef, useMemo } from "react";
+import { bookedEventLabel, bookedEventOn } from "@/lib/fixedEvents";
+import type { FixedEvent } from "@/lib/schemas";
 import Link from "next/link";
 import EditableItineraryCard from "@/components/EditableItineraryCard";
 import ItineraryMap from "@/components/ItineraryMap";
@@ -377,16 +379,22 @@ export default function ViewContent({ id }: ViewContentProps) {
         </button>
       );
     }
+    // The traveler's booked events (固定行程): their days are always kept.
+    const bookedEvents = (data.config?.preferences?.fixedEvents ?? []) as FixedEvent[];
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const restructureDays = (data.data?.days ?? []).map((d: any) => ({
-      id: d.id as string,
-      day: d.day as number,
-      theme: d.theme as string | undefined,
-      isTransitDay: d.isTransitDay === true,
-      isLocked: d.isLocked === true,
-      waypointCity: d.waypointCity as string | undefined,
-      stopCount: Array.isArray(d.stops) ? d.stops.length : 0,
-    }));
+    const restructureDays = (data.data?.days ?? []).map((d: any) => {
+      const booked = bookedEventOn(d, bookedEvents);
+      return {
+        id: d.id as string,
+        day: d.day as number,
+        theme: d.theme as string | undefined,
+        isTransitDay: d.isTransitDay === true,
+        isLocked: d.isLocked === true,
+        waypointCity: d.waypointCity as string | undefined,
+        stopCount: Array.isArray(d.stops) ? d.stops.length : 0,
+        ...(booked ? { bookedEventLabel: bookedEventLabel(booked) } : {}),
+      };
+    });
     return (
       <div ref={restructurePanelRef}>
         <RestructurePanel

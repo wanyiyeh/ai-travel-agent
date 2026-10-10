@@ -184,3 +184,32 @@ export function eventMeal(event: FixedEvent, venue: Venue | undefined): Record<s
 
 /** A day's fixed events as stops plus the blocks the scheduler must keep clear. */
 export type DayFixedEvents = Array<{ block: FixedBlock; stop?: Record<string, unknown> }>;
+
+/**
+ * The traveler's own booked event on a day — a stop, or the meal a
+ * reservation replaced — so 重新規劃 always keeps that day
+ * (plan/restructure-wizard-ux.md). The rental counter and the 國內 journey
+ * carry `fixedEvent` too, as type "other", so an "other" event also has to
+ * match by name.
+ */
+export function bookedEventOn(day: Record<string, unknown>, events: FixedEvent[]): FixedEvent | undefined {
+  const items = [...(Array.isArray(day.stops) ? day.stops : []), ...Object.values((day.meals ?? {}) as Record<string, unknown>)];
+  for (const item of items) {
+    const { fixedEvent: info, name } = (item ?? {}) as { fixedEvent?: FixedEventInfo; name?: unknown };
+    if (!info) continue;
+    const match = events.find(
+      (e) =>
+        e.type === info.type &&
+        fixedEventInfo(e).startTime === info.startTime &&
+        (e.type !== "other" || e.venueName?.trim() === name)
+    );
+    if (match) return match;
+  }
+  return undefined;
+}
+
+/** 「演唱會 11/12」. */
+export function bookedEventLabel(event: FixedEvent): string {
+  const [, month, day] = event.date.split("-").map(Number);
+  return `${FIXED_EVENT_TYPES[event.type].label} ${month}/${day}`;
+}
