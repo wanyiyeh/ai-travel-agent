@@ -10,10 +10,11 @@ vi.mock("@/lib/openai", () => ({ openai: {} }));
 const chargeMock = vi.fn();
 vi.mock("@/lib/quota", () => ({ chargePaidEdit: (...args: unknown[]) => chargeMock(...args) }));
 const updateMock = vi.fn();
+const trashMock = vi.fn();
 vi.mock("@/lib/db", () => ({
   prisma: {
     itinerary: { findFirst: (...args: unknown[]) => findFirst(...args), update: (...args: unknown[]) => updateMock(...args) },
-    deletedDay: { createMany: vi.fn() },
+    deletedDay: { createMany: (...args: unknown[]) => trashMock(...args) },
     $transaction: async () => [],
   },
   j: (v: unknown) => v,
@@ -167,5 +168,54 @@ describe("restructure plans new days like a fresh trip", () => {
     const ctx = stayDaysMock.mock.calls[0][1];
     expect(ctx.eventsOn(2)).toEqual([]); // on kept day 2 already
     expect(ctx.departureDate).toBe("2026-11-11");
+  });
+});
+
+describe("restructure with a new city before an existing one", () => {
+  beforeEach(() => {
+    chargeMock.mockReset();
+    updateMock.mockReset();
+    trashMock.mockReset();
+    stayDaysMock.mockReset();
+    stayDaysMock.mockImplementation(async (input: { cityName: string; count: number }) => ({
+      days: Array.from({ length: input.count }, () => ({ id: crypto.randomUUID(), theme: `AI ${input.cityName}`, stops: [] })),
+      themedDays: input.count,
+    }));
+    // 東京 d1 + its day to 京都 (d2); 京都 d3, d4 and the trip's last day d5.
+    findFirst.mockResolvedValue({
+      id: "itin-1",
+      userId: "u1",
+      config: { currency: "JPY", flightInfo: { departureDate: "2026-11-11", returnDate: "2026-11-15", arrivalCity: "NRT" } },
+      days: [
+        { id: "d1", day: 1, theme: "東京1", waypointCity: "東京", stops: [] },
+        { id: "d2", day: 2, theme: "移動日：前往京都", isTransitDay: true, transitTo: "京都", waypointCity: "東京", stops: [] },
+        { id: "d3", day: 3, theme: "京都3", waypointCity: "京都", stops: [] },
+        { id: "d4", day: 4, theme: "京都4", waypointCity: "京都", stops: [] },
+        { id: "d5", day: 5, theme: "返程日", waypointCity: "京都", stops: [] },
+      ],
+    });
+  });
+
+  const themes = () => updateMock.mock.calls[0][0].data.days.map((d: { theme: string }) => d.theme);
+
+  it("keeps every existing day with the day counts the wizard now sends", async () => {
+    await restructure([
+      { name: "東京", isNew: false, targetDays: 1, keepDayIds: ["d1", "d2"] },
+      { name: "名古屋", isNew: true, targetDays: 2 },
+      { name: "京都", isNew: false, targetDays: 4, keepDayIds: ["d3", "d4", "d5"] },
+    ]);
+    expect(themes()).toEqual(["東京1", "移動日：前往名古屋", "AI 名古屋", "移動日：前往京都", "京都3", "京都4", "返程日"]);
+    expect(trashMock).not.toHaveBeenCalled();
+  });
+
+  it("puts a kept day that no longer fits in the trash rather than losing it", async () => {
+    // The old counts: 京都's new transit day leaves no room for d4.
+    await restructure([
+      { name: "東京", isNew: false, targetDays: 2, keepDayIds: ["d1", "d2"] },
+      { name: "名古屋", isNew: true, targetDays: 2 },
+      { name: "京都", isNew: false, targetDays: 3, keepDayIds: ["d3", "d4", "d5"] },
+    ]);
+    const trashed = trashMock.mock.calls[0][0].data.map((row: { day: { id: string } }) => row.day.id);
+    expect(trashed).toEqual(["d4"]); // not d2: a new day to 京都 replaces it
   });
 });

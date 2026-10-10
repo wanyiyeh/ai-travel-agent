@@ -3,6 +3,7 @@ import {
   bookedDateShift,
   computeCityDiff,
   newDaysHint,
+  relinkCities,
   computeStructuralDayIds,
   groupExistingDays,
   minCityDays,
@@ -65,5 +66,43 @@ describe("restructure wizard — hints", () => {
     expect(newDaysHint(1)).toBe("依你的偏好排主題");
     expect(newDaysHint(2)).toBe("依你的偏好排主題，通常有一天半日遊");
     expect(newDaysHint(3)).toBe("依你的偏好排主題，通常有一天郊區一日遊");
+  });
+});
+
+describe("restructure wizard — inserting a city before an existing one", () => {
+  // 東京 d1 + its day to 京都 (d2); 京都 d3, d4 and the trip's last day d5.
+  const trip: RestructureDayLite[] = [
+    { id: "d1", day: 1, waypointCity: "東京", stopCount: 3 },
+    { id: "d2", day: 2, waypointCity: "東京", stopCount: 1, isTransitDay: true },
+    { id: "d3", day: 3, waypointCity: "京都", stopCount: 3 },
+    { id: "d4", day: 4, waypointCity: "京都", stopCount: 3 },
+    { id: "d5", day: 5, waypointCity: "京都", stopCount: 1 },
+  ];
+  const [tokyoCity, kyotoCity] = groupExistingDays(trip, computeStructuralDayIds(trip));
+  const nagoya: CityEntryState = {
+    ...tokyoCity,
+    key: "nagoya",
+    name: "名古屋",
+    isNew: true,
+    existingDayIds: [],
+    structuralDayIds: new Set(),
+    bookedDayIds: new Set(),
+    keepDayIds: new Set(),
+    targetDays: 2,
+    hasOutboundTransit: false,
+  };
+
+  it("moves the transit day from 東京 to 京都, so every existing day stays", () => {
+    const [tokyoAfter, , kyotoAfter] = relinkCities([tokyoCity, nagoya, kyotoCity]);
+    expect(tokyoAfter.targetDays).toBe(1); // its day to 京都 becomes 名古屋's
+    expect(kyotoAfter.targetDays).toBe(4); // gains the day from 名古屋
+    expect(computeCityDiff(tokyoAfter)).toMatchObject({ removed: [], keptCount: 1, addedAiDays: 0 });
+    expect(computeCityDiff(kyotoAfter)).toMatchObject({ removed: [], keptCount: 3, addedAiDays: 0 });
+  });
+
+  it("puts the days back when the new city is removed again", () => {
+    const inserted = relinkCities([tokyoCity, nagoya, kyotoCity]);
+    const removed = relinkCities(inserted.filter((c) => c.key !== "nagoya"));
+    expect(removed.map((c) => c.targetDays)).toEqual([2, 3]);
   });
 });
