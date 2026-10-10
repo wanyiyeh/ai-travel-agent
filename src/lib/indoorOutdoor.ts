@@ -44,6 +44,23 @@ export function exposureOf(types: string[] | undefined): Exposure | undefined {
   return first;
 }
 
+const NIGHTLIFE_TYPES = new Set(["bar", "night_club", "pub", "wine_bar", "cocktail_bar"]);
+const FOOD_TYPES = new Set(["restaurant", "food"]);
+
+/**
+ * A place to go drinking at night, not to see by day: Google calls it a
+ * tourist attraction, a bar and a restaurant, and nothing that says museum,
+ * park, mall or observation deck. 新宿黃金街 ([tourist_attraction,
+ * ramen_restaurant, bar, ...]) kept being scheduled for the morning. Any bar
+ * type alone would have caught Bangkok's Mahanakhon skywalk (no restaurant
+ * type), Battersea Power Station (a mall) and Sky Garden (a garden) too.
+ */
+export function isBarStreet(types: string[] | undefined): boolean {
+  if (!types?.some((t) => NIGHTLIFE_TYPES.has(t))) return false;
+  if (!types.some((t) => FOOD_TYPES.has(t))) return false;
+  return exposureOf(types) === undefined;
+}
+
 // The 11:00-15:00 sun an indoor-first traveler wants to spend inside.
 export const MIDDAY_SUN = { startMinute: 11 * 60, endMinute: 15 * 60 };
 

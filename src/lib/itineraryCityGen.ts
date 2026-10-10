@@ -36,7 +36,7 @@ import {
   type DrinkChoice,
   type DrinkKey,
 } from "@/lib/drinkPlaces";
-import { exposureOf, indoorFirstPool } from "@/lib/indoorOutdoor";
+import { exposureOf, indoorFirstPool, isBarStreet } from "@/lib/indoorOutdoor";
 import type { DayConditions } from "@/lib/dayConditions";
 import type { DayFixedEvents } from "@/lib/fixedEvents";
 import { RETURN_CAR_MINUTES } from "@/lib/carRental";
@@ -852,7 +852,9 @@ const SUPPLEMENT_ATTRACTION_TYPES = ["museum", "art_gallery", "park", "historica
 /**
  * `places` (already free of used ones) plus, only when fewer than `needed`
  * are left, places from SUPPLEMENT_ATTRACTION_TYPES that aren't in the pool
- * or used yet. Short trips never pay for the extra search.
+ * or used yet. Short trips never pay for the extra search. Every day's
+ * sights come through here, so it's also where bar streets (新宿黃金街) are
+ * left out: they're for the evening, and a 酒 traveler's 小酌 can still go there.
  */
 async function withSupplementalAttractions(
   coords: { lat: number; lng: number },
@@ -861,10 +863,11 @@ async function withSupplementalAttractions(
   usedIds: Set<string>,
   needed: number
 ): Promise<PlaceCandidate[]> {
-  if (places.length >= needed) return places;
+  const sights = places.filter((p) => !isBarStreet(p.types));
+  if (sights.length >= needed) return sights;
   const extra = await fetchNearbyPlaceCandidates(coords, apiKey, SUPPLEMENT_ATTRACTION_TYPES, 10000, 20);
-  const inPool = new Set(places.map((p) => p.placeId));
-  return [...places, ...extra.filter((p) => !inPool.has(p.placeId) && !usedIds.has(p.placeId))];
+  const inPool = new Set(sights.map((p) => p.placeId));
+  return [...sights, ...extra.filter((p) => !inPool.has(p.placeId) && !usedIds.has(p.placeId) && !isBarStreet(p.types))];
 }
 
 // estimateStopCapacity only approximates how many stops fit (it uses the

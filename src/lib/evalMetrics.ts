@@ -2,7 +2,7 @@ import type { BudgetLevel } from "@/lib/fetchCityRestaurants";
 import { MAIN_MEAL_BUDGET_TWD } from "@/lib/mealBudget";
 import { isBudgetLodging, isLuxuryLodging } from "@/lib/lodgingTiers";
 import { mapPlaceTypeToCategory } from "@/lib/scheduler/mapPlaceTypeToCategory";
-import { exposureOf } from "@/lib/indoorOutdoor";
+import { exposureOf, isBarStreet } from "@/lib/indoorOutdoor";
 import { haversineKm } from "@/lib/geo";
 
 // Measures one generated itinerary for scripts/eval-form-fidelity.ts — how
@@ -60,6 +60,8 @@ export type ItineraryMetrics = {
   adjacentRepeats: number;
   /** Meals without a placeId — names the LLM made up. */
   inventedMeals: number;
+  /** Stops on any day at a bar street (indoorOutdoor.ts isBarStreet), e.g. 新宿黃金街 — should be none. */
+  barStreetStops: string[];
   /** Stops and meals at a real place with no description (bookings aside) — missingCopy.ts should leave none. */
   missingDescriptions: string[];
   /** Cities in order, consecutive duplicates merged. */
@@ -251,6 +253,7 @@ export function measureItinerary(days: Rec[], ctx: EvalContext): ItineraryMetric
     mealRepeatRate,
     adjacentRepeats,
     inventedMeals,
+    barStreetStops: days.flatMap((d) => asRecords(d.stops).filter((s) => isBarStreet(typesOf(s.placeId))).map((s) => str(s.name) ?? "")),
     missingDescriptions: days.flatMap((d) => {
       const meals = (d.meals ?? {}) as Rec;
       const items = [...asRecords(d.stops), ...MEAL_KEYS.map((k) => meals[k]).filter((m): m is Rec => Boolean(m) && typeof m === "object")];

@@ -142,6 +142,13 @@ describe("measureItinerary", () => {
     expect(m2.outdoorAfterDarkDays).toBe(1);
   });
 
+  it("lists bar streets scheduled as sights, on any day", () => {
+    const withGai = days.map((d, i) => (i === 3 ? { ...d, stops: [{ name: "新宿黃金街", placeId: "gai" }] } : d));
+    const ctxWithGai = { ...ctx, placeTypes: new Map([...ctx.placeTypes, ["gai", ["tourist_attraction", "bar", "restaurant", "food"]]]) };
+    expect(measureItinerary(withGai, ctxWithGai).barStreetStops).toEqual(["新宿黃金街"]);
+    expect(measureItinerary(days, ctx).barStreetStops).toEqual([]);
+  });
+
   it("lists places with no description, bookings aside", () => {
     // the fixture's meals have no descriptions; its stops neither
     const described = days.map((d) => ({

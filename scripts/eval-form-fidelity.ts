@@ -423,6 +423,17 @@ const CHECKS: Check[] = [
       r.get("tokyo-spring")?.seasonalDays.map((d) => `第 ${d.day} 天「${d.title}」：${d.stops.join("、")}`).join("；") || "沒有季節限定日",
   },
   {
+    title: "酒吧街：東京的行程不把新宿黃金街這類酒吧街當白天景點（包括返程日）",
+    pass: (r) => {
+      const tokyo = [...r.entries()].filter(([id]) => id.startsWith("tokyo")).map(([, m]) => m);
+      return tokyo.length ? tokyo.every((m) => m.barStreetStops.length === 0) : null;
+    },
+    detail: (r) => {
+      const found = [...r.entries()].flatMap(([id, m]) => m.barStreetStops.map((name) => `${id}：${name}`));
+      return found.length ? found.join("、") : "沒有";
+    },
+  },
+  {
     title: "介紹：對照組每個景點和餐點都有介紹（包括一日遊和程式換上的店）",
     pass: (r) => {
       const m = r.get("tokyo-baseline");
