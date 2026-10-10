@@ -37,6 +37,7 @@ export default function ItineraryCard({ data }: ItineraryCardProps) {
                     · {day.theme}
                   </span>
                 )}
+                {day.weatherNote && <div className="text-sm font-normal opacity-90">{day.weatherNote}</div>}
               </div>
               {totalMinutes > 0 && (
                 <div className="text-sm text-white opacity-90">

@@ -45,7 +45,11 @@ vi.mock("@/lib/fixedEventVenues", () => ({
 const findRentalMock = vi.fn();
 const findSuburbMock = vi.fn();
 const inSeasonMock = vi.fn();
-vi.mock("@/lib/climate", () => ({ isInSeason: (...args: unknown[]) => inSeasonMock(...args) }));
+const climateMock = vi.fn();
+vi.mock("@/lib/climate", () => ({
+  isInSeason: (...args: unknown[]) => inSeasonMock(...args),
+  getClimate: (...args: unknown[]) => climateMock(...args),
+}));
 const restaurantNearMock = vi.fn();
 vi.mock("@/lib/suburbTrips", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/suburbTrips")>()),
@@ -136,6 +140,7 @@ beforeEach(() => {
   findSuburbMock.mockResolvedValue(undefined);
   findSeasonalMock.mockResolvedValue(undefined);
   findClassicMock.mockResolvedValue(undefined);
+  climateMock.mockResolvedValue(undefined);
   restaurantNearMock.mockResolvedValue(undefined);
 });
 
@@ -567,5 +572,38 @@ describe("assembleItineraryDays — seasonal day", () => {
     await run(undefined, { seasonalHighlights: false });
 
     expect(findSeasonalMock).not.toHaveBeenCalled();
+  });
+});
+
+// 3c-4: each day's sunset, heat and rain (dayConditions.ts).
+describe("assembleItineraryDays — sunset and weather", () => {
+  // 12月 東京: dark by about 16:30, rain on a third of the days.
+  const december = { avgMaxTempC: 12, avgSnowDepthM: 0, rainyDayShare: 0.3, sunsetFirstMinute: 988, sunsetLastMinute: 993 };
+
+  beforeEach(() => {
+    vi.stubEnv("GOOGLE_PLACES_API_KEY", "key");
+    climateMock.mockResolvedValue(december);
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("passes each sightseeing day's sunset to the scheduler and shows it under the title", async () => {
+    const result = await run(undefined, undefined);
+
+    const conditions = dayStopsMock.mock.calls[0][11] as { sunsetMinute: number; hot: boolean; rainy: boolean }[];
+    expect(conditions).toHaveLength(3);
+    expect(conditions[0]).toEqual({ sunsetMinute: 988, hot: false, rainy: false, cold: false }); // 12月 1日
+    expect(climateMock.mock.calls[1][2]).toBe("2026-12-02");
+    expect(result!.days[0].weatherNote).toBe("日落約 16:28");
+  });
+
+  it("adds nothing when the weather is unknown", async () => {
+    climateMock.mockResolvedValue(undefined);
+
+    const result = await run(undefined, undefined);
+
+    expect(result!.days[0]).not.toHaveProperty("weatherNote");
   });
 });

@@ -265,6 +265,8 @@ export const DaySchema = z.object({
   transitTo: z.string().nullish().transform(v => v ?? undefined),
   waypointCity: z.string().optional(),
   isLocked: z.boolean().optional(),
+  // 「日落約 16:30・這個月常下雨，記得帶傘」 (dayConditions.ts).
+  weatherNote: z.string().optional(),
 });
 
 export const ItinerarySchema = z.object({
