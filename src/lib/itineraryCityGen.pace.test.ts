@@ -326,6 +326,60 @@ describe("generateThemedDayStops — 室內行程為主 (indoor first)", () => {
   });
 });
 
+// 日落和天氣 (dayConditions.ts): heat and rain bend the day like 室內行程為主, without its narrower pool.
+describe("generateThemedDayStops — sunset and weather", () => {
+  const place = (id: string, type: string, i: number): PlaceCandidate => ({
+    ...POOL[0],
+    name: id,
+    placeId: id,
+    lat: 35.68 + i * 0.001,
+    types: ["tourist_attraction", type],
+  });
+  // Parks first, so by popularity they'd be picked first.
+  const mixed = [
+    ...Array.from({ length: 10 }, (_, i) => place(`park${i}`, "park", i)),
+    ...Array.from({ length: 10 }, (_, i) => place(`museum${i}`, "museum", i + 10)),
+  ];
+  const moderate = { ...NEUTRAL_PREFERENCE_INTENT, pace: "moderate" as const };
+  const calm = { sunsetMinute: 19 * 60, hot: false, rainy: false, cold: false };
+  const run = (conditions: typeof calm) =>
+    generateThemedDayStops("東京", 2, "JPY", [], undefined, moderate, undefined, undefined, 0, [], [], [conditions, conditions]);
+  const ids = (days: Array<Array<Record<string, unknown>>>) => days.flat().map((s) => String(s.placeId));
+
+  it("scores indoor places up in a rainy month, still with outdoor ones", async () => {
+    nearbyMock.mockResolvedValue(mixed);
+
+    const dry = ids((await run(calm)).stopsByDay);
+    const wet = ids((await run({ ...calm, rainy: true })).stopsByDay);
+
+    const museums = (list: string[]) => list.filter((id) => id.startsWith("museum")).length;
+    expect(museums(wet)).toBeGreaterThan(museums(dry));
+  });
+
+  it("keeps outdoor places in a hot month, but off midday", async () => {
+    nearbyMock.mockResolvedValue(mixed);
+
+    const { stopsByDay } = await run({ ...calm, hot: true });
+
+    expect(ids(stopsByDay).some((id) => id.startsWith("park"))).toBe(true);
+    for (const day of stopsByDay) {
+      const middle = day.slice(1, -1).map((s) => String(s.placeId));
+      expect(middle.filter((id) => id.startsWith("park"))).toEqual([]);
+    }
+  });
+
+  it("takes the parks first on a day that gets dark early", async () => {
+    nearbyMock.mockResolvedValue(mixed);
+
+    const { stopsByDay } = await run({ ...calm, sunsetMinute: 16 * 60 + 30 });
+
+    for (const day of stopsByDay) {
+      const order = day.map((s) => (String(s.placeId).startsWith("park") ? "park" : "indoor"));
+      expect(order.indexOf("indoor") === -1 || order.lastIndexOf("park") < order.indexOf("indoor")).toBe(true);
+    }
+  });
+});
+
 // 季節限定 (seasonalHighlights.ts): the highlights go on their day, and only there.
 describe("generateThemedDayStops — seasonal day", () => {
   const highlight = (id: string, lat: number): PlaceCandidate => ({ ...POOL[0], name: id, placeId: id, lat, types: ["park"] });

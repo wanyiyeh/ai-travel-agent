@@ -37,6 +37,7 @@ import {
   type DrinkKey,
 } from "@/lib/drinkPlaces";
 import { exposureOf, indoorFirstPool } from "@/lib/indoorOutdoor";
+import type { DayConditions } from "@/lib/dayConditions";
 import type { DayFixedEvents } from "@/lib/fixedEvents";
 import { RETURN_CAR_MINUTES } from "@/lib/carRental";
 import { THEMES, dayThemeKeys, interestWeightsOf, isOnTheme, popularSlots, themesOf, type ThemeKey } from "@/lib/dayThemes";
@@ -896,6 +897,14 @@ type Shelter = {
 // known-indoor places went from 3 of 8 stops to 5 of 8 with it.
 const INDOOR_CATEGORY_BOOST: Record<string, number> = { museum: 1.5, viewpoint: 1.5 };
 
+function withIndoorBoost(interestWeights: Record<string, number>): Record<string, number> {
+  const merged = { ...interestWeights };
+  for (const [category, boost] of Object.entries(INDOOR_CATEGORY_BOOST)) {
+    merged[category] = Math.max(merged[category] ?? 1, boost);
+  }
+  return merged;
+}
+
 function shelterFor(preferenceIntent: PreferenceIntent, candidateById: Map<string, PlaceCandidate>): Shelter {
   if (!preferenceIntent.indoorFirst) {
     return { pool: (candidates) => candidates, weights: (w) => w, pickMode: modePickerFor(preferenceIntent) };
@@ -908,13 +917,7 @@ function shelterFor(preferenceIntent: PreferenceIntent, candidateById: Map<strin
     isOutdoor,
     pool: <T extends { id: string }>(candidates: T[], needed: number) =>
       wantsOutdoor ? candidates : indoorFirstPool(candidates, needed, isOutdoor),
-    weights: (interestWeights) => {
-      const merged = { ...interestWeights };
-      for (const [category, boost] of Object.entries(INDOOR_CATEGORY_BOOST)) {
-        merged[category] = Math.max(merged[category] ?? 1, boost);
-      }
-      return merged;
-    },
+    weights: withIndoorBoost,
     pickMode: modePickerFor(preferenceIntent),
   };
 }
@@ -1028,7 +1031,8 @@ async function generateDayStopsViaScheduler(
   lodging: { lat: number; lng: number } | undefined,
   firstThemeIndex: number,
   fixedByDay: DayFixedEvents[],
-  seasonalByDay: (PlaceCandidate[] | undefined)[] = []
+  seasonalByDay: (PlaceCandidate[] | undefined)[] = [],
+  conditionsByDay: (DayConditions | undefined)[] = []
 ): Promise<ThemedDayStops | null> {
   try {
     const apiKey = process.env.GOOGLE_PLACES_API_KEY!;
@@ -1098,7 +1102,10 @@ async function generateDayStopsViaScheduler(
     }
 
     const shelter = shelterFor(preferenceIntent, candidateById);
-    const interestWeights = shelter.weights(interestWeightsOf(preferenceIntent.interestBoost));
+    const baseWeights = shelter.weights(interestWeightsOf(preferenceIntent.interestBoost));
+    // A rainy month (dayConditions.ts) scores indoor places up, as 室內行程為主 does; outdoor ones still come.
+    const interestWeights = conditionsByDay.some((c) => c?.rainy) ? withIndoorBoost(baseWeights) : baseWeights;
+    const outdoorOf = (c: { id: string }) => exposureOf(candidateById.get(c.id)?.types) === "outdoor";
     const capacities = capacitiesFor(pool);
 
     // rating × preference × distance from where the traveler sleeps (the
@@ -1133,8 +1140,11 @@ async function generateDayStopsViaScheduler(
               interestWeights,
               anchor,
               origin: anchor,
-              isOutdoor: shelter.isOutdoor,
+              // A hot month keeps outdoor places off midday too, without narrowing the pool.
+              isOutdoor: shelter.isOutdoor ?? (conditionsByDay[dayIdx]?.hot ? outdoorOf : undefined),
               fixedBlocks: blocksOf(dayIdx),
+              sunsetMinute: conditionsByDay[dayIdx]?.sunsetMinute,
+              isOutdoorInDark: outdoorOf,
             }),
             SIGHTSEEING_DAY_END_MINUTE
           )
@@ -1203,7 +1213,9 @@ export async function generateThemedDayStops(
   // Each day's 固定行程 — kept clear of other stops and slotted in by time.
   fixedByDay: DayFixedEvents[] = [],
   // Each day's seasonal highlights to see by day (seasonalHighlights.ts), on that day only.
-  seasonalByDay: (PlaceCandidate[] | undefined)[] = []
+  seasonalByDay: (PlaceCandidate[] | undefined)[] = [],
+  // Each day's sunset, heat and rain (dayConditions.ts).
+  conditionsByDay: (DayConditions | undefined)[] = []
 ): Promise<ThemedDayStops> {
   const scheduled = await generateDayStopsViaScheduler(
     cityName,
@@ -1216,7 +1228,8 @@ export async function generateThemedDayStops(
     lodging,
     firstThemeIndex,
     fixedByDay,
-    seasonalByDay
+    seasonalByDay,
+    conditionsByDay
   );
   if (scheduled) return scheduled;
   const llmDays = await generateDayStopsWithLLM(cityName, stayDays, currency);

@@ -1,6 +1,6 @@
 import { selectAndOrderStops, type StopCandidate } from "@/lib/scheduler/selectAndOrderStops";
 import { assignTimeSlots, type FixedBlock, type Pace, type ScheduledStop } from "@/lib/scheduler/assignTimeSlots";
-import { keepOutdoorOffMidday } from "@/lib/indoorOutdoor";
+import { keepOutdoorBeforeSunset, keepOutdoorOffMidday } from "@/lib/indoorOutdoor";
 
 export type BuildDaySkeletonOptions = {
   /** How many candidates to pick for this day. */
@@ -22,6 +22,9 @@ export type BuildDaySkeletonOptions = {
   isOutdoor?: (candidate: StopCandidate) => boolean;
   /** Committed time (固定行程) no stop may overlap — see assignTimeSlots. */
   fixedBlocks?: FixedBlock[];
+  /** Local sunset (dayConditions.ts): `isOutdoorInDark` stops go first and must end by it. */
+  sunsetMinute?: number;
+  isOutdoorInDark?: (candidate: StopCandidate) => boolean;
 };
 
 export type SkeletonStop = ScheduledStop & { lat: number; lng: number };
@@ -51,20 +54,35 @@ export function buildDaySkeleton(
     mealTypes = DEFAULT_MEAL_TYPES,
     isOutdoor,
     fixedBlocks,
+    sunsetMinute,
+    isOutdoorInDark,
   } = options;
 
   const routed = selectAndOrderStops(candidates, { count, origin, interestWeights, anchor });
   // assignTimeSlots' own default start when none is given.
-  const ordered = isOutdoor ? keepOutdoorOffMidday(routed, isOutdoor, dayStartMinute ?? 8 * 60) : routed;
+  let ordered = isOutdoor ? keepOutdoorOffMidday(routed, isOutdoor, dayStartMinute ?? 8 * 60) : routed;
+  const darkEarly =
+    sunsetMinute !== undefined && isOutdoorInDark !== undefined && sunsetMinute < (dayEndMinute ?? Number.POSITIVE_INFINITY);
+  if (darkEarly) ordered = keepOutdoorBeforeSunset(ordered, isOutdoorInDark);
 
-  const scheduled = assignTimeSlots(
-    ordered.map((c) => ({
-      id: c.id,
-      type: c.type,
-      isMeal: c.type != null && mealTypes.includes(c.type),
-    })),
-    { pace, dayStartMinute, dayEndMinute, fixedBlocks }
-  );
+  const schedule = (stops: StopCandidate[]) =>
+    assignTimeSlots(
+      stops.map((c) => ({
+        id: c.id,
+        type: c.type,
+        isMeal: c.type != null && mealTypes.includes(c.type),
+      })),
+      { pace, dayStartMinute, dayEndMinute, fixedBlocks }
+    );
+  let scheduled = schedule(ordered);
+  // An outdoor stop that would still run after dark is dropped; the rest move up.
+  if (darkEarly) {
+    const lit = ordered.filter((c, i) => !(isOutdoorInDark(c) && scheduled[i].endMinute > sunsetMinute));
+    if (lit.length < ordered.length) {
+      ordered = lit;
+      scheduled = schedule(ordered);
+    }
+  }
 
   // assignTimeSlots preserves input order/length 1:1 (a plain .map), so
   // zipping by index back onto `ordered` is safe and avoids an id lookup.
