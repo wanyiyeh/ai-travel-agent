@@ -142,6 +142,14 @@ describe("measureItinerary", () => {
     expect(m2.outdoorAfterDarkDays).toBe(1);
   });
 
+  it("finds the longest walk between sightseeing stops", () => {
+    const walks = days.map((d, i) =>
+      i === 0 ? { ...d, stops: [{ placeId: "museum1" }, { placeId: "park1", transport_from_prev: "步行約 12 分鐘" }] } : d
+    );
+    expect(measureItinerary(walks, ctx).longestWalkMinutes).toBe(12);
+    expect(measureItinerary(days, ctx).longestWalkMinutes).toBe(0);
+  });
+
   it("lists meals at a hotel", () => {
     const withHotel = days.map((d, i) => (i === 0 ? { ...d, meals: { ...d.meals, dinner: { name: "Hotel sardonyx ueno", placeId: "hotelMeal" } } } : d));
     const ctxHotel = { ...ctx, placeTypes: new Map([...ctx.placeTypes, ["hotelMeal", ["breakfast_restaurant", "hotel", "lodging"]]]) };
