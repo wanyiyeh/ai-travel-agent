@@ -466,6 +466,22 @@ const CHECKS: Check[] = [
     },
   },
   {
+    // 支笏洞爺國立公園's coordinate is the middle of the park: nothing within 3km, and lunch went back to 札幌.
+    title: "一日遊：午餐在當天去的地方附近（10 km 內，或寫明在當地找地方吃），不回市區",
+    pass: (r) => {
+      const trips = [...r.values()].flatMap((m) => m.suburbDays.filter((d) => d.title.includes("一日遊")));
+      return trips.length ? trips.every((d) => d.lunch && (d.lunch.km === undefined || d.lunch.km <= 10)) : null;
+    },
+    detail: (r) =>
+      [...r.entries()]
+        .flatMap(([id, m]) =>
+          m.suburbDays
+            .filter((d) => d.title.includes("一日遊"))
+            .map((d) => `${id}「${d.title}」午餐 ${d.lunch?.name ?? "—"}${d.lunch?.km !== undefined ? `（${d.lunch.km.toFixed(1)} km）` : ""}`)
+        )
+        .join("；") || "—",
+  },
+  {
     // A maid café is typed a plain café; only its name tells.
     title: "親子：點心沒有女僕、主題咖啡廳，而且多半是甜點",
     pass: (r) => {

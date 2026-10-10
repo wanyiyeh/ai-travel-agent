@@ -42,7 +42,14 @@ export type ItineraryMetrics = {
   /** 影劇朝聖 days (filmLocations.ts): the title and every stop's name. */
   filmDays: { day: number; title: string; stops: string[] }[];
   /** Days out of the city (suburbTrips.ts): the title and where the first stop is. */
-  suburbDays: { day: number; title: string; stops: number; first?: { name: string; lat?: number; lng?: number } }[];
+  suburbDays: {
+    day: number;
+    title: string;
+    stops: number;
+    first?: { name: string; lat?: number; lng?: number };
+    /** The day's lunch and how far it is from the first stop; no km for a placeless "eat out there" lunch. */
+    lunch?: { name: string; km?: number };
+  }[];
   /** Where each 固定行程 ended up: a stop (with its position in the day) or the meal it replaced. */
   fixedEvents: { day: number; name: string; as: string; lastStop?: boolean; dinnerKm?: number; city?: string }[];
   mainMeals: number;
@@ -230,11 +237,18 @@ export function measureItinerary(days: Rec[], ctx: EvalContext): ItineraryMetric
       if (!/一日遊|半日遊/.test(title)) return [];
       const stops = asRecords(d.stops);
       const first = stops[0];
+      const lunch = ((d.meals ?? {}) as Rec).lunch as Rec | undefined;
+      const [fLat, fLng, lLat, lLng] = [num(first?.lat), num(first?.lng), num(lunch?.lat), num(lunch?.lng)];
+      const lunchKm =
+        fLat !== undefined && fLng !== undefined && lLat !== undefined && lLng !== undefined
+          ? haversineKm(fLat, fLng, lLat, lLng)
+          : undefined;
       return [{
         day: i + 1,
         title,
         stops: stops.length,
-        ...(first ? { first: { name: str(first.name) ?? "", lat: num(first.lat), lng: num(first.lng) } } : {}),
+        ...(first ? { first: { name: str(first.name) ?? "", lat: fLat, lng: fLng } } : {}),
+        ...(lunch ? { lunch: { name: str(lunch.name) ?? "", ...(lunchKm !== undefined ? { km: lunchKm } : {}) } } : {}),
       }];
     }),
     fixedEvents: days.flatMap((d, i) => {

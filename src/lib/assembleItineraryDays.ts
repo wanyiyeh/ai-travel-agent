@@ -308,12 +308,12 @@ export async function assembleItineraryDays(
             usedPlaceIds.add(String(stop.placeId));
           }
           const first = classic.sights[0];
-          const lunch = await restaurantNear(
+          const lunch = await dayTripLunch(
             { placeId: first.placeId, name: first.name, lat: first.lat, lng: first.lng },
             eventMealContext,
-            `在${classic.town}吃午餐`,
-            3000
-          ).catch(() => undefined);
+            classic.town,
+            `在${classic.town}吃午餐`
+          );
           return { dayIndex, kind, name: classic.town, events, lunch };
         }
       }
@@ -332,12 +332,12 @@ export async function assembleItineraryDays(
       // A day out eats lunch out there, not back downtown.
       const lunch =
         kind === "day"
-          ? await restaurantNear(
+          ? await dayTripLunch(
               { placeId: found.place.placeId, name: found.place.name, lat: found.place.lat, lng: found.place.lng },
               eventMealContext,
-              `在${found.place.name}附近吃午餐`,
-              3000
-            ).catch(() => undefined)
+              found.place.name,
+              `在${found.place.name}附近吃午餐`
+            )
           : undefined;
       return { dayIndex, kind, name: found.place.name, events: [event], lunch };
     };
@@ -516,4 +516,23 @@ function withSeasonalNotes(stops: Array<Record<string, unknown>>, notes: Map<str
     const description = typeof stop.description === "string" && stop.description ? `${stop.description} ${note}` : note;
     return { ...stop, description };
   });
+}
+
+/**
+ * Lunch on a day out, near where the day is spent: within 3km, then 10km —
+ * a national park's coordinate is the middle of the park, and 支笏洞爺國立公園
+ * had nothing within 3km, so lunch fell back to a sushi place in 札幌. With
+ * nothing either way, the day says to eat out there, not back in town.
+ */
+async function dayTripLunch(
+  venue: { placeId: string; name: string; lat: number; lng: number },
+  context: Parameters<typeof restaurantNear>[1],
+  area: string,
+  description: string
+): Promise<Record<string, unknown>> {
+  for (const radius of [3000, 10000]) {
+    const meal = await restaurantNear(venue, context, description, radius).catch(() => undefined);
+    if (meal) return meal;
+  }
+  return { name: `${area}附近用餐`, description: "附近餐廳不多，可以在園區或沿途找地方吃，或自備便當" };
 }
