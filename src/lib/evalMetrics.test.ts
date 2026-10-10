@@ -209,10 +209,16 @@ describe("measureItinerary", () => {
   });
 
   it("lists the days out of the city", () => {
-    const withTrip = days.map((d, i) => (i === 1 ? { ...d, theme: "東京 一日遊：高尾山", stops: [{ name: "高尾山", lat: 35.62, lng: 139.24 }] } : d));
+    const withTrip = days.map((d, i) =>
+      i === 1
+        ? { ...d, theme: "東京 一日遊：高尾山", stops: [{ name: "高尾山", lat: 35.62, lng: 139.24 }], meals: { lunch: { name: "高尾山附近用餐" } } }
+        : d
+    );
     expect(measureItinerary(withTrip, ctx).suburbDays).toEqual([
-      { day: 2, title: "東京 一日遊：高尾山", stops: 1, first: { name: "高尾山", lat: 35.62, lng: 139.24 } },
+      { day: 2, title: "東京 一日遊：高尾山", stops: 1, first: { name: "高尾山", lat: 35.62, lng: 139.24 }, lunch: { name: "高尾山附近用餐" } },
     ]);
+    const cityLunch = withTrip.map((d, i) => (i === 1 ? { ...d, meals: { lunch: { name: "Shinjuku Sushi", lat: 35.69, lng: 139.7 } } } : d));
+    expect(measureItinerary(cityLunch, ctx).suburbDays[0].lunch?.km).toBeGreaterThan(40);
   });
 
   it("counts legs shown as a taxi ride", () => {
