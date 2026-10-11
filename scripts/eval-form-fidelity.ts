@@ -183,6 +183,11 @@ const SCENARIOS: Scenario[] = [
     preferences: { transport: "drive" },
   },
   {
+    id: "domestic-matsu-loop",
+    label: "國內・台北 → 馬祖 5 天（大眾運輸），坐船到鄰島住一晚",
+    flightInfo: domesticTrip("TW-TPE", "TW-MZU", "2026-11-15"),
+  },
+  {
     id: "domestic-tainan-pets",
     label: "國內・台北 → 台南 3 天（大眾運輸），帶寵物",
     flightInfo: domesticTrip("TW-TPE", "TW-TNN"),
@@ -598,6 +603,29 @@ const CHECKS: Check[] = [
       const m = r.get("domestic-matsu-drive");
       return m
         ? `${m.islandDays.map((d) => `${d.theme}：${d.islands.join("、") || "—"}${d.lunchIsland ? `（午餐 ${d.lunchIsland}）` : ""}`).join("；")}；第一站：${m.tripEnds.firstNote ?? "—"}`
+        : "—";
+    },
+  },
+  {
+    title: "離島過夜：馬祖 5 天坐船到鄰島住一晚（北竿、莒光或東引，不是南竿），移動日搭船，那幾天的景點都在那個島",
+    pass: (r) => {
+      const m = r.get("domestic-matsu-loop");
+      if (!m) return null;
+      const away = m.transitDays.map((t) => t.theme.replace("移動日：前往", "")).find((name) => name !== "馬祖");
+      if (!away || !["北竿", "莒光", "東引"].includes(away)) return false;
+      const byBoat = m.transitDays.every((t) => (t.firstNote ?? "").includes("搭船") && !(t.firstNote ?? "").includes("馬祖福澳港"));
+      // The day the boat goes over, and any whole days there.
+      const awayDays = m.islandDays.filter((d) => d.theme === `移動日：前往${away}` || d.theme.startsWith(`${away} `));
+      // Not a boat day out to the island stayed on as well.
+      const twice = m.islandDays.some((d) => d.theme.endsWith(`日遊：${away}`));
+      return byBoat && !twice && awayDays.length > 0 && awayDays.every((d) => d.islands.every((i) => i === away));
+    },
+    detail: (r) => {
+      const m = r.get("domestic-matsu-loop");
+      return m
+        ? `${m.transitDays.map((t) => `${t.theme}：${t.firstNote ?? "—"}`).join("；")}；${m.islandDays
+            .map((d) => `${d.theme}：${d.islands.join("、") || "—"}`)
+            .join("；")}`
         : "—";
     },
   },

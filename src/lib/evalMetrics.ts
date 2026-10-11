@@ -44,6 +44,8 @@ export type ItineraryMetrics = {
   pets: { stays: string[]; petDays: number; carrierNote: boolean };
   /** 馬祖 or 澎湖: the islands the stops are on (islandGroups.ts) — one, unless a boat goes elsewhere. */
   islands: string[];
+  /** Each transit day's first step: an island hop's boat (islandGroups.ts crossingBetween). */
+  transitDays: { theme: string; firstStop?: string; firstNote?: string }[];
   /** The same by day, with the island lunch is on — a boat day out is all on the other island. */
   islandDays: { theme: string; islands: string[]; lunchIsland?: string }[];
   /** Stops or transit steps that mention an airport or a flight — none on a mainland 國內 trip. */
@@ -271,8 +273,14 @@ export function measureItinerary(days: Rec[], ctx: EvalContext): ItineraryMetric
       carrierNote: (str(asRecords(days[0]?.stops)[0]?.description) ?? "").includes("裝籠"),
     },
     islands: islandsOf(days.flatMap((d) => asRecords(d.stops))),
+    transitDays: days
+      .filter((d) => d.isTransitDay === true)
+      .map((d) => {
+        const first = asRecords(d.stops)[0];
+        return { theme: str(d.theme) ?? "", firstStop: str(first?.name), firstNote: str(first?.description) };
+      }),
+    // Transit days too: a night on a neighbouring island starts with the boat there.
     islandDays: days
-      .filter((d) => d.isTransitDay !== true)
       .map((d) => {
         const lunch = ((d.meals ?? {}) as Rec).lunch as Rec | undefined;
         return {

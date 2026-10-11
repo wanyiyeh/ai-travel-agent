@@ -242,6 +242,19 @@ describe("measureItinerary", () => {
     expect(measureItinerary(trip, ctx).islands).toEqual(["南竿", "北竿"]);
   });
 
+  it("lists each transit day's first step", () => {
+    const trip = days.map((d, i) =>
+      i === 1
+        ? { ...d, isTransitDay: true, theme: "移動日：前往東引", stops: [{ name: "從南竿前往東引", description: "從南竿福澳港搭船約 120 分（估計）" }] }
+        : d
+    );
+    expect(measureItinerary(trip, ctx).transitDays).toContainEqual({
+      theme: "移動日：前往東引",
+      firstStop: "從南竿前往東引",
+      firstNote: "從南竿福澳港搭船約 120 分（估計）",
+    });
+  });
+
   it("names each day's islands and where lunch is", () => {
     const trip = days.map((d, i) =>
       i === 0
