@@ -1588,6 +1588,16 @@ async function generateDayStopsViaScheduler(
 
     return {
       stopsByDay,
+      coreIdsByDay: skeletonsByDay.map((skeleton, dayIdx) => {
+        const theme = dayThemes[dayIdx];
+        if (!theme) return [];
+        return skeleton
+          .filter((c) => {
+            const place = candidateById.get(c.id);
+            return isCoreOfTheme(place?.types, theme, place?.name);
+          })
+          .map((c) => c.id);
+      }),
       // A day only claims its theme when it actually got an on-theme stop.
       themeByDay: skeletonsByDay.map((skeleton, dayIdx) => {
         // A seasonal day is titled by its highlights, not the rotation.
@@ -1605,6 +1615,12 @@ export type ThemedDayStops = {
   stopsByDay: Array<Array<Record<string, unknown>>>;
   /** Each day's theme (plan/form-preference-wiring.md 1.4), undefined for a day without one. */
   themeByDay: (ThemeKey | undefined)[];
+  /**
+   * Each themed day's stops that are what its theme is about, by place id
+   * (isCoreOfTheme, by Google type) — the stops carry no types: 上野阿美橫商店街
+   * is a market, which its name doesn't say.
+   */
+  coreIdsByDay?: string[][];
 };
 
 /**

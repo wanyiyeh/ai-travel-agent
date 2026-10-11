@@ -122,3 +122,16 @@ describe("購物散策", () => {
   });
 });
 
+describe("市場美食", () => {
+  it("is markets by type, and 橫丁, food streets and 小吃街 by text — not food courts or farmers' markets", () => {
+    expect(THEMES.food.searchTypes).toEqual(["market"]);
+    expect(THEMES.food.textSearches?.("東京", false).map((t) => t.query)).toEqual(["東京 橫丁", "東京 美食街", "東京 小吃街"]);
+    expect(isOnTheme(["food_court"], "food")).toBe(false);
+  });
+
+  it("knows a market or 橫丁 by its name", () => {
+    expect(isCoreOfTheme(undefined, "food", "思い出横丁")).toBe(true);
+    expect(isCoreOfTheme(undefined, "food", "Tsukiji Outer Market")).toBe(true);
+  });
+});
+

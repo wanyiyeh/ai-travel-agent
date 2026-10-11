@@ -15,6 +15,7 @@ import { computeArrivalDayStartMinute } from "@/lib/scheduler/arrivalDayStart";
 const planTripMock = vi.fn();
 const dayStopsMock = vi.fn();
 const themeByDayMock = vi.fn();
+const coreIdsMock = vi.fn();
 const transitStopsMock = vi.fn();
 const departureStopsMock = vi.fn();
 const mealsMock = vi.fn();
@@ -33,6 +34,7 @@ vi.mock("@/lib/itineraryCityGen", async (importOriginal) => ({
   generateThemedDayStops: async (...args: unknown[]) => ({
     stopsByDay: await dayStopsMock(...args),
     themeByDay: themeByDayMock(...args),
+    coreIdsByDay: coreIdsMock(...args),
   }),
   generateTransitDayStops: (...args: unknown[]) => transitStopsMock(...args),
   generateDepartureDayStops: (...args: unknown[]) => departureStopsMock(...args),
@@ -886,6 +888,43 @@ describe("assembleItineraryDays — to and from the airport", () => {
     expect(dayStopsMock.mock.calls[0][DAY_STOPS_FIRST_START]).toBe(15 * 60 + 60 + 45 + inTransfer);
     const pickup = (dayStopsMock.mock.calls[0][9] as { block: { startMinute: number } }[][])[0][0];
     expect(pickup.block.startMinute).toBe(15 * 60 + 60);
+  });
+});
+
+// 市場美食: lunch at the day's market (cityStayDays.ts marketLunch).
+describe("assembleItineraryDays — 市場美食 lunch", () => {
+  it("has lunch walking round the day's market", async () => {
+    themeByDayMock.mockImplementation((_city: string, count: number) => Array.from({ length: count }, (_, i) => (i === 0 ? "food" : undefined)));
+    dayStopsMock.mockImplementation(async (_city: string, count: number) =>
+      Array.from({ length: count }, (_, i) =>
+        i === 0 ? [{ name: "淺草寺", placeId: "p1" }, { name: "築地場外市場", placeId: "p2", lat: 35.66, lng: 139.77 }] : []
+      )
+    );
+    mealsMock.mockImplementation(async (_city: string, nights: number) => ({
+      accommodation: { name: "Hotel" },
+      mealsByDay: Array.from({ length: nights }, () => ({ lunch: { name: "Ramen X" }, dinner: { name: "Sushi Y" } })),
+    }));
+
+    const result = await run(undefined, { interests: ["food"] });
+
+    const meals = result!.days[0].meals as { lunch: { name: string; description: string }; dinner: { name: string } };
+    expect(meals.lunch).toMatchObject({ name: "築地場外市場", description: "在築地場外市場邊逛邊吃當午餐", placeId: "p2" });
+    expect(meals.dinner.name).toBe("Sushi Y");
+    expect((result!.days[1].meals as { lunch: { name: string } }).lunch.name).toBe("Ramen X");
+  });
+
+  it("knows the market by its Google type when the name doesn't say so", async () => {
+    themeByDayMock.mockImplementation((_city: string, count: number) => Array.from({ length: count }, (_, i) => (i === 0 ? "food" : undefined)));
+    // As scheduled for 東京: a market, by type, though its name says 商店街.
+    dayStopsMock.mockImplementation(async (_city: string, count: number) =>
+      Array.from({ length: count }, (_, i) => (i === 0 ? [{ name: "上野阿美橫商店街", placeId: "ameyoko" }] : []))
+    );
+    coreIdsMock.mockImplementation((_city: string, count: number) => Array.from({ length: count }, (_, i) => (i === 0 ? ["ameyoko"] : [])));
+
+    const result = await run(undefined, { interests: ["food"] });
+
+    expect((result!.days[0].meals as { lunch: { name: string } }).lunch.name).toBe("上野阿美橫商店街");
+    coreIdsMock.mockReset();
   });
 });
 

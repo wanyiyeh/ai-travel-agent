@@ -214,6 +214,7 @@ const SCENARIOS: Scenario[] = [
     preferences: { interests: ["film"], filmTitles: ["你的名字"] },
   },
   { id: "tokyo-solo", label: "東京・獨旅", flightInfo: TOKYO, preferences: { companions: ["solo"] } },
+  { id: "tokyo-food", label: "東京・美食（市場美食）", flightInfo: TOKYO, preferences: { interests: ["food"] } },
   {
     id: "tokyo-shopping",
     label: "東京・購物，想買家電、文具",
@@ -385,6 +386,19 @@ const CHECKS: Check[] = [
         .flatMap((id) => r.get(id)?.themeDayStops.filter((d) => d.theme.endsWith("文化巡禮")) ?? [])
         .map((d) => d.stops.map((s) => `${s.name} ${s.km} km${s.core ? "" : "（非文化）"}`).join("、"))
         .join("；") || "—",
+  },
+  {
+    title: "美食：市場美食日排到市場或橫丁，午餐就在那裡邊逛邊吃",
+    pass: (r) => {
+      const day = r.get("tokyo-food")?.themeDayStops.find((d) => d.theme.endsWith("市場美食"));
+      if (!day) return r.get("tokyo-food") ? false : null;
+      const market = day.stops.find((s) => s.core);
+      return Boolean(market) && day.lunch === market!.name;
+    },
+    detail: (r) => {
+      const day = r.get("tokyo-food")?.themeDayStops.find((d) => d.theme.endsWith("市場美食"));
+      return day ? `${day.stops.map((s) => `${s.name}${s.core ? "（市場）" : ""}`).join("、")}；午餐：${day.lunch ?? "—"}` : "沒有市場美食日";
+    },
   },
   {
     title: "購物：購物散策排到賣家電和賣文具的店（想買什麼），沒有超市、市場",

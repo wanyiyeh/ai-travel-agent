@@ -46,7 +46,7 @@ export type ItineraryMetrics = {
   /** 馬祖 or 澎湖: the islands the stops are on (islandGroups.ts) — one, unless a boat goes elsewhere. */
   islands: string[];
   /** Each themed day's stops and how far each is from that night's lodging, in km. */
-  themeDayStops: { theme: string; stops: { name: string; km: number; core: boolean }[] }[];
+  themeDayStops: { theme: string; stops: { name: string; km: number; core: boolean }[]; lunch?: string }[];
   /** Each 小酌's distance from that night's lodging, in km — 獨旅 keeps within a walk. */
   nightcapKm: { name: string; km: number }[];
   /** Each transit day's first step: an island hop's boat (islandGroups.ts crossingBetween). */
@@ -298,7 +298,8 @@ export function measureItinerary(days: Rec[], ctx: EvalContext): ItineraryMetric
             ]
           : [];
       });
-      return [{ theme, stops }];
+      const lunch = str((((d.meals ?? {}) as Rec).lunch as Rec | undefined)?.name);
+      return [{ theme, stops, ...(lunch ? { lunch } : {}) }];
     }),
     nightcapKm: days.flatMap((d) => {
       const bar = ((d.meals ?? {}) as Rec).nightcap as Rec | undefined;

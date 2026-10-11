@@ -248,10 +248,12 @@ describe("measureItinerary", () => {
         ? { ...d, theme: "東京 文化巡禮", accommodation: { name: "H", lat: 35.69, lng: 139.7 }, stops: [{ name: "博物館", lat: 35.72, lng: 139.7 }] }
         : d
     );
-    expect(measureItinerary(trip, ctx).themeDayStops).toContainEqual({
-      theme: "東京 文化巡禮",
-      stops: [{ name: "博物館", km: 3.3, core: false }], // no types for it in the test cache
-    });
+    expect(measureItinerary(trip, ctx).themeDayStops).toContainEqual(
+      expect.objectContaining({
+        theme: "東京 文化巡禮",
+        stops: [{ name: "博物館", km: 3.3, core: false }], // no types for it in the test cache
+      })
+    );
   });
 
   it("measures each 小酌 from that night's lodging", () => {
