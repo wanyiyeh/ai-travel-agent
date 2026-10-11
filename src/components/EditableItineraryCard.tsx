@@ -912,7 +912,8 @@ export default function EditableItineraryCard({
   const handleUpdateMealCost = async (dayId: string, mealType: MealType, value: number | undefined) => {
     const meal = itinerary.days.find((d) => d.id === dayId)?.meals?.[mealType];
     if (!meal) return;
-    const updated: Meal = { ...meal, estimated_cost: value };
+    // A cost typed in is the traveler's own figure, no longer Google's floor.
+    const updated: Meal = { ...meal, estimated_cost: value, estimated_cost_from: undefined };
     try {
       const res = await fetch(`/api/v1/days/${dayId}/meals/${mealType}/select`, {
         method: "POST",

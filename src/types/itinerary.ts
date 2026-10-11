@@ -63,6 +63,8 @@ export type Meal = {
   name: string;
   description?: string;
   estimated_cost?: number;
+  /** estimated_cost is a floor (Google's "NT$2,000+"): shown as 「NT$2,000 起」. */
+  estimated_cost_from?: true;
   placeId?: string;
   lat?: number;
   lng?: number;

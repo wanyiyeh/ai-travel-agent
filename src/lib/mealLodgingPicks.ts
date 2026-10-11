@@ -1,7 +1,7 @@
 import type { PlaceCandidate } from "@/lib/fetchCityRestaurants";
 import type { MealType } from "@/types/itinerary";
 import { estimateSlotCost, estimateLodgingCostPerNight, estimateLodgingCostRange } from "@/lib/priceLevelCost";
-import { estimateFromPriceRange } from "@/lib/mealBudget";
+import { estimateFromPriceRange, isPriceFloor } from "@/lib/mealBudget";
 
 // Real Nearby Search candidates for one city's meals and accommodation, handed
 // to the LLM as numbered lists so it picks real places instead of inventing
@@ -242,6 +242,7 @@ export function applyMealPicks(
         name: place.name,
         description: ownPick ? raw?.description : history.description.get(place),
         estimated_cost: estimated ?? (ownPick ? raw?.estimated_cost : undefined),
+        ...(isPriceFloor(place.priceRange, currency) ? { estimated_cost_from: true } : {}),
         placeId: place.placeId,
         lat: place.lat,
         lng: place.lng,
