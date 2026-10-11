@@ -58,6 +58,18 @@ export async function POST(
       return NextResponse.json({ error: "Day not found" }, { status: 404 });
     }
 
+    const day = days[dayIndex];
+    // A reservation (固定行程) stands: its price can be edited, not the place.
+    // The meal schema has no fixedEvent, so it's carried over from the stored
+    // meal — a price edit used to drop it, and 換一家 came back.
+    const current = (day.meals as Record<string, Record<string, unknown> | undefined> | undefined)?.[mealType];
+    const sameMeal = (other: typeof meal) =>
+      current !== undefined && (other.placeId ? other.placeId === current.placeId : other.name === current.name);
+    if (current?.fixedEvent && !sameMeal(meal)) {
+      return NextResponse.json({ error: "訂好位的餐廳不能換成別家" }, { status: 400 });
+    }
+    const saved = current?.fixedEvent ? { ...meal, fixedEvent: current.fixedEvent } : meal;
+
     if (meal.placeId && meal.lat != null && meal.lng != null) {
       await upsertPlace(meal.name, {
         placeId: meal.placeId,
@@ -69,9 +81,7 @@ export async function POST(
         photoName: meal.photoName ?? null,
       });
     }
-
-    const day = days[dayIndex];
-    const meals = { ...(day.meals as Record<string, unknown> | undefined), [mealType]: meal };
+    const meals = { ...(day.meals as Record<string, unknown> | undefined), [mealType]: saved };
     days[dayIndex] = { ...day, meals };
 
     await prisma.itinerary.update({
@@ -79,7 +89,7 @@ export async function POST(
       data: { days: j(days) },
     });
 
-    return NextResponse.json({ success: true, meal });
+    return NextResponse.json({ success: true, meal: saved });
   } catch (error) {
     return internalErrorResponse("Meal Select Error", error, "Failed to select meal");
   }

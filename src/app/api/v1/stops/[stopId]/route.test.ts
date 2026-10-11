@@ -4,8 +4,9 @@ import { signInAs } from "@tests/setup/mockAuth";
 // Validation runs before any DB access; an itinerary the signed-in user
 // doesn't own then 404s. So 400 = rejected by the schema, 404 = accepted and
 // looked up (ownership-scoped), 401 = signed out.
-const findFirst = vi.fn(async () => null);
-vi.mock("@/lib/db", () => ({ prisma: { itinerary: { findFirst } }, j: (v: unknown) => v }));
+const findFirst = vi.fn<() => Promise<unknown>>(async () => null);
+const update = vi.fn(async () => ({}));
+vi.mock("@/lib/db", () => ({ prisma: { itinerary: { findFirst, update } }, j: (v: unknown) => v }));
 vi.mock("@/lib/placeCache", () => ({ upsertPlace: async () => {} }));
 
 const { PATCH, DELETE } = await import("./route");
@@ -15,7 +16,9 @@ const req = (method: string, body: unknown) =>
   new Request("http://test/api", { method, body: typeof body === "string" ? body : JSON.stringify(body) });
 
 beforeEach(() => {
-  findFirst.mockClear();
+  findFirst.mockReset();
+  findFirst.mockResolvedValue(null);
+  update.mockClear();
   signInAs({ id: "u1", email: "u1@example.com" });
 });
 
@@ -78,3 +81,33 @@ describe("stops/[stopId] ownership", () => {
     expect(findFirst).toHaveBeenCalledWith({ where: expect.objectContaining({ id: "i1", userId: "u1" }) });
   });
 });
+
+// A booked event (固定行程) isn't swapped for another place — the UI hides 換一個, and so does the server.
+describe("PATCH /stops/[stopId] — a booked event", () => {
+  beforeEach(() => {
+    findFirst.mockResolvedValue({
+      id: "i1",
+      userId: "u1",
+      days: [
+        {
+          id: "d1",
+          stops: [{ id: "s1", name: "東京巨蛋", placeId: "dome", fixedEvent: { type: "concert", startTime: "18:00", endTime: "21:00" } }],
+        },
+      ],
+    });
+  });
+
+  it("refuses a swap to another place", async () => {
+    const res = await PATCH(req("PATCH", { itineraryId: "i1", name: "東京鐵塔", placeId: "tower", lat: 35.65, lng: 139.74 }), params);
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe("固定行程不能換成別的地點");
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it("still takes an edit of its text", async () => {
+    const res = await PATCH(req("PATCH", { itineraryId: "i1", name: "東京巨蛋", description: "提早一小時到" }), params);
+    expect(res.status).toBe(200);
+    expect(update).toHaveBeenCalled();
+  });
+});
+
