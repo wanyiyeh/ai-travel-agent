@@ -242,6 +242,19 @@ describe("planTrip — round-trip loops", () => {
     expect(systemPromptOf()).toContain("絕對只能有一個城市");
   });
 
+  it("keeps a trip to an island on the island, however long", async () => {
+    const matsu: FlightInfo = {
+      ...roundTrip,
+      tripType: "domestic",
+      departureCity: "TW-TPE",
+      arrivalCity: "TW-MZU",
+      returnDepartureCity: "TW-MZU",
+    };
+    mockJson({ title: "t", currency: "TWD", cities: [{ name: "馬祖", days: 6 }] });
+    await planTrip(matsu, undefined, undefined, "m");
+    expect(systemPromptOf()).toContain("絕對只能有一個城市");
+  });
+
   it("accepts a loop out to a nearby town and back", async () => {
     cityCenterMock.mockResolvedValue({ lat: 35.32, lng: 139.55 }); // 鎌倉, ~50km
     const cities = [{ name: "東京", days: 3 }, { name: "鎌倉", days: 2 }, { name: "東京", days: 1 }];

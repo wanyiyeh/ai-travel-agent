@@ -3,6 +3,7 @@ import { getIataCoords } from "@/lib/airports";
 import { prisma, j } from "@/lib/db";
 import { googleFetch } from "@/lib/googleFetch";
 import { isBudgetLodging, isLuxuryLodging, rankLodgingByBudget } from "@/lib/lodgingTiers";
+import { onSearchIsland } from "@/lib/islandGroups";
 import { CAFE_MEAL_TYPES } from "@/lib/cafeMealSlots";
 import { NIGHTCAP_TYPES } from "@/lib/drinkPlaces";
 import type { MealType } from "@/types/itinerary";
@@ -444,7 +445,8 @@ export async function fetchNearbyPlaceCandidates(
     (tier === "pro"
       ? await readFreshCandidates(buildCandidatesCacheKey(coords, types, radius, NEARBY_FETCH_COUNT, "enterprise", match))
       : null);
-  if (cached) return cached.slice(0, maxCount);
+  // On 馬祖 or 澎湖, only the island the search is on (islandGroups.ts).
+  if (cached) return onSearchIsland(coords, cached).slice(0, maxCount);
 
   const candidates = await fetchNearbyPlaceCandidatesUncached(coords, apiKey, types, radius, NEARBY_FETCH_COUNT, tier, match);
   // Don't cache an empty pool — could be a transient API failure rather than
@@ -456,7 +458,7 @@ export async function fetchNearbyPlaceCandidates(
       update: { candidates: j(candidates) },
     });
   }
-  return candidates.slice(0, maxCount);
+  return onSearchIsland(coords, candidates).slice(0, maxCount);
 }
 
 type NearbyPlaceResult = {
@@ -560,7 +562,7 @@ export async function searchTextCandidates(
   const ratingKey = minRating !== undefined ? `:r${minRating}` : "";
   const cacheKey = `text:${query}@${roundCoord(coords.lat)},${roundCoord(coords.lng)}:${radius}:${includedType ?? ""}:${priceKey}:${tier}${ratingKey}`;
   const cached = await readFreshCandidates(cacheKey);
-  if (cached) return cached;
+  if (cached) return onSearchIsland(coords, cached);
 
   let candidates: PlaceCandidate[] = [];
   try {
@@ -619,7 +621,7 @@ export async function searchTextCandidates(
     create: { cacheKey, candidates: j(candidates) },
     update: { candidates: j(candidates) },
   });
-  return candidates;
+  return onSearchIsland(coords, candidates);
 }
 
 // Below this many budget-tier places, a budget search also brings in regular lodging.

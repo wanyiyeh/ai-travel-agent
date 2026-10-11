@@ -147,6 +147,9 @@ function islandNote(place: string): string {
   return WINTER_FERRY.has(place) ? "。出發前確認航班、船班，冬天常因東北季風停航" : "。出發前確認航班、船班";
 }
 
+// 開車 to an island: the car stays home, a car or scooter is rented there.
+export const ISLAND_RENTAL_NOTE = "。到島上租車或機車，景點之間開車";
+
 // 寵物 by train, bus, boat or plane. Kept here, not in petFriendly.ts: the form imports this file.
 export const PET_TRANSIT_NOTE = "。帶寵物搭大眾運輸要裝籠或提袋，出發前確認規定";
 
@@ -166,7 +169,9 @@ export function domesticJourneyEvents(
     stop: {
       id: crypto.randomUUID(),
       name: `從${iataToCity(from)}前往${iataToCity(to)}`,
-      description: `${j.how}約 ${duration(j.minutes)}（估計）${islandNote(island)}${withPet && !selfDrive ? PET_TRANSIT_NOTE : ""}`,
+      description: `${j.how}約 ${duration(j.minutes)}（估計）${islandNote(island)}${
+        selfDrive && to === island && AIRPORTS[island]?.island ? ISLAND_RENTAL_NOTE : ""
+      }${withPet && !selfDrive ? PET_TRANSIT_NOTE : ""}`,
       duration_minutes: j.minutes,
       time_of_day: startMinute < 12 * 60 ? "morning" : startMinute < 18 * 60 ? "afternoon" : "evening",
       // Pinned like a booking: the scheduler keeps it, and nothing swaps it for a sight.

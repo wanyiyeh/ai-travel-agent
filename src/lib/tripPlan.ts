@@ -5,7 +5,7 @@ import type { FlightInfo, TripPreferences } from "@/lib/schemas";
 import { iataToCity } from "@/lib/iataCity";
 import { calcDays, buildFlightTimePrompt, buildPreferencePrompt } from "@/lib/itineraryGen";
 import { UNTRUSTED_INPUT_RULE, wrapUntrusted } from "@/lib/untrustedInput";
-import { getIataCoords } from "@/lib/airports";
+import { AIRPORTS, getIataCoords } from "@/lib/airports";
 import { getCityCenter } from "@/lib/placesTextSearch";
 import { haversineKm } from "@/lib/geo";
 import { FIXED_EVENT_TYPES, tripDayOfDate } from "@/lib/fixedEvents";
@@ -187,7 +187,10 @@ function buildSystemPrompt(
   const returnCityName = iataToCity(flightInfo.returnDepartureCity);
   const isMultiCity = arrivalCityName !== returnCityName;
   const citiesBudget = totalDays - 1;
-  const loopAllowed = !isMultiCity && citiesBudget >= LOOP_MIN_DAYS;
+  // Not on an island: the loop's "a town within 3 hours by land" turned
+  // 馬祖 into 馬祖 → 南竿 → 馬祖, 南竿 being where 馬祖's airport is
+  // (plan/island-trips.md — staying over on a neighbouring island comes later).
+  const loopAllowed = !isMultiCity && citiesBudget >= LOOP_MIN_DAYS && !AIRPORTS[flightInfo.arrivalCity]?.island;
   // 國內 (domesticTrips.ts): the trip starts and ends in towns, from and back home — no flights.
   const domestic = isDomestic(flightInfo);
   const inAndOut = domestic

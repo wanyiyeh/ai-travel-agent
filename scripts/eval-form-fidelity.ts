@@ -176,6 +176,12 @@ const SCENARIOS: Scenario[] = [
     preferences: { budget: "luxury" },
   },
   {
+    id: "domestic-matsu-drive",
+    label: "國內・台北 → 馬祖 4 天，到島上租車",
+    flightInfo: domesticTrip("TW-TPE", "TW-MZU"),
+    preferences: { transport: "drive" },
+  },
+  {
     id: "domestic-tainan-pets",
     label: "國內・台北 → 台南 3 天（大眾運輸），帶寵物",
     flightInfo: domesticTrip("TW-TPE", "TW-TNN"),
@@ -569,6 +575,18 @@ const CHECKS: Check[] = [
     detail: (r) => {
       const m = r.get("domestic-hualien-drive");
       return m ? `第一站「${m.tripEnds.first}：${m.tripEnds.firstNote}」；提到機場或航班：${m.flightMentions.join("、") || "沒有"}` : "—";
+    },
+  },
+  {
+    title: "離島：馬祖只排南竿的景點（沒有搭計程車去北竿、東引），第一天提醒到島上租車",
+    pass: (r) => {
+      const m = r.get("domestic-matsu-drive");
+      if (!m) return null;
+      return m.islands.length === 1 && m.islands[0] === "南竿" && (m.tripEnds.firstNote ?? "").includes("租車或機車");
+    },
+    detail: (r) => {
+      const m = r.get("domestic-matsu-drive");
+      return m ? `景點所在的島：${m.islands.join("、") || "沒有"}；第一站：${m.tripEnds.firstNote ?? "—"}` : "—";
     },
   },
   {

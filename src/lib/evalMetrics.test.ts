@@ -235,6 +235,13 @@ describe("measureItinerary", () => {
     });
   });
 
+  it("names the islands a 馬祖 trip's stops are on", () => {
+    const trip = days.map((d, i) =>
+      i === 0 ? { ...d, stops: [{ name: "北海坑道", lat: 26.1429, lng: 119.9286 }, { name: "芹壁聚落", lat: 26.2248, lng: 119.9516 }] } : d
+    );
+    expect(measureItinerary(trip, ctx).islands).toEqual(["南竿", "北竿"]);
+  });
+
   it("lists any mention of airports or flights", () => {
     const withFlight = days.map((d, i) => (i === 3 ? { ...d, stops: [{ name: "前往關西機場", description: "搭機返台" }] } : d));
     expect(measureItinerary(withFlight, ctx).flightMentions).toHaveLength(1);
