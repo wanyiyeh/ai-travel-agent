@@ -111,13 +111,13 @@ const SAPPORO_WEEK = {
 };
 
 // 國內 (domesticTrips.ts): 3 days, leaving home at 08:00 and back by 20:00.
-const domesticTrip = (home: string, to: string) => ({
+const domesticTrip = (home: string, to: string, returnDate = "2026-11-13") => ({
   tripType: "domestic" as const,
   departureCity: home,
   arrivalCity: to,
   returnDepartureCity: to,
   departureDate: "2026-11-10",
-  returnDate: "2026-11-13",
+  returnDate,
   homeDepartureTime: "08:00",
   homeArrivalTime: "20:00",
 });
@@ -178,7 +178,8 @@ const SCENARIOS: Scenario[] = [
   {
     id: "domestic-matsu-drive",
     label: "國內・台北 → 馬祖 4 天，到島上租車",
-    flightInfo: domesticTrip("TW-TPE", "TW-MZU"),
+    // Three sightseeing days: room for a whole day out by boat.
+    flightInfo: domesticTrip("TW-TPE", "TW-MZU", "2026-11-14"),
     preferences: { transport: "drive" },
   },
   {
@@ -578,15 +579,26 @@ const CHECKS: Check[] = [
     },
   },
   {
-    title: "離島：馬祖只排南竿的景點（沒有搭計程車去北竿、東引），第一天提醒到島上租車",
+    title: "離島：馬祖每天只在一個島，一天坐船去北竿或莒光（景點、午餐都在那個島），其他天在南竿；第一天提醒到島上租車",
     pass: (r) => {
       const m = r.get("domestic-matsu-drive");
       if (!m) return null;
-      return m.islands.length === 1 && m.islands[0] === "南竿" && (m.tripEnds.firstNote ?? "").includes("租車或機車");
+      const boat = m.islandDays.filter((d) => /日遊：(北竿|莒光)/.test(d.theme));
+      const home = m.islandDays.filter((d) => !/日遊/.test(d.theme));
+      return (
+        boat.length === 1 &&
+        boat[0].islands.length === 1 &&
+        boat[0].islands[0] === boat[0].theme.split("：")[1] &&
+        boat[0].lunchIsland === boat[0].islands[0] &&
+        home.every((d) => d.islands.every((i) => i === "南竿")) &&
+        (m.tripEnds.firstNote ?? "").includes("租車或機車")
+      );
     },
     detail: (r) => {
       const m = r.get("domestic-matsu-drive");
-      return m ? `景點所在的島：${m.islands.join("、") || "沒有"}；第一站：${m.tripEnds.firstNote ?? "—"}` : "—";
+      return m
+        ? `${m.islandDays.map((d) => `${d.theme}：${d.islands.join("、") || "—"}${d.lunchIsland ? `（午餐 ${d.lunchIsland}）` : ""}`).join("；")}；第一站：${m.tripEnds.firstNote ?? "—"}`
+        : "—";
     },
   },
   {
