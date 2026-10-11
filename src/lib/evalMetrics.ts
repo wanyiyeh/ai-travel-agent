@@ -44,6 +44,8 @@ export type ItineraryMetrics = {
   pets: { stays: string[]; petDays: number; carrierNote: boolean };
   /** 馬祖 or 澎湖: the islands the stops are on (islandGroups.ts) — one, unless a boat goes elsewhere. */
   islands: string[];
+  /** Each 小酌's distance from that night's lodging, in km — 獨旅 keeps within a walk. */
+  nightcapKm: { name: string; km: number }[];
   /** Each transit day's first step: an island hop's boat (islandGroups.ts crossingBetween). */
   transitDays: { theme: string; firstStop?: string; firstNote?: string }[];
   /** The same by day, with the island lunch is on — a boat day out is all on the other island. */
@@ -273,6 +275,14 @@ export function measureItinerary(days: Rec[], ctx: EvalContext): ItineraryMetric
       carrierNote: (str(asRecords(days[0]?.stops)[0]?.description) ?? "").includes("裝籠"),
     },
     islands: islandsOf(days.flatMap((d) => asRecords(d.stops))),
+    nightcapKm: days.flatMap((d) => {
+      const bar = ((d.meals ?? {}) as Rec).nightcap as Rec | undefined;
+      const stay = d.accommodation as Rec | null | undefined;
+      const [bLat, bLng, sLat, sLng] = [num(bar?.lat), num(bar?.lng), num(stay?.lat), num(stay?.lng)];
+      return bLat !== undefined && bLng !== undefined && sLat !== undefined && sLng !== undefined
+        ? [{ name: str(bar?.name) ?? "", km: Math.round(haversineKm(sLat, sLng, bLat, bLng) * 10) / 10 }]
+        : [];
+    }),
     transitDays: days
       .filter((d) => d.isTransitDay === true)
       .map((d) => {

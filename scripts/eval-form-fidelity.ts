@@ -214,6 +214,12 @@ const SCENARIOS: Scenario[] = [
   },
   { id: "tokyo-solo", label: "東京・獨旅", flightInfo: TOKYO, preferences: { companions: ["solo"] } },
   {
+    id: "tokyo-solo-drinks",
+    label: "東京・獨旅＋選了酒",
+    flightInfo: TOKYO,
+    preferences: { companions: ["solo"], drinks: ["alcohol"] },
+  },
+  {
     id: "tokyo-seniors",
     label: "東京・長輩＋經濟實惠（沒選步調）",
     flightInfo: TOKYO,
@@ -724,6 +730,17 @@ const CHECKS: Check[] = [
     detail: (r) =>
       `獨旅 ${pct(r.get("tokyo-solo")?.soloFriendlyShare)}、對照 ${pct(r.get("tokyo-baseline")?.soloFriendlyShare)}；` +
       `多人餐：${r.get("tokyo-solo")?.groupDiningMeals.join("、") || "沒有"}`,
+  },
+  {
+    title: "獨旅＋酒：每晚的小酌都在住宿 1 km 內（走路就到），沒有就不排",
+    pass: (r) => {
+      const m = r.get("tokyo-solo-drinks");
+      return m ? m.nightcapKm.every((n) => n.km <= 1) : null;
+    },
+    detail: (r) => {
+      const m = r.get("tokyo-solo-drinks");
+      return m ? m.nightcapKm.map((n) => `${n.name} ${n.km} km`).join("、") || "沒有小酌" : "—";
+    },
   },
   {
     // 500m on foot is about 6-7 minutes; the estimate rounds, so 8 allows for that.

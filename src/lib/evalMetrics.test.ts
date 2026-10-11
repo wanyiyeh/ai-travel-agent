@@ -242,6 +242,15 @@ describe("measureItinerary", () => {
     expect(measureItinerary(trip, ctx).islands).toEqual(["南竿", "北竿"]);
   });
 
+  it("measures each 小酌 from that night's lodging", () => {
+    const trip = days.map((d, i) =>
+      i === 0
+        ? { ...d, accommodation: { name: "H", lat: 35.0, lng: 135.7 }, meals: { nightcap: { name: "Bar", lat: 35.005, lng: 135.7 } } }
+        : d
+    );
+    expect(measureItinerary(trip, ctx).nightcapKm).toEqual([{ name: "Bar", km: 0.6 }]);
+  });
+
   it("lists each transit day's first step", () => {
     const trip = days.map((d, i) =>
       i === 1

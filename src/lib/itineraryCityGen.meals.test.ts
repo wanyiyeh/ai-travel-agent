@@ -603,3 +603,45 @@ describe("generateMealsAndAccommodation — with a dog", () => {
     expect(accommodation).toMatchObject({ name: "", area: "宜蘭", noneFound: true });
   });
 });
+
+// 獨旅 (plan 1.5): the 小酌 only within a walk of the lodging.
+describe("generateMealsAndAccommodation — a solo traveler's 小酌", () => {
+  // The lodging at 35.0, 135.7 (place()); 0.005° is about 500 m, 0.03° about 3 km.
+  const at = (name: string, type: string, lat: number) => ({ ...place(name), types: [type], lat });
+  const near = at("Bar Near", "cocktail_bar", 35.005);
+  const far = at("Bar Far", "wine_bar", 35.03);
+  const setup = (bars: PlaceCandidate[]) => {
+    nearbyMock.mockImplementation(async (_c: unknown, _k: unknown, types: string[]) =>
+      types.includes("bar") ? bars : types.includes("cafe") ? [] : [at("Ramen X", "ramen_restaurant", 35)]
+    );
+    lodgingMock.mockResolvedValueOnce([{ ...place("Hotel H"), types: ["hotel", "lodging"] }]);
+  };
+
+  it("takes a bar near the lodging over the one the model picked further off", async () => {
+    setup([far, near]);
+    mockLlm({ accommodation: { id: "H1" }, meals: [{ nightcap: { id: "N1" } }] }); // N1 is the far one
+
+    const result = await generateMealsAndAccommodation("京都", 1, "JPY", undefined, { drinks: ["alcohol"], solo: true });
+
+    expect((result.mealsByDay[0].nightcap as { name: string }).name).toBe("Bar Near");
+  });
+
+  it("has no 小酌 when none is within a walk", async () => {
+    setup([far]);
+    mockLlm({ accommodation: { id: "H1" }, meals: [{ nightcap: { id: "N1" } }] });
+
+    const result = await generateMealsAndAccommodation("京都", 1, "JPY", undefined, { drinks: ["alcohol"], solo: true });
+
+    expect(result.mealsByDay[0]).not.toHaveProperty("nightcap");
+  });
+
+  it("leaves a traveler with company their bar further off", async () => {
+    setup([far]);
+    mockLlm({ accommodation: { id: "H1" }, meals: [{ nightcap: { id: "N1" } }] });
+
+    const result = await generateMealsAndAccommodation("京都", 1, "JPY", undefined, { drinks: ["alcohol"] });
+
+    expect((result.mealsByDay[0].nightcap as { name: string }).name).toBe("Bar Far");
+  });
+});
+
