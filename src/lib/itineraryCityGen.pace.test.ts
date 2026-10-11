@@ -10,6 +10,7 @@ import { NEUTRAL_PREFERENCE_INTENT, type PreferenceIntent } from "@/lib/schemas"
 
 const createMock = vi.fn();
 const nearbyMock = vi.fn();
+const textMock = vi.fn();
 const distancesMock = vi.fn<(stops: unknown[], pickMode: (km: number) => string) => Promise<null[]>>(async (stops) =>
   stops.slice(1).map(() => null)
 );
@@ -23,6 +24,7 @@ vi.mock("@/lib/placesTextSearch", () => ({
 vi.mock("@/lib/fetchCityRestaurants", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/fetchCityRestaurants")>()),
   fetchNearbyPlaceCandidates: (...args: unknown[]) => nearbyMock(...args),
+  searchTextCandidates: (...args: unknown[]) => textMock(...args),
 }));
 vi.mock("@/lib/skeletonCopy", () => ({
   generateSkeletonCopy: async () => ({ stops: {} }),
@@ -64,6 +66,8 @@ beforeEach(() => {
   vi.stubEnv("GOOGLE_PLACES_API_KEY", "key");
   createMock.mockReset();
   nearbyMock.mockReset();
+  textMock.mockReset();
+  textMock.mockResolvedValue([]);
   distancesMock.mockClear();
   nearbyMock.mockResolvedValue(POOL);
 });
@@ -748,6 +752,64 @@ describe("generateDayStops — on an island without a car", () => {
     await generateDayStops("東京", 1, "JPY", [], undefined, NEUTRAL_PREFERENCE_INTENT);
 
     expect(distancesMock.mock.calls[0][1](3)).toBe("transit");
+  });
+});
+
+// 購物 (2026-10-11): what the traveler wants to buy, a shop for each on the shopping day.
+describe("generateThemedDayStops — 想買什麼", () => {
+  const shop = (name: string, type: string, i: number): PlaceCandidate => ({
+    ...POOL[0],
+    name,
+    placeId: name,
+    lat: 35.69 + i * 0.01,
+    lng: 139.7 + i * 0.01,
+    types: [type, "store"],
+  });
+  const shopping = { ...NEUTRAL_PREFERENCE_INTENT, interestBoost: ["shopping"] };
+
+  it("keeps a shop for each thing wanted on the shopping day, which stays 購物散策", async () => {
+    nearbyMock.mockResolvedValue(POOL);
+    textMock.mockImplementation(async (query: string) =>
+      query.endsWith("家電") ? [shop("Bic Camera 有樂町", "electronics_store", 1)] : query.endsWith("文具") ? [shop("伊東屋", "home_goods_store", 3)] : []
+    );
+
+    const { stopsByDay, themeByDay } = await generateThemedDayStops("東京", 2, "JPY", [], undefined, {
+      ...shopping,
+      shoppingWants: ["家電", "文具"],
+    });
+
+    const day = stopsByDay[0].map((s) => s.name);
+    expect(day).toEqual(expect.arrayContaining(["Bic Camera 有樂町", "伊東屋"]));
+    expect(themeByDay[0]).toBe("shopping");
+    expect(textMock.mock.calls.map((c) => c[0])).toEqual(expect.arrayContaining(["東京 家電", "東京 文具", "東京 商店街", "東京 outlet"]));
+  });
+
+  it("takes a shop with a café in it, but not a restaurant or a hotel", async () => {
+    nearbyMock.mockResolvedValue(POOL);
+    // 「東京 文具」 as Google answered: 伊東屋 is typed a café first.
+    textMock.mockImplementation(async (query: string) =>
+      query.endsWith("文具")
+        ? [
+            { ...shop("文具ホテル", "hotel", 1), types: ["hotel", "lodging"] },
+            { ...shop("文具食堂", "japanese_restaurant", 2), types: ["japanese_restaurant"] },
+            { ...shop("銀座 伊東屋 本店", "cafe", 3), types: ["cafe", "art_gallery", "store"] },
+          ]
+        : []
+    );
+
+    const { stopsByDay } = await generateThemedDayStops("東京", 1, "JPY", [], undefined, { ...shopping, shoppingWants: ["文具"] });
+
+    expect(stopsByDay[0].map((s) => s.name)).toContain("銀座 伊東屋 本店");
+  });
+
+  it("searches 老街 rather than 商店街 at home", async () => {
+    nearbyMock.mockResolvedValue(POOL);
+
+    await generateThemedDayStops("台南", 1, "TWD", [], undefined, { ...shopping, domestic: true });
+
+    const queries = textMock.mock.calls.map((c) => c[0]);
+    expect(queries).toContain("台南 老街");
+    expect(queries).not.toContain("台南 商店街");
   });
 });
 

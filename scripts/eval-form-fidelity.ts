@@ -42,6 +42,7 @@ type Preferences = {
     "food" | "culture" | "nature" | "shopping" | "water" | "land" | "adventure" | "film" | "night_market" | "old_street" | "hot_spring" | "camping"
   >;
   filmTitles?: string[];
+  shoppingWants?: string[];
   startTime?: "early" | "normal" | "late";
   indoorFirst?: boolean;
   /** false turns the 季節限定 day off (the form's 季節 checkbox). */
@@ -214,6 +215,12 @@ const SCENARIOS: Scenario[] = [
   },
   { id: "tokyo-solo", label: "東京・獨旅", flightInfo: TOKYO, preferences: { companions: ["solo"] } },
   {
+    id: "tokyo-shopping",
+    label: "東京・購物，想買家電、文具",
+    flightInfo: TOKYO,
+    preferences: { interests: ["shopping"], shoppingWants: ["家電", "文具"] },
+  },
+  {
     id: "tokyo-solo-drinks",
     label: "東京・獨旅＋選了酒",
     flightInfo: TOKYO,
@@ -378,6 +385,23 @@ const CHECKS: Check[] = [
         .flatMap((id) => r.get(id)?.themeDayStops.filter((d) => d.theme.endsWith("文化巡禮")) ?? [])
         .map((d) => d.stops.map((s) => `${s.name} ${s.km} km${s.core ? "" : "（非文化）"}`).join("、"))
         .join("；") || "—",
+  },
+  {
+    title: "購物：購物散策排到賣家電和賣文具的店（想買什麼），沒有超市、市場",
+    pass: (r) => {
+      const day = r.get("tokyo-shopping")?.themeDayStops.find((d) => d.theme.endsWith("購物散策"));
+      if (!day) return r.get("tokyo-shopping") ? false : null;
+      const names = day.stops.map((s) => s.name);
+      return (
+        names.some((n) => /bic|ビック|yodobashi|ヨドバシ|labi|家電|電器|camera/i.test(n)) &&
+        names.some((n) => /伊東屋|itoya|文具|文房|traveler|丸善|鳩居堂|榛原|hands|loft/i.test(n)) &&
+        !names.some((n) => /超市|スーパー|supermarket|市場/i.test(n))
+      );
+    },
+    detail: (r) => {
+      const day = r.get("tokyo-shopping")?.themeDayStops.find((d) => d.theme.endsWith("購物散策"));
+      return day ? day.stops.map((s) => `${s.name} ${s.km} km`).join("、") : "沒有購物散策日";
+    },
   },
   {
     title: "飲食：素食組有素食餐廳、沒有牛排／海鮮／壽司",

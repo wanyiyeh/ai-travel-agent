@@ -98,3 +98,11 @@ describe("mergePreferenceIntent — 同行者 寵物", () => {
     expect(intent.interestBoost).toEqual(["night_market", "pets"]);
   });
 });
+
+describe("mergePreferenceIntent — 想買什麼", () => {
+  it("passes what to buy on, only for a traveler who picked 購物", () => {
+    expect(mergePreferenceIntent({ interests: ["shopping"], shoppingWants: ["家電"] }, parsed({})).shoppingWants).toEqual(["家電"]);
+    expect(mergePreferenceIntent({ interests: ["culture"], shoppingWants: ["家電"] }, parsed({}))).not.toHaveProperty("shoppingWants");
+  });
+});
+

@@ -103,11 +103,11 @@ const DOMESTIC_INTEREST_OPTIONS: typeof INTEREST_OPTIONS = [
   { value: "camping", label: "露營" },
 ];
 
-/** 「你的名字, 灌籃高手」 → up to 3 titles; full-width commas and 、 count too. */
-function splitFilmTitles(text: string): string[] | undefined {
+/** 「你的名字, 灌籃高手」 → up to 3 titles (or 想買什麼 items); full-width commas and 、 count too. */
+function splitFilmTitles(text: string, maxLength = 60): string[] | undefined {
   const titles = text
     .split(/[,，、]/)
-    .map((t) => t.trim().slice(0, 60))
+    .map((t) => t.trim().slice(0, maxLength))
     .filter(Boolean)
     .slice(0, 3);
   return titles.length ? titles : undefined;
@@ -497,6 +497,8 @@ export default function Home() {
   const [interests, setInterests] = useState<NonNullable<TripPreferences["interests"]>>([]);
   // 影劇追星: up to 3 works, comma-separated; empty means the city's best-known ones.
   const [filmTitles, setFilmTitles] = useState("");
+  // 購物: what to buy, a shop found for each (「家電、攝影集、文具」).
+  const [shoppingWants, setShoppingWants] = useState("");
   const [startTime, setStartTime] = useState<TripPreferences["startTime"]>(undefined);
   const [indoor, setIndoor] = useState<"indoor" | undefined>(undefined);
   const [seasonal, setSeasonal] = useState<"seasonal" | undefined>("seasonal");
@@ -611,6 +613,7 @@ export default function Home() {
       drinks: drinks.length ? drinks : undefined,
       companions: companions.length ? companions : undefined,
       filmTitles: interests.includes("film") ? splitFilmTitles(filmTitles) : undefined,
+      shoppingWants: interests.includes("shopping") ? splitFilmTitles(shoppingWants, 30) : undefined,
     };
 
     const waypointsNote = selectedWaypoints.length > 0
@@ -950,6 +953,17 @@ export default function Home() {
                       <p className="text-xs text-amber-600 dark:text-amber-400">
                         露營區多半在山上，搭大眾運輸很難到，交通方式選「開自己的車」才會排露營
                       </p>
+                    )}
+                    {interests.includes("shopping") && (
+                      <input
+                        type="text"
+                        value={shoppingWants}
+                        onChange={(e) => setShoppingWants(e.target.value)}
+                        maxLength={100}
+                        placeholder="想買什麼（選填，最多 3 項，用逗號分開，例如：家電、攝影集、文具）"
+                        aria-label="想買什麼"
+                        className="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-3 py-2.5 text-zinc-900 dark:text-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-100 text-sm"
+                      />
                     )}
                     {interests.includes("film") && (
                       <input

@@ -43,5 +43,8 @@ export function mergePreferenceIntent(
     ...(preferences?.companions?.includes("seniors") ? { seniors: true } : {}),
     ...(preferences?.companions?.includes("solo") ? { solo: true } : {}),
     ...(preferences?.companions?.includes("pets") ? { pets: true } : {}),
+    ...(preferences?.interests?.includes("shopping") && preferences.shoppingWants?.length
+      ? { shoppingWants: preferences.shoppingWants }
+      : {}),
   };
 }

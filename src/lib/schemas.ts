@@ -88,6 +88,8 @@ export const TripPreferencesSchema = z.object({
     .optional(),
   // 影劇追星 (plan 1.3): the works to visit filming locations of; empty for the city's best-known ones.
   filmTitles: z.array(z.string().max(60)).max(3).optional(),
+  // 購物: up to 3 things to buy (「家電」, 「攝影集」), each found a shop for.
+  shoppingWants: z.array(z.string().max(30)).max(3).optional(),
   // No longer on the form (plan/form-preference-wiring.md 1.1) — kept so
   // older itineraries' stored config still parses.
   travelers: z.number().int().min(1).max(20).optional(),
@@ -153,6 +155,8 @@ export const PreferenceIntentSchema = z.object({
   pets: z.boolean().optional(),
   // A 國內 trip (domesticTrips.ts): no rental car, trains and buses between towns.
   domestic: z.boolean().optional(),
+  // Form only: what a 購物 traveler wants to buy, a shop for each on the shopping day.
+  shoppingWants: z.array(z.string()).optional(),
 });
 
 export type PreferenceIntent = z.infer<typeof PreferenceIntentSchema>;
