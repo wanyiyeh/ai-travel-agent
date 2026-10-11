@@ -16,12 +16,12 @@ beforeEach(() => {
 });
 
 describe("findPetFriendlyLodging", () => {
-  it("searches 寵物友善住宿 as lodging and keeps those within 10km", async () => {
+  it("searches 寵物友善住宿 as lodging and keeps those within 20km", async () => {
     textMock.mockResolvedValue([place("毛孩民宿", 24.78, 121.75), place("礁溪寵物旅店", 24.83, 121.77), place("台北寵物旅館", 25.05, 121.52)]);
 
     const found = await findPetFriendlyLodging(yilan, "key");
 
-    expect(textMock.mock.calls[0].slice(0, 5)).toEqual(["寵物友善住宿", yilan, "key", 10000, "lodging"]);
+    expect(textMock.mock.calls[0].slice(0, 5)).toEqual(["寵物友善住宿", yilan, "key", 20000, "lodging"]);
     expect(found.map((p) => p.name)).toEqual(["毛孩民宿", "礁溪寵物旅店"]);
   });
 
