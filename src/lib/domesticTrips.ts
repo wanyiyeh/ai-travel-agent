@@ -149,6 +149,8 @@ function islandNote(place: string): string {
 
 // 開車 to an island: the car stays home, a car or scooter is rented there.
 export const ISLAND_RENTAL_NOTE = "。到島上租車或機車，景點之間開車";
+// Without a car: the island's buses are few, so the far stops are a taxi ride.
+export const ISLAND_BUS_NOTE = "。島上公車班次少，走不到的地方可以搭計程車或租機車";
 
 // 寵物 by train, bus, boat or plane. Kept here, not in petFriendly.ts: the form imports this file.
 export const PET_TRANSIT_NOTE = "。帶寵物搭大眾運輸要裝籠或提袋，出發前確認規定";
@@ -170,7 +172,7 @@ export function domesticJourneyEvents(
       id: crypto.randomUUID(),
       name: `從${iataToCity(from)}前往${iataToCity(to)}`,
       description: `${j.how}約 ${duration(j.minutes)}（估計）${islandNote(island)}${
-        selfDrive && to === island && AIRPORTS[island]?.island ? ISLAND_RENTAL_NOTE : ""
+        to === island && AIRPORTS[island]?.island ? (selfDrive ? ISLAND_RENTAL_NOTE : ISLAND_BUS_NOTE) : ""
       }${withPet && !selfDrive ? PET_TRANSIT_NOTE : ""}`,
       duration_minutes: j.minutes,
       time_of_day: startMinute < 12 * 60 ? "morning" : startMinute < 18 * 60 ? "afternoon" : "evening",

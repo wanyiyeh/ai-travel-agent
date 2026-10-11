@@ -83,6 +83,12 @@ describe("domesticJourneyEvents", () => {
     expect(domesticJourneyEvents(toMatsu, false).outbound?.stop?.description).not.toContain("租車");
   });
 
+  it("says the island's buses are few when going without a car", () => {
+    const toMatsu = { ...trip, arrivalCity: "TW-MZU", returnDepartureCity: "TW-MZU" };
+    expect(domesticJourneyEvents(toMatsu, false).outbound?.stop?.description).toContain("島上公車班次少，走不到的地方可以搭計程車或租機車");
+    expect(domesticJourneyEvents(trip, false).outbound?.stop?.description).not.toContain("公車班次少");
+  });
+
   it("says a pet rides in a carrier on trains and buses, but not by car", () => {
     expect(domesticJourneyEvents(trip, false, true).outbound?.stop?.description).toContain("帶寵物搭大眾運輸要裝籠或提袋");
     expect(domesticJourneyEvents(trip, true, true).outbound?.stop?.description).not.toContain("裝籠");
