@@ -930,9 +930,28 @@ export async function generateMealsAndAccommodation(
           ? noPetLodging(cityName)
           : applyAccommodationPick(parsed.accommodation, chunkPools, currency);
     }
-    mealsByDay.push(...applyMealPicks(parsed.meals, chunkPools, days, currency, history, start));
+    // 獨旅: the 小酌 only within a walk of the lodging (plan 1.5), once the lodging is known.
+    const mealPools = preferences.solo ? withNightcapNear(chunkPools, accommodation) : chunkPools;
+    const picked = applyMealPicks(parsed.meals, mealPools, days, currency, history, start);
+    // None that close: no 小酌 that night, rather than the model's own pick further off.
+    mealsByDay.push(...(preferences.solo && mealPools.nightcap.length === 0 ? picked.map(withoutNightcapSlot) : picked));
   }
   return { accommodation, mealsByDay: preferences.selfDrive ? mealsByDay.map(withDrinkDriveNote) : mealsByDay };
+}
+
+// A walk back to the lodging after a drink, for someone on their own.
+const SOLO_NIGHTCAP_KM = 1;
+
+function withNightcapNear(pools: MealLodgingPools, accommodation: Record<string, unknown>): MealLodgingPools {
+  const { lat, lng } = accommodation;
+  if (typeof lat !== "number" || typeof lng !== "number") return pools;
+  return { ...pools, nightcap: pools.nightcap.filter((p) => haversineKm(lat, lng, p.lat, p.lng) <= SOLO_NIGHTCAP_KM) };
+}
+
+function withoutNightcapSlot(meals: Record<string, unknown>): Record<string, unknown> {
+  const rest = { ...meals };
+  delete rest.nightcap;
+  return rest;
 }
 
 // Days of meals asked for per LLM call — see generateMealsAndAccommodation.
