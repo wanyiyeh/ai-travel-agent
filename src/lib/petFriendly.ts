@@ -7,8 +7,9 @@ import { haversineKm } from "@/lib/geo";
 // Google ranks by what the place and its reviews say.
 
 // Wider than the meal and lodging searches' 3km (itineraryCityGen.ts): there
-// are fewer such places, and pet-friendly 民宿 often sit outside town.
-const PET_LODGING_KM = 10;
+// are fewer such places, and pet-friendly 民宿 often sit outside town — 20km,
+// like the hot-spring hotels, so fewer cities end up with none.
+const PET_LODGING_KM = 20;
 const PET_RESTAURANT_KM = 5;
 
 const within = (center: { lat: number; lng: number }, km: number) => (p: PlaceCandidate) =>
