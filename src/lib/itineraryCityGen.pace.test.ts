@@ -701,3 +701,24 @@ describe("islandHopPlan", () => {
     expect(islandHopPlan("台南", "高雄", 9 * 60)).toBeNull();
   });
 });
+
+// 自駕: a hop under 1km as the crow flies came out 「步行約 29 分鐘」 on 南竿's winding roads.
+describe("generateDayStops — a long walk for a self-driver", () => {
+  it("drives a hop that would be a long walk", async () => {
+    type Leg = { mode: string; durationSeconds: number; estimated: boolean };
+    const fetchLegs = distancesMock as unknown as ReturnType<typeof vi.fn<(stops: unknown[], pickMode: (km: number) => string) => Promise<(Leg | null)[]>>>;
+    fetchLegs.mockImplementation(async (stops, pickMode) =>
+      stops.slice(1).map(() =>
+        pickMode(0.1) === "driving" ? { mode: "driving", durationSeconds: 300, estimated: false } : { mode: "walking", durationSeconds: 29 * 60, estimated: false }
+      )
+    );
+
+    await generateDayStops("東京", 1, "JPY", [], undefined, { ...NEUTRAL_PREFERENCE_INTENT, selfDrive: true });
+
+    const reDriven = fetchLegs.mock.calls.filter(([stops, pickMode]) => stops.length === 2 && pickMode(0.1) === "driving");
+    expect(reDriven.length).toBeGreaterThan(0);
+    fetchLegs.mockReset();
+    fetchLegs.mockImplementation(async (stops) => stops.slice(1).map(() => null));
+  });
+});
+

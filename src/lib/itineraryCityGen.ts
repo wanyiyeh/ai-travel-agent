@@ -25,6 +25,7 @@ import { haversineKm } from "@/lib/geo";
 import { findHotSpringLodging, isHotSpringStay } from "@/lib/domesticInterests";
 import { crossingBetween, islandNamed } from "@/lib/islandGroups";
 import { isBloomOutOfSeason } from "@/lib/bloomSeasons";
+import { notVisited, withoutSamePlace } from "@/lib/samePlace";
 import { findPetFriendlyLodging, findPetFriendlyRestaurants, noPetLodging } from "@/lib/petFriendly";
 import { estimateAttractionCost } from "@/lib/priceLevelCost";
 import { isFoodPlace } from "@/lib/foodPlace";
@@ -353,7 +354,8 @@ async function generateTransitDayStopsViaScheduler(
       apiKey,
       places.filter((p) => !lockedIds.has(p.placeId)),
       lockedIds,
-      capacityFor([])
+      capacityFor([]),
+      places.filter((p) => lockedIds.has(p.placeId))
     );
     const { candidates, candidateById } = placeCandidatesToStopCandidates(pool);
     if (candidates.length === 0) return null;
@@ -518,7 +520,8 @@ export async function generateDepartureDayStops(
       apiKey,
       places.filter((p) => !lockedIds.has(p.placeId)),
       lockedIds,
-      estimatedCount
+      estimatedCount,
+      places.filter((p) => lockedIds.has(p.placeId))
     );
     const { candidates, candidateById } = placeCandidatesToStopCandidates(pool);
     if (candidates.length === 0) return fixedEventStopsOnly(fixed);
@@ -1110,13 +1113,22 @@ async function withSupplementalAttractions(
   apiKey: string,
   places: PlaceCandidate[],
   usedIds: Set<string>,
-  needed: number
+  needed: number,
+  // The trip's places so far, as listed: 北海坑道搖櫓 is 北海坑道 under another id.
+  visited: PlaceCandidate[] = []
 ): Promise<PlaceCandidate[]> {
-  const sights = places.filter((p) => !isNotADaytimeSight(p));
+  // One sight listed twice (北海坑道 and its 搖櫓) counts once (samePlace.ts).
+  const sights = withoutSamePlace(notVisited(places.filter((p) => !isNotADaytimeSight(p)), visited));
   if (sights.length >= needed) return sights;
   const extra = await fetchNearbyPlaceCandidates(coords, apiKey, SUPPLEMENT_ATTRACTION_TYPES, 10000, 20);
   const inPool = new Set(sights.map((p) => p.placeId));
-  return [...sights, ...extra.filter((p) => !inPool.has(p.placeId) && !usedIds.has(p.placeId) && !isNotADaytimeSight(p))];
+  return withoutSamePlace([
+    ...sights,
+    ...notVisited(
+      extra.filter((p) => !inPool.has(p.placeId) && !usedIds.has(p.placeId) && !isNotADaytimeSight(p)),
+      visited
+    ),
+  ]);
 }
 
 // estimateStopCapacity only approximates how many stops fit (it uses the
@@ -1243,7 +1255,18 @@ async function stopsWithFixedEvents(
     ),
   ].sort((a, b) => a.start - b.start);
 
-  const [stopCopy, distances] = await Promise.all([copy, getDistancesForStopPairs(items.map((i) => i.point), pickMode)]);
+  const [stopCopy, walkOrRide] = await Promise.all([copy, getDistancesForStopPairs(items.map((i) => i.point), pickMode)]);
+  // A self-driver walks a hop under 1km as the crow flies, but on 南竿's
+  // winding roads one came out 「步行約 29 分鐘」: drive those instead.
+  const distances = selfDrive
+    ? await Promise.all(
+        walkOrRide.map(async (dist, k) =>
+          dist && dist.mode === "walking" && dist.durationSeconds > SELF_DRIVE_LONGEST_WALK_SECONDS
+            ? ((await getDistancesForStopPairs([items[k].point, items[k + 1].point], () => "driving"))[0] ?? dist)
+            : dist
+        )
+      )
+    : walkOrRide;
   const scheduled = assembleScheduledStops(skeleton, candidateById, stopCopy, skeleton.map(() => null), currency);
   return items.map((item, k) => {
     const dist = k > 0 ? distances[k - 1] : null;
@@ -1254,6 +1277,9 @@ async function stopsWithFixedEvents(
       : base;
   });
 }
+
+// The longest walk a self-driver is given between stops before taking the car.
+const SELF_DRIVE_LONGEST_WALK_SECONDS = 15 * 60;
 
 /** Just the day's fixed-event stops, for a day with no room or no pool for anything else. */
 function fixedEventStopsOnly(events: DayFixedEvents): Array<Record<string, unknown>> {
@@ -1359,7 +1385,8 @@ async function generateDayStopsViaScheduler(
       (p) => !lockedIds.has(p.placeId) && (stayMonths.length === 0 || stayMonths.some((m) => !isBloomOutOfSeason(p.name, m)))
     );
     const neededStops = capacitiesFor(available).reduce((sum, n) => sum + n, 0);
-    const pool = await withSupplementalAttractions(coords, apiKey, available, lockedIds, neededStops);
+    const visited = merged.filter((p) => lockedIds.has(p.placeId));
+    const pool = await withSupplementalAttractions(coords, apiKey, available, lockedIds, neededStops, visited);
 
     const converted = placeCandidatesToStopCandidates(pool);
     const { candidateById } = converted;
