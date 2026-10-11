@@ -45,6 +45,13 @@ export type PartitionOptions = {
    * keeps a 長輩 day in one area.
    */
   spreadKm?: number;
+  /**
+   * How popular a place is, as its search ranked it (0 = first); undefined
+   * when it wasn't ranked. A themed day seeds from its theme's most popular
+   * place left rather than the one nearest the lodging: staying in 新宿, a
+   * 文化巡禮 day kept to small galleries nearby and never reached 上野.
+   */
+  popularityRank?: (c: StopCandidate) => number | undefined;
 };
 
 /**
@@ -105,8 +112,16 @@ export function partitionCandidatesByDay(
     // A group (parts of one sight) is taken whole. The seed is the best place
     // whose group fits; one that fits nowhere still goes in whole, not split.
     const fits = (c: StopCandidate) => open(c) && groupOf(c).length <= count;
-    const seed =
-      (theme && remaining.find((c) => theme.onTheme(c) && fits(c))) ?? remaining.find(fits) ?? remaining.find(open);
+    const rank = (c: StopCandidate) => options.popularityRank?.(c) ?? Infinity;
+    const themeSeed = theme
+      ? remaining
+          .filter((c) => theme.onTheme(c) && fits(c))
+          // Stable: equally ranked (or unranked) places keep the score order.
+          // Not rank(a) - rank(b): two unranked give Infinity - Infinity = NaN,
+          // which scrambled the sort and made 東京鐵塔 (unranked) the seed.
+          .sort((a, b) => (rank(a) === rank(b) ? 0 : rank(a) < rank(b) ? -1 : 1))[0]
+      : undefined;
+    const seed = themeSeed ?? remaining.find(fits) ?? remaining.find(open);
     if (!seed) {
       days.push([]);
       return;

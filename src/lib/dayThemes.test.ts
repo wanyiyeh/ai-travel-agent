@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dayThemeKeys, interestWeightsOf, isOnTheme, popularSlots, themesOf } from "@/lib/dayThemes";
+import { dayThemeKeys, interestWeightsOf, isCoreOfTheme, isOnTheme, popularSlots, themesOf } from "@/lib/dayThemes";
 
 describe("themesOf", () => {
   it("maps form interests and free-text tags to themes, each once, in order", () => {
@@ -83,3 +83,23 @@ describe("毛孩同樂", () => {
     expect(isOnTheme(["park"], "pets")).toBe(false);
   });
 });
+
+describe("isCoreOfTheme", () => {
+  // As the culture search around 東京駅 returned them.
+  it("goes by a place's first type that says anything", () => {
+    expect(isCoreOfTheme(["tourist_attraction", "art_museum", "museum"], "culture")).toBe(true); // 東京國立博物館
+    expect(isCoreOfTheme(["castle", "tourist_attraction", "historical_place"], "culture")).toBe(true); // 皇居
+    expect(isCoreOfTheme(["observation_deck", "landmark", "tourist_attraction", "historical_landmark"], "culture")).toBe(false); // 東京鐵塔
+    expect(isCoreOfTheme(["tourist_attraction", "amusement_park", "art_museum"], "culture")).toBe(false); // teamLab Planets
+  });
+
+  it("doesn't start a 自然漫遊 day at a tower", () => {
+    expect(isCoreOfTheme(["observation_deck", "tourist_attraction", "landmark"], "nature")).toBe(false); // 東京鐵塔
+    expect(isCoreOfTheme(["garden", "tourist_attraction", "state_park"], "nature")).toBe(true); // 新宿御苑
+  });
+
+  it("knows a 老街 by its name", () => {
+    expect(isCoreOfTheme(["tourist_attraction"], "old_street", "安平老街")).toBe(true);
+  });
+});
+

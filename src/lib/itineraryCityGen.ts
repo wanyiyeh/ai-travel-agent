@@ -48,7 +48,7 @@ import { exposureOf, indoorFirstPool, isNotADaytimeSight } from "@/lib/indoorOut
 import type { DayConditions } from "@/lib/dayConditions";
 import type { DayFixedEvents } from "@/lib/fixedEvents";
 import { RETURN_CAR_MINUTES } from "@/lib/carRental";
-import { THEMES, dayThemeKeys, interestWeightsOf, isOnTheme, popularSlots, themesOf, type ThemeKey } from "@/lib/dayThemes";
+import { THEMES, dayThemeKeys, interestWeightsOf, isCoreOfTheme, isOnTheme, popularSlots, themesOf, type ThemeKey } from "@/lib/dayThemes";
 import { dietPromptLine, dietRequiredTypes, excludeByDiet } from "@/lib/dietaryFilter";
 
 // Shared AI-generation helpers for building out a city's worth of itinerary
@@ -1404,6 +1404,21 @@ async function generateDayStopsViaScheduler(
     ]);
     if (places.length === 0) return null;
     const popularIds = new Set(places.map((p) => p.placeId));
+    // Each place's best rank in a search it came from — Google ranks by
+    // popularity — counting only places that are what one of the city's
+    // themes is about (東京鐵塔 led the culture search as an observation deck).
+    // The city's own sights search says best what it's known for, so it comes
+    // first, a theme search's rank half a place after: both had a first place,
+    // 淺草寺 and teamLab Borderless, and the nearer one to 新宿 won the tie.
+    const popularityRank = new Map<string, number>();
+    [places, ...themePools].forEach((pool, poolIdx) => {
+      pool
+        .filter((p) => cityThemes.some((theme) => isCoreOfTheme(p.types, theme, p.name)))
+        .forEach((p, i) => {
+          const rank = poolIdx === 0 ? i : i + 0.5;
+          popularityRank.set(p.placeId, Math.min(popularityRank.get(p.placeId) ?? Infinity, rank));
+        });
+    });
     const merged = [...places];
     const themeOnlyIds = new Set<string>();
     // A seasonal day's highlights (seasonalHighlights.ts) join the pool, kept for that day only.
@@ -1489,6 +1504,7 @@ async function generateDayStopsViaScheduler(
         return theme ? { onTheme: onTheme(theme), themeCount: counts[dayIdx] - popularSlots(counts[dayIdx]) } : undefined;
       }),
       isPopular: (c) => popularIds.has(c.id),
+      popularityRank: (c) => popularityRank.get(c.id),
       reservedDay: (c) => seasonalDayOf.get(c.id),
       ...(preferenceIntent.seniors ? { spreadKm: SENIORS_SPREAD_KM } : {}),
     });

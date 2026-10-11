@@ -197,3 +197,40 @@ describe("distributeStopsPerDay", () => {
     expect(distributeStopsPerDay(20, [])).toEqual([]);
   });
 });
+
+// Staying in 新宿, a 文化巡禮 day kept to small galleries nearby and never reached 上野.
+describe("partitionCandidatesByDay — where a themed day goes", () => {
+  const shinjuku = { lat: 35.6896, lng: 139.7006 };
+  const gallery = candidate("gallery", 35.692, 139.703, 4.6); // in 新宿, a less known one
+  const museum = candidate("tokyo-national-museum", 35.7188, 139.7765, 4.5); // 上野, about 8km
+  const nearUeno = candidate("ueno-zoo", 35.7164, 139.7714, 4.3);
+  const culture = (ids: string[]) => ({ onTheme: (c: StopCandidate) => ids.includes(c.id), themeCount: 2 });
+  const rank = new Map([["tokyo-national-museum", 0], ["gallery", 6]]);
+
+  it("starts from its theme's most popular place, however far from the lodging", () => {
+    const [day] = partitionCandidatesByDay([gallery, museum, nearUeno], [2], {}, shinjuku, {
+      themes: [culture(["gallery", "tokyo-national-museum"])],
+      popularityRank: (c) => rank.get(c.id),
+    });
+    expect(day[0].id).toBe("tokyo-national-museum");
+  });
+
+  it("keeps the ranked ones first when others have no rank", () => {
+    // Two unranked places once turned the sort to NaN and put one of them first.
+    const tower = candidate("tokyo-tower", 35.6586, 139.7454, 4.5);
+    const sky = candidate("shibuya-sky", 35.6585, 139.7023, 4.7);
+    const [day] = partitionCandidatesByDay([tower, sky, museum, gallery], [2], {}, shinjuku, {
+      themes: [culture(["tokyo-tower", "shibuya-sky", "gallery", "tokyo-national-museum"])],
+      popularityRank: (c) => rank.get(c.id),
+    });
+    expect(day[0].id).toBe("tokyo-national-museum");
+  });
+
+  it("starts from the nearest one without a popularity ranking, as before", () => {
+    const [day] = partitionCandidatesByDay([gallery, museum, nearUeno], [2], {}, shinjuku, {
+      themes: [culture(["gallery", "tokyo-national-museum"])],
+    });
+    expect(day[0].id).toBe("gallery");
+  });
+});
+
