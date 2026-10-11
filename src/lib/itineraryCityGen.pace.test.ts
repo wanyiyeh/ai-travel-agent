@@ -722,3 +722,32 @@ describe("generateDayStops — a long walk for a self-driver", () => {
   });
 });
 
+// 離島 without a car (plan/island-trips.md): the bus barely runs, so past a walk it's a taxi.
+describe("generateDayStops — on an island without a car", () => {
+  type Leg = { mode: string; durationSeconds: number; estimated: boolean };
+  const fetchLegs = distancesMock as unknown as ReturnType<typeof vi.fn<(stops: unknown[], pickMode: (km: number) => string) => Promise<(Leg | null)[]>>>;
+
+  it("takes a taxi where it would take the bus, and for a long walk", async () => {
+    fetchLegs.mockImplementation(async (stops, pickMode) =>
+      stops.slice(1).map(() =>
+        pickMode(0.1) === "driving" ? { mode: "driving", durationSeconds: 300, estimated: false } : { mode: "walking", durationSeconds: 39 * 60, estimated: false }
+      )
+    );
+
+    await generateDayStops("馬祖", 1, "TWD", [], undefined, NEUTRAL_PREFERENCE_INTENT);
+
+    const [, pickMode] = fetchLegs.mock.calls[0];
+    expect(pickMode(0.5)).toBe("walking");
+    expect(pickMode(3)).toBe("driving"); // a taxi, not 「搭乘大眾運輸」
+    expect(fetchLegs.mock.calls.some(([stops, mode]) => stops.length === 2 && mode(0.1) === "driving")).toBe(true);
+    fetchLegs.mockReset();
+    fetchLegs.mockImplementation(async (stops) => stops.slice(1).map(() => null));
+  });
+
+  it("keeps the bus on the mainland", async () => {
+    await generateDayStops("東京", 1, "JPY", [], undefined, NEUTRAL_PREFERENCE_INTENT);
+
+    expect(distancesMock.mock.calls[0][1](3)).toBe("transit");
+  });
+});
+

@@ -23,7 +23,7 @@ import { getDistancesForStopPairs, pickModeForDistance, describeTransport, modeP
 import { forSoloTraveler, nearStationFirst } from "@/lib/soloTravel";
 import { haversineKm } from "@/lib/geo";
 import { findHotSpringLodging, isHotSpringStay } from "@/lib/domesticInterests";
-import { crossingBetween, islandNamed } from "@/lib/islandGroups";
+import { crossingBetween, isIslandCity, islandNamed } from "@/lib/islandGroups";
 import { isBloomOutOfSeason } from "@/lib/bloomSeasons";
 import { notVisited, withoutSamePlace } from "@/lib/samePlace";
 import { findPetFriendlyLodging, findPetFriendlyRestaurants, noPetLodging } from "@/lib/petFriendly";
@@ -420,7 +420,8 @@ async function generateTransitDayStopsViaScheduler(
       candidateById,
       currency,
       shelter.pickMode,
-      preferenceIntent.selfDrive
+      preferenceIntent.selfDrive,
+      isIslandCity(toCity)
     );
     return [...plan.prepStops, plan.transitStop, ...arrivalStops];
   } catch (err) {
@@ -595,7 +596,8 @@ export async function generateDepartureDayStops(
       candidateById,
       currency,
       shelter.pickMode,
-      preferenceIntent.selfDrive
+      preferenceIntent.selfDrive,
+      isIslandCity(cityName)
     );
   } catch (err) {
     console.warn("[generateDepartureDayStops] returning no extra stops:", err);
@@ -1294,8 +1296,12 @@ async function stopsWithFixedEvents(
   candidateById: Map<string, PlaceCandidate>,
   currency: string,
   pickMode: (km: number) => ReturnType<typeof pickModeForDistance>,
-  selfDrive = false
+  selfDrive = false,
+  // On an island (islandGroups.ts) the bus barely runs: past a walk, a taxi.
+  onIsland = false
 ): Promise<Array<Record<string, unknown>>> {
+  const islandTaxi = onIsland && !selfDrive;
+  const legMode = islandTaxi ? (km: number) => (pickMode(km) === "transit" ? "driving" : pickMode(km)) : pickMode;
   type Item = { start: number; point: { id: string; lat?: number; lng?: number }; skeletonIndex?: number; stop?: Record<string, unknown> };
   const items: Item[] = [
     ...skeleton.map((s, skeletonIndex) => ({ start: s.startMinute, point: { id: s.id, lat: s.lat, lng: s.lng }, skeletonIndex })),
@@ -1310,10 +1316,11 @@ async function stopsWithFixedEvents(
     ),
   ].sort((a, b) => a.start - b.start);
 
-  const [stopCopy, walkOrRide] = await Promise.all([copy, getDistancesForStopPairs(items.map((i) => i.point), pickMode)]);
+  const [stopCopy, walkOrRide] = await Promise.all([copy, getDistancesForStopPairs(items.map((i) => i.point), legMode)]);
   // A self-driver walks a hop under 1km as the crow flies, but on 南竿's
-  // winding roads one came out 「步行約 29 分鐘」: drive those instead.
-  const distances = selfDrive
+  // winding roads one came out 「步行約 29 分鐘」: drive those instead —
+  // and on an island, a taxi for anyone without a car (「步行約 39 分鐘」).
+  const distances = selfDrive || islandTaxi
     ? await Promise.all(
         walkOrRide.map(async (dist, k) =>
           dist && dist.mode === "walking" && dist.durationSeconds > SELF_DRIVE_LONGEST_WALK_SECONDS
@@ -1517,7 +1524,8 @@ async function generateDayStopsViaScheduler(
           candidateById,
           currency,
           shelter.pickMode,
-          preferenceIntent.selfDrive
+          preferenceIntent.selfDrive,
+          isIslandCity(cityName)
         )
       )
     );

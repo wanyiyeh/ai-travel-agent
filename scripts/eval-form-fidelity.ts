@@ -636,6 +636,20 @@ const CHECKS: Check[] = [
     },
   },
   {
+    title: "離島沒開車：馬祖景點之間走路 15 分鐘內，走不到的搭計程車（不搭公車），第一站提醒公車班次少",
+    pass: (r) => {
+      const m = r.get("domestic-matsu-loop");
+      if (!m) return null;
+      return m.legModes.transit === 0 && m.longestWalkMinutes <= 15 && (m.tripEnds.firstNote ?? "").includes("公車班次少");
+    },
+    detail: (r) => {
+      const m = r.get("domestic-matsu-loop");
+      return m
+        ? `步行 ${m.legModes.walk}（最長 ${m.longestWalkMinutes} 分）、計程車 ${m.legModes.taxi}、大眾運輸 ${m.legModes.transit} 段；第一站：${m.tripEnds.firstNote ?? "—"}`
+        : "—";
+    },
+  },
+  {
     title: "國內高端：高雄住國際品牌或台灣的高級飯店",
     pass: (r) => {
       const m = r.get("domestic-kaohsiung-luxury");
