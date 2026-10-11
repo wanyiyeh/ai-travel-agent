@@ -7,19 +7,32 @@ import { haversineKm } from "@/lib/geo";
 // Google ranks by what the place and its reviews say.
 
 // Wider than the meal and lodging searches' 3km (itineraryCityGen.ts): there
-// are fewer such places, and pet-friendly 民宿 often sit outside town.
-const PET_LODGING_KM = 10;
+// are fewer such places, and pet-friendly 民宿 often sit outside town — 20km,
+// like the hot-spring hotels, so fewer cities end up with none.
+const PET_LODGING_KM = 20;
 const PET_RESTAURANT_KM = 5;
 
 const within = (center: { lat: number; lng: number }, km: number) => (p: PlaceCandidate) =>
   haversineKm(center.lat, center.lng, p.lat, p.lng) <= km;
 
+// A stay that says so in its name: 「台南寵物友善民宿」, 「毛孩上課」.
+const PET_NAME = /寵物|宠物|毛孩|毛小孩|狗|犬|pet|dog/i;
+
+/**
+ * Whether a stay takes dogs: Google says so, or its name does. Google's
+ * ranking alone isn't enough — with none nearby, the search for 寵物友善住宿
+ * near 馬祖 returned ordinary guesthouses there.
+ */
+export function takesDogs(place: Pick<PlaceCandidate, "name" | "allowsDogs">): boolean {
+  return place.allowsDogs !== false && (place.allowsDogs === true || PET_NAME.test(place.name));
+}
+
 /** Lodging that takes dogs. Only these are offered: a stay that turns the dog away ends the trip. */
 export async function findPetFriendlyLodging(center: { lat: number; lng: number }, apiKey: string): Promise<PlaceCandidate[]> {
-  const found = await searchTextCandidates("寵物友善住宿", center, apiKey, PET_LODGING_KM * 1000, "lodging").catch(
-    () => [] as PlaceCandidate[]
-  );
-  return found.filter(within(center, PET_LODGING_KM));
+  const found = await searchTextCandidates("寵物友善住宿", center, apiKey, PET_LODGING_KM * 1000, "lodging", {
+    tier: "pets",
+  }).catch(() => [] as PlaceCandidate[]);
+  return found.filter(within(center, PET_LODGING_KM)).filter(takesDogs);
 }
 
 /** Restaurants that take dogs, put ahead of the others for lunch and dinner. */

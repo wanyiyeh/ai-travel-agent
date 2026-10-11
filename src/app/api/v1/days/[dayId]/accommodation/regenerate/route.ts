@@ -2,10 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma, j } from "@/lib/db";
 import { getMockMode, mockDelay, MOCK_FIXTURES } from "@/lib/mockAi";
-import {
-  fetchLodgingCandidates,
-  findNearestStation,
-} from "@/lib/fetchCityRestaurants";
+import { findNearestStation } from "@/lib/fetchCityRestaurants";
 import { snapToGrid } from "@/lib/geo";
 import { resolveDayCoords } from "@/lib/itineraryGen";
 import { cityToIata } from "@/lib/iataCity";
@@ -17,6 +14,8 @@ import type { AccommodationCandidate } from "@/types/itinerary";
 import { internalErrorResponse } from "@/lib/apiError";
 import { authorizeItinerary } from "@/lib/auth/ownership";
 import { chargePaidEdit } from "@/lib/quota";
+import { findSwapLodging, nearStationOrder, swapLodgingRulesOf } from "@/lib/swapLodging";
+import { TripPreferencesSchema } from "@/lib/schemas";
 
 const RequestSchema = z.object({
   itineraryId: z.string().min(1),
@@ -81,10 +80,13 @@ export async function POST(
 
     const config = itinerary.config as {
       flightInfo?: { arrivalCity?: string };
-      preferences?: { budget?: "budget" | "moderate" | "luxury" };
+      preferences?: unknown;
       currency?: string;
     };
-    const budget = config.preferences?.budget;
+    // The trip's form choices: budget, and the companions' and hot-spring lodging rules (swapLodging.ts).
+    const preferences = TripPreferencesSchema.safeParse(config.preferences).data;
+    const budget = preferences?.budget;
+    const rules = swapLodgingRulesOf(preferences);
 
     const googleApiKey = process.env.GOOGLE_PLACES_API_KEY;
     if (!googleApiKey) {
@@ -106,7 +108,7 @@ export async function POST(
     }
 
     // Pro fields only: lodging tiers by type and brand, not price (plan/form-preference-wiring.md 1.3, 1c-2).
-    const hotels = await fetchLodgingCandidates(snapToGrid(coords, PICKER_SEARCH_GRID_DEG), googleApiKey, budget, 3000, 10);
+    const hotels = await findSwapLodging(snapToGrid(coords, PICKER_SEARCH_GRID_DEG), googleApiKey, budget, rules);
 
     const currentPlaceId =
       typeof currentAccommodation?.placeId === "string" ? currentAccommodation.placeId : undefined;
@@ -136,7 +138,7 @@ export async function POST(
       model,
     );
 
-    const newCandidates: AccommodationCandidate[] = filteredHotels.map((h, i) => {
+    const found: AccommodationCandidate[] = filteredHotels.map((h, i) => {
       const estimatedCost = estimateLodgingCostPerNight(config.currency, h.priceLevel);
       const costRange = estimateLodgingCostRange(config.currency, h.priceLevel);
       return {
@@ -156,6 +158,7 @@ export async function POST(
         photoName: h.photoName ?? null,
       };
     });
+    const newCandidates = rules.solo ? nearStationOrder(found) : found;
 
     // Surface the day's existing accommodation as the first candidate so
     // picking it again (i.e. "keep what I had") costs nothing extra.
@@ -196,7 +199,8 @@ export async function POST(
       data: { itineraryId, dayId, candidates: j(candidates) },
     });
 
-    return NextResponse.json({ success: true, candidates });
+    // The picker says the list holds only stays that take dogs.
+    return NextResponse.json({ success: true, candidates, ...(rules.pets ? { petFriendlyOnly: true } : {}) });
   } catch (error) {
     return internalErrorResponse("Accommodation Candidates Error", error, "Failed to fetch accommodation candidates");
   }

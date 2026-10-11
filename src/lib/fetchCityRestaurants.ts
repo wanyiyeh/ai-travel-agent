@@ -25,12 +25,22 @@ export const ENTERPRISE_FIELD_MASK = `${PRO_FIELD_MASK},places.rating,places.pri
 // children, an Enterprise + Atmosphere field — the costliest tier, so only
 // a trip with children asks, for lunch and dinner, under its own cache key.
 export const KIDS_FIELD_MASK = `${ENTERPRISE_FIELD_MASK},places.goodForChildren,places.menuForChildren`;
+// 寵物 only (petFriendly.ts): whether a stay takes dogs — Enterprise +
+// Atmosphere too, asked for in the one pet-friendly lodging search. A text
+// search alone returned plain local guesthouses where none take dogs (馬祖).
+export const PETS_FIELD_MASK = `${PRO_FIELD_MASK},places.allowsDogs`;
 const maskFor = (tier: FieldTier) =>
-  tier === "kids" ? KIDS_FIELD_MASK : tier === "enterprise" ? ENTERPRISE_FIELD_MASK : PRO_FIELD_MASK;
+  tier === "kids"
+    ? KIDS_FIELD_MASK
+    : tier === "pets"
+      ? PETS_FIELD_MASK
+      : tier === "enterprise"
+        ? ENTERPRISE_FIELD_MASK
+        : PRO_FIELD_MASK;
 const HINTS_FIELD_MASK = "places.displayName,places.location,places.types";
 
 /** Which field set a candidate search asks for — see PRO_FIELD_MASK. */
-export type FieldTier = "pro" | "enterprise" | "kids";
+export type FieldTier = "pro" | "enterprise" | "kids" | "pets";
 
 // Shared TTL for every Nearby Search cache in this file (city hint lists,
 // candidate pools, nearest-station lookups) — Places results change slowly,
@@ -327,6 +337,8 @@ export interface PlaceCandidate {
   menuForChildren?: boolean;
   /** A wheelchair-accessible entrance; absent when Google doesn't say, or the pool predates the field. */
   accessibleEntrance?: boolean;
+  /** Pets tier only (PETS_FIELD_MASK); absent when Google doesn't say. */
+  allowsDogs?: boolean;
 }
 
 export type PriceRange = { currency: string; start?: number; end?: number };
@@ -460,6 +472,7 @@ type NearbyPlaceResult = {
   goodForChildren?: boolean;
   menuForChildren?: boolean;
   accessibilityOptions?: { wheelchairAccessibleEntrance?: boolean };
+  allowsDogs?: boolean;
 };
 
 async function fetchNearbyPlaceCandidatesUncached(
@@ -590,6 +603,7 @@ export async function searchTextCandidates(
         address: p.formattedAddress ?? "",
         photoName: p.photos?.[0]?.name ?? null,
         types: p.types,
+        ...(p.allowsDogs !== undefined ? { allowsDogs: p.allowsDogs } : {}),
       }))
       .filter((c: PlaceCandidate) => c.name.length > 0 && c.placeId.length > 0);
   } catch (err) {

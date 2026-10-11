@@ -31,6 +31,8 @@ export function AccommodationPicker({
   const [error, setError] = useState<string | null>(null);
   const [selectingKey, setSelectingKey] = useState<string | null>(null);
   const [showAllCandidates, setShowAllCandidates] = useState(false);
+  // A trip with a dog: only stays that take one are listed (swapLodging.ts).
+  const [petFriendlyOnly, setPetFriendlyOnly] = useState(false);
 
   const history = useCandidateHistory<AccommodationCandidate>(
     `/api/v1/days/${dayId}/accommodation/candidates-history?itineraryId=${encodeURIComponent(itineraryId)}`
@@ -49,7 +51,10 @@ export function AccommodationPicker({
         });
         const resData = await res.json();
         if (!res.ok) throw new Error(resData.error || "取得住宿候選失敗");
-        if (!cancelled) setCandidates((resData.candidates ?? []) as AccommodationCandidate[]);
+        if (!cancelled) {
+          setCandidates((resData.candidates ?? []) as AccommodationCandidate[]);
+          setPetFriendlyOnly(resData.petFriendlyOnly === true);
+        }
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : "取得住宿候選失敗");
       } finally {
@@ -147,8 +152,14 @@ export function AccommodationPicker({
 
       {loading && <p className="text-sm text-zinc-400 dark:text-zinc-500">搜尋附近住宿中…</p>}
       {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
-      {!loading && !error && candidates.length === 0 && (
-        <p className="text-sm text-zinc-400 dark:text-zinc-500">附近找不到可選的住宿。</p>
+      {!loading && !error && petFriendlyOnly && (
+        <p className="text-xs text-zinc-500 dark:text-zinc-400">帶寵物同行：只列出寵物友善的住宿，訂房前請再向住宿確認</p>
+      )}
+      {/* The current stay alone isn't something to switch to. */}
+      {!loading && !error && candidates.every((c) => c.isCurrent) && (
+        <p className="text-sm text-zinc-400 dark:text-zinc-500">
+          {petFriendlyOnly ? "附近找不到其他寵物友善的住宿。" : "附近找不到其他可選的住宿。"}
+        </p>
       )}
 
       <div className="space-y-2">
