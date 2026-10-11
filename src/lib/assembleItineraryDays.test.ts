@@ -657,7 +657,7 @@ describe("assembleItineraryDays — sunset and weather", () => {
 
     const conditions = dayStopsMock.mock.calls[0][11] as { sunsetMinute: number; hot: boolean; rainy: boolean }[];
     expect(conditions).toHaveLength(3);
-    expect(conditions[0]).toEqual({ sunsetMinute: 988, hot: false, rainy: false, cold: false }); // 12月 1日
+    expect(conditions[0]).toEqual({ sunsetMinute: 988, hot: false, rainy: false, cold: false, month: 12 }); // 12月 1日
     expect(climateMock.mock.calls[1][2]).toBe("2026-12-02");
     expect(result!.days[0].weatherNote).toBe("日落約 16:28");
   });

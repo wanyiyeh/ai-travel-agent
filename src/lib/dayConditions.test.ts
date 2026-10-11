@@ -30,15 +30,15 @@ describe("conditionsOf", () => {
 
 describe("weatherNote", () => {
   it("gives the sunset, and a word on heat or rain when there's one to give", () => {
-    expect(weatherNote({ sunsetMinute: 16 * 60 + 28, hot: false, rainy: false, cold: false })).toBe("日落約 16:28");
-    expect(weatherNote({ sunsetMinute: 19 * 60, hot: true, rainy: true, cold: false })).toBe(
+    expect(weatherNote({ sunsetMinute: 16 * 60 + 28, hot: false, rainy: false, cold: false, month: 11 })).toBe("日落約 16:28");
+    expect(weatherNote({ sunsetMinute: 19 * 60, hot: true, rainy: true, cold: false, month: 7 })).toBe(
       "日落約 19:00・天氣炎熱，中午多排室內・這個月常下雨，記得帶傘"
     );
   });
 
   it("says rain or snow in a cold month", () => {
     // 札幌 11月 2025: a 3.6°C high, rain or snow on over half the days
-    expect(weatherNote({ sunsetMinute: 16 * 60 + 17, hot: false, rainy: true, cold: true })).toBe("日落約 16:17・這個月常下雨或下雪，記得帶傘");
+    expect(weatherNote({ sunsetMinute: 16 * 60 + 17, hot: false, rainy: true, cold: true, month: 11 })).toBe("日落約 16:17・這個月常下雨或下雪，記得帶傘");
     expect(weatherNote(undefined)).toBeUndefined();
   });
 });

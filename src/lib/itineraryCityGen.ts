@@ -24,6 +24,7 @@ import { forSoloTraveler, nearStationFirst } from "@/lib/soloTravel";
 import { haversineKm } from "@/lib/geo";
 import { findHotSpringLodging, isHotSpringStay } from "@/lib/domesticInterests";
 import { crossingBetween, islandNamed } from "@/lib/islandGroups";
+import { isBloomOutOfSeason } from "@/lib/bloomSeasons";
 import { findPetFriendlyLodging, findPetFriendlyRestaurants, noPetLodging } from "@/lib/petFriendly";
 import { estimateAttractionCost } from "@/lib/priceLevelCost";
 import { isFoodPlace } from "@/lib/foodPlace";
@@ -1352,7 +1353,11 @@ async function generateDayStopsViaScheduler(
       );
     };
 
-    const available = merged.filter((p) => !lockedIds.has(p.placeId));
+    // A flower place out of bloom for the whole stay (bloomSeasons.ts): a kapok avenue in November.
+    const stayMonths = [...new Set(conditionsByDay.flatMap((c) => (c ? [c.month] : [])))];
+    const available = merged.filter(
+      (p) => !lockedIds.has(p.placeId) && (stayMonths.length === 0 || stayMonths.some((m) => !isBloomOutOfSeason(p.name, m)))
+    );
     const neededStops = capacitiesFor(available).reduce((sum, n) => sum + n, 0);
     const pool = await withSupplementalAttractions(coords, apiKey, available, lockedIds, neededStops);
 
