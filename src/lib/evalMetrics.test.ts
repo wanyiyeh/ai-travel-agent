@@ -242,6 +242,18 @@ describe("measureItinerary", () => {
     expect(measureItinerary(trip, ctx).islands).toEqual(["南竿", "北竿"]);
   });
 
+  it("lists a themed day's stops with their distance from the lodging", () => {
+    const trip = days.map((d, i) =>
+      i === 0
+        ? { ...d, theme: "東京 文化巡禮", accommodation: { name: "H", lat: 35.69, lng: 139.7 }, stops: [{ name: "博物館", lat: 35.72, lng: 139.7 }] }
+        : d
+    );
+    expect(measureItinerary(trip, ctx).themeDayStops).toContainEqual({
+      theme: "東京 文化巡禮",
+      stops: [{ name: "博物館", km: 3.3, core: false }], // no types for it in the test cache
+    });
+  });
+
   it("measures each 小酌 from that night's lodging", () => {
     const trip = days.map((d, i) =>
       i === 0

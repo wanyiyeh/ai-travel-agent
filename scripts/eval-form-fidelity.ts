@@ -365,6 +365,21 @@ const CHECKS: Check[] = [
     detail: (r) => r.get("tokyo-culture-nature")?.dayTitles.join("、") ?? "—",
   },
   {
+    title: "主題日：住新宿的文化巡禮從熱門的文化景點開始（寺廟、城堡、博物館，不是觀景台），而且不只在住宿附近（一站 3 km 以上）",
+    pass: (r) => {
+      const days = ["tokyo-culture-nature", "tokyo-culture"].flatMap(
+        (id) => r.get(id)?.themeDayStops.filter((d) => d.theme.endsWith("文化巡禮")) ?? []
+      );
+      if (days.length === 0) return null;
+      return days.every((d) => d.stops[0]?.core === true && d.stops.some((s) => s.km >= 3));
+    },
+    detail: (r) =>
+      ["tokyo-culture-nature", "tokyo-culture"]
+        .flatMap((id) => r.get(id)?.themeDayStops.filter((d) => d.theme.endsWith("文化巡禮")) ?? [])
+        .map((d) => d.stops.map((s) => `${s.name} ${s.km} km${s.core ? "" : "（非文化）"}`).join("、"))
+        .join("；") || "—",
+  },
+  {
     title: "飲食：素食組有素食餐廳、沒有牛排／海鮮／壽司",
     pass: (r) => {
       const m = r.get("tokyo-vegetarian");

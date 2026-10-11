@@ -2,6 +2,7 @@ import type { BudgetLevel } from "@/lib/fetchCityRestaurants";
 import { MAIN_MEAL_BUDGET_TWD } from "@/lib/mealBudget";
 import { isBudgetLodging, isLuxuryLodging } from "@/lib/lodgingTiers";
 import { islandContaining } from "@/lib/islandGroups";
+import { THEMES, isCoreOfTheme, type ThemeKey } from "@/lib/dayThemes";
 import { mapPlaceTypeToCategory } from "@/lib/scheduler/mapPlaceTypeToCategory";
 import { exposureOf, isBarStreet, isNotADaytimeSight } from "@/lib/indoorOutdoor";
 import { isGroupDining, isSoloFriendly } from "@/lib/soloTravel";
@@ -44,6 +45,8 @@ export type ItineraryMetrics = {
   pets: { stays: string[]; petDays: number; carrierNote: boolean };
   /** 馬祖 or 澎湖: the islands the stops are on (islandGroups.ts) — one, unless a boat goes elsewhere. */
   islands: string[];
+  /** Each themed day's stops and how far each is from that night's lodging, in km. */
+  themeDayStops: { theme: string; stops: { name: string; km: number; core: boolean }[] }[];
   /** Each 小酌's distance from that night's lodging, in km — 獨旅 keeps within a walk. */
   nightcapKm: { name: string; km: number }[];
   /** Each transit day's first step: an island hop's boat (islandGroups.ts crossingBetween). */
@@ -275,6 +278,28 @@ export function measureItinerary(days: Rec[], ctx: EvalContext): ItineraryMetric
       carrierNote: (str(asRecords(days[0]?.stops)[0]?.description) ?? "").includes("裝籠"),
     },
     islands: islandsOf(days.flatMap((d) => asRecords(d.stops))),
+    themeDayStops: days.flatMap((d) => {
+      const theme = str(d.theme) ?? "";
+      const stay = d.accommodation as Rec | null | undefined;
+      const [sLat, sLng] = [num(stay?.lat), num(stay?.lng)];
+      if (!/巡禮|漫遊|散策|美食|同樂/.test(theme) || sLat === undefined || sLng === undefined) return [];
+      // Whether each stop is what the theme is about (dayThemes.ts isCoreOfTheme).
+      const key = (Object.keys(THEMES) as ThemeKey[]).find((k) => theme.endsWith(THEMES[k].label));
+      const stops = asRecords(d.stops).flatMap((s) => {
+        const [lat, lng] = [num(s.lat), num(s.lng)];
+        const name = str(s.name) ?? "";
+        return lat !== undefined && lng !== undefined
+          ? [
+              {
+                name,
+                km: Math.round(haversineKm(sLat, sLng, lat, lng) * 10) / 10,
+                core: key !== undefined && isCoreOfTheme(typesOf(s.placeId), key, name),
+              },
+            ]
+          : [];
+      });
+      return [{ theme, stops }];
+    }),
     nightcapKm: days.flatMap((d) => {
       const bar = ((d.meals ?? {}) as Rec).nightcap as Rec | undefined;
       const stay = d.accommodation as Rec | null | undefined;

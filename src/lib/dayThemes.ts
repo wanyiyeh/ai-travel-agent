@@ -18,6 +18,12 @@ type Theme = {
   matchTypes: string[];
   /** ...or its name matches. */
   matchName?: RegExp;
+  /**
+   * What the theme is about, where narrower than matchTypes — the place a
+   * themed day starts from (isCoreOfTheme). An observation deck counts on a
+   * 自然漫遊 day, but 東京鐵塔 starting one made it a day of towers.
+   */
+  coreTypes?: string[];
   /** Duration categories boosted on unthemed days (transit, return day). */
   boostCategories: DurationCategory[];
 };
@@ -38,6 +44,7 @@ export const THEMES: Record<ThemeKey, Theme> = {
     label: "自然漫遊",
     searchTypes: ["park", "garden", "botanical_garden", "observation_deck"],
     matchTypes: ["park", "garden", "botanical_garden", "national_park", "state_park", "observation_deck", "scenic_spot"],
+    coreTypes: ["park", "garden", "botanical_garden", "national_park", "state_park", "scenic_spot"],
     boostCategories: ["park", "viewpoint"],
   },
   shopping: {
@@ -120,6 +127,22 @@ export function dayThemeKeys(
   return Array.from({ length: dayCount }, (_, i) =>
     themes.length > 0 && !ownTitleDays.has(i) ? themes[next++ % themes.length] : undefined
   );
+}
+
+// Types every place has, which say nothing about what it is.
+const GENERIC_TYPES = new Set(["tourist_attraction", "point_of_interest", "establishment"]);
+
+/**
+ * Whether a place is what the theme is about, by its first type that says
+ * anything (or its name): 東京國立博物館 is [tourist_attraction, art_museum]. A
+ * culture search also returns places that merely carry a culture type —
+ * 東京鐵塔 came back first, an observation deck — so isOnTheme alone can't
+ * tell the theme's most popular place.
+ */
+export function isCoreOfTheme(types: string[] | undefined, theme: ThemeKey, name?: string): boolean {
+  const { matchTypes, coreTypes, matchName } = THEMES[theme];
+  const first = (types ?? []).find((t) => !GENERIC_TYPES.has(t));
+  return (first !== undefined && (coreTypes ?? matchTypes).includes(first)) || Boolean(name && matchName?.test(name));
 }
 
 export function isOnTheme(types: string[] | undefined, theme: ThemeKey, name?: string): boolean {
