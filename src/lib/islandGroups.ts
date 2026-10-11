@@ -143,3 +143,36 @@ export function islandContaining(point: Point): { group: IslandGroup; island: Is
   }
   return undefined;
 }
+
+export type Crossing = {
+  minutes: number;
+  /** 「從南竿福澳港搭船」, 「搭船回南竿」, 「經南竿轉船」. */
+  how: string;
+  /** Few boats a day (東引, 莒光, 七美): check the one back before going. */
+  infrequent: boolean;
+};
+
+/**
+ * The boat between two islands of a group — staying over on one (tripPlan.ts
+ * loop). The data has each island's crossing from the main one, so two
+ * others go by way of it. Undefined for the same island, or not a group.
+ */
+export function crossingBetween(fromName: string, toName: string): Crossing | undefined {
+  const group = islandGroupOf(fromName);
+  const from = islandNamed(fromName);
+  const to = islandNamed(toName);
+  if (!group || !from || !to || from === to || islandGroupOf(toName) !== group) return undefined;
+  const legOf = (island: Island) => island.ferry!;
+  if (from === group.main) {
+    const leg = legOf(to);
+    const reach = leg.landMinutes ? `開車或搭車約 ${leg.landMinutes} 分到${leg.port}，` : `從${leg.port}`;
+    return { minutes: leg.minutes + (leg.landMinutes ?? 0), how: `${reach}搭船`, infrequent: !leg.frequent };
+  }
+  if (to === group.main) {
+    const leg = legOf(from);
+    return { minutes: leg.minutes + (leg.landMinutes ?? 0), how: `搭船回${group.main.name}`, infrequent: !leg.frequent };
+  }
+  const [a, b] = [legOf(from), legOf(to)];
+  return { minutes: a.minutes + b.minutes, how: `搭船經${group.main.name}轉船`, infrequent: !a.frequent || !b.frequent };
+}
+

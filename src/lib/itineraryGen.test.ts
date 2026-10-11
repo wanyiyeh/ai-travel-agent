@@ -85,6 +85,19 @@ describe("tagWaypointCities", () => {
 });
 
 describe("repairTransitDayDepartureCities", () => {
+  it("leaves 南竿 alone on a day leaving 馬祖 — the same island", () => {
+    // As planned for 馬祖 → 北竿: it came out 「從馬祖福澳港」.
+    const days = [
+      {
+        isTransitDay: true,
+        transitTo: "北竿",
+        waypointCity: "馬祖",
+        stops: [{ name: "從南竿前往北竿", description: "從南竿福澳港搭船約 20 分（估計）" }],
+      },
+    ];
+    expect(repairTransitDayDepartureCities(days)).toEqual(days);
+  });
+
   it("rewrites a transit stop that names the wrong departure city", () => {
     const days = [
       {

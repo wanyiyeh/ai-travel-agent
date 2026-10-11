@@ -242,17 +242,47 @@ describe("planTrip — round-trip loops", () => {
     expect(systemPromptOf()).toContain("絕對只能有一個城市");
   });
 
-  it("keeps a trip to an island on the island, however long", async () => {
-    const matsu: FlightInfo = {
-      ...roundTrip,
-      tripType: "domestic",
-      departureCity: "TW-TPE",
-      arrivalCity: "TW-MZU",
-      returnDepartureCity: "TW-MZU",
-    };
-    mockJson({ title: "t", currency: "TWD", cities: [{ name: "馬祖", days: 6 }] });
-    await planTrip(matsu, undefined, undefined, "m");
+  const islandTrip = (code: string): FlightInfo => ({
+    ...roundTrip,
+    tripType: "domestic",
+    departureCity: "TW-TPE",
+    arrivalCity: code,
+    returnDepartureCity: code,
+  });
+
+  it("keeps a single island, however long, without retrying for a loop", async () => {
+    mockJson({ title: "t", currency: "TWD", cities: [{ name: "綠島", days: 6 }] });
+    const plan = await planTrip(islandTrip("TW-GDI"), undefined, undefined, "m");
     expect(systemPromptOf()).toContain("絕對只能有一個城市");
+    expect(plan?.cities).toEqual([{ name: "綠島", days: 6 }]);
+    expect(createMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("loops 馬祖 out to a neighbouring island by boat, never to 南竿", async () => {
+    mockJson({ title: "t", currency: "TWD", cities: [{ name: "馬祖", days: 3 }, { name: "東引", days: 2 }, { name: "馬祖", days: 1 }] });
+    const plan = await planTrip(islandTrip("TW-MZU"), undefined, undefined, "m");
+    expect(systemPromptOf()).toContain("北竿（從南竿坐船約 20 分）");
+    expect(systemPromptOf()).toContain("不可以填「南竿」");
+    expect(plan?.cities.map((c) => c.name)).toEqual(["馬祖", "東引", "馬祖"]);
+  });
+
+  it("fits a loop one day over, off the longest stay, instead of failing", async () => {
+    // As the model answered twice for 5 days in 馬祖 (4 to allocate).
+    const fiveDays = { ...islandTrip("TW-MZU"), returnDate: "2026-05-06" };
+    mockJson({ title: "t", currency: "TWD", cities: [{ name: "馬祖", days: 3 }, { name: "北竿", days: 1 }, { name: "馬祖", days: 1 }] });
+    const plan = await planTrip(fiveDays, undefined, undefined, "m");
+    expect(plan?.cities).toEqual([
+      { name: "馬祖", days: 2 },
+      { name: "北竿", days: 1 },
+      { name: "馬祖", days: 1 },
+    ]);
+    expect(createMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("stays on 馬祖 when the loop picks 南竿, the same place", async () => {
+    mockJson({ title: "t", currency: "TWD", cities: [{ name: "馬祖", days: 3 }, { name: "南竿", days: 2 }, { name: "馬祖", days: 1 }] });
+    const plan = await planTrip(islandTrip("TW-MZU"), undefined, undefined, "m");
+    expect(plan?.cities).toEqual([{ name: "馬祖", days: 6 }]);
   });
 
   it("accepts a loop out to a nearby town and back", async () => {

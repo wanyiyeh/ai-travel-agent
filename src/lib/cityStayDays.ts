@@ -56,6 +56,8 @@ export type StayContext = {
   selfDrive: boolean;
   /** The route's other cities, which a day trip shouldn't land in. */
   otherCityCenters: (cityName: string, apiKey: string) => Promise<{ lat: number; lng: number }[]>;
+  /** Every city on the route — an island stayed on isn't a boat day out too. */
+  routeCityNames: string[];
   /** Day-trip places used anywhere on the trip. */
   usedSuburbIds: Set<string>;
   /** One night camping per trip. */
@@ -107,6 +109,7 @@ export function stayContextOf(input: {
       const centers = await Promise.all(names.map((name) => getCityCenter(name, apiKey).catch(() => null)));
       return centers.filter((c): c is { lat: number; lng: number } => Boolean(c));
     },
+    routeCityNames,
     usedSuburbIds: new Set(),
     campNightPlanned: input.campNightPlanned ?? false,
   };
@@ -167,7 +170,13 @@ export async function buildStayDays(
     // On an island the day out is a boat to a neighbouring one (islandDayTrips.ts);
     // the mainland suburb search found 台東 from 綠島 and an island's own hill as 「郊區」.
     if (isIslandCity(cityName)) {
-      const boat = await findIslandDayTrip(cityName, apiKey, kind, new Set([...usedPlaceIds, ...ctx.usedSuburbIds]));
+      const boat = await findIslandDayTrip(
+        cityName,
+        apiKey,
+        kind,
+        new Set([...usedPlaceIds, ...ctx.usedSuburbIds]),
+        ctx.routeCityNames
+      );
       if (!boat) return undefined;
       const homeIsland = islandNamed(cityName)?.name ?? cityName;
       const events = islandTripEvents(boat, homeIsland, kind, dayStart, dayEndFor(preferenceIntent));

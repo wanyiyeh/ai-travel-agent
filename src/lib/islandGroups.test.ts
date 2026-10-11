@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ISLAND_GROUPS, islandAt, islandGroupOf, islandNamed, onSearchIsland } from "@/lib/islandGroups";
+import { crossingBetween, ISLAND_GROUPS, islandAt, islandGroupOf, islandNamed, onSearchIsland } from "@/lib/islandGroups";
 
 const matsu = ISLAND_GROUPS["TW-MZU"];
 const penghu = ISLAND_GROUPS["TW-PEH"];
@@ -39,5 +39,23 @@ describe("onSearchIsland", () => {
   it("leaves a search anywhere else alone", () => {
     const found = [at("台北101", 25.0339, 121.5645)];
     expect(onSearchIsland({ lat: 25.04, lng: 121.56 }, found)).toEqual(found);
+  });
+});
+
+describe("crossingBetween", () => {
+  it("goes from the main island's pier, and back to it", () => {
+    expect(crossingBetween("馬祖", "東引")).toEqual({ minutes: 120, how: "從南竿福澳港搭船", infrequent: true });
+    expect(crossingBetween("東引", "馬祖")).toEqual({ minutes: 120, how: "搭船回南竿", infrequent: true });
+    expect(crossingBetween("澎湖", "吉貝")?.how).toBe("開車或搭車約 30 分到白沙赤崁碼頭，搭船");
+  });
+
+  it("changes boats at the main island between two others", () => {
+    expect(crossingBetween("北竿", "東引")).toEqual({ minutes: 140, how: "搭船經南竿轉船", infrequent: true });
+  });
+
+  it("is no crossing on the same island or off the groups", () => {
+    expect(crossingBetween("馬祖", "南竿")).toBeUndefined();
+    expect(crossingBetween("馬祖", "七美")).toBeUndefined();
+    expect(crossingBetween("台南", "高雄")).toBeUndefined();
   });
 });

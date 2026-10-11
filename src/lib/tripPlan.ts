@@ -6,6 +6,7 @@ import { iataToCity } from "@/lib/iataCity";
 import { calcDays, buildFlightTimePrompt, buildPreferencePrompt } from "@/lib/itineraryGen";
 import { UNTRUSTED_INPUT_RULE, wrapUntrusted } from "@/lib/untrustedInput";
 import { AIRPORTS, getIataCoords } from "@/lib/airports";
+import { islandGroupOf } from "@/lib/islandGroups";
 import { getCityCenter } from "@/lib/placesTextSearch";
 import { haversineKm } from "@/lib/geo";
 import { FIXED_EVENT_TYPES, tripDayOfDate } from "@/lib/fixedEvents";
@@ -187,10 +188,9 @@ function buildSystemPrompt(
   const returnCityName = iataToCity(flightInfo.returnDepartureCity);
   const isMultiCity = arrivalCityName !== returnCityName;
   const citiesBudget = totalDays - 1;
-  // Not on an island: the loop's "a town within 3 hours by land" turned
-  // 馬祖 into 馬祖 → 南竿 → 馬祖, 南竿 being where 馬祖's airport is
-  // (plan/island-trips.md — staying over on a neighbouring island comes later).
-  const loopAllowed = !isMultiCity && citiesBudget >= LOOP_MIN_DAYS && !AIRPORTS[flightInfo.arrivalCity]?.island;
+  const loopAllowed = loopAllowedFor(flightInfo, totalDays);
+  // 馬祖 or 澎湖: the night away is on a neighbouring island (islandGroups.ts).
+  const islandGroup = islandGroupOf(arrivalCityName);
   // 國內 (domesticTrips.ts): the trip starts and ends in towns, from and back home — no flights.
   const domestic = isDomestic(flightInfo);
   const inAndOut = domestic
@@ -199,7 +199,23 @@ function buildSystemPrompt(
 也從「${arrivalCityName}」出`;
   const leavesFrom = domestic ? "因為要從這裡回家" : "因為要從這裡搭機回程";
 
-  const loopRules = `\n\n【同一城市來回：繞一圈，至少一次兩天一夜】${inAndOut}。這趟天數夠，要從 ${arrivalCityName} 出發，到附近城鎮過夜再回來
+  const islandLoopRules = islandGroup
+    ? `\n\n【離島：坐船到鄰島住一晚】${inAndOut}。這趟天數夠，要從 ${arrivalCityName} 坐船到同一群島的另一個島過夜再回來
+（${arrivalCityName} → 鄰島 → ${arrivalCityName}）。規則：
+- 第一個和最後一個城市都必須是「${arrivalCityName}」，${leavesFrom}。回到 ${arrivalCityName} 的那一段也要列在 cities 的最後，
+  days 至少 1（坐船回來的移動日），也要算進天數加總
+- 中途的島只能從這幾個挑，名稱照抄：${islandGroup.others
+        .map((i) => `${i.name}（從${islandGroup.main.name}坐船約 ${i.ferry!.minutes} 分）`)
+        .join("、")}。
+  不可以填「${islandGroup.main.name}」——${arrivalCityName}的機場就在${islandGroup.main.name}，那是同一個地方
+- 中途的島 days 填 1 或 2，最多 ${maxLoopTowns(citiesBudget)} 個
+- 只有旅客的風格描述明確表示只想待在 ${arrivalCityName} 時，才只排這一個城市（cities 長度為 1、days 等於 ${citiesBudget}），
+  並且在 JSON 多加 "stayReason" 欄位，照抄旅客說的那句話`
+    : "";
+
+  const loopRules = islandGroup
+    ? islandLoopRules
+    : `\n\n【同一城市來回：繞一圈，至少一次兩天一夜】${inAndOut}。這趟天數夠，要從 ${arrivalCityName} 出發，到附近城鎮過夜再回來
 （${arrivalCityName} → 鄰近城鎮 → ${arrivalCityName}），讓旅客不必每天都待在同一個城市。規則：
 - 第一個和最後一個城市都必須是「${arrivalCityName}」，${leavesFrom}。回到 ${arrivalCityName} 的
   那一段也要列在 cities 的最後，days 至少 1（回來的移動日），也要算進天數加總
@@ -211,6 +227,7 @@ function buildSystemPrompt(
 - 只有旅客的風格描述明確表示只想待在 ${arrivalCityName} 時，才只排這一個城市（cities 長度為 1、
   days 等於 ${citiesBudget}），並且在 JSON 多加 "stayReason" 欄位，照抄旅客說的那句話。
   沒有這樣的描述就一定要繞一圈，不要填 stayReason`;
+
 
   const singleCityConstraint = `\n\n【重要：這是同一城市來回，絕對只能有一個城市】${inAndOut}，這不是開口式多城市行程。cities 陣列的長度必須恰好是 1，
 只能包含「${arrivalCityName}」這一個城市，絕對不可以自己加入同一國家或地區的其他城市
@@ -313,6 +330,35 @@ export function returnLeg(cities: TripPlan["cities"], arrivalCityName: string, d
   return [...cities, { name: arrivalCityName, days: missing }];
 }
 
+/**
+ * A loop whose days don't add up: a 5-day 馬祖 run came back 馬祖 3 → 北竿 1
+ * → 馬祖 1 on both attempts, one day over, and the day-total check rejected
+ * a sound route. The difference goes to or comes off the longest stay, as
+ * long as every stay keeps a day. Returns the input unchanged otherwise.
+ */
+export function fitLoopDays(cities: TripPlan["cities"], daysToAllocate: number): TripPlan["cities"] {
+  const off = daysToAllocate - cities.reduce((sum, c) => sum + c.days, 0);
+  if (off === 0 || cities.length < 2) return cities;
+  const longest = cities.reduce((best, c, i) => (c.days > cities[best].days ? i : best), 0);
+  if (cities[longest].days + off < 1) return cities;
+  return cities.map((c, i) => (i === longest ? { ...c, days: c.days + off } : c));
+}
+
+/**
+ * Whether a round trip should loop out and back. Not on an island, where
+ * "a town within 3 hours by land" made 馬祖 → 南竿 → 馬祖 (南竿 being where
+ * 馬祖's airport is) — except on 馬祖 or 澎湖, whose loop is a neighbouring
+ * island (plan/island-trips.md).
+ */
+export function loopAllowedFor(flightInfo: FlightInfo, totalDays: number): boolean {
+  const arrival = iataToCity(flightInfo.arrivalCity);
+  return (
+    arrival === iataToCity(flightInfo.returnDepartureCity) &&
+    totalDays - 1 >= LOOP_MIN_DAYS &&
+    (!AIRPORTS[flightInfo.arrivalCity]?.island || Boolean(islandGroupOf(arrival)))
+  );
+}
+
 // Every town on a loop takes a transit day: a 5-day Tokyo run came back
 // 東京 1 → 箱根 1 → 鎌倉 1 → 東京 1, leaving one day to sightsee.
 export function maxLoopTowns(daysToAllocate: number): number {
@@ -359,6 +405,15 @@ async function keepLoopNearby(
   arrivalCityName: string,
   daysToAllocate: number
 ): Promise<TripPlan> {
+  // On 馬祖 or 澎湖, only the group's other islands: 南竿 is 馬祖 itself.
+  const group = islandGroupOf(arrivalCityName);
+  if (group) {
+    const others = new Set(group.others.map((i) => i.name));
+    const strays = plan.cities.filter((c) => c.name !== arrivalCityName && !others.has(c.name)).map((c) => c.name);
+    if (strays.length === 0) return plan;
+    console.warn(`[planTrip] loop towns not neighbouring islands of ${arrivalCityName}, staying put:`, strays);
+    return { ...plan, cities: [{ name: arrivalCityName, days: daysToAllocate }] };
+  }
   const apiKey = process.env.GOOGLE_PLACES_API_KEY;
   const home = getIataCoords(arrivalIata);
   if (!apiKey || !home) return plan;
@@ -403,7 +458,8 @@ export async function planTrip(
   let lastUnmet: CityRequirement[] = [];
   const arrivalCityName = iataToCity(flightInfo.arrivalCity);
   const isRoundTrip = arrivalCityName === iataToCity(flightInfo.returnDepartureCity);
-  const loopExpected = isRoundTrip && totalDays - 1 >= LOOP_MIN_DAYS;
+  // Same rule as the prompt's: a single island expects no loop, so staying put isn't retried.
+  const loopExpected = loopAllowedFor(flightInfo, totalDays);
   // A valid plan that stayed in one city without the traveler asking —
   // retried once for a loop, and kept if the retry does no better.
   let stayedPut: TripPlan | undefined;
@@ -442,6 +498,11 @@ export async function planTrip(
         console.warn(`[planTrip] attempt ${attempt}: added the way back to ${arrivalCityName}`, raw.data.cities, "->", comingBack);
         raw.data.cities = comingBack;
       }
+      const fitted = loopExpected ? fitLoopDays(raw.data.cities, totalDays - 1) : raw.data.cities;
+      if (fitted !== raw.data.cities) {
+        console.warn(`[planTrip] attempt ${attempt}: fitted the loop's days to ${totalDays - 1}`, raw.data.cities, "->", fitted);
+        raw.data.cities = fitted;
+      }
       const daysSum = raw.data.cities.reduce((sum, city) => sum + city.days, 0);
       if (daysSum !== totalDays - 1) {
         console.warn(
@@ -469,7 +530,7 @@ export async function planTrip(
       let plan: TripPlan = parsed.data;
       if (isRoundTrip && parsed.data.cities.length > 1) {
         const names = parsed.data.cities.map((c) => c.name);
-        const loop = totalDays - 1 >= LOOP_MIN_DAYS && names[0] === arrivalCityName
+        const loop = loopExpected && names[0] === arrivalCityName
           ? closeLoop(parsed.data.cities, arrivalCityName)
           : null;
         if (!loop) {

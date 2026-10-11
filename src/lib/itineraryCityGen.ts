@@ -23,6 +23,7 @@ import { getDistancesForStopPairs, pickModeForDistance, describeTransport, modeP
 import { forSoloTraveler, nearStationFirst } from "@/lib/soloTravel";
 import { haversineKm } from "@/lib/geo";
 import { findHotSpringLodging, isHotSpringStay } from "@/lib/domesticInterests";
+import { crossingBetween, islandNamed } from "@/lib/islandGroups";
 import { findPetFriendlyLodging, findPetFriendlyRestaurants, noPetLodging } from "@/lib/petFriendly";
 import { estimateAttractionCost } from "@/lib/priceLevelCost";
 import { isFoodPlace } from "@/lib/foodPlace";
@@ -166,6 +167,31 @@ const SELF_DRIVE_TRANSIT_RULE = `
 【旅客自駕】旅客在當地租車，城市之間開車移動，不搭火車或巴士：transitStop 寫成「開車前往○○」，
 transport_from_prev 寫開車時間，arrivalTime 依開車時間推算。`;
 
+// Getting to the pier and on board, as for a boat day out (islandDayTrips.ts).
+const ISLAND_BOARDING_MINUTES = 30;
+
+/** An island hop's transit day: the morning boat, then the day on the new island. */
+export function islandHopPlan(fromCity: string, toCity: string, dayStartMinute: number): TransitPlan | null {
+  const crossing = crossingBetween(fromCity, toCity);
+  if (!crossing) return null;
+  const from = islandNamed(fromCity)?.name ?? fromCity;
+  const to = islandNamed(toCity)?.name ?? toCity;
+  const minutes = ISLAND_BOARDING_MINUTES + crossing.minutes;
+  return {
+    prepStops: [],
+    transitStop: {
+      id: crypto.randomUUID(),
+      name: `從${from}前往${to}`,
+      description: `${crossing.how}約 ${crossing.minutes} 分（估計）。出發前確認船班，會依季節和海象調整${
+        crossing.infrequent ? "；船班少，也先確認回程的船" : ""
+      }`,
+      duration_minutes: minutes,
+      time_of_day: "morning",
+    },
+    arrivalMinute: dayStartMinute + minutes,
+  };
+}
+
 async function planTransitDay(
   fromCity: string,
   toCity: string,
@@ -280,15 +306,19 @@ async function generateTransitDayStopsViaScheduler(
 ): Promise<Array<Record<string, unknown>> | null> {
   try {
     const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
-    const plan = await planTransitDay(
-      fromCity,
-      toCity,
-      currency,
-      model,
-      preferenceIntent.selfDrive,
-      visitedInFromCity,
-      preferenceIntent.domestic
-    );
+    // Between two islands of 馬祖 or 澎湖, the boat from the group's data:
+    // asked, the LLM wrote 「從福澳港搭渡輪前往南竿」 from 南竿 itself.
+    const plan =
+      islandHopPlan(fromCity, toCity, dayStartFor(preferenceIntent)) ??
+      (await planTransitDay(
+        fromCity,
+        toCity,
+        currency,
+        model,
+        preferenceIntent.selfDrive,
+        visitedInFromCity,
+        preferenceIntent.domestic
+      ));
     if (!plan) return null;
 
     // How many arrival-city stops fit is clock arithmetic from the arrival
