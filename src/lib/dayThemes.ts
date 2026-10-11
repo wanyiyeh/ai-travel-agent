@@ -106,10 +106,20 @@ export const THEMES: Record<ThemeKey, Theme> = {
     matchName: /老街/,
     boostCategories: ["shopping"],
   },
+  // 美食 (2026-10-11, decided with the user): markets by type; 橫丁, food
+  // streets and 小吃街 by text. Not food courts or farmers' markets — a
+  // department store's food hall came in as one. Lunch is at the day's market
+  // (cityStayDays.ts marketLunch).
   food: {
     label: "市場美食",
-    searchTypes: ["market", "farmers_market", "food_court"],
-    matchTypes: ["market", "farmers_market", "food_court"],
+    searchTypes: ["market"],
+    textSearches: (city) => [
+      { query: `${city} 橫丁`, km: 10 },
+      { query: `${city} 美食街`, km: 10 },
+      { query: `${city} 小吃街`, km: 10 },
+    ],
+    matchTypes: ["market"],
+    matchName: /市場|橫丁|横丁|美食街|小吃|market/i,
     boostCategories: ["shopping"],
   },
 };

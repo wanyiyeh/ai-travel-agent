@@ -1,7 +1,7 @@
 import type { FixedEvent, PreferenceIntent, TripPreferences } from "@/lib/schemas";
 import type { BudgetLevel, PlaceCandidate } from "@/lib/fetchCityRestaurants";
 import { generateThemedDayStops, dayStartFor, dayEndFor, type MealPreferences } from "@/lib/itineraryCityGen";
-import { THEMES } from "@/lib/dayThemes";
+import { THEMES, isCoreOfTheme } from "@/lib/dayThemes";
 import { dateOfTripDay, tripDayOfDate, type DayFixedEvents } from "@/lib/fixedEvents";
 import { getClimate, isInSeason } from "@/lib/climate";
 import { conditionsOf, weatherNote, type DayConditions } from "@/lib/dayConditions";
@@ -376,7 +376,7 @@ export async function buildStayDays(
   const ownTitleDays = new Set(
     [suburbTrip?.dayIndex, seasonalDay?.dayIndex, filmDay?.dayIndex].filter((i): i is number => i !== undefined)
   );
-  const { stopsByDay, themeByDay } = await generateThemedDayStops(
+  const { stopsByDay, themeByDay, coreIdsByDay = [] } = await generateThemedDayStops(
     cityName,
     count,
     ctx.currency,
@@ -419,6 +419,10 @@ export async function buildStayDays(
         ...(mealsByDay[i] ?? {}),
         ...sightseeingEvents[i].meals,
         ...(trip?.lunch ? { lunch: trip.lunch } : {}),
+        // 市場美食: lunch is had walking round the day's market.
+        ...(dayTheme === "food" && !trip && !seasonal && !film && marketOf(stops, coreIdsByDay[i])
+          ? { lunch: marketLunch(marketOf(stops, coreIdsByDay[i])!) }
+          : {}),
         ...(nightMarketByDay.has(i) ? { dinner: nightMarketByDay.get(i) } : {}),
       },
       // A whole day out stays as planned when the trip is restructured.
@@ -445,6 +449,23 @@ export function locationOf(accommodation: Record<string, unknown> | undefined): 
   const lat = accommodation?.lat;
   const lng = accommodation?.lng;
   return typeof lat === "number" && typeof lng === "number" ? { lat, lng } : undefined;
+}
+
+// The day's market, 橫丁 or food street: as the scheduler typed it, else by its name.
+const marketOf = (stops: Array<Record<string, unknown>>, coreIds: string[] = []) =>
+  stops.find((s) => coreIds.includes(String(s.placeId))) ??
+  stops.find((s) => typeof s.name === "string" && isCoreOfTheme(undefined, "food", s.name));
+
+/** Lunch on a 市場美食 day: at the market itself, as a night market stands in for dinner (domesticInterests.ts). */
+export function marketLunch(stop: Record<string, unknown>): Record<string, unknown> {
+  return {
+    name: stop.name,
+    description: `在${String(stop.name)}邊逛邊吃當午餐`,
+    placeId: stop.placeId,
+    lat: stop.lat,
+    lng: stop.lng,
+    address: stop.address,
+  };
 }
 
 /** A highlight's timing note after the stop's own description: 「通常在 11 月中下旬最美」. */
