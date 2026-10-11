@@ -1,4 +1,5 @@
 import type { Climate } from "@/lib/climate";
+import { monthOf } from "@/lib/bloomSeasons";
 
 // 日落和天氣排程 (plan/form-preference-wiring.md 1.12, phase 3c-4): what a
 // day's schedule bends around, from last year's weather for the month
@@ -14,6 +15,8 @@ export type DayConditions = {
   rainy: boolean;
   /** Cold enough that the rain is often snow (11月 札幌, a 3.6°C high). */
   cold: boolean;
+  /** 1-12: which flowers are out (bloomSeasons.ts). */
+  month: number;
 };
 
 const HOT_C = 30;
@@ -35,6 +38,7 @@ export function conditionsOf(climate: Climate | undefined, tripDate: string): Da
     hot: climate.avgMaxTempC >= HOT_C,
     rainy: climate.rainyDayShare > RAINY_SHARE,
     cold: climate.avgMaxTempC < COLD_C,
+    month: monthOf(tripDate),
   };
 }
 

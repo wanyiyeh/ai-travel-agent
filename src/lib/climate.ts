@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { isBloomOutOfSeason, monthOf } from "@/lib/bloomSeasons";
 import { isMockPlaces } from "@/lib/mockPlaces";
 
 // 季節過濾 (plan/form-preference-wiring.md 1.12, phase 3c-1): whether a
@@ -167,11 +168,16 @@ export function meetsNeed(need: SeasonalNeed, climate: Climate | undefined): boo
   return climate.avgMaxTempC >= (need === "warmth" ? WARM_ENOUGH_C : MILD_ENOUGH_C);
 }
 
-/** Whether a place is in season on a trip date: anything without a seasonal type is. */
+/**
+ * Whether a place is in season on a trip date: anything without a seasonal
+ * type is — unless its name says it's for a flower that isn't out then
+ * (bloomSeasons.ts): 白河林初埤木棉花道 is typed a hiking area.
+ */
 export async function isInSeason(
-  place: { lat: number; lng: number; types?: string[] },
+  place: { lat: number; lng: number; types?: string[]; name?: string },
   tripDate: string
 ): Promise<boolean> {
+  if (place.name && isBloomOutOfSeason(place.name, monthOf(tripDate))) return false;
   const need = seasonalNeed(place.types);
   if (!need) return true;
   return meetsNeed(need, await getClimate(place.lat, place.lng, tripDate));

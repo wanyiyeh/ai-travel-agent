@@ -183,6 +183,13 @@ describe("isInSeason", () => {
     expect(findUniqueMock).not.toHaveBeenCalled();
   });
 
+  it("skips a flower place out of bloom, whatever its type says", async () => {
+    // As cached for 台南: typed a hiking area, its kapok out in March and April.
+    const kapok = { name: "白河林初埤木棉花道", lat: 23.3486, lng: 120.4207, types: ["tourist_attraction", "hiking_area"] };
+    expect(await isInSeason(kapok, "2026-11-11")).toBe(false);
+    expect(findUniqueMock).not.toHaveBeenCalled();
+  });
+
   it("skips a ski resort without snow", async () => {
     findUniqueMock.mockResolvedValue(weather(3.3, 0.06));
     expect(await isInSeason({ ...kokusai, types: ["ski_resort"] }, "2026-11-10")).toBe(false);

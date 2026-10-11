@@ -362,7 +362,7 @@ describe("generateThemedDayStops — sunset and weather", () => {
     ...Array.from({ length: 10 }, (_, i) => place(`museum${i}`, "museum", i + 10)),
   ];
   const moderate = { ...NEUTRAL_PREFERENCE_INTENT, pace: "moderate" as const };
-  const calm = { sunsetMinute: 19 * 60, hot: false, rainy: false, cold: false };
+  const calm = { sunsetMinute: 19 * 60, hot: false, rainy: false, cold: false, month: 7 };
   const run = (conditions: typeof calm) =>
     generateThemedDayStops("東京", 2, "JPY", [], undefined, moderate, undefined, undefined, 0, [], [], [conditions, conditions]);
   const ids = (days: Array<Array<Record<string, unknown>>>) => days.flat().map((s) => String(s.placeId));
@@ -387,6 +387,14 @@ describe("generateThemedDayStops — sunset and weather", () => {
       const middle = day.slice(1, -1).map((s) => String(s.placeId));
       expect(middle.filter((id) => id.startsWith("park"))).toEqual([]);
     }
+  });
+
+  it("leaves out a flower place out of bloom for the whole stay", async () => {
+    const kapok = { ...place("kapok", "park", 0), name: "白河林初埤木棉花道" };
+    nearbyMock.mockResolvedValue([kapok, ...mixed]);
+
+    expect(ids((await run({ ...calm, month: 11 })).stopsByDay)).not.toContain("kapok");
+    expect(ids((await run({ ...calm, month: 3 })).stopsByDay)).toContain("kapok"); // in bloom, and a popular park
   });
 
   it("takes the parks first on a day that gets dark early", async () => {
