@@ -47,6 +47,18 @@ describe("findIslandDayTrip", () => {
   });
 });
 
+describe("findIslandDayTrip — what counts as a sight", () => {
+  it("leaves out the pier the boat lands at", async () => {
+    // 北竿白沙港 as cached: a fishing pier and a transport service.
+    const pier = { ...sight("北竿白沙港"), types: ["fishing_pier", "tourist_attraction", "transportation_service"] };
+    nearbyMock.mockResolvedValue([pier, sight("芹壁聚落"), sight("壁山觀景台")]);
+
+    const trip = await findIslandDayTrip("馬祖", "key", "day", new Set());
+
+    expect(trip?.sights.map((s) => s.name)).toEqual(["芹壁聚落", "壁山觀景台"]);
+  });
+});
+
 describe("islandTripEvents", () => {
   it("says the boat over and back, as estimates", () => {
     const events = islandTripEvents(

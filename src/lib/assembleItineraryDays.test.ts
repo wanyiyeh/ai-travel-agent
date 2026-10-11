@@ -823,3 +823,31 @@ describe("assembleItineraryDays — 夜市, 溫泉, 露營", () => {
     expect(campsiteMock).not.toHaveBeenCalled();
   });
 });
+
+// A loop back to the city it started in (plan/island-trips.md: 南竿 → 北竿 → 南竿).
+describe("assembleItineraryDays — back where the loop started", () => {
+  it("stays in the same lodging as before, not a new one", async () => {
+    planTripMock.mockResolvedValue({
+      title: "t",
+      currency: "JPY",
+      cities: [
+        { name: "東京", days: 2 },
+        { name: "箱根", days: 2 },
+        { name: "東京", days: 1 },
+      ],
+    });
+    const hotels = ["Hotel A", "Ryokan B", "Hotel C"];
+    let call = 0;
+    mealsMock.mockImplementation(async (_city: string, nights: number) => ({
+      accommodation: { name: hotels[call++] },
+      mealsByDay: Array.from({ length: nights }, () => ({})),
+    }));
+
+    const result = await run(undefined, undefined);
+
+    const stays = result!.days.map((d) => (d.accommodation as { name?: string } | null | undefined)?.name);
+    // 東京 2 → 箱根 (transit + 1) → 東京 (transit) → return day
+    expect(stays).toEqual(["Hotel A", "Hotel A", "Ryokan B", "Ryokan B", "Hotel A", undefined]);
+  });
+});
+

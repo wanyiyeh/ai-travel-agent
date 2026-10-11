@@ -3,6 +3,8 @@ import { classicTripEvents, type ClassicDayTrip } from "@/lib/classicDayTrips";
 import type { DayFixedEvents } from "@/lib/fixedEvents";
 import { islandGroupOf, islandNamed, type Island } from "@/lib/islandGroups";
 import type { SuburbKind } from "@/lib/suburbKind";
+import { isNotADaytimeSight } from "@/lib/indoorOutdoor";
+import { withoutSamePlace } from "@/lib/samePlace";
 
 // 坐船一日遊 (plan/island-trips.md, PR 2): on 馬祖 or 澎湖 the day out is a
 // boat to a neighbouring island, not the mainland suburb rule's 「上午在郊區，
@@ -56,7 +58,11 @@ export async function findIslandDayTrip(
     const found = await fetchNearbyPlaceCandidates(island.center, apiKey, ["tourist_attraction"], 10000, 20).catch(
       () => [] as PlaceCandidate[]
     );
-    const sights = found.filter((p) => !usedPlaceIds.has(p.placeId)).slice(0, SIGHTS[kind]);
+    // Not the pier the boat lands at (北竿白沙港), nor one sight twice.
+    const sights = withoutSamePlace(found.filter((p) => !usedPlaceIds.has(p.placeId) && !isNotADaytimeSight(p))).slice(
+      0,
+      SIGHTS[kind]
+    );
     if (sights.length >= MIN_SIGHTS[kind]) return { island, sights };
   }
   return undefined;

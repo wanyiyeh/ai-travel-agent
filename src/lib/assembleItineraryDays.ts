@@ -127,6 +127,9 @@ export async function assembleItineraryDays(
   }
 
   const usedPlaceIdsByCity = new Map<string, Set<string>>();
+  // Where the traveler stayed in each city: back in it after a loop (南竿 →
+  // 北竿 → 南竿), the same lodging rather than a new one.
+  const stayByCity = new Map<string, Record<string, unknown>>();
   // Sightseeing days so far, so the theme rotation runs across the whole trip.
   let themedDaysSoFar = 0;
   // What every city's sightseeing days share (cityStayDays.ts).
@@ -216,6 +219,7 @@ export async function assembleItineraryDays(
       for (const placeId of extractPlaceIds(transitStops)) usedPlaceIds.add(placeId);
 
       const hasAccommodation = Object.keys(mealsAndAccommodation.accommodation).length > 0;
+      const stayed = stayByCity.get(city.name);
       pushDay({
         id: crypto.randomUUID(),
         theme: `移動日：前往${city.name}`,
@@ -225,7 +229,7 @@ export async function assembleItineraryDays(
         stops: transitStops,
         // The transit day's own night is spent in the destination city —
         // same accommodation as the sightseeing days that follow it.
-        accommodation: hasAccommodation ? mealsAndAccommodation.accommodation : undefined,
+        accommodation: stayed ?? (hasAccommodation ? mealsAndAccommodation.accommodation : undefined),
         // Breakfast is still in the city being left — usually the transit
         // plan's own station breakfast — so only the meals after arriving.
         meals: { ...withoutBreakfast(mealsAndAccommodation.mealsByDay[0]), ...transitEvents.meals },
@@ -234,7 +238,8 @@ export async function assembleItineraryDays(
 
     const mealsAndAccommodation = await mealsAndAccommodationPromise;
     const hasAccommodation = Object.keys(mealsAndAccommodation.accommodation).length > 0;
-    const accommodation = hasAccommodation ? mealsAndAccommodation.accommodation : undefined;
+    const accommodation = stayByCity.get(city.name) ?? (hasAccommodation ? mealsAndAccommodation.accommodation : undefined);
+    if (accommodation && !stayByCity.has(city.name)) stayByCity.set(city.name, accommodation);
     const lodging = locationOf(accommodation);
 
     const { days: sightseeingDays, themedDays } = await buildStayDays(
