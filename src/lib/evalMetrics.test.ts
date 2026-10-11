@@ -242,6 +242,20 @@ describe("measureItinerary", () => {
     expect(measureItinerary(trip, ctx).islands).toEqual(["南竿", "北竿"]);
   });
 
+  it("names each day's islands and where lunch is", () => {
+    const trip = days.map((d, i) =>
+      i === 0
+        ? {
+            ...d,
+            theme: "馬祖 一日遊：北竿",
+            stops: [{ name: "芹壁聚落", lat: 26.2248, lng: 119.9516 }],
+            meals: { lunch: { name: "芹壁餐廳", lat: 26.2245, lng: 119.952 } },
+          }
+        : d
+    );
+    expect(measureItinerary(trip, ctx).islandDays[0]).toEqual({ theme: "馬祖 一日遊：北竿", islands: ["北竿"], lunchIsland: "北竿" });
+  });
+
   it("lists any mention of airports or flights", () => {
     const withFlight = days.map((d, i) => (i === 3 ? { ...d, stops: [{ name: "前往關西機場", description: "搭機返台" }] } : d));
     expect(measureItinerary(withFlight, ctx).flightMentions).toHaveLength(1);

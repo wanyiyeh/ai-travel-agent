@@ -20,6 +20,8 @@ import {
 import { findSeasonalDay, nightHighlightEvent, seasonalDayIndex } from "@/lib/seasonalHighlights";
 import { cleanTitles, findFilmDay } from "@/lib/filmLocations";
 import { classicTripEvents, findClassicDayTrip } from "@/lib/classicDayTrips";
+import { isIslandCity, islandNamed } from "@/lib/islandGroups";
+import { findIslandDayTrip, islandTripEvents } from "@/lib/islandDayTrips";
 import {
   campsiteStay,
   findCampsite,
@@ -162,6 +164,26 @@ export async function buildStayDays(
     if (!center) return undefined;
     const tripDate = dateOfTripDay(ctx.departureDate, firstDayNumber + dayIndex);
     const dayStart = dayStartFor(preferenceIntent);
+    // On an island the day out is a boat to a neighbouring one (islandDayTrips.ts);
+    // the mainland suburb search found 台東 from 綠島 and an island's own hill as 「郊區」.
+    if (isIslandCity(cityName)) {
+      const boat = await findIslandDayTrip(cityName, apiKey, kind, new Set([...usedPlaceIds, ...ctx.usedSuburbIds]));
+      if (!boat) return undefined;
+      const homeIsland = islandNamed(cityName)?.name ?? cityName;
+      const events = islandTripEvents(boat, homeIsland, kind, dayStart, dayEndFor(preferenceIntent));
+      for (const stop of events.flatMap((e) => (e.stop ? [e.stop] : []))) {
+        ctx.usedSuburbIds.add(String(stop.placeId));
+        usedPlaceIds.add(String(stop.placeId));
+      }
+      const first = boat.sights[0];
+      const lunch = await dayTripLunch(
+        { placeId: first.placeId, name: first.name, lat: first.lat, lng: first.lng },
+        eventMealContext,
+        boat.island.name,
+        `在${boat.island.name}吃午餐`
+      );
+      return { dayIndex, kind, name: boat.island.name, events, lunch };
+    }
     // A whole day goes to a classic town first (鎌倉, 箱根, 日光 from 東京,
     // classicDayTrips.ts); the nearby outdoors when none is found.
     if (kind === "day") {

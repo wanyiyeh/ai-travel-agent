@@ -1,4 +1,5 @@
 import { haversineKm } from "@/lib/geo";
+import { AIRPORTS } from "@/lib/airports";
 
 // 離島的島群 (plan/island-trips.md): the islands a 國內 trip to 馬祖 or 澎湖
 // can reach by boat. Kept apart from AIRPORTS — 北竿 or 七美 aren't places
@@ -19,8 +20,8 @@ export type Island = {
    * bridged together, and 赤崁 is closer to 吉貝's center than to 馬公.
    */
   anchors?: Point[];
-  /** By boat from the main island, or from another port of it (吉貝 from 赤崁). */
-  ferry?: { port: string; minutes: number; frequent: boolean };
+  /** By boat from the main island, or from another port of it (吉貝 from 赤崁, `landMinutes` from 馬公). */
+  ferry?: { port: string; minutes: number; frequent: boolean; landMinutes?: number };
 };
 
 export type IslandGroup = {
@@ -59,11 +60,16 @@ export const ISLAND_GROUPS: Record<string, IslandGroup> = {
       ],
     },
     others: [
-      { name: "虎井", center: { lat: 23.4864, lng: 119.5218 }, ferry: { port: "馬公港", minutes: 15, frequent: true } },
-      { name: "桶盤", center: { lat: 23.5045, lng: 119.5196 }, ferry: { port: "馬公港", minutes: 15, frequent: true } },
-      { name: "望安", center: { lat: 23.3608, lng: 119.5037 }, ferry: { port: "馬公港", minutes: 50, frequent: false } },
+      // A day out picks the first that fits: the classic 七美 and 望安 first.
       { name: "七美", center: { lat: 23.2059, lng: 119.4303 }, ferry: { port: "馬公港", minutes: 70, frequent: false } },
-      { name: "吉貝", center: { lat: 23.7425, lng: 119.6046 }, ferry: { port: "白沙赤崁碼頭", minutes: 20, frequent: true } },
+      { name: "望安", center: { lat: 23.3608, lng: 119.5037 }, ferry: { port: "馬公港", minutes: 50, frequent: false } },
+      {
+        name: "吉貝",
+        center: { lat: 23.7425, lng: 119.6046 },
+        ferry: { port: "白沙赤崁碼頭", minutes: 20, frequent: true, landMinutes: 30 },
+      },
+      { name: "桶盤", center: { lat: 23.5045, lng: 119.5196 }, ferry: { port: "馬公港", minutes: 15, frequent: true } },
+      { name: "虎井", center: { lat: 23.4864, lng: 119.5218 }, ferry: { port: "馬公港", minutes: 15, frequent: true } },
     ],
   },
 };
@@ -80,6 +86,19 @@ for (const group of Object.values(ISLAND_GROUPS)) {
 GROUP_BY_NAME.set("馬祖", ISLAND_GROUPS["TW-MZU"]);
 ISLAND_BY_NAME.set("馬祖", ISLAND_GROUPS["TW-MZU"].main);
 ISLAND_BY_NAME.set("澎湖", ISLAND_GROUPS["TW-PEH"].main);
+
+// Every island a trip can stay on: the groups' islands and the single ones (綠島, 蘭嶼, 小琉球, 金門).
+const ISLAND_CITY_NAMES = new Set([
+  ...ISLAND_BY_NAME.keys(),
+  ...Object.values(AIRPORTS)
+    .filter((a) => a.island)
+    .map((a) => a.cityZh),
+]);
+
+/** Whether a stay is on an island: a day out is then by boat, not the mainland suburb rule. */
+export function isIslandCity(cityName: string): boolean {
+  return ISLAND_CITY_NAMES.has(cityName);
+}
 
 /** The island a city name stands for: 「馬祖」 is 南竿, 「北竿」 is 北竿. */
 export function islandNamed(cityName: string): Island | undefined {

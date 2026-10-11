@@ -44,6 +44,8 @@ export type ItineraryMetrics = {
   pets: { stays: string[]; petDays: number; carrierNote: boolean };
   /** 馬祖 or 澎湖: the islands the stops are on (islandGroups.ts) — one, unless a boat goes elsewhere. */
   islands: string[];
+  /** The same by day, with the island lunch is on — a boat day out is all on the other island. */
+  islandDays: { theme: string; islands: string[]; lunchIsland?: string }[];
   /** Stops or transit steps that mention an airport or a flight — none on a mainland 國內 trip. */
   flightMentions: string[];
   /** 季節限定 days (seasonalHighlights.ts): the title and every stop's name. */
@@ -121,6 +123,14 @@ const asRecords = (value: unknown): Rec[] => (Array.isArray(value) ? (value as R
 const num = (value: unknown) => (typeof value === "number" ? value : undefined);
 const str = (value: unknown) => (typeof value === "string" ? value : undefined);
 const avg = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
+
+// The group islands (islandGroups.ts) a set of places is on, each once.
+function islandsOf(places: Rec[]): string[] {
+  const names = places.flatMap((p) =>
+    typeof p.lat === "number" && typeof p.lng === "number" ? [islandContaining({ lat: p.lat, lng: p.lng })?.island.name] : []
+  );
+  return [...new Set(names.filter((n): n is string => Boolean(n)))];
+}
 
 export function measureItinerary(days: Rec[], ctx: EvalContext): ItineraryMetrics {
   const lastIdx = days.length - 1;
@@ -260,17 +270,18 @@ export function measureItinerary(days: Rec[], ctx: EvalContext): ItineraryMetric
       petDays: days.filter((d) => (str(d.theme) ?? "").includes("毛孩同樂")).length,
       carrierNote: (str(asRecords(days[0]?.stops)[0]?.description) ?? "").includes("裝籠"),
     },
-    islands: [
-      ...new Set(
-        days.flatMap((d) =>
-          asRecords(d.stops).flatMap((s) =>
-            typeof s.lat === "number" && typeof s.lng === "number"
-              ? [islandContaining({ lat: s.lat, lng: s.lng })?.island.name].filter((n): n is string => Boolean(n))
-              : []
-          )
-        )
-      ),
-    ],
+    islands: islandsOf(days.flatMap((d) => asRecords(d.stops))),
+    islandDays: days
+      .filter((d) => d.isTransitDay !== true)
+      .map((d) => {
+        const lunch = ((d.meals ?? {}) as Rec).lunch as Rec | undefined;
+        return {
+          theme: str(d.theme) ?? "",
+          islands: islandsOf(asRecords(d.stops)),
+          ...(islandsOf(lunch ? [lunch] : [])[0] ? { lunchIsland: islandsOf(lunch ? [lunch] : [])[0] } : {}),
+        };
+      })
+      .filter((d) => d.islands.length > 0),
     flightMentions: days.flatMap((d) =>
       asRecords(d.stops)
         .map((s) => `${str(s.name) ?? ""} ${str(s.description) ?? ""} ${str(s.transport_from_prev) ?? ""}`)
