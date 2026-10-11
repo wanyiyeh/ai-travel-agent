@@ -4,7 +4,7 @@ import { generateThemedDayStops, dayStartFor, dayEndFor, type MealPreferences } 
 import { THEMES } from "@/lib/dayThemes";
 import { dateOfTripDay, tripDayOfDate, type DayFixedEvents } from "@/lib/fixedEvents";
 import { getClimate, isInSeason } from "@/lib/climate";
-import { conditionsOf, weatherNote } from "@/lib/dayConditions";
+import { conditionsOf, weatherNote, type DayConditions } from "@/lib/dayConditions";
 import { planDayEvents, restaurantNear, type PlannedDayEvents } from "@/lib/fixedEventVenues";
 import { getCityCenter } from "@/lib/placesTextSearch";
 import { AIRPORTS } from "@/lib/airports";
@@ -63,7 +63,7 @@ export type StayContext = {
    * Taiwan's other towns (AIRPORTS' 國內 entries, at their centers), for the
    * outdoors day out: 台南's half day went to 高雄港16號碼頭, 高雄 not being on
    * the route. Not the classic towns — 九份 from 台北 is the point there.
-   * Abroad the table has airports, not centers (成田 is 60km from 東京).
+   * Abroad the table lists too few cities to tell one from its surroundings.
    */
   townCentersBesides: (cityName: string) => { lat: number; lng: number }[];
   /** Day-trip places used anywhere on the trip. */
@@ -429,6 +429,13 @@ export async function buildStayDays(
     };
   });
   return { days, themedDays: count - ownTitleDays.size };
+}
+
+/** A day's sunset, heat and rain in a city (dayConditions.ts) — for the transit and return days. */
+export async function conditionsIn(cityName: string, date: string): Promise<DayConditions | undefined> {
+  const apiKey = process.env.GOOGLE_PLACES_API_KEY;
+  const center = apiKey ? await getCityCenter(cityName, apiKey).catch(() => null) : null;
+  return center ? conditionsOf(await getClimate(center.lat, center.lng, date), date) : undefined;
 }
 
 // A lodging picked from real candidates carries coordinates; one the LLM

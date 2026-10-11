@@ -194,6 +194,31 @@ export function islandHopPlan(fromCity: string, toCity: string, dayStartMinute: 
   };
 }
 
+/**
+ * What a day's weather does to its schedule, as on a sightseeing day
+ * (generateDayStopsViaScheduler): a rainy month scores indoor places up, a
+ * hot one keeps outdoor places off midday, and outdoor places go before
+ * sunset. The transit and return days had none of it. An indoor-first
+ * traveler's own outdoor rule (shelterFor) is spread after this and wins.
+ */
+function weatherOptions(
+  conditions: DayConditions | undefined,
+  interestWeights: Record<string, number>,
+  candidateById: Map<string, PlaceCandidate>
+): {
+  interestWeights: Record<string, number>;
+  isOutdoor?: (c: { id: string }) => boolean;
+  sunsetMinute?: number;
+  isOutdoorInDark?: (c: { id: string }) => boolean;
+} {
+  const outdoorOf = (c: { id: string }) => exposureOf(candidateById.get(c.id)?.types) === "outdoor";
+  return {
+    interestWeights: conditions?.rainy ? withIndoorBoost(interestWeights) : interestWeights,
+    ...(conditions?.hot ? { isOutdoor: outdoorOf } : {}),
+    ...(conditions ? { sunsetMinute: conditions.sunsetMinute, isOutdoorInDark: outdoorOf } : {}),
+  };
+}
+
 async function planTransitDay(
   fromCity: string,
   toCity: string,
@@ -304,7 +329,8 @@ async function generateTransitDayStopsViaScheduler(
   preferenceIntent: PreferenceIntent,
   lockedPlaceIds: string[],
   fixed: DayFixedEvents,
-  visitedInFromCity: string[]
+  visitedInFromCity: string[],
+  conditions?: DayConditions
 ): Promise<Array<Record<string, unknown>> | null> {
   try {
     const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
@@ -374,12 +400,13 @@ async function generateTransitDayStopsViaScheduler(
         pace,
         dayStartMinute: plan.arrivalMinute,
         dayEndMinute,
-        interestWeights,
+        // The arrival stops bend to the weather like a sightseeing day's (dayConditions.ts).
+        ...weatherOptions(conditions, interestWeights, candidateById),
         // The lodging isn't picked yet when the transit day is planned (it
         // runs alongside meal/lodging generation), so score from the center.
         anchor: coords,
         origin: coords,
-        isOutdoor: shelter.isOutdoor,
+        ...(shelter.isOutdoor ? { isOutdoor: shelter.isOutdoor } : {}),
         fixedBlocks,
       }),
       dayEndMinute
@@ -416,7 +443,9 @@ export async function generateTransitDayStops(
   fixed: DayFixedEvents = [],
   // Names of the places already on the trip in fromCity: the morning before
   // leaving 小樽 went back to 小樽運河 (「小樽運河散步」) after two days there.
-  visitedInFromCity: string[] = []
+  visitedInFromCity: string[] = [],
+  // The day's sunset, heat and rain in toCity (dayConditions.ts).
+  conditions?: DayConditions
 ): Promise<Array<Record<string, unknown>>> {
   const scheduled = await generateTransitDayStopsViaScheduler(
     fromCity,
@@ -426,7 +455,8 @@ export async function generateTransitDayStops(
     preferenceIntent,
     lockedPlaceIds,
     fixed,
-    visitedInFromCity
+    visitedInFromCity,
+    conditions
   );
   if (scheduled) return scheduled;
   // The fallback can't plan around them, but the booked events still show.
@@ -484,7 +514,11 @@ export async function generateDepartureDayStops(
   // right after the stops, 30 minutes earlier than heading to the airport.
   carReturn?: (startMinute: number) => Record<string, unknown>,
   // How long before leaving the stops end: 3 hours for a flight; a 國內 trip less.
-  departureBufferMinutes?: number
+  departureBufferMinutes?: number,
+  // Of that, the way out to the airport (airportTransfer.ts) — the car goes back after it.
+  transferMinutes = 0,
+  // The day's sunset, heat and rain (dayConditions.ts).
+  conditions?: DayConditions
 ): Promise<Array<Record<string, unknown>>> {
   let fixed = dayEvents;
   try {
@@ -498,8 +532,10 @@ export async function generateDepartureDayStops(
       carReturn ? RETURN_CAR_MINUTES : 0,
       departureBufferMinutes
     );
+    // The car goes back at the airport, after the drive out to it.
+    const returnMinute = cutoffMinute + transferMinutes;
     fixed = carReturn
-      ? [...dayEvents, { block: { startMinute: cutoffMinute, endMinute: cutoffMinute + RETURN_CAR_MINUTES }, stop: carReturn(cutoffMinute) }]
+      ? [...dayEvents, { block: { startMinute: returnMinute, endMinute: returnMinute + RETURN_CAR_MINUTES }, stop: carReturn(returnMinute) }]
       : dayEvents;
     if (estimatedCount === 0) return fixedEventStopsOnly(fixed);
 
@@ -534,10 +570,10 @@ export async function generateDepartureDayStops(
       pace: preferenceIntent.pace ?? undefined,
       dayStartMinute,
       dayEndMinute: cutoffMinute,
-      interestWeights,
+      ...weatherOptions(conditions, interestWeights, candidateById),
       anchor,
       origin: anchor,
-      isOutdoor: shelter.isOutdoor,
+      ...(shelter.isOutdoor ? { isOutdoor: shelter.isOutdoor } : {}),
       fixedBlocks: fixed.map((e) => e.block),
     });
 

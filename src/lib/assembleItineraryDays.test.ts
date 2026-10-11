@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FlightInfo, PreferenceIntent, TripPreferences } from "@/lib/schemas";
 import { NEUTRAL_PREFERENCE_INTENT } from "@/lib/schemas";
+import { airportTransferMinutes } from "@/lib/airportTransfer";
 import { computeArrivalDayStartMinute } from "@/lib/scheduler/arrivalDayStart";
 
 // Form-fidelity wiring tests: does each field on the home-page form actually
@@ -202,7 +203,10 @@ describe("assembleItineraryDays — form field wiring", () => {
   it("arrival time (抵達時間) pushes back only the first city's first day", async () => {
     await run(undefined, undefined);
 
-    expect(dayStopsMock.mock.calls[0][DAY_STOPS_FIRST_START]).toBe(computeArrivalDayStartMinute(15 * 60));
+    // Landing at 成田: immigration, then the ride into 東京 (airportTransfer.ts).
+    expect(dayStopsMock.mock.calls[0][DAY_STOPS_FIRST_START]).toBe(
+      computeArrivalDayStartMinute(15 * 60, 60 + airportTransferMinutes("NRT")!)
+    );
     expect(dayStopsMock.mock.calls[1][DAY_STOPS_FIRST_START]).toBeUndefined();
   });
 
@@ -451,7 +455,8 @@ describe("assembleItineraryDays — self-drive", () => {
 
     const firstDayEvents = dayStopsMock.mock.calls[0][9][0];
     expect(firstDayEvents[0].stop).toMatchObject({ name: "機場取車：NRT Rental" });
-    expect(firstDayEvents[0].block.startMinute).toBe(computeArrivalDayStartMinute(15 * 60));
+    // Once through immigration; the drive into the city comes after.
+    expect(firstDayEvents[0].block.startMinute).toBe(15 * 60 + 60);
   });
 
   it("returns the car at the departure airport's counter on the last day", async () => {
@@ -662,6 +667,17 @@ describe("assembleItineraryDays — sunset and weather", () => {
     expect(result!.days[0].weatherNote).toBe("日落約 16:28");
   });
 
+  it("bends the transit and return days to the weather too, and shows their sunset", async () => {
+    const result = await run(undefined, undefined);
+
+    // 12月 4日 and 6日: the sunset a minute or two later than on the 1st.
+    expect(transitStopsMock.mock.calls[0][8]).toMatchObject({ hot: false, rainy: false, month: 12 });
+    expect(departureStopsMock.mock.calls[0][11]).toMatchObject({ hot: false, rainy: false, month: 12 });
+    const transitDay = result!.days.find((d) => d.isTransitDay);
+    expect(transitDay?.weatherNote).toMatch(/^日落約 16:2\d$/);
+    expect(result!.days.at(-1)?.weatherNote).toMatch(/^日落約 16:\d\d$/);
+  });
+
   it("adds nothing when the weather is unknown", async () => {
     climateMock.mockResolvedValue(undefined);
 
@@ -848,6 +864,28 @@ describe("assembleItineraryDays — back where the loop started", () => {
     const stays = result!.days.map((d) => (d.accommodation as { name?: string } | null | undefined)?.name);
     // 東京 2 → 箱根 (transit + 1) → 東京 (transit) → return day
     expect(stays).toEqual(["Hotel A", "Hotel A", "Ryokan B", "Ryokan B", "Hotel A", undefined]);
+  });
+});
+
+// The way between the airport and the city (airportTransfer.ts): 成田 is over an hour from 東京.
+describe("assembleItineraryDays — to and from the airport", () => {
+  it("starts day 1 after immigration and the ride in, and ends the last day for the ride out and check-in", async () => {
+    await run(undefined, undefined);
+
+    const inTransfer = airportTransferMinutes("NRT")!;
+    expect(dayStopsMock.mock.calls[0][DAY_STOPS_FIRST_START]).toBe(15 * 60 + 60 + inTransfer);
+    const outTransfer = airportTransferMinutes("KIX")!;
+    expect(departureStopsMock.mock.calls[0][9]).toBe(120 + outTransfer);
+    expect(departureStopsMock.mock.calls[0][10]).toBe(outTransfer);
+  });
+
+  it("picks the car up once through immigration, and drives in after", async () => {
+    await run(undefined, { transport: "drive" });
+
+    const inTransfer = airportTransferMinutes("NRT")!;
+    expect(dayStopsMock.mock.calls[0][DAY_STOPS_FIRST_START]).toBe(15 * 60 + 60 + 45 + inTransfer);
+    const pickup = (dayStopsMock.mock.calls[0][9] as { block: { startMinute: number } }[][])[0][0];
+    expect(pickup.block.startMinute).toBe(15 * 60 + 60);
   });
 });
 

@@ -12,14 +12,17 @@ import { parsePreferenceIntent } from "@/lib/preferenceIntent";
 import { mergePreferenceIntent } from "@/lib/mergePreferenceIntent";
 import { computeArrivalDayStartMinute } from "@/lib/scheduler/arrivalDayStart";
 import { planDayEvents, type PlannedDayEvents } from "@/lib/fixedEventVenues";
-import { carPickup, carReturnStop, findCarRental } from "@/lib/carRental";
+import { carPickup, carReturnStop, findCarRental, PICKUP_MINUTES } from "@/lib/carRental";
 import {
   DOMESTIC_ARRIVAL_BUFFER_MINUTES,
   DOMESTIC_DEPARTURE_BUFFER_MINUTES,
   domesticJourneyEvents,
   isDomestic,
 } from "@/lib/domesticTrips";
-import { buildStayDays, locationOf, stayContextOf } from "@/lib/cityStayDays";
+import { buildStayDays, conditionsIn, locationOf, stayContextOf } from "@/lib/cityStayDays";
+import { weatherNote } from "@/lib/dayConditions";
+import { dateOfTripDay } from "@/lib/fixedEvents";
+import { airportTransferMinutes, ARRIVAL_CLEARANCE_MINUTES, CHECK_IN_MINUTES } from "@/lib/airportTransfer";
 import { fillMissingCopy } from "@/lib/missingCopy";
 
 const DEFAULT_ARRIVAL_MINUTE_FALLBACK = 14 * 60;
@@ -101,14 +104,25 @@ export async function assembleItineraryDays(
   const arrivalMinute = flightInfo.arrivalTime
     ? parseTimeString(flightInfo.arrivalTime, DEFAULT_ARRIVAL_MINUTE_FALLBACK)
     : undefined;
-  const arrivalDayStartMinute = computeArrivalDayStartMinute(
-    arrivalMinute,
-    domestic ? DOMESTIC_ARRIVAL_BUFFER_MINUTES : undefined
-  );
   // 國內: the way there and home, blocked on the first and last day.
   const journeyEvents = domesticJourneyEvents(flightInfo, Boolean(preferenceIntent.selfDrive), Boolean(preferenceIntent.pets));
   // Abroad, a self-driver rents at the airport; at home they drive their own car.
   const rentsCar = Boolean(preferenceIntent.selfDrive) && !domestic;
+  // Abroad, the way between the airport and the city (airportTransfer.ts):
+  // 成田 is over an hour from 東京, 羽田 half that.
+  const inTransfer = domestic ? undefined : airportTransferMinutes(flightInfo.arrivalCity);
+  const outTransfer = domestic ? undefined : airportTransferMinutes(flightInfo.returnDepartureCity);
+  const arrivalDayStartMinute = computeArrivalDayStartMinute(
+    arrivalMinute,
+    domestic
+      ? DOMESTIC_ARRIVAL_BUFFER_MINUTES
+      : inTransfer !== undefined
+        ? ARRIVAL_CLEARANCE_MINUTES + (rentsCar ? PICKUP_MINUTES : 0) + inTransfer
+        : undefined
+  );
+  // The car is picked up once through immigration; the drive into the city follows.
+  const pickupMinute =
+    arrivalMinute !== undefined && inTransfer !== undefined ? arrivalMinute + ARRIVAL_CLEARANCE_MINUTES : arrivalDayStartMinute;
 
   const days: Array<Record<string, unknown>> = [];
   let nextDayNumber = 1;
@@ -199,7 +213,10 @@ export async function assembleItineraryDays(
       const prevCity = plan.cities[cityIdx - 1];
       // Planned before the lodging is known (transit stops are generated
       // alongside it), so work with no place given has no lodging to go to.
-      const transitEvents = await planDayEvents(eventsOn(nextDayNumber), city.name, undefined, eventMealContext);
+      const [transitEvents, transitConditions] = await Promise.all([
+        planDayEvents(eventsOn(nextDayNumber), city.name, undefined, eventMealContext),
+        conditionsIn(city.name, dateOfTripDay(flightInfo.departureDate, nextDayNumber)),
+      ]);
       for (const stop of eventStops(transitEvents)) {
         if (typeof stop.placeId === "string") usedPlaceIds.add(stop.placeId);
       }
@@ -212,7 +229,8 @@ export async function assembleItineraryDays(
           preferenceIntent,
           Array.from(usedPlaceIds),
           transitEvents.fixed,
-          visitedIn(prevCity.name)
+          visitedIn(prevCity.name),
+          transitConditions
         ),
         mealsAndAccommodationPromise,
       ]);
@@ -233,6 +251,7 @@ export async function assembleItineraryDays(
         // Breakfast is still in the city being left — usually the transit
         // plan's own station breakfast — so only the meals after arriving.
         meals: { ...withoutBreakfast(mealsAndAccommodation.mealsByDay[0]), ...transitEvents.meals },
+        ...(weatherNote(transitConditions) ? { weatherNote: weatherNote(transitConditions) } : {}),
       });
     }
 
@@ -257,7 +276,7 @@ export async function assembleItineraryDays(
           ? [
               ...(rentsCar
                 ? [
-                    carPickup(pickupRental, arrivalDayStartMinute, {
+                    carPickup(pickupRental, pickupMinute, {
                       arrivalIata: flightInfo.arrivalCity,
                       returnIata: flightInfo.returnDepartureCity,
                     }),
@@ -273,7 +292,10 @@ export async function assembleItineraryDays(
     for (const day of sightseeingDays) pushDay(day);
 
     if (isLast) {
-      const departureEvents = await planDayEvents(eventsOn(nextDayNumber), city.name, lodging, eventMealContext);
+      const [departureEvents, departureConditions] = await Promise.all([
+        planDayEvents(eventsOn(nextDayNumber), city.name, lodging, eventMealContext),
+        conditionsIn(city.name, dateOfTripDay(flightInfo.departureDate, nextDayNumber)),
+      ]);
       for (const stop of eventStops(departureEvents)) {
         if (typeof stop.placeId === "string") usedPlaceIds.add(stop.placeId);
       }
@@ -288,7 +310,13 @@ export async function assembleItineraryDays(
         // 國內: the way home closes the last day.
         journeyEvents.homebound ? [...departureEvents.fixed, journeyEvents.homebound] : departureEvents.fixed,
         rentsCar ? (minute) => carReturnStop(returnRental, minute) : undefined,
-        domestic ? DOMESTIC_DEPARTURE_BUFFER_MINUTES : undefined
+        domestic
+          ? DOMESTIC_DEPARTURE_BUFFER_MINUTES
+          : outTransfer !== undefined
+            ? CHECK_IN_MINUTES + outTransfer
+            : undefined,
+        outTransfer ?? 0,
+        departureConditions
       );
       pushDay({
         id: crypto.randomUUID(),
@@ -302,6 +330,7 @@ export async function assembleItineraryDays(
           ...withoutNightcap(mealsAndAccommodation.mealsByDay[transitMealDays + sightseeingCount]),
           ...departureEvents.meals,
         },
+        ...(weatherNote(departureConditions) ? { weatherNote: weatherNote(departureConditions) } : {}),
       });
     }
   }
