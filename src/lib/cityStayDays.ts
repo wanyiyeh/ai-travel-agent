@@ -7,6 +7,7 @@ import { getClimate, isInSeason } from "@/lib/climate";
 import { conditionsOf, weatherNote } from "@/lib/dayConditions";
 import { planDayEvents, restaurantNear, type PlannedDayEvents } from "@/lib/fixedEventVenues";
 import { getCityCenter } from "@/lib/placesTextSearch";
+import { AIRPORTS } from "@/lib/airports";
 import {
   findSuburbPlace,
   isInOtherCity,
@@ -58,6 +59,13 @@ export type StayContext = {
   otherCityCenters: (cityName: string, apiKey: string) => Promise<{ lat: number; lng: number }[]>;
   /** Every city on the route — an island stayed on isn't a boat day out too. */
   routeCityNames: string[];
+  /**
+   * Taiwan's other towns (AIRPORTS' 國內 entries, at their centers), for the
+   * outdoors day out: 台南's half day went to 高雄港16號碼頭, 高雄 not being on
+   * the route. Not the classic towns — 九份 from 台北 is the point there.
+   * Abroad the table has airports, not centers (成田 is 60km from 東京).
+   */
+  townCentersBesides: (cityName: string) => { lat: number; lng: number }[];
   /** Day-trip places used anywhere on the trip. */
   usedSuburbIds: Set<string>;
   /** One night camping per trip. */
@@ -110,6 +118,10 @@ export function stayContextOf(input: {
       return centers.filter((c): c is { lat: number; lng: number } => Boolean(c));
     },
     routeCityNames,
+    townCentersBesides: (cityName) =>
+      Object.values(AIRPORTS)
+        .filter((a) => a.domestic && a.cityZh !== cityName)
+        .map((a) => ({ lat: a.lat, lng: a.lng })),
     usedSuburbIds: new Set(),
     campNightPlanned: input.campNightPlanned ?? false,
   };
@@ -228,7 +240,9 @@ export async function buildStayDays(
       ctx.suburbGroups,
       MAX_SUBURB_KM,
       new Set([...usedPlaceIds, ...ctx.usedSuburbIds]),
-      async (place) => !isInOtherCity(place, await ctx.otherCityCenters(cityName, apiKey)) && (await isInSeason(place, tripDate))
+      async (place) =>
+        !isInOtherCity(place, [...(await ctx.otherCityCenters(cityName, apiKey)), ...ctx.townCentersBesides(cityName)]) &&
+        (await isInSeason(place, tripDate))
     );
     if (!found) return undefined;
     ctx.usedSuburbIds.add(found.place.placeId);
