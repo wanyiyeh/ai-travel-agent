@@ -24,6 +24,11 @@ describe("islandDayTripOptions", () => {
     expect(islandDayTripOptions("澎湖", "half").map((i) => i.name)).toEqual(["吉貝", "桶盤", "虎井"]);
   });
 
+  it("leaves out an island the trip stays the night on", () => {
+    expect(islandDayTripOptions("馬祖", "half", ["馬祖", "北竿", "馬祖"])).toEqual([]);
+    expect(islandDayTripOptions("馬祖", "day", ["馬祖", "北竿", "馬祖"]).map((i) => i.name)).toEqual(["莒光"]);
+  });
+
   it("has none from a neighbouring island or off the groups", () => {
     expect(islandDayTripOptions("北竿", "day")).toEqual([]);
     expect(islandDayTripOptions("綠島", "day")).toEqual([]);

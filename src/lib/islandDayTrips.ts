@@ -21,11 +21,13 @@ const HALF_DAY_BACK_MINUTE = 14 * 60;
  * only from the island the plane arrives at (whose crossings the data has),
  * and not 東引 (one boat a day, two hours each way).
  */
-export function islandDayTripOptions(cityName: string, kind: SuburbKind): Island[] {
+export function islandDayTripOptions(cityName: string, kind: SuburbKind, routeCityNames: string[] = []): Island[] {
   const group = islandGroupOf(cityName);
   if (!group || islandNamed(cityName) !== group.main) return [];
   return group.others.filter(
     (island) =>
+      // Not one the trip stays the night on anyway (北竿 twice, 芹壁 both times).
+      !routeCityNames.includes(island.name) &&
       island.ferry &&
       (kind === "day"
         ? island.ferry.minutes <= DAY_TRIP_MAX_FERRY_MINUTES
@@ -47,9 +49,10 @@ export async function findIslandDayTrip(
   cityName: string,
   apiKey: string,
   kind: SuburbKind,
-  usedPlaceIds: Set<string>
+  usedPlaceIds: Set<string>,
+  routeCityNames: string[] = []
 ): Promise<IslandDayTrip | undefined> {
-  for (const island of islandDayTripOptions(cityName, kind)) {
+  for (const island of islandDayTripOptions(cityName, kind, routeCityNames)) {
     const found = await fetchNearbyPlaceCandidates(island.center, apiKey, ["tourist_attraction"], 10000, 20).catch(
       () => [] as PlaceCandidate[]
     );

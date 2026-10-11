@@ -1,5 +1,6 @@
 import { isDomestic, routeDescription } from "@/lib/domesticTrips";
 import type { FlightInfo, TripPreferences } from "@/lib/schemas";
+import { islandNamed } from "@/lib/islandGroups";
 import { iataToCity, cityToIata } from "@/lib/iataCity";
 import { getIataCoords } from "@/lib/fetchCityRestaurants";
 
@@ -301,9 +302,9 @@ export function repairTransitDayDepartureCities<
     const fromCity = day.waypointCity;
     if (!day.isTransitDay || !toCity || !fromCity) return day;
 
-    const mentionsCorrect = day.stops.some(
-      (s) => s.name.includes(fromCity) || s.description.includes(fromCity),
-    );
+    // 馬祖's boat leaves from 南竿 — the island's own name is no mistake (islandGroups.ts).
+    const names = [fromCity, islandNamed(fromCity)?.name].filter((n): n is string => Boolean(n));
+    const mentionsCorrect = day.stops.some((s) => names.some((n) => s.name.includes(n) || s.description.includes(n)));
     if (mentionsCorrect) return day;
 
     const transportStop = day.stops.find((s) => s.name.includes(toCity));

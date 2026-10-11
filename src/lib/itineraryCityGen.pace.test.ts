@@ -37,7 +37,7 @@ vi.mock("@/lib/distanceMatrix", async () => ({
   describeTransport: () => "",
 }));
 
-const { generateDayStops, generateDepartureDayStops, generateThemedDayStops, generateTransitDayStops, withoutRevisits } = await import(
+const { generateDayStops, generateDepartureDayStops, generateThemedDayStops, generateTransitDayStops, islandHopPlan, withoutRevisits } = await import(
   "./itineraryCityGen"
 );
 
@@ -676,5 +676,20 @@ describe("generateTransitDayStops — 國內", () => {
     await generateTransitDayStops("台南", "高雄", "TWD", undefined, { ...NEUTRAL_PREFERENCE_INTENT, domestic: true, selfDrive: true });
 
     expect(createMock.mock.calls[0][0].messages[0].content).toContain("【旅客開自己的車】");
+  });
+});
+
+// 坐船到鄰島 (plan/island-trips.md): the transit day's boat comes from the island data, not the LLM.
+describe("islandHopPlan", () => {
+  it("takes the morning boat, then the day on the new island", () => {
+    const plan = islandHopPlan("馬祖", "東引", 9 * 60);
+    expect(plan?.transitStop).toMatchObject({ name: "從南竿前往東引", duration_minutes: 150 });
+    expect(plan?.transitStop.description).toBe("從南竿福澳港搭船約 120 分（估計）。出發前確認船班，會依季節和海象調整；船班少，也先確認回程的船");
+    expect(plan?.arrivalMinute).toBe(9 * 60 + 150);
+    expect(plan?.prepStops).toEqual([]);
+  });
+
+  it("is no plan between towns on land", () => {
+    expect(islandHopPlan("台南", "高雄", 9 * 60)).toBeNull();
   });
 });
