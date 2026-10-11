@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { estimateFromPriceRange, mainMealBudgetFit, rankMainMealsByBudget } from "./mealBudget";
+import { estimateFromPriceRange, isPriceFloor, mainMealBudgetFit, rankMainMealsByBudget } from "./mealBudget";
 
 // NT$ per unit; JPY ≈ 0.2 keeps the arithmetic readable.
 const rates = { TWD: 1, JPY: 0.2 };
@@ -81,3 +81,13 @@ describe("estimateFromPriceRange", () => {
     expect(estimateFromPriceRange({ currency: "USD", start: 10, end: 20 }, "JPY")).toBeUndefined();
   });
 });
+
+describe("isPriceFloor", () => {
+  it("is an open-ended range — most fine dining, as Google prices it", () => {
+    expect(isPriceFloor({ currency: "TWD", start: 2000 }, "TWD")).toBe(true); // THOMAS CHIEN: NT$2,000+
+    expect(isPriceFloor({ currency: "TWD", start: 800, end: 1000 }, "TWD")).toBe(false);
+    expect(isPriceFloor({ currency: "JPY", start: 10000 }, "TWD")).toBe(false); // another currency isn't used
+    expect(isPriceFloor(undefined, "TWD")).toBe(false);
+  });
+});
+

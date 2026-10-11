@@ -241,3 +241,21 @@ describe("snackRotationRule", () => {
     expect(snackRotationRule(pools, 0, 3)).toBe("");
   });
 });
+
+describe("applyMealPicks — Google's open-ended prices", () => {
+  it("marks a cost from 「NT$2,000+」 as a floor, and a closed range not", () => {
+    const fine = { ...place("THOMAS CHIEN", 4), priceRange: { currency: "TWD", start: 2000 } };
+    const bistro = { ...place("拾光餐酒館", 2), priceRange: { currency: "TWD", start: 600, end: 1200 } };
+    const [day] = applyMealPicks(
+      [{ lunch: { id: "M1" }, dinner: { id: "M2" } }],
+      { ...pools, main: [fine, bistro] },
+      1,
+      "TWD",
+      newPickHistory()
+    );
+    expect(day.lunch).toMatchObject({ name: "THOMAS CHIEN", estimated_cost: 2000, estimated_cost_from: true });
+    expect(day.dinner).toMatchObject({ name: "拾光餐酒館", estimated_cost: 900 });
+    expect(day.dinner).not.toHaveProperty("estimated_cost_from");
+  });
+});
+

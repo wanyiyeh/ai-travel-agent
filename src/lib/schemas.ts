@@ -252,6 +252,8 @@ export const MealSchema = z.object({
   name: z.string(),
   description: z.string().optional(),
   estimated_cost: z.number().optional(),
+  // estimated_cost is a floor: Google's price was open-ended ("NT$2,000+"), shown as 「起」.
+  estimated_cost_from: z.literal(true).optional(),
   placeId: z.string().optional(),
   lat: z.number().optional(),
   lng: z.number().optional(),

@@ -99,7 +99,12 @@ export function MealTimelineRow({
             )}
             {editable && (
               <p className="mt-1">
-                <InlinePriceEditor value={meal.estimated_cost} currency={currency} onSave={onSaveCost} />
+                <InlinePriceEditor
+                  value={meal.estimated_cost}
+                  currency={currency}
+                  suffix={meal.estimated_cost_from ? " 起" : ""}
+                  onSave={onSaveCost}
+                />
               </p>
             )}
           </div>

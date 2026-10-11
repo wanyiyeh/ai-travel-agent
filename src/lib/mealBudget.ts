@@ -86,6 +86,15 @@ export function rankMainMealsByBudget<T extends Pick<PlaceCandidate, "priceRange
  * currency only (no conversion): the range midpoint, or the floor of an
  * open-ended range. Undefined when there's no usable range.
  */
+/**
+ * Whether estimateFromPriceRange's figure is only a floor: Google gives most
+ * fine dining as "NT$2,000+" or "¥10,000+", so THOMAS CHIEN showed NT$2,000
+ * for a NT$4,000-5,000 dinner. The meal says 「起」 then.
+ */
+export function isPriceFloor(range: PriceRange | null | undefined, currency: string | undefined): boolean {
+  return Boolean(range && range.currency === currency && range.start !== undefined && range.start > 1 && range.end === undefined);
+}
+
 export function estimateFromPriceRange(range: PriceRange | null | undefined, currency: string | undefined): number | undefined {
   if (!range || range.currency !== currency || range.start === undefined) return undefined;
   // Google writes "under ¥1,000" as ¥1–1,000; the midpoint (¥501) badly

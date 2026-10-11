@@ -18,7 +18,7 @@ import { dietRequiredTypes, excludeByDiet } from "@/lib/dietaryFilter";
 import { TripPreferencesSchema } from "@/lib/schemas";
 import { plannedLabel, plannedSlotsByPlace } from "@/lib/mealRepeats";
 import { getTwdRates } from "@/lib/exchangeRate";
-import { estimateFromPriceRange, rankMainMealsByBudget } from "@/lib/mealBudget";
+import { estimateFromPriceRange, isPriceFloor, rankMainMealsByBudget } from "@/lib/mealBudget";
 
 // How many fresh candidates the picker shows.
 const PICKER_SIZE = 10;
@@ -200,6 +200,7 @@ export async function POST(
           rating: p.rating ?? null,
           estimated_cost:
             estimateFromPriceRange(p.priceRange, config.currency) ?? estimateSlotCost(config.currency, mealType, p.priceLevel),
+          ...(isPriceFloor(p.priceRange, config.currency) ? { estimated_cost_from: true as const } : {}),
           photoName: p.photoName ?? null,
           ...(planned ? { plannedElsewhere: plannedLabel(planned) } : {}),
         };
@@ -216,6 +217,7 @@ export async function POST(
               typeof currentMeal?.description === "string" ? currentMeal.description : undefined,
             estimated_cost:
               typeof currentMeal?.estimated_cost === "number" ? currentMeal.estimated_cost : undefined,
+            ...(currentMeal?.estimated_cost_from === true ? { estimated_cost_from: true as const } : {}),
             placeId: currentPlaceId,
             lat: typeof currentMeal?.lat === "number" ? currentMeal.lat : undefined,
             lng: typeof currentMeal?.lng === "number" ? currentMeal.lng : undefined,

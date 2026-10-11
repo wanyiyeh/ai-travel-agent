@@ -77,6 +77,7 @@ export function MealPicker({
         name: candidate.name,
         description: candidate.description,
         estimated_cost: candidate.estimated_cost,
+        ...(candidate.estimated_cost_from ? { estimated_cost_from: true } : {}),
         placeId: candidate.placeId,
         lat: candidate.lat,
         lng: candidate.lng,
@@ -115,6 +116,7 @@ export function MealPicker({
       {candidate.estimated_cost !== undefined && (
         <p className="text-xs text-emerald-600 dark:text-emerald-400 font-medium mt-1">
           💴 {[currency, candidate.estimated_cost.toLocaleString()].filter(Boolean).join(" ")}
+          {candidate.estimated_cost_from && " 起"}
         </p>
       )}
       {candidate.plannedElsewhere && (
