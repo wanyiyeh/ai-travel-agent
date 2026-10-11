@@ -169,9 +169,12 @@ export function classicTripEvents(
   city: string,
   dayStartMinute: number,
   dayEndMinute: number,
-  selfDrive: boolean
+  selfDrive: boolean,
+  // Another way there than by road or rail — a boat to a neighbouring island
+  // (islandDayTrips.ts): how long, and what the first and last sights say.
+  way?: { minutes: number; out: string; back: string }
 ): DayFixedEvents {
-  const travel = travelMinutes(trip.km);
+  const travel = way?.minutes ?? travelMinutes(trip.km);
   const fits = (n: number) =>
     travel * 2 + n * SIGHT_MINUTES + (n - 1) * BETWEEN_SIGHTS_MINUTES + LUNCH_MINUTES <= dayEndMinute - dayStartMinute;
   let count = trip.sights.length;
@@ -190,8 +193,8 @@ export function classicTripEvents(
     const end = last ? Math.max(dayEndMinute, begin + lead + SIGHT_MINUTES) : begin + lead + SIGHT_MINUTES;
     start = end;
     const notes = [
-      ...(first ? [`一日遊：從${city}${by}約 ${hoursLabel(travel)}到${trip.town}`] : []),
-      ...(last ? [`傍晚${by}回${city}，約 ${hoursLabel(travel)}`] : []),
+      ...(first ? [way?.out ?? `一日遊：從${city}${by}約 ${hoursLabel(travel)}到${trip.town}`] : []),
+      ...(last ? [way?.back ?? `傍晚${by}回${city}，約 ${hoursLabel(travel)}`] : []),
     ];
     const minuteOfDay = begin + lead;
     return {
