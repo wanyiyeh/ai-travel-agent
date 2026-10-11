@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dayThemeKeys, interestWeightsOf, isCoreOfTheme, isOnTheme, popularSlots, themesOf } from "@/lib/dayThemes";
+import { THEMES, dayThemeKeys, interestWeightsOf, isCoreOfTheme, isOnTheme, popularSlots, themesOf } from "@/lib/dayThemes";
 
 describe("themesOf", () => {
   it("maps form interests and free-text tags to themes, each once, in order", () => {
@@ -100,6 +100,25 @@ describe("isCoreOfTheme", () => {
 
   it("knows a 老街 by its name", () => {
     expect(isCoreOfTheme(["tourist_attraction"], "old_street", "安平老街")).toBe(true);
+  });
+});
+
+describe("購物散策", () => {
+  it("is malls and department stores, plus shopping streets, select shops, districts and outlets — no supermarkets or markets", () => {
+    expect(THEMES.shopping.searchTypes).toEqual(["shopping_mall", "department_store"]);
+    expect(THEMES.shopping.textSearches?.("東京", false).map((t) => t.query)).toEqual([
+      "東京 商店街",
+      "東京 選物店",
+      "東京 購物商圈",
+      "東京 outlet",
+    ]);
+    expect(THEMES.shopping.textSearches?.("東京", false).at(-1)?.km).toBe(30);
+    expect(isOnTheme(["supermarket"], "shopping")).toBe(false);
+  });
+
+  it("knows a shopping street by its name", () => {
+    expect(isOnTheme(["tourist_attraction"], "shopping", "谷中銀座商店街")).toBe(true);
+    expect(isCoreOfTheme(["tourist_attraction"], "shopping", "谷中銀座商店街")).toBe(true);
   });
 });
 

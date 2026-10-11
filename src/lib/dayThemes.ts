@@ -12,8 +12,12 @@ type Theme = {
   label: string;
   /** Nearby Search includedTypes for the theme's own pool. */
   searchTypes: string[];
-  /** A theme Google has no type for searches by text instead, naming the city (「宜蘭 老街」). */
-  searchQuery?: (city: string) => string;
+  /**
+   * What Google has no type for, searched by text naming the city (「宜蘭 老街」),
+   * each kept within `km` of the center — Text Search only leans towards it.
+   * `domestic`: a trip in Taiwan, where a 商店街 is a 老街.
+   */
+  textSearches?: (city: string, domestic: boolean) => { query: string; km: number }[];
   /** A place is on theme when any of its Google types is here... */
   matchTypes: string[];
   /** ...or its name matches. */
@@ -47,10 +51,32 @@ export const THEMES: Record<ThemeKey, Theme> = {
     coreTypes: ["park", "garden", "botanical_garden", "national_park", "state_park", "scenic_spot"],
     boostCategories: ["park", "viewpoint"],
   },
+  // 購物 (2026-10-11): department stores and malls by type; shopping streets,
+  // select shops, shopping districts and outlets by text. Not supermarkets
+  // (every day links to one near the lodging) nor markets (市場美食's).
   shopping: {
     label: "購物散策",
-    searchTypes: ["gift_shop", "market", "supermarket", "shopping_mall", "department_store"],
-    matchTypes: ["gift_shop", "market", "supermarket", "shopping_mall", "department_store"],
+    searchTypes: ["shopping_mall", "department_store"],
+    textSearches: (city, domestic) => [
+      { query: `${city} ${domestic ? "老街" : "商店街"}`, km: 10 },
+      { query: `${city} 選物店`, km: 10 },
+      { query: `${city} 購物商圈`, km: 10 },
+      // Most are out of town; 御殿場 is 100km from 東京.
+      { query: `${city} outlet`, km: 30 },
+    ],
+    matchTypes: [
+      "shopping_mall",
+      "department_store",
+      "gift_shop",
+      "clothing_store",
+      "book_store",
+      "electronics_store",
+      "home_goods_store",
+      "discount_store",
+      "drugstore",
+    ],
+    matchName: /商店街|老街|outlet|アウトレット|選物|商圈|購物|文創|藥妝/i,
+    coreTypes: ["shopping_mall", "department_store"],
     boostCategories: ["shopping"],
   },
   // 親子 (plan/form-preference-wiring.md 1.5). Only types seen in real cached
@@ -73,8 +99,9 @@ export const THEMES: Record<ThemeKey, Theme> = {
   old_street: {
     label: "老街巡禮",
     searchTypes: [],
-    // A bare 「老街」 near 宜蘭 came back with 深坑 and 湖口 only, neither in 宜蘭.
-    searchQuery: (city) => `${city} 老街`,
+    // A bare 「老街」 near 宜蘭 came back with 深坑 and 湖口 only, neither in 宜蘭;
+    // 頭城老街 is 16km from 宜蘭's centre.
+    textSearches: (city) => [{ query: `${city} 老街`, km: 20 }],
     matchTypes: [],
     matchName: /老街/,
     boostCategories: ["shopping"],

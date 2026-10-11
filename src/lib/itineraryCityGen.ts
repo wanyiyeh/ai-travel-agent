@@ -1162,8 +1162,33 @@ const SUPPLEMENT_ATTRACTION_TYPES = ["museum", "art_gallery", "park", "historica
  * for the evening — a 酒 traveler's 小酌 can still go to one — and stations
  * and information centres aren't sights at all.
  */
-// How far a text-searched theme's places may be (老街 in the surrounding townships).
-const THEME_TEXT_KM = 20;
+// A restaurant or a hotel among a theme's text results (「購物商圈」 brings
+// both). Not a café: 銀座 伊東屋, the stationery store, is typed one first.
+const isMealOrStay = (p: PlaceCandidate) =>
+  Boolean(p.types?.includes("lodging")) || /(^|_)restaurant$/.test(p.types?.[0] ?? "");
+
+// The shop to go to for each thing the traveler wants to buy (「家電」 →
+// Bic Camera): the first Text Search result within 10km, not one used yet.
+async function findWantedShops(
+  cityName: string,
+  coords: { lat: number; lng: number },
+  apiKey: string,
+  wants: string[],
+  usedIds: Set<string>
+): Promise<PlaceCandidate[]> {
+  const found = await Promise.all(
+    wants.map((item) =>
+      searchTextCandidates(`${cityName} ${item}`, coords, apiKey, 10000)
+        .then((places) =>
+          places.find(
+            (p) => !usedIds.has(p.placeId) && !isMealOrStay(p) && haversineKm(coords.lat, coords.lng, p.lat, p.lng) <= 10
+          )
+        )
+        .catch(() => undefined)
+    )
+  );
+  return uniqueByPlaceId(found.filter((p): p is PlaceCandidate => p !== undefined));
+}
 
 async function withSupplementalAttractions(
   coords: { lat: number; lng: number },
@@ -1390,20 +1415,35 @@ async function generateDayStopsViaScheduler(
     // Each theme used in this city adds its own pool (cached like any other).
     const [places, ...themePools] = await Promise.all([
       fetchNearbyPlaceCandidates(coords, apiKey, ["tourist_attraction"], 10000, 20),
-      ...cityThemes.map((theme) => {
-        const { searchQuery, searchTypes } = THEMES[theme];
-        // Text Search only biases towards the circle (宜蘭's 老街 search came back with
-        // 新竹's 湖口老街), so its results are held to THEME_TEXT_KM — wider than
-        // the Nearby pools' 10km: 頭城老街 is 16km from 宜蘭's centre.
-        return searchQuery
-          ? searchTextCandidates(searchQuery(cityName), coords, apiKey, THEME_TEXT_KM * 1000)
-              .then((found) => found.filter((p) => haversineKm(coords.lat, coords.lng, p.lat, p.lng) <= THEME_TEXT_KM))
+      ...cityThemes.map(async (theme) => {
+        const { textSearches, searchTypes } = THEMES[theme];
+        const [byType, ...byText] = await Promise.all([
+          searchTypes.length > 0 ? fetchNearbyPlaceCandidates(coords, apiKey, searchTypes, 10000, 20) : [],
+          // Text Search only biases towards the circle (宜蘭's 老街 search came
+          // back with 新竹's 湖口老街), so each is held to its own distance.
+          ...(textSearches?.(cityName, Boolean(preferenceIntent.domestic)) ?? []).map(({ query, km }) =>
+            searchTextCandidates(query, coords, apiKey, km * 1000)
+              .then((found) =>
+                found.filter((p) => haversineKm(coords.lat, coords.lng, p.lat, p.lng) <= km && !isMealOrStay(p))
+              )
               .catch(() => [] as PlaceCandidate[])
-          : fetchNearbyPlaceCandidates(coords, apiKey, searchTypes, 10000, 20);
+          ),
+        ]);
+        return uniqueByPlaceId([...byType, ...byText.flat()]);
       }),
     ]);
     if (places.length === 0) return null;
     const popularIds = new Set(places.map((p) => p.placeId));
+    // 想買什麼 (購物): a shop for each, kept for the stay's first shopping day
+    // like a seasonal highlight, but the day stays 購物散策.
+    const shoppingDay = dayThemes.indexOf("shopping");
+    const wanted =
+      shoppingDay !== -1 && preferenceIntent.shoppingWants?.length
+        ? await findWantedShops(cityName, coords, apiKey, preferenceIntent.shoppingWants, new Set(lockedPlaceIds))
+        : [];
+    const reservedByDay = wanted.length
+      ? Array.from({ length: dayCount }, (_, i) => (i === shoppingDay ? [...(seasonalByDay[i] ?? []), ...wanted] : seasonalByDay[i]))
+      : seasonalByDay;
     // Each place's best rank in a search it came from — Google ranks by
     // popularity — counting only places that are what one of the city's
     // themes is about (東京鐵塔 led the culture search as an observation deck).
@@ -1423,8 +1463,8 @@ async function generateDayStopsViaScheduler(
     const themeOnlyIds = new Set<string>();
     // A seasonal day's highlights (seasonalHighlights.ts) join the pool, kept for that day only.
     const seasonalDayOf = new Map<string, number>();
-    seasonalByDay.forEach((highlights, dayIdx) => highlights?.forEach((p) => seasonalDayOf.set(p.placeId, dayIdx)));
-    for (const place of [...themePools.flat(), ...seasonalByDay.flatMap((h) => h ?? [])]) {
+    reservedByDay.forEach((highlights, dayIdx) => highlights?.forEach((p) => seasonalDayOf.set(p.placeId, dayIdx)));
+    for (const place of [...themePools.flat(), ...reservedByDay.flatMap((h) => h ?? [])]) {
       if (merged.some((p) => p.placeId === place.placeId)) continue;
       merged.push(place);
       themeOnlyIds.add(place.placeId);
@@ -1496,7 +1536,7 @@ async function generateDayStopsViaScheduler(
     };
     const dayGroups = partitionCandidatesByDay(dayCandidates, counts, interestWeights, anchor, {
       themes: dayThemes.map((theme, dayIdx) => {
-        const highlights = seasonalByDay[dayIdx];
+        const highlights = reservedByDay[dayIdx];
         if (highlights?.length) {
           const ids = new Set(highlights.map((p) => p.placeId));
           return { onTheme: (c: { id: string }) => ids.has(c.id), themeCount: Math.min(ids.size, counts[dayIdx]) };
