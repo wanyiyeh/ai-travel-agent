@@ -1,6 +1,7 @@
 import type { BudgetLevel } from "@/lib/fetchCityRestaurants";
 import { MAIN_MEAL_BUDGET_TWD } from "@/lib/mealBudget";
 import { isBudgetLodging, isLuxuryLodging } from "@/lib/lodgingTiers";
+import { islandContaining } from "@/lib/islandGroups";
 import { mapPlaceTypeToCategory } from "@/lib/scheduler/mapPlaceTypeToCategory";
 import { exposureOf, isBarStreet, isNotADaytimeSight } from "@/lib/indoorOutdoor";
 import { isGroupDining, isSoloFriendly } from "@/lib/soloTravel";
@@ -41,6 +42,8 @@ export type ItineraryMetrics = {
   domesticInterests: { nightMarketDinners: string[]; oldStreetDays: number; hotSprings: string[]; campNights: string[] };
   /** 寵物 (petFriendly.ts): each night's stay (「找不到」 when none takes dogs), 毛孩同樂 days, the carrier note on the way. */
   pets: { stays: string[]; petDays: number; carrierNote: boolean };
+  /** 馬祖 or 澎湖: the islands the stops are on (islandGroups.ts) — one, unless a boat goes elsewhere. */
+  islands: string[];
   /** Stops or transit steps that mention an airport or a flight — none on a mainland 國內 trip. */
   flightMentions: string[];
   /** 季節限定 days (seasonalHighlights.ts): the title and every stop's name. */
@@ -257,6 +260,17 @@ export function measureItinerary(days: Rec[], ctx: EvalContext): ItineraryMetric
       petDays: days.filter((d) => (str(d.theme) ?? "").includes("毛孩同樂")).length,
       carrierNote: (str(asRecords(days[0]?.stops)[0]?.description) ?? "").includes("裝籠"),
     },
+    islands: [
+      ...new Set(
+        days.flatMap((d) =>
+          asRecords(d.stops).flatMap((s) =>
+            typeof s.lat === "number" && typeof s.lng === "number"
+              ? [islandContaining({ lat: s.lat, lng: s.lng })?.island.name].filter((n): n is string => Boolean(n))
+              : []
+          )
+        )
+      ),
+    ],
     flightMentions: days.flatMap((d) =>
       asRecords(d.stops)
         .map((s) => `${str(s.name) ?? ""} ${str(s.description) ?? ""} ${str(s.transport_from_prev) ?? ""}`)
