@@ -76,6 +76,13 @@ describe("domesticJourneyEvents", () => {
     expect(homebound?.stop?.name).toBe("從台南前往台北");
   });
 
+  it("says to rent a car or scooter on the island when driving there", () => {
+    const toMatsu = { ...trip, arrivalCity: "TW-MZU", returnDepartureCity: "TW-MZU" };
+    expect(domesticJourneyEvents(toMatsu, true).outbound?.stop?.description).toContain("到島上租車或機車");
+    expect(domesticJourneyEvents(toMatsu, true).homebound?.stop?.description).not.toContain("租車");
+    expect(domesticJourneyEvents(toMatsu, false).outbound?.stop?.description).not.toContain("租車");
+  });
+
   it("says a pet rides in a carrier on trains and buses, but not by car", () => {
     expect(domesticJourneyEvents(trip, false, true).outbound?.stop?.description).toContain("帶寵物搭大眾運輸要裝籠或提袋");
     expect(domesticJourneyEvents(trip, true, true).outbound?.stop?.description).not.toContain("裝籠");

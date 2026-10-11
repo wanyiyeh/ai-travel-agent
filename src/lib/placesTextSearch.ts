@@ -1,5 +1,6 @@
 import { lookupByQuery, upsertPlace } from "@/lib/placeCache";
 import { prisma } from "@/lib/db";
+import { islandNamed } from "@/lib/islandGroups";
 import { haversineKm } from "@/lib/distanceMatrix";
 import { googleFetch } from "@/lib/googleFetch";
 
@@ -187,7 +188,9 @@ export async function getCityCenter(
   apiKey: string,
 ): Promise<{ lat: number; lng: number } | null> {
   if (!cityName) return null;
-  const override = CITY_CENTER_OVERRIDES[cityName];
+  // An island of 馬祖 or 澎湖: Google gave 馬祖's county center, out at sea
+  // between 北竿 and 東引 (islandGroups.ts).
+  const override = CITY_CENTER_OVERRIDES[cityName] ?? islandNamed(cityName)?.center;
   if (override) return override;
   const cacheKey = `${CITY_CACHE_PREFIX}${cityName}`;
 

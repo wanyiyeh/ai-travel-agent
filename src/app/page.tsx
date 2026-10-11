@@ -35,6 +35,11 @@ const DOMESTIC_TRANSPORT_OPTIONS: typeof TRANSPORT_OPTIONS = [
   { value: "transit", label: "大眾運輸", desc: "高鐵、台鐵、客運" },
   { value: "drive", label: "開自己的車", desc: "從家裡開車出發，景點之間開車" },
 ];
+// To an island the car stays home: the plane or boat there, then a car or scooter rented on the island.
+const ISLAND_TRANSPORT_OPTIONS: typeof TRANSPORT_OPTIONS = [
+  { value: "transit", label: "大眾運輸", desc: "飛機或船過去，島上搭公車或計程車" },
+  { value: "drive", label: "到島上租車或機車", desc: "飛機或船過去，到島上租車或機車，景點之間開車" },
+];
 
 // A one-option ChoiceRow works as a checkbox with its explanation underneath.
 const INDOOR_OPTIONS: { value: "indoor"; label: string; desc: string }[] = [
@@ -973,7 +978,13 @@ export default function Home() {
                     />
                     <ChoiceRow
                       label="交通"
-                      options={domestic ? DOMESTIC_TRANSPORT_OPTIONS : TRANSPORT_OPTIONS}
+                      options={
+                        domestic
+                          ? AIRPORTS[arrivalCity]?.island
+                            ? ISLAND_TRANSPORT_OPTIONS
+                            : DOMESTIC_TRANSPORT_OPTIONS
+                          : TRANSPORT_OPTIONS
+                      }
                       value={transport}
                       onChange={setTransport}
                       emptyHint="未選擇時以大眾運輸安排"
