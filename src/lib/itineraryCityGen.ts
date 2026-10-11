@@ -747,7 +747,7 @@ async function fetchMealLodgingPools(
     search(getMealPlaceTypes("breakfast", budget), "pro", isFoodPlace),
     search(getMealPlaceTypes("lunch", budget), kids ? "kids" : "enterprise", isFoodPlace),
     dietTypes.length > 0 ? search(dietTypes, kids ? "kids" : "enterprise", isFoodPlace) : Promise.resolve([]),
-    budget === "luxury" ? fetchLuxuryRestaurants(coords, apiKey, MEAL_LODGING_RADIUS_M) : Promise.resolve([]),
+    budget === "luxury" ? fetchLuxuryRestaurants(coords, apiKey, MEAL_LODGING_RADIUS_M, currency) : Promise.resolve([]),
     fetchLodgingCandidates(coords, apiKey, budget, MEAL_LODGING_RADIUS_M, MEAL_LODGING_MAX_COUNT),
     budget ? getTwdRates() : Promise.resolve({}),
     // Bars and izakaya in one Nearby Search (Pro, popularity-ranked) — Text

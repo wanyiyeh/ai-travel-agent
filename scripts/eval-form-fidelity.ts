@@ -311,7 +311,7 @@ const CHECKS: Check[] = [
     },
   },
   {
-    title: "預算：高端奢華的午晚餐 5 成以上在 NT$1,000～3,000，住宿是國際品牌",
+    title: "預算：高端奢華的午晚餐 5 成以上在 NT$1,000～6,000，住宿是國際品牌",
     pass: (r) => {
       const m = r.get("tokyo-luxury");
       return m ? (m.mainMealsWithinBudget ?? 0) >= 0.5 && m.lodging.some((l) => l.luxury) : null;

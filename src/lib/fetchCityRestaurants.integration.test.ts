@@ -208,12 +208,16 @@ describe("fetchLuxuryRestaurants", () => {
   });
 
   afterAll(async () => {
-    await prisma.nearbyPlaceCandidatesCache.deleteMany({
-      where: { cacheKey: { startsWith: `text:restaurant@${coords.lat.toFixed(4)},` } },
-    });
+    for (const lat of [coords.lat, coords.lat + 0.5]) {
+      for (const query of ["restaurant", "fine dining", "高級餐廳"]) {
+        await prisma.nearbyPlaceCandidatesCache.deleteMany({
+          where: { cacheKey: { startsWith: `text:${query}@${lat.toFixed(4)},` } },
+        });
+      }
+    }
   });
 
-  it("filters by expensive price levels server-side and reads prices back", async () => {
+  it("searches fine dining and expensive places, filtering price server-side, and reads prices back", async () => {
     const fetchMock = vi.fn(async () =>
       new Response(
         JSON.stringify({
@@ -231,17 +235,34 @@ describe("fetchLuxuryRestaurants", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const [place] = await fetchLuxuryRestaurants(coords, "key", 3000);
+    const found = await fetchLuxuryRestaurants(coords, "key", 3000, "JPY");
 
+    const bodies = fetchMock.mock.calls.map((call) => JSON.parse((call as unknown as [string, RequestInit])[1].body as string));
+    expect(bodies.map((b) => b.textQuery).sort()).toEqual(["fine dining", "restaurant"]);
+    expect(bodies.find((b) => b.textQuery === "restaurant").priceLevels).toEqual(["PRICE_LEVEL_EXPENSIVE", "PRICE_LEVEL_VERY_EXPENSIVE"]);
+    // Fine dining: by name, no price filter (many don't list a level), a little wider.
+    expect(bodies.find((b) => b.textQuery === "fine dining").priceLevels).toBeUndefined();
+    expect(bodies.find((b) => b.textQuery === "fine dining").locationBias.circle.radius).toBe(5000);
     const [url, init] = request(fetchMock);
     expect(url).toContain("places:searchText");
-    expect(JSON.parse(init.body as string).priceLevels).toEqual(["PRICE_LEVEL_EXPENSIVE", "PRICE_LEVEL_VERY_EXPENSIVE"]);
     expect(new Headers(init.headers).get("X-Goog-FieldMask")).toContain("places.priceRange");
-    expect(place.priceRange).toEqual({ currency: "JPY", start: 8000, end: 15000 });
+    // The same place from both searches, once.
+    expect(found).toHaveLength(1);
+    expect(found[0].priceRange).toEqual({ currency: "JPY", start: 8000, end: 15000 });
 
     // cached: a second call doesn't pay again
-    await fetchLuxuryRestaurants(coords, "key", 3000);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await fetchLuxuryRestaurants(coords, "key", 3000, "JPY");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("searches 高級餐廳 for a trip at home", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ places: [] }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fetchLuxuryRestaurants({ lat: coords.lat + 0.5, lng: coords.lng }, "key", 3000, "TWD");
+
+    const queries = fetchMock.mock.calls.map((call) => JSON.parse((call as unknown as [string, RequestInit])[1].body as string).textQuery);
+    expect(queries).toContain("高級餐廳");
   });
 });
 
