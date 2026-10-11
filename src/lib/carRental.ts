@@ -6,7 +6,7 @@ import type { DayFixedEvents, Venue } from "@/lib/fixedEvents";
 // 自駕 (plan/form-preference-wiring.md 1.7): a car rented at the arrival
 // airport for the whole trip, returned at the departure airport.
 
-const PICKUP_MINUTES = 45;
+export const PICKUP_MINUTES = 45;
 export const RETURN_CAR_MINUTES = 30;
 
 /**
