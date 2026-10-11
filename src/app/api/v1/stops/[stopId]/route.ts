@@ -61,6 +61,12 @@ export async function PATCH(
     // the day empty) stays blocked, in the DELETE handler below.
     const stops = location.day.stops as Record<string, unknown>[];
     const stopIdx = location.stopIndex;
+    // A booked event (固定行程) is somewhere the traveler has a ticket for: its
+    // text can be edited, but it isn't swapped for another place. The picker
+    // hides 換一個 for it; this holds for any caller.
+    if (isPlaceSwap && stops[stopIdx].fixedEvent && placeId !== stops[stopIdx].placeId) {
+      return NextResponse.json({ error: "固定行程不能換成別的地點" }, { status: 400 });
+    }
     const updatedStop: Record<string, unknown> = {
       ...stops[stopIdx],
       ...(name !== undefined && { name }),
