@@ -8,7 +8,9 @@ export const MAIN_MEAL_BUDGET_TWD: Record<BudgetLevel, { min: number; max: numbe
   moderate: { min: 0, max: 1000 },
   // Raised from NT$2,000 after the first eval: Tokyo's high-end dinners mostly
   // start around ¥10,000 (~NT$2,100), so a 2,000 cap rejected nearly all of them.
-  luxury: { min: 1000, max: 3000 },
+  // Then from NT$3,000 (2026-10-11): 隨意鳥地方 and 饗A Joy in Taiwan, and a
+  // ¥20,000 kaiseki in Tokyo, run NT$4,000-5,000 and were ranked "outside".
+  luxury: { min: 1000, max: 6000 },
 };
 
 // Without an exchange rate, Google's 1-4 price level is the only signal left.
@@ -27,7 +29,7 @@ const FIT_ORDER: Record<BudgetFit, number> = { fit: 0, unknown: 1, outside: 2 };
  * meal cost estimate; with no exchange rate, to priceLevel alone. A missing
  * upper bound ("$2,000+") counts as unbounded. Budget/moderate fit when the
  * whole range is under the cap; luxury fits when the range overlaps
- * NT$1,000-3,000.
+ * NT$1,000-6,000.
  */
 export function mainMealBudgetFit(
   place: Pick<PlaceCandidate, "priceRange" | "priceLevel">,

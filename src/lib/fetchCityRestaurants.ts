@@ -637,18 +637,31 @@ const LUXURY_PRICE_LEVELS = ["PRICE_LEVEL_EXPENSIVE", "PRICE_LEVEL_VERY_EXPENSIV
  * NT$1,000–2,000 range); ranking can't surface places that aren't in it.
  * Text Search filters by price level server-side, and Enterprise fields bring
  * back the price range used for budget ranking. One call per city, only for
- * the luxury tier.
+ * the luxury tier, plus one for fine dining by name.
  */
-export function fetchLuxuryRestaurants(
+export async function fetchLuxuryRestaurants(
   coords: { lat: number; lng: number },
   apiKey: string,
   radius: number,
+  currency?: string,
 ): Promise<PlaceCandidate[]> {
-  return searchTextCandidates("restaurant", coords, apiKey, radius, "restaurant", {
-    tier: "enterprise",
-    priceLevels: LUXURY_PRICE_LEVELS,
-  });
+  // The price filter alone brought 高雄's 王品 and 鼎王 (NT$400-1,200), none of
+  // its fine dining, so a search for that comes first — in Chinese at home.
+  // Sparser, so a little wider than the meal searches.
+  const [fineDining, pricey] = await Promise.all([
+    searchTextCandidates(currency === "TWD" ? "高級餐廳" : "fine dining", coords, apiKey, Math.max(radius, FINE_DINING_RADIUS_M), "restaurant", {
+      tier: "enterprise",
+    }),
+    searchTextCandidates("restaurant", coords, apiKey, radius, "restaurant", {
+      tier: "enterprise",
+      priceLevels: LUXURY_PRICE_LEVELS,
+    }),
+  ]);
+  const seen = new Set<string>();
+  return [...fineDining, ...pricey].filter((p) => !seen.has(p.placeId) && seen.add(p.placeId));
 }
+
+const FINE_DINING_RADIUS_M = 5000;
 
 /**
  * Lodging candidates for a budget tier (plan/form-preference-wiring.md 1.3),
