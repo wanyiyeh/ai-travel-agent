@@ -13,7 +13,7 @@ import {
 } from "@/lib/mealLodgingPicks";
 import { placeCandidatesToStopCandidates } from "@/lib/scheduler/placeCandidatesToStopCandidates";
 import type { StopCandidate } from "@/lib/scheduler/selectAndOrderStops";
-import { distributeStopsPerDay, partitionCandidatesByDay } from "@/lib/scheduler/partitionCandidatesByDay";
+import { distributeStopsPerDay, fillShortDays, partitionCandidatesWithSeeds } from "@/lib/scheduler/partitionCandidatesByDay";
 import { buildDaySkeleton, type SkeletonStop } from "@/lib/scheduler/buildDaySkeleton";
 import { computeDepartureDayBudget } from "@/lib/scheduler/departureDayBudget";
 import { estimateStopCapacity } from "@/lib/scheduler/stopCapacity";
@@ -1153,6 +1153,17 @@ const DAY_END_GRACE_MINUTES = 30;
 // types instead (Pro fields, cached like any pool).
 const SUPPLEMENT_ATTRACTION_TYPES = ["museum", "art_gallery", "park", "historical_landmark", "observation_deck"];
 
+// How far from a day's first place the rest may be (partitionCandidatesByDay's
+// maxFillKm). Simulated on cached pools at 3/4/5km: 4km kept an intensive
+// 東京 day within 3.5km on average (7.9km uncapped); 3km left a moderate
+// 3-day 東京 with 6 of 9 stops (plan/attraction-candidate-pool.md).
+const DAY_REACH_KM = 4;
+
+// A day short of its capacity looks again around its own first place, for
+// any kind of sight, so what's added is in that day's area.
+const SEED_SUPPLEMENT_TYPES = ["tourist_attraction", ...SUPPLEMENT_ATTRACTION_TYPES];
+const SEED_SUPPLEMENT_RADIUS_M = 3000;
+
 /**
  * `places` (already free of used ones) plus, only when fewer than `needed`
  * are left, places from SUPPLEMENT_ATTRACTION_TYPES that aren't in the pool
@@ -1211,6 +1222,39 @@ async function withSupplementalAttractions(
       visited
     ),
   ]);
+}
+
+/**
+ * Sights around each short day's seed (plan/attraction-candidate-pool.md):
+ * one Nearby per seed, in parallel, Pro fields and cached by the seed's
+ * coordinates — a real place, so another trip seeded at 淺草寺 hits the same
+ * cache. Left out like withSupplementalAttractions: what's known already, what
+ * isn't a daytime sight, restaurants and hotels, and flowers out of bloom.
+ */
+async function placesAroundSeeds(
+  seeds: StopCandidate[],
+  apiKey: string,
+  knownIds: Set<string>,
+  // Places already in the pool or the trip: 北海坑道搖櫓 is 北海坑道 under another id.
+  visited: PlaceCandidate[],
+  stayMonths: number[]
+): Promise<PlaceCandidate[]> {
+  if (seeds.length === 0) return [];
+  const found = await Promise.all(
+    seeds.map((seed) =>
+      fetchNearbyPlaceCandidates({ lat: seed.lat, lng: seed.lng }, apiKey, SEED_SUPPLEMENT_TYPES, SEED_SUPPLEMENT_RADIUS_M, 20).catch(
+        () => [] as PlaceCandidate[]
+      )
+    )
+  );
+  const fresh = uniqueByPlaceId(found.flat()).filter(
+    (p) =>
+      !knownIds.has(p.placeId) &&
+      !isNotADaytimeSight(p) &&
+      !isMealOrStay(p) &&
+      (stayMonths.length === 0 || stayMonths.some((m) => !isBloomOutOfSeason(p.name, m)))
+  );
+  return withoutSamePlace(notVisited(fresh, visited));
 }
 
 // estimateStopCapacity only approximates how many stops fit (it uses the
@@ -1510,11 +1554,6 @@ async function generateDayStopsViaScheduler(
     const candidates = preferenceIntent.seniors ? withAccessibleBoost(converted.candidates, candidateById) : converted.candidates;
     if (candidates.length === 0) return null;
 
-    const hintById = new Map<string, RestaurantHint>();
-    for (const [id, place] of candidateById) {
-      hintById.set(id, { name: place.name, rating: place.rating, lat: place.lat, lng: place.lng, types: place.types });
-    }
-
     const shelter = shelterFor(preferenceIntent, candidateById);
     const baseWeights = shelter.weights(interestWeightsOf(preferenceIntent.interestBoost));
     // A rainy month (dayConditions.ts) scores indoor places up, as 室內行程為主 does; outdoor ones still come.
@@ -1534,7 +1573,8 @@ async function generateDayStopsViaScheduler(
       const place = candidateById.get(c.id);
       return isOnTheme(place?.types, theme, place?.name);
     };
-    const dayGroups = partitionCandidatesByDay(dayCandidates, counts, interestWeights, anchor, {
+    const spreadKm = preferenceIntent.seniors ? SENIORS_SPREAD_KM : undefined;
+    const firstPass = partitionCandidatesWithSeeds(dayCandidates, counts, interestWeights, anchor, {
       themes: dayThemes.map((theme, dayIdx) => {
         const highlights = reservedByDay[dayIdx];
         if (highlights?.length) {
@@ -1546,8 +1586,39 @@ async function generateDayStopsViaScheduler(
       isPopular: (c) => popularIds.has(c.id),
       popularityRank: (c) => popularityRank.get(c.id),
       reservedDay: (c) => seasonalDayOf.get(c.id),
-      ...(preferenceIntent.seniors ? { spreadKm: SENIORS_SPREAD_KM } : {}),
+      ...(spreadKm !== undefined ? { spreadKm } : {}),
+      maxFillKm: DAY_REACH_KM,
     });
+
+    // A day left short of its capacity, by the reach limit or a pool that ran
+    // out, looks again around its own seed and tops up from there.
+    const shortSeeds = firstPass.seeds.filter(
+      (seed, dayIdx): seed is StopCandidate => seed !== undefined && firstPass.days[dayIdx].length < capacities[dayIdx]
+    );
+    const aroundSeeds = await placesAroundSeeds(
+      shortSeeds,
+      apiKey,
+      new Set([...candidateById.keys(), ...lockedIds]),
+      [...pool, ...visited],
+      stayMonths
+    );
+    let dayGroups = firstPass.days;
+    if (aroundSeeds.length > 0) {
+      const extra = placeCandidatesToStopCandidates(aroundSeeds);
+      for (const [id, place] of extra.candidateById) candidateById.set(id, place);
+      const extraCandidates = preferenceIntent.seniors ? withAccessibleBoost(extra.candidates, candidateById) : extra.candidates;
+      const shortfall = firstPass.days.reduce((sum, day, dayIdx) => sum + Math.max(0, capacities[dayIdx] - day.length), 0);
+      dayGroups = fillShortDays(firstPass.days, firstPass.seeds, capacities, shelter.pool(extraCandidates, shortfall), interestWeights, {
+        ...(spreadKm !== undefined ? { spreadKm } : {}),
+        maxFillKm: DAY_REACH_KM,
+      });
+    }
+
+    const hintById = new Map<string, RestaurantHint>();
+    for (const [id, place] of candidateById) {
+      hintById.set(id, { name: place.name, rating: place.rating, lat: place.lat, lng: place.lng, types: place.types });
+    }
+
     const skeletonsByDay: SkeletonStop[][] = dayGroups.map((group, dayIdx) =>
       group.length > 0
         ? withinDayEnd(

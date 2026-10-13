@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { distributeStopsPerDay, partitionCandidatesByDay } from "@/lib/scheduler/partitionCandidatesByDay";
+import {
+  distributeStopsPerDay,
+  fillShortDays,
+  partitionCandidatesByDay,
+  partitionCandidatesWithSeeds,
+} from "@/lib/scheduler/partitionCandidatesByDay";
 import type { StopCandidate } from "@/lib/scheduler/selectAndOrderStops";
 
 function candidate(id: string, lat: number, lng: number, rating?: number): StopCandidate {
@@ -234,3 +239,84 @@ describe("partitionCandidatesByDay — where a themed day goes", () => {
   });
 });
 
+
+describe("partitionCandidatesByDay maxFillKm", () => {
+  // 0.009° of longitude at the equator is ~1km
+  const seed = candidate("seed", 0, 0, 4.9);
+  const near = candidate("near", 0, 0.018, 4.0); // ~2km
+  const far = candidate("far", 0, 0.072, 4.8); // ~8km, better rated than near
+
+  it("leaves a day short rather than take a place past the limit", () => {
+    // 台場's day took its third place from 渋谷, 8km away
+    const [day] = partitionCandidatesByDay([seed, near, far], [3], {}, undefined, { maxFillKm: 4 });
+    expect(day.map((c) => c.id)).toEqual(["seed", "near"]);
+  });
+
+  it("takes any place without a limit, as before", () => {
+    const [day] = partitionCandidatesByDay([seed, near, far], [3]);
+    expect(day.map((c) => c.id)).toContain("far");
+  });
+
+  it("still puts a reserved candidate on its day, however far", () => {
+    const [day] = partitionCandidatesByDay([seed, near, far], [3], {}, undefined, {
+      maxFillKm: 4,
+      reservedDay: (c) => (c.id === "far" ? 0 : undefined),
+    });
+    expect(day.map((c) => c.id)).toContain("far");
+  });
+});
+
+describe("partitionCandidatesWithSeeds", () => {
+  it("returns each day's seed, and none for a day that got nothing", () => {
+    const pool = [candidate("a", 0, 0, 4.9), candidate("b", 0, 0.001, 4.0)];
+    const { days, seeds } = partitionCandidatesWithSeeds(pool, [2, 2]);
+    expect(seeds[0]?.id).toBe("a");
+    expect(days[1]).toEqual([]);
+    expect(seeds[1]).toBeUndefined();
+  });
+});
+
+describe("fillShortDays", () => {
+  const seedA = candidate("seedA", 0, 0, 4.5);
+  const seedB = candidate("seedB", 0, 0.09, 4.5); // ~10km from seedA
+
+  it("tops up a short day from places near its own seed", () => {
+    const nearA = candidate("nearA", 0, 0.009, 4.0);
+    const nearB = candidate("nearB", 0, 0.099, 4.0);
+    const days = fillShortDays([[seedA], [seedB]], [seedA, seedB], [2, 2], [nearB, nearA], {}, { maxFillKm: 4 });
+    expect(days.map((d) => d.map((c) => c.id))).toEqual([
+      ["seedA", "nearA"],
+      ["seedB", "nearB"],
+    ]);
+  });
+
+  it("uses each extra place once, for the earlier day first", () => {
+    const between = candidate("between", 0, 0.045, 4.0); // ~5km from both
+    const days = fillShortDays([[seedA], [seedB]], [seedA, seedB], [2, 2], [between], {});
+    expect(days[0].map((c) => c.id)).toEqual(["seedA", "between"]);
+    expect(days[1].map((c) => c.id)).toEqual(["seedB"]);
+  });
+
+  it("stays short rather than take an extra past the limit", () => {
+    const far = candidate("far", 0, 0.072, 4.0); // ~8km
+    const [day] = fillShortDays([[seedA]], [seedA], [3], [far], {}, { maxFillKm: 4 });
+    expect(day.map((c) => c.id)).toEqual(["seedA"]);
+  });
+
+  it("leaves a full day and a day without a seed as they were", () => {
+    const extra = candidate("extra", 0, 0.001, 4.0);
+    const days = fillShortDays([[seedA, candidate("x", 0, 0, 4)], []], [seedA, undefined], [2, 2], [extra], {});
+    expect(days[0].map((c) => c.id)).toEqual(["seedA", "x"]);
+    expect(days[1]).toEqual([]);
+  });
+
+  it("takes the parts of one sight together, or not at all", () => {
+    const temple: StopCandidate = { ...candidate("temple", 0, 0.001, 4.8), groupId: "temple" };
+    const gate: StopCandidate = { ...candidate("gate", 0, 0.002, 4.0), groupId: "temple" };
+    const single = candidate("single", 0, 0.003, 3.5);
+    const roomForTwo = fillShortDays([[seedA]], [seedA], [3], [temple, gate, single], {});
+    expect(roomForTwo[0].map((c) => c.id).sort()).toEqual(["gate", "seedA", "temple"]);
+    const roomForOne = fillShortDays([[seedA]], [seedA], [2], [temple, gate, single], {});
+    expect(roomForOne[0].map((c) => c.id)).toEqual(["seedA", "single"]);
+  });
+});
