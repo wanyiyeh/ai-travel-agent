@@ -57,14 +57,22 @@ export type PartitionOptions = {
    * How far from the day's seed a stop may be. Past it the day stays short
    * rather than crossing town: 台場 had 2 places, and its day's third came
    * from 渋谷, 8km away (plan/attraction-candidate-pool.md). A reserved
-   * candidate (a seasonal highlight) still goes on its day wherever it is.
+   * candidate (a seasonal highlight) still goes on its day wherever it is,
+   * and a day that starts from one isn't limited at all: 箕面公園, 15km out
+   * of 大阪, left its 賞楓 day short, and topping it up around 箕面 brought
+   * its own waterfall and observatory — the whole day in one park, where
+   * the day used to be 箕面 in the morning and the city after.
    */
   maxFillKm?: number;
 };
 
 export type PartitionResult = {
   days: StopCandidate[][];
-  /** Each day's seed, undefined for a day that got nothing — where fillShortDays looks for more. */
+  /**
+   * Each day's seed — where fillShortDays looks for more. Undefined for a day
+   * that got nothing, or one that starts from its reserved candidate (not
+   * limited by maxFillKm, so not topped up either).
+   */
   seeds: (StopCandidate | undefined)[];
 };
 
@@ -155,8 +163,10 @@ export function partitionCandidatesWithSeeds(
       return;
     }
     const day = take(groupOf(seed));
+    const reservedSeed = options.reservedDay?.(seed) === dayIdx;
     const inReach = (c: StopCandidate) =>
       options.maxFillKm === undefined ||
+      reservedSeed ||
       options.reservedDay?.(c) === dayIdx ||
       haversineKm(seed.lat, seed.lng, c.lat, c.lng) <= options.maxFillKm;
 
@@ -182,7 +192,7 @@ export function partitionCandidatesWithSeeds(
     fill(count, () => true);
 
     days.push(day);
-    seeds.push(seed);
+    seeds.push(reservedSeed ? undefined : seed);
   });
 
   return { days, seeds };

@@ -264,6 +264,16 @@ describe("partitionCandidatesByDay maxFillKm", () => {
     });
     expect(day.map((c) => c.id)).toContain("far");
   });
+
+  it("doesn't limit a day that starts from its reserved candidate", () => {
+    // 箕面公園 (賞楓, 15km out of 大阪): 箕面 in the morning, the city after, as before
+    const minoo = candidate("minoo", 0, 0.135, 4.9);
+    const reserved = { maxFillKm: 4, reservedDay: (c: StopCandidate) => (c.id === "minoo" ? 0 : undefined) };
+    const { days, seeds } = partitionCandidatesWithSeeds([minoo, seed, near], [3], {}, undefined, reserved);
+    expect(days[0].map((c) => c.id)).toEqual(["minoo", "seed", "near"]);
+    // and isn't topped up around 箕面 either
+    expect(seeds[0]).toBeUndefined();
+  });
 });
 
 describe("partitionCandidatesWithSeeds", () => {
