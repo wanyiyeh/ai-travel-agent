@@ -571,6 +571,56 @@ describe("generateTransitDayStops — fixed events", () => {
   });
 });
 
+// Back from 箱根, an intensive day's arrival stops crossed 東京 leg after leg
+// (皇居 → 台場 → 東京巨蛋, up to 8.7km): they now keep to one area like a
+// sightseeing day, topped up around the first place when short.
+describe("generateTransitDayStops — arrival stops kept to one area", () => {
+  const place = (id: string, lat: number, lng: number, rating = 4.5): PlaceCandidate => ({
+    name: id,
+    placeId: id,
+    lat,
+    lng,
+    address: "addr",
+    rating,
+    priceLevel: null,
+    types: ["tourist_attraction", "park"],
+  });
+  const center = Array.from({ length: 3 }, (_, i) => place(`center${i}`, 35.68 + i * 0.002, 139.76));
+  const farOff = place("far-off", 35.68, 139.86); // ~9km east
+  const aroundSeed = Array.from({ length: 4 }, (_, i) => place(`around${i}`, 35.684 + i * 0.001, 139.762, 4.0));
+  const arriveAt = (arrivalTime: string) =>
+    createMock.mockResolvedValueOnce({
+      choices: [{ message: { content: JSON.stringify({ prepStops: [], transitStop: { name: "搭浪漫特快", description: "d", duration_minutes: 90 }, arrivalTime }) } }],
+    });
+
+  it("doesn't cross town for an arrival stop, and tops up near the first one", async () => {
+    nearbyMock.mockImplementation(async (_c: unknown, _k: unknown, types: string[], radius: number) => {
+      if (radius === 3000) return aroundSeed;
+      return types.includes("tourist_attraction") ? [...center, farOff] : [];
+    });
+    arriveAt("10:00");
+
+    const stops = await generateTransitDayStops("箱根", "東京", "JPY", undefined, { ...NEUTRAL_PREFERENCE_INTENT, pace: "intensive" });
+
+    const ids = stops.map((s) => String(s.placeId ?? ""));
+    expect(ids).not.toContain("far-off");
+    expect(nearbyMock.mock.calls.some((c) => c[3] === 3000)).toBe(true);
+    expect(ids.some((id) => id.startsWith("around"))).toBe(true);
+  });
+
+  it("doesn't look again when the arrival stops are already enough", async () => {
+    const plenty = Array.from({ length: 20 }, (_, i) => place(`spot${i}`, 35.68 + i * 0.001, 139.76));
+    nearbyMock.mockImplementation(async (_c: unknown, _k: unknown, types: string[], radius: number) =>
+      radius === 3000 ? aroundSeed : types.includes("tourist_attraction") ? plenty : []
+    );
+    arriveAt("14:00");
+
+    await generateTransitDayStops("箱根", "東京", "JPY", undefined, NEUTRAL_PREFERENCE_INTENT);
+
+    expect(nearbyMock.mock.calls.some((c) => c[3] === 3000)).toBe(false);
+  });
+});
+
 // 自駕: the car goes back at the airport after the last day's stops.
 describe("generateDepartureDayStops — returning the rental car", () => {
   it("ends with the car return, 30 minutes before the airport buffer", async () => {

@@ -394,14 +394,50 @@ async function generateTransitDayStopsViaScheduler(
     const shelter = shelterFor(preferenceIntent, candidateById);
     const interestWeights = shelter.weights(interestWeightsOf(preferenceIntent.interestBoost));
     const count = capacityFor(candidates.map((c) => c.type));
+    // The arrival stops bend to the weather like a sightseeing day's (dayConditions.ts).
+    const weather = weatherOptions(conditions, interestWeights, candidateById);
+
+    // Picked like one sightseeing day: no two stops more than DAY_APART_KM
+    // apart, and topped up around the first one when short. Back from 箱根, an intensive
+    // day's 6 arrival stops went 皇居 → 台場 → 東京巨蛋 → 合羽橋 → teamLab
+    // Planets → 東京鐵塔, up to 8.7km a leg (plan/attraction-candidate-pool.md).
+    const firstPass = partitionCandidatesWithSeeds(shelter.pool(candidates, count), [count], weather.interestWeights, coords, {
+      maxApartKm: DAY_APART_KM,
+    });
+    let [arrivalGroup] = firstPass.days;
+    const [seed] = firstPass.seeds;
+    if (seed && arrivalGroup.length < count) {
+      const aroundSeed = await placesAroundSeeds(
+        [seed],
+        apiKey,
+        new Set([...candidateById.keys(), ...lockedIds]),
+        [...pool, ...places.filter((p) => lockedIds.has(p.placeId))],
+        conditions ? [conditions.month] : []
+      );
+      if (aroundSeed.length > 0) {
+        const extra = placeCandidatesToStopCandidates(aroundSeed);
+        for (const [id, place] of extra.candidateById) {
+          candidateById.set(id, place);
+          hintById.set(id, { name: place.name, rating: place.rating, lat: place.lat, lng: place.lng, types: place.types });
+        }
+        [arrivalGroup] = fillShortDays(
+          firstPass.days,
+          firstPass.seeds,
+          [count],
+          shelter.pool(extra.candidates, count - arrivalGroup.length),
+          weather.interestWeights,
+          { maxApartKm: DAY_APART_KM }
+        );
+      }
+    }
+
     const skeleton = withinDayEnd(
-      buildDaySkeleton(shelter.pool(candidates, count), {
-        count,
+      buildDaySkeleton(arrivalGroup, {
+        count: arrivalGroup.length,
         pace,
         dayStartMinute: plan.arrivalMinute,
         dayEndMinute,
-        // The arrival stops bend to the weather like a sightseeing day's (dayConditions.ts).
-        ...weatherOptions(conditions, interestWeights, candidateById),
+        ...weather,
         // The lodging isn't picked yet when the transit day is planned (it
         // runs alongside meal/lodging generation), so score from the center.
         anchor: coords,
@@ -1153,11 +1189,12 @@ const DAY_END_GRACE_MINUTES = 30;
 // types instead (Pro fields, cached like any pool).
 const SUPPLEMENT_ATTRACTION_TYPES = ["museum", "art_gallery", "park", "historical_landmark", "observation_deck"];
 
-// How far from a day's first place the rest may be (partitionCandidatesByDay's
-// maxFillKm). Simulated on cached pools at 3/4/5km: 4km kept an intensive
-// 東京 day within 3.5km on average (7.9km uncapped); 3km left a moderate
-// 3-day 東京 with 6 of 9 stops (plan/attraction-candidate-pool.md).
-const DAY_REACH_KM = 4;
+// How far apart any two of a day's places may be (partitionCandidatesByDay's
+// maxApartKm). Simulated on cached pools: 4km from the first place still let
+// a day centred on 皇居 span 6.5km; 5km between every pair kept each day
+// within 4.5km and placed as many stops or more, 4km between every pair left
+// an intensive 東京 day with 3 of 6 (plan/attraction-candidate-pool.md).
+const DAY_APART_KM = 5;
 
 // A day short of its capacity looks again around its own first place, for
 // any kind of sight, so what's added is in that day's area.
@@ -1587,7 +1624,7 @@ async function generateDayStopsViaScheduler(
       popularityRank: (c) => popularityRank.get(c.id),
       reservedDay: (c) => seasonalDayOf.get(c.id),
       ...(spreadKm !== undefined ? { spreadKm } : {}),
-      maxFillKm: DAY_REACH_KM,
+      maxApartKm: DAY_APART_KM,
     });
 
     // A day left short of its capacity, by the reach limit or a pool that ran
@@ -1610,7 +1647,9 @@ async function generateDayStopsViaScheduler(
       const shortfall = firstPass.days.reduce((sum, day, dayIdx) => sum + Math.max(0, capacities[dayIdx] - day.length), 0);
       dayGroups = fillShortDays(firstPass.days, firstPass.seeds, capacities, shelter.pool(extraCandidates, shortfall), interestWeights, {
         ...(spreadKm !== undefined ? { spreadKm } : {}),
-        maxFillKm: DAY_REACH_KM,
+        maxApartKm: DAY_APART_KM,
+        // A day's seasonal highlight may be far off; the top-up keeps to the rest.
+        reservedDay: (c) => seasonalDayOf.get(c.id),
       });
     }
 
