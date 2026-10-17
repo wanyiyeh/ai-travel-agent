@@ -173,6 +173,54 @@ describe("long stays — supplemental attraction search", () => {
   });
 });
 
+// plan/attraction-candidate-pool.md: 台場 had 2 places and its day's third
+// came from 渋谷, 8km away. A day keeps to 4km of its first place and, short,
+// looks again around that place.
+describe("a day kept to one area", () => {
+  const place = (id: string, lat: number, lng: number, rating = 4.5): PlaceCandidate => ({
+    name: id,
+    placeId: id,
+    lat,
+    lng,
+    address: "addr",
+    rating,
+    priceLevel: null,
+    types: ["tourist_attraction", "park"],
+  });
+  const center = Array.from({ length: 3 }, (_, i) => place(`center${i}`, 35.68 + i * 0.002, 139.76));
+  const farOff = place("far-off", 35.68, 139.86); // ~9km east
+  const aroundSeed = Array.from({ length: 4 }, (_, i) => place(`around${i}`, 35.684 + i * 0.001, 139.762, 4.0));
+
+  beforeEach(() => {
+    nearbyMock.mockImplementation(async (_c: unknown, _k: unknown, types: string[], radius: number) => {
+      if (radius === 3000) return aroundSeed;
+      return types.includes("tourist_attraction") ? [...center, farOff] : [];
+    });
+  });
+
+  it("doesn't cross town to fill a day, and tops it up near its first place", async () => {
+    const days = await generateDayStops("東京", 2, "JPY", [], undefined, NEUTRAL_PREFERENCE_INTENT);
+
+    for (const day of days) {
+      const ids = day.map((s) => String(s.placeId));
+      expect(ids.includes("far-off") && ids.some((id) => id.startsWith("center"))).toBe(false);
+    }
+    expect(nearbyMock.mock.calls.some((c) => c[3] === 3000)).toBe(true);
+    expect(days.flat().some((s) => String(s.placeId).startsWith("around"))).toBe(true);
+  });
+
+  it("only looks again for a day that came up short", async () => {
+    const plenty = Array.from({ length: 20 }, (_, i) => place(`spot${i}`, 35.68 + i * 0.001, 139.76));
+    nearbyMock.mockImplementation(async (_c: unknown, _k: unknown, types: string[], radius: number) =>
+      radius === 3000 ? aroundSeed : types.includes("tourist_attraction") ? plenty : []
+    );
+
+    await generateDayStops("東京", 2, "JPY", [], undefined, NEUTRAL_PREFERENCE_INTENT);
+
+    expect(nearbyMock.mock.calls.some((c) => c[3] === 3000)).toBe(false);
+  });
+});
+
 // Story: a culture trip's day 3 was 太陽城 9:00-12:00, 東京巨蛋 13:00-15:00 and
 // 東京國立博物館 15:15-18:15 — the museum ran 15 minutes past 18:00 and was
 // dropped, leaving 2 stops.
