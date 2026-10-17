@@ -240,7 +240,7 @@ describe("partitionCandidatesByDay — where a themed day goes", () => {
 });
 
 
-describe("partitionCandidatesByDay maxFillKm", () => {
+describe("partitionCandidatesByDay maxApartKm", () => {
   // 0.009° of longitude at the equator is ~1km
   const seed = candidate("seed", 0, 0, 4.9);
   const near = candidate("near", 0, 0.018, 4.0); // ~2km
@@ -248,8 +248,25 @@ describe("partitionCandidatesByDay maxFillKm", () => {
 
   it("leaves a day short rather than take a place past the limit", () => {
     // 台場's day took its third place from 渋谷, 8km away
-    const [day] = partitionCandidatesByDay([seed, near, far], [3], {}, undefined, { maxFillKm: 4 });
+    const [day] = partitionCandidatesByDay([seed, near, far], [3], {}, undefined, { maxApartKm: 4 });
     expect(day.map((c) => c.id)).toEqual(["seed", "near"]);
+  });
+
+  it("keeps every two places of a day within the limit, not just each one from the seed", () => {
+    // From 皇居, in the middle of 東京, 4km reached both 新宿御苑 and 上野, 6.5km apart.
+    const middle = candidate("middle", 0, 0, 4.9);
+    const west = candidate("west", 0, -0.027, 4.5); // ~3km west
+    const east = candidate("east", 0, 0.027, 4.4); // ~3km east, ~6km from west
+    const [day] = partitionCandidatesByDay([middle, west, east], [3], {}, undefined, { maxApartKm: 4 });
+    expect(day.map((c) => c.id)).toEqual(["middle", "west"]);
+  });
+
+  it("doesn't let a far reserved candidate keep the rest of its day out", () => {
+    const [day] = partitionCandidatesByDay([seed, far, near], [3], {}, undefined, {
+      maxApartKm: 4,
+      reservedDay: (c) => (c.id === "far" ? 0 : undefined),
+    });
+    expect(day.map((c) => c.id).sort()).toEqual(["far", "near", "seed"]);
   });
 
   it("takes any place without a limit, as before", () => {
@@ -259,7 +276,7 @@ describe("partitionCandidatesByDay maxFillKm", () => {
 
   it("still puts a reserved candidate on its day, however far", () => {
     const [day] = partitionCandidatesByDay([seed, near, far], [3], {}, undefined, {
-      maxFillKm: 4,
+      maxApartKm: 4,
       reservedDay: (c) => (c.id === "far" ? 0 : undefined),
     });
     expect(day.map((c) => c.id)).toContain("far");
@@ -268,7 +285,7 @@ describe("partitionCandidatesByDay maxFillKm", () => {
   it("doesn't limit a day that starts from its reserved candidate", () => {
     // 箕面公園 (賞楓, 15km out of 大阪): 箕面 in the morning, the city after, as before
     const minoo = candidate("minoo", 0, 0.135, 4.9);
-    const reserved = { maxFillKm: 4, reservedDay: (c: StopCandidate) => (c.id === "minoo" ? 0 : undefined) };
+    const reserved = { maxApartKm: 4, reservedDay: (c: StopCandidate) => (c.id === "minoo" ? 0 : undefined) };
     const { days, seeds } = partitionCandidatesWithSeeds([minoo, seed, near], [3], {}, undefined, reserved);
     expect(days[0].map((c) => c.id)).toEqual(["minoo", "seed", "near"]);
     // and isn't topped up around 箕面 either
@@ -293,7 +310,7 @@ describe("fillShortDays", () => {
   it("tops up a short day from places near its own seed", () => {
     const nearA = candidate("nearA", 0, 0.009, 4.0);
     const nearB = candidate("nearB", 0, 0.099, 4.0);
-    const days = fillShortDays([[seedA], [seedB]], [seedA, seedB], [2, 2], [nearB, nearA], {}, { maxFillKm: 4 });
+    const days = fillShortDays([[seedA], [seedB]], [seedA, seedB], [2, 2], [nearB, nearA], {}, { maxApartKm: 4 });
     expect(days.map((d) => d.map((c) => c.id))).toEqual([
       ["seedA", "nearA"],
       ["seedB", "nearB"],
@@ -309,8 +326,15 @@ describe("fillShortDays", () => {
 
   it("stays short rather than take an extra past the limit", () => {
     const far = candidate("far", 0, 0.072, 4.0); // ~8km
-    const [day] = fillShortDays([[seedA]], [seedA], [3], [far], {}, { maxFillKm: 4 });
+    const [day] = fillShortDays([[seedA]], [seedA], [3], [far], {}, { maxApartKm: 4 });
     expect(day.map((c) => c.id)).toEqual(["seedA"]);
+  });
+
+  it("keeps a top-up within the limit of every place already on the day", () => {
+    const east = candidate("east", 0, 0.027, 4.0); // ~3km east of seedA
+    const west = candidate("west", 0, -0.027, 4.5); // ~3km west of seedA, ~6km from east
+    const [day] = fillShortDays([[seedA, east]], [seedA], [3], [west], {}, { maxApartKm: 4 });
+    expect(day.map((c) => c.id)).toEqual(["seedA", "east"]);
   });
 
   it("leaves a full day and a day without a seed as they were", () => {

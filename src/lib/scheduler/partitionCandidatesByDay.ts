@@ -54,16 +54,19 @@ export type PartitionOptions = {
    */
   popularityRank?: (c: StopCandidate) => number | undefined;
   /**
-   * How far from the day's seed a stop may be. Past it the day stays short
-   * rather than crossing town: 台場 had 2 places, and its day's third came
-   * from 渋谷, 8km away (plan/attraction-candidate-pool.md). A reserved
-   * candidate (a seasonal highlight) still goes on its day wherever it is,
-   * and a day that starts from one isn't limited at all: 箕面公園, 15km out
-   * of 大阪, left its 賞楓 day short, and topping it up around 箕面 brought
-   * its own waterfall and observatory — the whole day in one park, where
-   * the day used to be 箕面 in the morning and the city after.
+   * How far apart any two of a day's places may be. Past it the day stays
+   * short rather than crossing town: 台場 had 2 places, and its day's third
+   * came from 渋谷, 8km away (plan/attraction-candidate-pool.md). Measured
+   * between every pair, not from the seed: from 皇居, in the middle of 東京,
+   * 4km reached both 新宿御苑 and 上野, 6.5km apart. A reserved candidate (a
+   * seasonal highlight) still goes on its day wherever it is and doesn't
+   * count against the others, and a day that starts from one isn't limited
+   * at all: 箕面公園, 15km out of 大阪, left its 賞楓 day short, and topping
+   * it up around 箕面 brought its own waterfall and observatory — the whole
+   * day in one park, where the day used to be 箕面 in the morning and the
+   * city after.
    */
-  maxFillKm?: number;
+  maxApartKm?: number;
 };
 
 export type PartitionResult = {
@@ -71,7 +74,7 @@ export type PartitionResult = {
   /**
    * Each day's seed — where fillShortDays looks for more. Undefined for a day
    * that got nothing, or one that starts from its reserved candidate (not
-   * limited by maxFillKm, so not topped up either).
+   * limited by maxApartKm, so not topped up either).
    */
   seeds: (StopCandidate | undefined)[];
 };
@@ -165,10 +168,7 @@ export function partitionCandidatesWithSeeds(
     const day = take(groupOf(seed));
     const reservedSeed = options.reservedDay?.(seed) === dayIdx;
     const inReach = (c: StopCandidate) =>
-      options.maxFillKm === undefined ||
-      reservedSeed ||
-      options.reservedDay?.(c) === dayIdx ||
-      haversineKm(seed.lat, seed.lng, c.lat, c.lng) <= options.maxFillKm;
+      reservedSeed || options.reservedDay?.(c) === dayIdx || withinApart(day, c, options, dayIdx);
 
     // The same score as the seed's, but measured from the seed instead of the
     // lodging, so the day stays in one area. Picking by distance alone undid the
@@ -202,7 +202,7 @@ export function partitionCandidatesWithSeeds(
  * Tops up the days partitionCandidatesWithSeeds left short of `targets[i]`
  * from `extra` — places found around each short day's seed, so what's added
  * is in that day's area. Same score as the first pass (rating × interest ×
- * distance from the seed) and the same `maxFillKm`. Days in order, each
+ * distance from the seed) and the same `maxApartKm`. Days in order, each
  * extra used once, a group (parts of one sight) taken whole. A day still
  * short afterwards stays short. Days that are full, or got nothing, are
  * returned as they were.
@@ -213,7 +213,7 @@ export function fillShortDays(
   targets: number[],
   extra: StopCandidate[],
   interestWeights: Record<string, number> = {},
-  options: Pick<PartitionOptions, "spreadKm" | "maxFillKm"> = {}
+  options: Pick<PartitionOptions, "spreadKm" | "maxApartKm" | "reservedDay"> = {}
 ): StopCandidate[][] {
   const remaining = [...extra];
   return days.map((day, dayIdx) => {
@@ -221,12 +221,13 @@ export function fillShortDays(
     const target = targets[dayIdx] ?? 0;
     if (!seed || day.length >= target) return day;
     const filled = [...day];
-    const ranked = remaining
-      .filter((c) => options.maxFillKm === undefined || haversineKm(seed.lat, seed.lng, c.lat, c.lng) <= options.maxFillKm)
-      .sort((a, b) => scoreCandidate(b, interestWeights, seed, options.spreadKm) - scoreCandidate(a, interestWeights, seed, options.spreadKm));
+    const ranked = [...remaining].sort(
+      (a, b) => scoreCandidate(b, interestWeights, seed, options.spreadKm) - scoreCandidate(a, interestWeights, seed, options.spreadKm)
+    );
     for (const candidate of ranked) {
       if (filled.length >= target) break;
       if (!remaining.includes(candidate)) continue; // taken with its group
+      if (!withinApart(filled, candidate, options, dayIdx)) continue;
       const group = candidate.groupId ? remaining.filter((r) => r.groupId === candidate.groupId) : [candidate];
       if (filled.length + group.length > target) continue;
       for (const c of group) remaining.splice(remaining.indexOf(c), 1);
@@ -234,4 +235,16 @@ export function fillShortDays(
     }
     return filled;
   });
+}
+
+/** Whether `c` is within maxApartKm of each of the day's places, reserved ones aside. */
+function withinApart(
+  day: StopCandidate[],
+  c: StopCandidate,
+  options: Pick<PartitionOptions, "maxApartKm" | "reservedDay">,
+  dayIdx: number
+): boolean {
+  const { maxApartKm } = options;
+  if (maxApartKm === undefined) return true;
+  return day.every((d) => options.reservedDay?.(d) === dayIdx || haversineKm(d.lat, d.lng, c.lat, c.lng) <= maxApartKm);
 }
