@@ -104,6 +104,15 @@ describe("pickHighlightMatch", () => {
     expect(pickHighlightMatch([hotel, elsewhere, arashiyama], kyoto, new Set())?.placeId).toBe("嵐山");
     expect(pickHighlightMatch([arashiyama], kyoto, new Set(["嵐山"]))).toBeUndefined();
   });
+
+  it("skips an area named like the place", () => {
+    // 「箕面公園」 came back as Minookoen, the 箕面 neighbourhood, not the park
+    const osaka = { lat: 34.6952, lng: 135.5012 };
+    const neighbourhood = place("Minookoen", 34.84, 135.47, ["sublocality_level_2", "sublocality", "political"]);
+    const park = place("明治の森箕面国定公園", 34.85, 135.47, ["national_park", "park", "tourist_attraction"]);
+    expect(pickHighlightMatch([neighbourhood], osaka, new Set())).toBeUndefined();
+    expect(pickHighlightMatch([neighbourhood, park], osaka, new Set())?.placeId).toBe("明治の森箕面国定公園");
+  });
 });
 
 describe("findSeasonalDay", () => {
