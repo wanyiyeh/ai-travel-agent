@@ -354,3 +354,45 @@ describe("fillShortDays", () => {
     expect(roomForOne[0].map((c) => c.id)).toEqual(["seedA", "single"]);
   });
 });
+
+describe("partitionCandidatesWithSeeds suburbReservedKm", () => {
+  // 0.009° of latitude is ~1km
+  const town = { lat: 0, lng: 0 };
+  const near = (id: string, km: number, rating = 4.0) => candidate(id, km * 0.009, 0, rating);
+  const reservedFor = (id: string) => (c: StopCandidate) => (c.id === id ? 0 : undefined);
+  // As generateDayStopsViaScheduler passes a seasonal day: its highlights are the day's theme.
+  const highlightDay = (id: string) => ({
+    maxApartKm: 5,
+    suburbReservedKm: 15,
+    reservedDay: reservedFor(id),
+    themes: [{ onTheme: (c: StopCandidate) => c.id === id, themeCount: 1 }],
+  });
+
+  it("keeps a day to its in-town highlight's area, and tops it up there", () => {
+    // 釜山大學 (6.8km out) took X the SKY from 海雲台, 11.6km away
+    const university = near("university", 7, 4.9);
+    const farSight = near("far-sight", -5, 4.8); // 12km from the university
+    const { days, seeds } = partitionCandidatesWithSeeds([university, farSight], [2], {}, town, highlightDay("university"));
+    expect(days[0].map((c) => c.id)).toEqual(["university"]);
+    expect(seeds[0]?.id).toBe("university");
+  });
+
+  it("leaves a suburb highlight's day free, morning out there and the city after", () => {
+    const minoo = near("minoo", 20, 4.9);
+    const citySight = near("city-sight", 1, 4.8);
+    const { days, seeds } = partitionCandidatesWithSeeds([minoo, citySight], [2], {}, town, highlightDay("minoo"));
+    expect(days[0].map((c) => c.id)).toEqual(["minoo", "city-sight"]);
+    expect(seeds[0]).toBeUndefined();
+  });
+
+  it("tops up an in-town highlight's day only within the limit of the highlight", () => {
+    const university = near("university", 7);
+    const nearIt = near("near-it", 8);
+    const farFromIt = near("far-from-it", 0);
+    const [day] = fillShortDays([[university]], [university], [3], [farFromIt, nearIt], {}, {
+      maxApartKm: 5,
+      reservedDay: reservedFor("university"),
+    });
+    expect(day.map((c) => c.id)).toEqual(["university", "near-it"]);
+  });
+});

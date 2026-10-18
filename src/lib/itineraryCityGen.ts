@@ -1196,6 +1196,12 @@ const SUPPLEMENT_ATTRACTION_TYPES = ["museum", "art_gallery", "park", "historica
 // an intensive 東京 day with 3 of 6 (plan/attraction-candidate-pool.md).
 const DAY_APART_KM = 5;
 
+// How far out of town a seasonal highlight must be for its day to be left
+// without the DAY_APART_KM limit, so it can be the suburb in the morning and
+// the city after (箕面, ~20km from 大阪). Inside town (釜山大學, 6.8km) the
+// day keeps to the highlight's area like any other.
+const SUBURB_HIGHLIGHT_KM = 15;
+
 // A day short of its capacity looks again around its own first place, for
 // any kind of sight, so what's added is in that day's area.
 const SEED_SUPPLEMENT_TYPES = ["tourist_attraction", ...SUPPLEMENT_ATTRACTION_TYPES];
@@ -1694,6 +1700,7 @@ async function generateDayStopsViaScheduler(
       reservedDay: (c) => seasonalDayOf.get(c.id),
       ...(spreadKm !== undefined ? { spreadKm } : {}),
       maxApartKm: DAY_APART_KM,
+      suburbReservedKm: SUBURB_HIGHLIGHT_KM,
     });
 
     // A day left short of its capacity, by the reach limit or a pool that ran
