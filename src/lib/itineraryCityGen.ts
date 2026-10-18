@@ -1,5 +1,5 @@
 import { openai } from "@/lib/openai";
-import { getCityCenter } from "@/lib/placesTextSearch";
+import { getCityCenter, sightAreasFor } from "@/lib/placesTextSearch";
 import { fetchNearbyPlaceCandidates, fetchLodgingCandidates, fetchLuxuryRestaurants, getMealPlaceTypes, searchTextCandidates, type RestaurantHint, type BudgetLevel, type PlaceCandidate, type FieldTier, type TypeMatch } from "@/lib/fetchCityRestaurants";
 import {
   applyAccommodationPick,
@@ -371,7 +371,7 @@ async function generateTransitDayStopsViaScheduler(
     const coords = await getCityCenter(toCity, apiKey);
     if (!coords) return null;
 
-    const places = await fetchNearbyPlaceCandidates(coords, apiKey, ["tourist_attraction"], 10000, 20);
+    const places = await fetchCitySights(toCity, coords, apiKey);
     if (places.length === 0) return null;
 
     const lockedIds = new Set(lockedPlaceIds);
@@ -584,7 +584,7 @@ export async function generateDepartureDayStops(
     // ones earlier days already used, so slicing before excluding them left
     // the return day empty (Stockholm day 14, Sapporo day 7). Same cost — the
     // cache always holds 20.
-    const places = await fetchNearbyPlaceCandidates(coords, apiKey, ["tourist_attraction"], 10000, 20);
+    const places = await fetchCitySights(cityName, coords, apiKey);
     if (places.length === 0) return fixedEventStopsOnly(fixed);
 
     const lockedIds = new Set(lockedPlaceIds);
@@ -1283,6 +1283,44 @@ export function dayOrigin(
 }
 
 /**
+ * A city's main sights pool: Nearby Search's 20 most popular within 10 km of
+ * its center, or for a city with sight areas (placesTextSearch.ts
+ * sightAreasFor — 釜山) the same around each area, merged. Each area is its
+ * own cached Nearby, so it costs more only the first time.
+ */
+async function fetchCitySights(
+  cityName: string,
+  coords: { lat: number; lng: number },
+  apiKey: string
+): Promise<PlaceCandidate[]> {
+  const areas = sightAreasFor(cityName);
+  if (!areas) return fetchNearbyPlaceCandidates(coords, apiKey, ["tourist_attraction"], 10000, 20);
+  const pools = await Promise.all(areas.map((area) => fetchNearbyPlaceCandidates(area, apiKey, ["tourist_attraction"], 10000, 20)));
+  return interleavePools(pools);
+}
+
+/**
+ * Several popularity-ranked pools as one: each pool's first, then each one's
+ * second, and so on, a place already taken skipped — so every area's best
+ * sights rank near the top, not one area's whole list before the next.
+ */
+export function interleavePools(pools: PlaceCandidate[][]): PlaceCandidate[] {
+  const merged: PlaceCandidate[] = [];
+  const seen = new Set<string>();
+  const longest = Math.max(0, ...pools.map((pool) => pool.length));
+  for (let rank = 0; rank < longest; rank++) {
+    for (const pool of pools) {
+      const place = pool[rank];
+      if (place && !seen.has(place.placeId)) {
+        seen.add(place.placeId);
+        merged.push(place);
+      }
+    }
+  }
+  return merged;
+}
+
+/**
  * Sights around each short day's seed (plan/attraction-candidate-pool.md):
  * one Nearby per seed, in parallel, Pro fields and cached by the seed's
  * coordinates — a real place, so another trip seeded at 淺草寺 hits the same
@@ -1526,7 +1564,7 @@ async function generateDayStopsViaScheduler(
     // Nearby cache stores 20 regardless, so asking for fewer saves nothing.
     // Each theme used in this city adds its own pool (cached like any other).
     const [places, ...themePools] = await Promise.all([
-      fetchNearbyPlaceCandidates(coords, apiKey, ["tourist_attraction"], 10000, 20),
+      fetchCitySights(cityName, coords, apiKey),
       ...cityThemes.map(async (theme) => {
         const { textSearches, searchTypes } = THEMES[theme];
         const [byType, ...byText] = await Promise.all([

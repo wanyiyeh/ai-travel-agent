@@ -20,8 +20,10 @@ const distancesMock = vi.fn<(stops: unknown[], pickMode: (km: number) => string)
 vi.mock("@/lib/openai", () => ({
   openai: { chat: { completions: { create: (...args: unknown[]) => createMock(...args) } } },
 }));
+const sightAreasMock = vi.fn<(city: string) => { lat: number; lng: number }[] | undefined>(() => undefined);
 vi.mock("@/lib/placesTextSearch", () => ({
   getCityCenter: async () => ({ lat: 35.68, lng: 139.76 }),
+  sightAreasFor: (city: string) => sightAreasMock(city),
 }));
 vi.mock("@/lib/fetchCityRestaurants", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/fetchCityRestaurants")>()),
@@ -41,7 +43,7 @@ vi.mock("@/lib/distanceMatrix", async () => ({
   describeTransport: () => "",
 }));
 
-const { dayOrigin, generateDayStops, generateDepartureDayStops, generateThemedDayStops, generateTransitDayStops, islandHopPlan, withoutRevisits } = await import(
+const { dayOrigin, interleavePools, generateDayStops, generateDepartureDayStops, generateThemedDayStops, generateTransitDayStops, islandHopPlan, withoutRevisits } = await import(
   "./itineraryCityGen"
 );
 
@@ -74,6 +76,8 @@ beforeEach(() => {
   nearbyMock.mockResolvedValue(POOL);
   copyMock.mockReset();
   copyMock.mockImplementation(async () => ({ stops: {} }));
+  sightAreasMock.mockReset();
+  sightAreasMock.mockReturnValue(undefined);
 });
 
 describe("generateDayStops — pace vs stops per day", () => {
@@ -972,5 +976,40 @@ describe("dayOrigin", () => {
   it("ignores a far place that isn't reserved", () => {
     const group = [stop("a", 35.69), stop("far", 35.86)];
     expect(dayOrigin(group, reserved([]), lodging)).toEqual(lodging);
+  });
+});
+
+// 釜山: City Hall is halfway between 南浦洞 and 海雲台, and 甘川洞文化村,
+// 太宗台 and 海東龍宮寺 were all past the 10 km circle around it.
+describe("a city with several sight areas", () => {
+  const at = (id: string, lat: number, lng: number): PlaceCandidate => ({ ...POOL[0], name: id, placeId: id, lat, lng });
+  const nampo = { lat: 35.0985, lng: 129.03 };
+  const haeundae = { lat: 35.1587, lng: 129.1604 };
+
+  it("looks for sights around each area and plans from all of them", async () => {
+    sightAreasMock.mockImplementation((city) => (city === "釜山" ? [nampo, haeundae] : undefined));
+    nearbyMock.mockImplementation(async (center: { lat: number }, _k: unknown, types: string[], radius: number) => {
+      if (radius !== 10000 || !types.includes("tourist_attraction") || types.length > 1) return [];
+      return center.lat === nampo.lat
+        ? Array.from({ length: 6 }, (_, i) => at(`nampo${i}`, 35.0985 + i * 0.001, 129.03))
+        : Array.from({ length: 6 }, (_, i) => at(`haeundae${i}`, 35.1587 + i * 0.001, 129.1604));
+    });
+
+    const days = await generateDayStops("釜山", 3, "KRW", [], undefined, NEUTRAL_PREFERENCE_INTENT);
+
+    const centers = nearbyMock.mock.calls.filter((c) => c[3] === 10000 && (c[2] as string[]).length === 1).map((c) => c[0]);
+    expect(centers).toEqual(expect.arrayContaining([nampo, haeundae]));
+    const ids = days.flat().map((s) => String(s.placeId));
+    expect(ids.some((id) => id.startsWith("nampo"))).toBe(true);
+    expect(ids.some((id) => id.startsWith("haeundae"))).toBe(true);
+  });
+});
+
+describe("interleavePools", () => {
+  const at = (id: string): PlaceCandidate => ({ ...POOL[0], name: id, placeId: id });
+
+  it("takes each pool's first, then each one's second, without repeats", () => {
+    const merged = interleavePools([[at("a1"), at("shared"), at("a3")], [at("b1"), at("shared")], [at("c1")]]);
+    expect(merged.map((p) => p.placeId)).toEqual(["a1", "b1", "c1", "shared", "a3"]);
   });
 });

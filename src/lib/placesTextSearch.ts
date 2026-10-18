@@ -174,6 +174,24 @@ const CITY_CENTER_OVERRIDES: Record<string, { lat: number; lng: number }> = {
   北海道: { lat: 43.0618, lng: 141.3545 }, // Sapporo
 };
 
+// Cities whose sights sit in areas too far apart for the one 10 km circle
+// around the center: 釜山's center (City Hall) is halfway between 南浦洞 and
+// 海雲台, and 甘川洞文化村 (10.1 km), 松島海上纜車 (11.9 km), 太宗台 (13.4 km)
+// and 海東龍宮寺 (13.9 km) never made the pool (plan/attraction-candidate-pool.md
+// plan B). A city listed here gets its sights from each area instead. 西面,
+// in between, was tried as a third and added nothing the other two didn't.
+const CITY_SIGHT_AREAS: Record<string, { lat: number; lng: number }[]> = {
+  釜山: [
+    { lat: 35.0985, lng: 129.03 }, // 南浦洞
+    { lat: 35.1587, lng: 129.1604 }, // 海雲台
+  ],
+};
+
+/** The areas to look for a city's sights around, or undefined for one circle around its center. */
+export function sightAreasFor(cityName: string): { lat: number; lng: number }[] | undefined {
+  return CITY_SIGHT_AREAS[cityName];
+}
+
 // Same 30-day TTL as the other Places caches — a city Google adds or starts
 // matching later eventually gets picked up.
 const CITY_MISS_TTL_MS = 30 * 24 * 60 * 60 * 1000;
