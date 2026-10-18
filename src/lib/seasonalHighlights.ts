@@ -103,8 +103,11 @@ export type SeasonalDay = { label: string; highlights: SeasonalHighlight[] };
 
 // The prompt asks for 30km; a match further out is a same-named place elsewhere.
 const MAX_HIGHLIGHT_KM = 30;
-// A search for a foliage spot can land on a hotel or restaurant named after it.
-const NOT_A_SIGHT = ["lodging", "hotel", "restaurant", "food", "cafe", "bar", "store", "meal_takeaway"];
+// A search for a foliage spot can land on a hotel or restaurant named after it —
+// or on an area: 「箕面公園」 came back as Minookoen, the 箕面 neighbourhood
+// (sublocality, political), not the park. 嵐山 and 目黑川 are scenic_spot and
+// river, so leaving areas out doesn't lose them.
+const NOT_A_SIGHT = ["lodging", "hotel", "restaurant", "food", "cafe", "bar", "store", "meal_takeaway", "political"];
 // Fewer than this and it's not a day's theme.
 const MIN_HIGHLIGHTS = 2;
 // How far apart a seasonal day's places may be — the same limit as any

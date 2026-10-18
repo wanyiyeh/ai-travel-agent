@@ -1262,6 +1262,27 @@ async function withSupplementalAttractions(
 }
 
 /**
+ * Where a sightseeing day's route starts: where the traveler sleeps, unless
+ * the day holds a reserved place (a seasonal highlight) more than
+ * DAY_APART_KM out — then that place, the furthest one, so the day goes
+ * there first and comes back. Starting from the lodging, the route went
+ * 大阪城 → 阿倍野 HARUKAS → 箕面公園 and ended 20km out of town
+ * (plan/attraction-candidate-pool.md to-do 4).
+ */
+export function dayOrigin(
+  group: StopCandidate[],
+  isReserved: (c: StopCandidate) => boolean,
+  anchor: { lat: number; lng: number }
+): { lat: number; lng: number } {
+  const far = group
+    .filter((c) => isReserved(c))
+    .map((c) => ({ c, km: haversineKm(anchor.lat, anchor.lng, c.lat, c.lng) }))
+    .filter(({ km }) => km > DAY_APART_KM)
+    .sort((a, b) => b.km - a.km)[0];
+  return far ? { lat: far.c.lat, lng: far.c.lng } : anchor;
+}
+
+/**
  * Sights around each short day's seed (plan/attraction-candidate-pool.md):
  * one Nearby per seed, in parallel, Pro fields and cached by the seed's
  * coordinates — a real place, so another trip seeded at 淺草寺 hits the same
@@ -1678,7 +1699,7 @@ async function generateDayStopsViaScheduler(
               dayEndMinute,
               interestWeights,
               anchor,
-              origin: anchor,
+              origin: dayOrigin(group, (c) => seasonalDayOf.get(c.id) === dayIdx, anchor),
               // A hot month keeps outdoor places off midday too, without narrowing the pool.
               isOutdoor: shelter.isOutdoor ?? (conditionsByDay[dayIdx]?.hot ? outdoorOf : undefined),
               fixedBlocks: blocksOf(dayIdx),

@@ -41,7 +41,7 @@ vi.mock("@/lib/distanceMatrix", async () => ({
   describeTransport: () => "",
 }));
 
-const { generateDayStops, generateDepartureDayStops, generateThemedDayStops, generateTransitDayStops, islandHopPlan, withoutRevisits } = await import(
+const { dayOrigin, generateDayStops, generateDepartureDayStops, generateThemedDayStops, generateTransitDayStops, islandHopPlan, withoutRevisits } = await import(
   "./itineraryCityGen"
 );
 
@@ -482,6 +482,18 @@ describe("generateThemedDayStops — seasonal day", () => {
     expect(ids[1]).toEqual(expect.arrayContaining(["ginkgo", "garden"]));
     expect([...ids[0], ...ids[2]]).not.toContain("ginkgo");
     expect(themeByDay[1]).toBeUndefined();
+  });
+
+  it("goes to a far-off highlight first and comes back, not the other way round", async () => {
+    // 大阪: 大阪城 → 阿倍野 HARUKAS → 箕面公園, ending 20km out of town
+    const minoo = highlight("minoo", 35.86); // ~20km north of the pool
+
+    const { stopsByDay } = await generateThemedDayStops(
+      "東京", 2, "JPY", [], undefined, moderate, undefined, undefined, 0, [], [undefined, [minoo]]
+    );
+
+    expect(stopsByDay[1][0].placeId).toBe("minoo");
+    expect(stopsByDay[1].length).toBeGreaterThan(1);
   });
 
   it("keeps them on an indoor-first trip, which the traveler left 季節限定 on for", async () => {
@@ -939,5 +951,26 @@ describe("a stop that's part of another", () => {
 
     expect(day).toHaveLength(skeleton.length);
     expect(distancesMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("dayOrigin", () => {
+  const lodging = { lat: 35.68, lng: 139.76 };
+  const stop = (id: string, lat: number) => ({ id, lat, lng: 139.76 });
+  const reserved = (ids: string[]) => (c: { id: string }) => ids.includes(c.id);
+
+  it("starts from the lodging when no reserved place is far off", () => {
+    const group = [stop("a", 35.69), stop("near-highlight", 35.70)]; // ~2km
+    expect(dayOrigin(group, reserved(["near-highlight"]), lodging)).toEqual(lodging);
+  });
+
+  it("starts from the furthest reserved place past 5km", () => {
+    const group = [stop("a", 35.69), stop("far", 35.76), stop("further", 35.86)];
+    expect(dayOrigin(group, reserved(["far", "further"]), lodging)).toEqual({ lat: 35.86, lng: 139.76 });
+  });
+
+  it("ignores a far place that isn't reserved", () => {
+    const group = [stop("a", 35.69), stop("far", 35.86)];
+    expect(dayOrigin(group, reserved([]), lodging)).toEqual(lodging);
   });
 });
