@@ -1422,21 +1422,31 @@ async function stopsWithFixedEvents(
     ),
   ].sort((a, b) => a.start - b.start);
 
-  const [stopCopy, walkOrRide] = await Promise.all([copy, getDistancesForStopPairs(items.map((i) => i.point), legMode)]);
-  // A self-driver walks a hop under 1km as the crow flies, but on 南竿's
-  // winding roads one came out 「步行約 29 分鐘」: drive those instead —
-  // and on an island, a taxi for anyone without a car (「步行約 39 分鐘」).
-  const distances = selfDrive || islandTaxi
-    ? await Promise.all(
-        walkOrRide.map(async (dist, k) =>
-          dist && dist.mode === "walking" && dist.durationSeconds > SELF_DRIVE_LONGEST_WALK_SECONDS
-            ? ((await getDistancesForStopPairs([items[k].point, items[k + 1].point], () => "driving"))[0] ?? dist)
-            : dist
+  const legsAlong = async (along: Item[]) => {
+    const walkOrRide = await getDistancesForStopPairs(along.map((i) => i.point), legMode);
+    // A self-driver walks a hop under 1km as the crow flies, but on 南竿's
+    // winding roads one came out 「步行約 29 分鐘」: drive those instead —
+    // and on an island, a taxi for anyone without a car (「步行約 39 分鐘」).
+    return selfDrive || islandTaxi
+      ? Promise.all(
+          walkOrRide.map(async (dist, k) =>
+            dist && dist.mode === "walking" && dist.durationSeconds > SELF_DRIVE_LONGEST_WALK_SECONDS
+              ? ((await getDistancesForStopPairs([along[k].point, along[k + 1].point], () => "driving"))[0] ?? dist)
+              : dist
+          )
         )
-      )
-    : walkOrRide;
+      : walkOrRide;
+  };
+  const [stopCopy, legs] = await Promise.all([copy, legsAlong(items)]);
   const scheduled = assembleScheduledStops(skeleton, candidateById, stopCopy, skeleton.map(() => null), currency);
-  return items.map((item, k) => {
+  // A stop the copy found to be part of another (箱根神社 and its
+  // 「Heiwa-no-Torii (Hakone Shrine)」, which no name check can match) goes;
+  // the other's description mentions it. Its legs are worked out again
+  // without it — usually cached, except the one leg that now joins its
+  // neighbours.
+  const kept = items.filter((item) => item.skeletonIndex === undefined || !stopCopy.stops[skeleton[item.skeletonIndex].id]?.partOf);
+  const distances = kept.length === items.length ? legs : await legsAlong(kept);
+  return kept.map((item, k) => {
     const dist = k > 0 ? distances[k - 1] : null;
     const base = item.skeletonIndex !== undefined ? scheduled[item.skeletonIndex] : { ...item.stop };
     delete base.transport_from_prev;

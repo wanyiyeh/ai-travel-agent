@@ -56,7 +56,7 @@ const RELATED_PLACE_MAX_KM = 0.5;
  * only stay on the same day, back to back (partitionCandidatesByDay,
  * selectAndOrderStops). Otherwise each got its own half day on different days.
  */
-function isRelatedPlace(a: PlaceCandidate, b: PlaceCandidate): boolean {
+export function isRelatedPlace(a: { name: string; lat: number; lng: number }, b: { name: string; lat: number; lng: number }): boolean {
   const an = a.name.trim().toLowerCase();
   const bn = b.name.trim().toLowerCase();
   if (!an || !bn || !(an.startsWith(bn) || bn.startsWith(an))) return false;
