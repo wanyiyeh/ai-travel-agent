@@ -500,6 +500,25 @@ describe("generateThemedDayStops — seasonal day", () => {
     expect(stopsByDay[1].length).toBeGreaterThan(1);
   });
 
+  it("keeps a day with an in-town highlight to its area, topped up around it", async () => {
+    // 釜山大學 (6.8km out of town) shared its 賞楓 day with X the SKY, 11.6km away
+    const university = highlight("university", 35.74); // ~6.7km north of the center
+    const farOff = { ...POOL[0], name: "far-off", placeId: "far-off", lat: 35.68, lng: 139.86 }; // ~13km from it
+    const around = Array.from({ length: 4 }, (_, i) => ({ ...POOL[0], name: `around${i}`, placeId: `around${i}`, lat: 35.742 + i * 0.001, lng: 139.762 }));
+    nearbyMock.mockImplementation(async (_c: unknown, _k: unknown, types: string[], radius: number) =>
+      radius === 3000 ? around : types.includes("tourist_attraction") ? [farOff] : []
+    );
+
+    const { stopsByDay } = await generateThemedDayStops(
+      "東京", 2, "JPY", [], undefined, moderate, undefined, undefined, 0, [], [undefined, [university]]
+    );
+
+    const ids = stopsByDay[1].map((s) => String(s.placeId));
+    expect(ids).toContain("university");
+    expect(ids).not.toContain("far-off");
+    expect(ids.some((id) => id.startsWith("around"))).toBe(true);
+  });
+
   it("keeps them on an indoor-first trip, which the traveler left 季節限定 on for", async () => {
     const museums = Array.from({ length: 20 }, (_, i) => ({ ...POOL[i], types: ["tourist_attraction", "museum"] }));
     nearbyMock.mockResolvedValue(museums);

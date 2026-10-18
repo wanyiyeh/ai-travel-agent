@@ -60,21 +60,28 @@ export type PartitionOptions = {
    * between every pair, not from the seed: from 皇居, in the middle of 東京,
    * 4km reached both 新宿御苑 and 上野, 6.5km apart. A reserved candidate (a
    * seasonal highlight) still goes on its day wherever it is and doesn't
-   * count against the others, and a day that starts from one isn't limited
-   * at all: 箕面公園, 15km out of 大阪, left its 賞楓 day short, and topping
-   * it up around 箕面 brought its own waterfall and observatory — the whole
-   * day in one park, where the day used to be 箕面 in the morning and the
-   * city after.
+   * count against the others — unless it's the day's seed, which the rest
+   * keep to like any seed. See suburbReservedKm for one that isn't limited.
    */
   maxApartKm?: number;
+  /**
+   * How far from `anchor` a reserved seed must be for its day to be left
+   * unlimited: 箕面公園, 20km out of 大阪, left its 賞楓 day short, and topping
+   * it up around 箕面 brought its own waterfall and observatory — the whole
+   * day in one park, where the day used to be 箕面 in the morning and the
+   * city after. Inside town that freedom went too far: 釜山大學's 賞楓 day
+   * took X the SKY from 海雲台, 11.6km away. Undefined: every reserved seed
+   * is unlimited.
+   */
+  suburbReservedKm?: number;
 };
 
 export type PartitionResult = {
   days: StopCandidate[][];
   /**
    * Each day's seed — where fillShortDays looks for more. Undefined for a day
-   * that got nothing, or one that starts from its reserved candidate (not
-   * limited by maxApartKm, so not topped up either).
+   * that got nothing, or one that starts from a reserved candidate out of
+   * town (not limited by maxApartKm, so not topped up either).
    */
   seeds: (StopCandidate | undefined)[];
 };
@@ -166,9 +173,13 @@ export function partitionCandidatesWithSeeds(
       return;
     }
     const day = take(groupOf(seed));
-    const reservedSeed = options.reservedDay?.(seed) === dayIdx;
+    const unlimited =
+      options.reservedDay?.(seed) === dayIdx &&
+      (options.suburbReservedKm === undefined ||
+        anchor === undefined ||
+        haversineKm(anchor.lat, anchor.lng, seed.lat, seed.lng) > options.suburbReservedKm);
     const inReach = (c: StopCandidate) =>
-      reservedSeed || options.reservedDay?.(c) === dayIdx || withinApart(day, c, options, dayIdx);
+      unlimited || options.reservedDay?.(c) === dayIdx || withinApart(day, c, options, dayIdx, seed);
 
     // The same score as the seed's, but measured from the seed instead of the
     // lodging, so the day stays in one area. Picking by distance alone undid the
@@ -192,7 +203,7 @@ export function partitionCandidatesWithSeeds(
     fill(count, () => true);
 
     days.push(day);
-    seeds.push(reservedSeed ? undefined : seed);
+    seeds.push(unlimited ? undefined : seed);
   });
 
   return { days, seeds };
@@ -227,7 +238,7 @@ export function fillShortDays(
     for (const candidate of ranked) {
       if (filled.length >= target) break;
       if (!remaining.includes(candidate)) continue; // taken with its group
-      if (!withinApart(filled, candidate, options, dayIdx)) continue;
+      if (!withinApart(filled, candidate, options, dayIdx, seed)) continue;
       const group = candidate.groupId ? remaining.filter((r) => r.groupId === candidate.groupId) : [candidate];
       if (filled.length + group.length > target) continue;
       for (const c of group) remaining.splice(remaining.indexOf(c), 1);
@@ -237,14 +248,17 @@ export function fillShortDays(
   });
 }
 
-/** Whether `c` is within maxApartKm of each of the day's places, reserved ones aside. */
+/** Whether `c` is within maxApartKm of each of the day's places — reserved ones aside, except the seed. */
 function withinApart(
   day: StopCandidate[],
   c: StopCandidate,
   options: Pick<PartitionOptions, "maxApartKm" | "reservedDay">,
-  dayIdx: number
+  dayIdx: number,
+  seed: StopCandidate
 ): boolean {
   const { maxApartKm } = options;
   if (maxApartKm === undefined) return true;
-  return day.every((d) => options.reservedDay?.(d) === dayIdx || haversineKm(d.lat, d.lng, c.lat, c.lng) <= maxApartKm);
+  return day.every(
+    (d) => (d !== seed && options.reservedDay?.(d) === dayIdx) || haversineKm(d.lat, d.lng, c.lat, c.lng) <= maxApartKm
+  );
 }
