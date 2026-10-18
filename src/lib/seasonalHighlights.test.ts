@@ -25,7 +25,7 @@ vi.mock("@/lib/climate", async (importOriginal) => ({
   getClimate: (...args: unknown[]) => climateMock(...args),
 }));
 
-const { findSeasonalDay, listSeasonalHighlights, nightHighlightEvent, pickHighlightMatch, seasonalDayIndex } = await import(
+const { findSeasonalDay, listSeasonalHighlights, nearbyHighlights, nightHighlightEvent, pickHighlightMatch, seasonalDayIndex } = await import(
   "@/lib/seasonalHighlights"
 );
 
@@ -109,16 +109,16 @@ describe("pickHighlightMatch", () => {
 describe("findSeasonalDay", () => {
   const byName: Record<string, PlaceCandidate> = { 東福寺: tofukuji, 嵐山: arashiyama, 永觀堂: eikando };
 
-  it("confirms each listed place with Text Search", async () => {
+  it("confirms each listed place with Text Search, and keeps the ones near each other", async () => {
     aiReturns(fall);
     textSearchMock.mockImplementation(async (name: string) => [byName[name]]);
 
     const day = await findSeasonalDay("京都", kyoto, "key", "2026-11-20", "m", new Set());
 
     expect(day?.label).toBe("賞楓");
+    // 嵐山 is ~9km west of the other two
     expect(day?.highlights.map((h) => [h.place.placeId, h.night])).toEqual([
       ["東福寺", false],
-      ["嵐山", false],
       ["永觀堂", true],
     ]);
     expect(textSearchMock.mock.calls[0].slice(0, 4)).toEqual(["東福寺", kyoto, "key", 30000]);
@@ -130,7 +130,7 @@ describe("findSeasonalDay", () => {
 
     const day = await findSeasonalDay("京都", kyoto, "key", "2027-04-01", "m", new Set());
 
-    expect(day?.highlights.map((h) => h.night)).toEqual([true, false, false]);
+    expect(day?.highlights.map((h) => h.night)).toEqual([true, false]);
   });
 
   it("isn't a day's theme with fewer than 2 places found", async () => {
@@ -147,7 +147,8 @@ describe("findSeasonalDay", () => {
 
     const day = await findSeasonalDay("京都", kyoto, "key", "2027-01-10", "m", new Set());
 
-    expect(day?.highlights.map((h) => h.place.placeId)).toEqual(["嵐山", "永觀堂"]);
+    // 嵐山 and 永觀堂 are ~11km apart, so the first listed keeps the day
+    expect(day?.highlights.map((h) => h.place.placeId)).toEqual(["嵐山"]);
     expect(textSearchMock).toHaveBeenCalledTimes(2);
   });
 
@@ -179,5 +180,43 @@ describe("seasonalDayIndex", () => {
   it("skips every taken day, for a second themed day", () => {
     expect(seasonalDayIndex([0, 0, 0, 0], [1, 2])).toBe(3);
     expect(seasonalDayIndex([0, 0, 0], [1, 2])).toBe(0);
+  });
+});
+
+describe("nearbyHighlights", () => {
+  const at = (name: string, lat: number, lng: number) => ({ name, place: { lat, lng } });
+  const names = (list: { name: string }[]) => list.map((h) => h.name);
+
+  it("keeps the most places within 5km of each other", () => {
+    // 東京's November list: 18km from 井之頭 to 上野, all on one day
+    const tokyo = [
+      at("上野恩賜公園", 35.7156, 139.7745),
+      at("新宿御苑", 35.6852, 139.7101),
+      at("明治神宮外苑", 35.6788, 139.7186),
+      at("井之頭恩賜公園", 35.6997, 139.5732),
+    ];
+    expect(names(nearbyHighlights(tokyo))).toEqual(["新宿御苑", "明治神宮外苑"]);
+  });
+
+  it("keeps the first alone when no two are close", () => {
+    // 大阪's October list, 18.8km apart: 箕面 has the day
+    const osaka = [at("箕面公園", 34.8536, 135.4716), at("大阪城公園", 34.6873, 135.5262)];
+    expect(names(nearbyHighlights(osaka))).toEqual(["箕面公園"]);
+  });
+
+  it("prefers the group with the earlier places when two are as big", () => {
+    const list = [at("a", 0, 0), at("far", 0, 0.5), at("b", 0, 0.01), at("c", 0, 0.51)];
+    expect(names(nearbyHighlights(list))).toEqual(["a", "b"]);
+  });
+
+  it("keeps a whole list that's close together", () => {
+    // 鎌倉's November list, 3.4km end to end
+    const kamakura = [
+      at("長谷寺", 35.3125, 139.5332),
+      at("鶴岡八幡宮", 35.3259, 139.5564),
+      at("報國寺", 35.3195, 139.5715),
+      at("源氏山公園", 35.3236, 139.5413),
+    ];
+    expect(nearbyHighlights(kamakura)).toHaveLength(4);
   });
 });

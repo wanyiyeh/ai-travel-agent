@@ -107,6 +107,10 @@ const MAX_HIGHLIGHT_KM = 30;
 const NOT_A_SIGHT = ["lodging", "hotel", "restaurant", "food", "cafe", "bar", "store", "meal_takeaway"];
 // Fewer than this and it's not a day's theme.
 const MIN_HIGHLIGHTS = 2;
+// How far apart a seasonal day's places may be — the same limit as any
+// sightseeing day (itineraryCityGen.ts DAY_APART_KM). 東京's November list
+// was 上野, 新宿御苑, 明治神宮外苑 and 井之頭公園, 18km end to end, all on one day.
+const HIGHLIGHTS_APART_KM = 5;
 
 /** The search result that is really the listed place: a sight, near the city, not used yet. */
 export function pickHighlightMatch(
@@ -146,18 +150,53 @@ export async function findSeasonalDay(
     wanted.map((h) => searchTextCandidates(h.name, center, apiKey, MAX_HIGHLIGHT_KM * 1000).catch(() => [] as PlaceCandidate[]))
   );
 
-  // One evening per day: a spring list came back all night (夜櫻), and four
-  // places were booked for the same 18:30 slot while the daytime filled with
-  // unrelated sights. The rest are worth seeing by day anyway.
   const taken = new Set(usedPlaceIds);
-  const highlights: SeasonalHighlight[] = [];
+  const found: { place: PlaceCandidate; night: boolean; note: string }[] = [];
   wanted.forEach((h, i) => {
     const place = pickHighlightMatch(matches[i], center, taken);
     if (!place) return;
     taken.add(place.placeId);
-    highlights.push({ place, night: h.night && !highlights.some((x) => x.night), note: h.note });
+    found.push({ place, night: h.night, note: h.note });
   });
-  return highlights.length >= MIN_HIGHLIGHTS ? { label: list.label.trim() || "季節限定", highlights } : undefined;
+  if (found.length < MIN_HIGHLIGHTS) return undefined;
+
+  // One evening per day: a spring list came back all night (夜櫻), and four
+  // places were booked for the same 18:30 slot while the daytime filled with
+  // unrelated sights. The rest are worth seeing by day anyway.
+  const highlights: SeasonalHighlight[] = [];
+  for (const h of nearbyHighlights(found)) {
+    highlights.push({ ...h, night: h.night && !highlights.some((x) => x.night) });
+  }
+  return { label: list.label.trim() || "季節限定", highlights };
+}
+
+/**
+ * The most places of the list that are all within HIGHLIGHTS_APART_KM of each
+ * other, in list order (the model lists the best first, so a tie goes to the
+ * group with the earlier places). With no two that close, the first alone:
+ * 大阪's October list was 箕面公園 and 大阪城公園, 18.8km apart, and a season
+ * the traveler asked for shouldn't vanish over it — 箕面 then has the day,
+ * 大阪城 stays in the city's pool for another one.
+ */
+export function nearbyHighlights<T extends { place: { lat: number; lng: number } }>(found: T[]): T[] {
+  let best: number[] = found.length > 0 ? [0] : [];
+  // At most MAX_LISTED places, so every subset is few enough to check.
+  for (let mask = 1; mask < 1 << found.length; mask++) {
+    const group = found.map((_, i) => i).filter((i) => mask & (1 << i));
+    const earlier = group.length > best.length || (group.length === best.length && isEarlier(group, best));
+    if (!earlier) continue;
+    const close = group.every((a) =>
+      group.every((b) => haversineKm(found[a].place.lat, found[a].place.lng, found[b].place.lat, found[b].place.lng) <= HIGHLIGHTS_APART_KM)
+    );
+    if (close) best = group;
+  }
+  return best.map((i) => found[i]);
+}
+
+/** Whether index list `a` comes before `b` (same length), first differing index lower. */
+function isEarlier(a: number[], b: number[]): boolean {
+  const k = a.findIndex((v, i) => v !== b[i]);
+  return k !== -1 && a[k] < b[k];
 }
 
 // An illumination after dinner time's start, before the last trains.
