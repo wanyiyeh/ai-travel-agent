@@ -162,6 +162,15 @@ describe("generateSkeletonCopy — partOf", () => {
     expect([result.stops.shrine.partOf, result.stops.torii.partOf].filter(Boolean)).toHaveLength(1);
   });
 
+  it("ignores a partOf between places more than 1km apart", async () => {
+    // 「Minookoen」, 18km out in 箕面, went missing from a day with 大阪城
+    const castle: RestaurantHint = { name: "大阪城", lat: 34.6873, lng: 135.5262 };
+    const minoo: RestaurantHint = { name: "Minookoen", lat: 34.8536, lng: 135.4716 };
+    copyOf({ castle: { description: "d" }, minoo: { description: "d", partOf: "castle" } });
+    const result = await run([["castle", castle], ["minoo", minoo]]);
+    expect(result.stops.minoo.partOf).toBeUndefined();
+  });
+
   it("leaves a pair the name check already relates as two stops", async () => {
     // 倫敦塔 and 倫敦塔橋 are two sights, 298m apart; 淺草寺 and its 雷門 stay back to back
     const tower: RestaurantHint = { name: "倫敦塔", lat: 51.5081, lng: -0.0759 };

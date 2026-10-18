@@ -3,6 +3,7 @@ import { SkeletonCopySchema, type SkeletonCopy, type PreferenceIntent } from "@/
 import type { SkeletonStop } from "@/lib/scheduler/buildDaySkeleton";
 import type { RestaurantHint } from "@/lib/fetchCityRestaurants";
 import { isRelatedPlace } from "@/lib/scheduler/placeCandidatesToStopCandidates";
+import { haversineKm } from "@/lib/geo";
 
 const PACE_LABEL: Record<NonNullable<PreferenceIntent["pace"]>, string> = {
   relaxed: "步調放鬆、悠閒",
@@ -126,12 +127,17 @@ export async function generateSkeletonCopy(
   return { dayTheme: parsed?.dayTheme, stops };
 }
 
+// How far a part can be from what it's part of: a torii 230m from its shrine,
+// a waterfall's observatory 125m from it. 「Minookoen」, 18km out in 箕面,
+// went missing from a day with 大阪城 — taken, it seems, for part of 大阪城公園.
+const PART_OF_MAX_KM = 1;
+
 /**
- * Whether the model's `partOf` can stand: another of the day's stops, not
- * itself pointing elsewhere (no chains or loops), and not a pair the name
- * check already relates (placeCandidatesToStopCandidates' isRelatedPlace).
- * Those stay as two stops back to back on purpose — 淺草寺 and its 雷門,
- * and 倫敦塔 with 倫敦塔橋, which are two different sights.
+ * Whether the model's `partOf` can stand: another of the day's stops, within
+ * PART_OF_MAX_KM of it, not itself pointing elsewhere (no chains or loops),
+ * and not a pair the name check already relates (placeCandidatesToStopCandidates'
+ * isRelatedPlace). Those stay as two stops back to back on purpose — 淺草寺
+ * and its 雷門, and 倫敦塔 with 倫敦塔橋, which are two different sights.
  */
 function isPartOfAllowed(
   id: string,
@@ -142,8 +148,7 @@ function isPartOfAllowed(
   if (target === id || !(target in stops) || stops[target].partOf !== undefined) return false;
   const a = hintById.get(id);
   const b = hintById.get(target);
-  if (a?.lat != null && a.lng != null && b?.lat != null && b.lng != null) {
-    return !isRelatedPlace({ name: a.name, lat: a.lat, lng: a.lng }, { name: b.name, lat: b.lat, lng: b.lng });
-  }
-  return true;
+  if (a?.lat == null || a.lng == null || b?.lat == null || b.lng == null) return false;
+  if (haversineKm(a.lat, a.lng, b.lat, b.lng) > PART_OF_MAX_KM) return false;
+  return !isRelatedPlace({ name: a.name, lat: a.lat, lng: a.lng }, { name: b.name, lat: b.lat, lng: b.lng });
 }
