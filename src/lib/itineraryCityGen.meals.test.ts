@@ -12,6 +12,7 @@ vi.mock("@/lib/openai", () => ({
 }));
 vi.mock("@/lib/placesTextSearch", () => ({
   getCityCenter: async () => ({ lat: 35.01, lng: 135.77 }),
+  sightAreasFor: () => undefined,
 }));
 // Fixed rate so budget ranking is deterministic and nothing hits the network.
 vi.mock("@/lib/exchangeRate", () => ({ getTwdRates: async () => ({ TWD: 1, JPY: 0.2 }) }));
