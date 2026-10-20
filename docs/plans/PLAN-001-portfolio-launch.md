@@ -57,7 +57,8 @@ created: 2026-10-20
 
 **脫水／補水邊界**：程式內部的 `Stop`、`Meal`、`Accommodation` 形狀不變。
 - **寫入時脫水**：所有寫入 `Itinerary.days`、候選紀錄、垃圾桶的路徑，都經過同一個函式移除 Google 欄位，只留 place ID、座標與取得時間、我們自己的內容。放在 `src/lib/db.ts` 的 extension（它已經負責 `days` 的 JSON 轉換），所以不會有路徑漏掉。
-- **讀取時補水**：API 回傳行程前，只對需要顯示的天數向 Google 查名稱、地址（Pro 等級）；同一請求內合併重複的 place ID，不跨請求快取。評分、照片走「點開才查」的端點。
+- **讀取時補水**：API 回傳行程前，只對需要顯示的天數向 Google 查名稱、地址（Pro 等級）；同一請求內合併重複的 place ID，不跨請求快取。評分、照片在詳情面板由 Places UI Kit 顯示（ADR-0005）。
+- **伺服器端也補水**（2026-10-20 決定）：編輯、重新規劃、補介紹文字等流程也會從資料庫讀出名稱來用。補水接在所有路由共用的 `authorizeItinerary`，只補這次操作用到的那一天。
 - **生成與編輯**：同一個請求內照常使用即時的 Google 資料（使用不等於儲存）；編輯流程需要名稱時，先補水該天。
 
 **快取調整**：保留 `PlaceQuery`（查詢字串 → place ID）、`CityCenterMissCache`（確定找不到）。`Place` 表只留 place ID 與座標；`NearbyPlaceCandidatesCache`、`CityPlaceHintsCache` 改成只存 place ID 與座標；`DistanceCache`、`NearestStationCache` 的內容移除。生成成本因此上升，以 #188（Nearby 降到 Pro）抵銷。
@@ -81,13 +82,13 @@ created: 2026-10-20
 
 4. #198 A0：用 `dev:mock` 重新量測一次生成的 Google 呼叫次數（OpenAI 真實，約 US$0.01，先詢問）。`usageMeter.ts` 的統計除了印 log，也寫進資料庫（Vercel Hobby 的 log 保留很短），上線後才能回頭計算成本。
 5. #199 A1：決定顯示方式（自建補水 vs Places UI Kit），確認 UI Kit 的計費單位與樣式限制，結果寫成 ADR。
-6. #200 A2：脫水函式與可儲存欄位白名單，接進 `db.ts`；測試確保 Google 欄位寫不進資料庫。
-7. #201 A3：補水：行程讀取路徑只補需要的天數；評分、照片點開才查；查詢失敗時降級顯示。
+6. #200 A2：脫水函式與可儲存欄位白名單，接進 `db.ts`；測試確保 Google 欄位寫不進資料庫。先以 `COMPLIANT_PLACE_STORAGE=1` 開關控制，補水完成前預設關閉。
+7. #201 A3：補水：行程讀取路徑只補需要的天數；伺服器端在 `authorizeItinerary` 補這次操作用到的那一天；查詢失敗時降級顯示。
 8. #202 A4：行程頁預設只展開第一天，展開時才補水。
 9. #203 A5：快取表調整（見設計摘要），以及生成、編輯流程改用同一請求內的即時資料。
 10. #204 A6：座標加上取得時間；排程刪除超過 30 天的座標，需要時重新取得。
 11. #205 A7：Google Maps 出處標示、照片作者與原始頁面連結。
-12. #206 A8：清理遷移腳本：把現有行程、候選紀錄、垃圾桶的 Google 欄位移除，以及稽核腳本。
+12. #206 A8：清理遷移腳本：把現有行程、候選紀錄、垃圾桶的 Google 欄位移除，以及稽核腳本；最後把 `COMPLIANT_PLACE_STORAGE` 改成一律開啟並移除開關。
 13. #188 Nearby Search 降到 Pro 欄位。
 14. #207 用書面向 Google 詢問灰色地帶：讓 LLM 以地點名稱產生介紹是否違反 3.2.3(c)（使用者送出）。
 

@@ -1,5 +1,13 @@
 import { PrismaClient } from "@prisma/client";
 import { assertMockPlacesDatabase } from "@/lib/mockPlaces";
+import {
+  isCompliantPlaceStorage,
+  stripCandidates,
+  stripDay,
+  stripDays,
+  stripJsonField,
+  stripStop,
+} from "@/lib/placeStorage";
 
 // Refuse to start with MOCK_PLACES pointed at a real DB — fake places would be
 // cached into it and keep being served after mock mode is turned off.
@@ -34,6 +42,7 @@ function makePrisma() {
     query: {
       itinerary: {
         async create({ args, query }) {
+          if (args.data.days && isCompliantPlaceStorage()) args.data.days = stripJsonField(args.data.days, stripDays) as never;
           if (args.data.days && typeof args.data.days !== "string") {
             args.data.days = JSON.stringify(args.data.days) as never;
           }
@@ -43,12 +52,52 @@ function makePrisma() {
           return query(args);
         },
         async update({ args, query }) {
+          if (args.data.days && isCompliantPlaceStorage()) args.data.days = stripJsonField(args.data.days, stripDays) as never;
           if (args.data.days && typeof args.data.days !== "string") {
             args.data.days = JSON.stringify(args.data.days) as never;
           }
           if (args.data.config && typeof args.data.config !== "string") {
             args.data.config = JSON.stringify(args.data.config) as never;
           }
+          return query(args);
+        },
+      },
+      // Trash and candidate history keep whole stops, days and candidate
+      // lists, so they're stripped the same way (ADR-0004, placeStorage.ts).
+      deletedStop: {
+        async create({ args, query }) {
+          if (isCompliantPlaceStorage()) args.data.stop = stripJsonField(args.data.stop, stripStop) as string;
+          return query(args);
+        },
+      },
+      deletedDay: {
+        async create({ args, query }) {
+          if (isCompliantPlaceStorage()) args.data.day = stripJsonField(args.data.day, stripDay) as string;
+          return query(args);
+        },
+        async createMany({ args, query }) {
+          if (isCompliantPlaceStorage()) {
+            const rows = Array.isArray(args.data) ? args.data : [args.data];
+            for (const row of rows) row.day = stripJsonField(row.day, stripDay) as string;
+          }
+          return query(args);
+        },
+      },
+      accommodationCandidateLog: {
+        async create({ args, query }) {
+          if (isCompliantPlaceStorage()) args.data.candidates = stripJsonField(args.data.candidates, stripCandidates) as string;
+          return query(args);
+        },
+      },
+      mealCandidateLog: {
+        async create({ args, query }) {
+          if (isCompliantPlaceStorage()) args.data.candidates = stripJsonField(args.data.candidates, stripCandidates) as string;
+          return query(args);
+        },
+      },
+      stopCandidateLog: {
+        async create({ args, query }) {
+          if (isCompliantPlaceStorage()) args.data.candidates = stripJsonField(args.data.candidates, stripCandidates) as string;
           return query(args);
         },
       },
