@@ -73,8 +73,20 @@ function locateByText(text: string): LatLng {
   return { lat: ((h % 11000) / 100) - 50, lng: (((h >>> 8) % 36000) / 100) - 180 };
 }
 
+// The name rides in the id, so a later Place Details request for it (when
+// the stored itinerary only kept the id, ADR-0004) answers with the same name.
+function mockPlaceId(seed: string, name: string): string {
+  return `mock-${hash(seed).toString(16)}-${Buffer.from(name, "utf8").toString("base64url")}`;
+}
+
+function nameFromMockId(id: string): string {
+  const encoded = id.split("-").slice(2).join("-");
+  const name = encoded ? Buffer.from(encoded, "base64url").toString("utf8") : "";
+  return name || `Mock place ${id}`;
+}
+
 function fakePlace(seed: string, name: string, at: LatLng, extra: Record<string, unknown> = {}) {
-  const id = `mock-${hash(seed).toString(16)}`;
+  const id = mockPlaceId(seed, name);
   return {
     id,
     displayName: { text: name },
@@ -163,6 +175,15 @@ function applyFieldMask(data: { places: Record<string, unknown>[] }, mask: strin
   return { places: data.places.map((p) => Object.fromEntries(Object.entries(p).filter(([k]) => keep.has(k)))) };
 }
 
+// Place Details (GET /v1/places/{id}): the field mask has no "places." prefix.
+function mockPlaceDetails(url: string, mask: string[] | null) {
+  const id = decodeURIComponent(url.split("/v1/places/")[1].split("?")[0]);
+  const name = nameFromMockId(id);
+  const place: Record<string, unknown> = { id, displayName: { text: name }, formattedAddress: `Mock address — ${name}` };
+  if (!mask || mask.includes("*")) return place;
+  return Object.fromEntries(Object.entries(place).filter(([k]) => mask.includes(k)));
+}
+
 // Fake response for a Google API request, shaped like the real one.
 export function mockGoogleResponse(url: string, init?: RequestInit): Response {
   const body = init?.body ? JSON.parse(String(init.body)) : {};
@@ -170,6 +191,7 @@ export function mockGoogleResponse(url: string, init?: RequestInit): Response {
   if (url.includes("places:searchText")) data = applyFieldMask(mockTextSearch(body), fieldMaskOf(init));
   else if (url.includes("places:searchNearby")) data = applyFieldMask(mockNearbySearch(body), fieldMaskOf(init));
   else if (url.includes("computeRouteMatrix")) data = mockRouteMatrix(body);
+  else if (/\/v1\/places\/[^/:?]+(\?|$)/.test(url)) data = mockPlaceDetails(url, fieldMaskOf(init));
   else return new Response(JSON.stringify({ error: `MOCK_PLACES: unhandled URL ${url}` }), { status: 501 });
   return new Response(JSON.stringify(data), { status: 200, headers: { "Content-Type": "application/json" } });
 }
