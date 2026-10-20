@@ -21,6 +21,12 @@ async function readEvents(res: Response): Promise<StreamEvent[]> {
     .map((chunk) => JSON.parse(chunk.slice("data: ".length)) as StreamEvent);
 }
 
+// By host, not substring: a URL can mention a domain anywhere in its path.
+const isHost = (url: string, domain: string) => {
+  const host = new URL(url).hostname;
+  return host === domain || host.endsWith(`.${domain}`);
+};
+
 function fakeNetwork() {
   const urls: string[] = [];
   vi.stubGlobal(
@@ -28,7 +34,7 @@ function fakeNetwork() {
     vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
       urls.push(url);
-      if (url.includes("googleapis.com")) return mockGoogleResponse(url, init);
+      if (isHost(url, "googleapis.com")) return mockGoogleResponse(url, init);
       // Weather and exchange rates are free; an empty answer is enough here.
       return new Response("{}", { status: 404 });
     }),
@@ -79,7 +85,7 @@ describe("generate-stream with MOCK_AI and faked Google", () => {
     const saved = await prisma.itinerary.findUnique({ where: { id: complete!.id } });
     expect(saved).not.toBeNull();
 
-    expect(urls.filter((u) => u.includes("openai.com"))).toEqual([]);
+    expect(urls.filter((u) => isHost(u, "openai.com"))).toEqual([]);
   });
 
   it("with MOCK_AI=error the fallback is refused too, so the traveler gets an error and nothing is billed", async () => {
@@ -96,6 +102,6 @@ describe("generate-stream with MOCK_AI and faked Google", () => {
 
     expect(events.find((e) => e.type === "complete")).toBeUndefined();
     expect(events.map((e) => e.type)).toContain("error");
-    expect(urls.filter((u) => u.includes("openai.com"))).toEqual([]);
+    expect(urls.filter((u) => isHost(u, "openai.com"))).toEqual([]);
   });
 });
