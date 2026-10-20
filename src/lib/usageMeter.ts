@@ -26,9 +26,34 @@ export async function runMetered<T>(label: string, fn: () => Promise<T>): Promis
     try {
       return await fn();
     } finally {
-      console.info(`[usage] ${label} ${JSON.stringify(summarize(tally))}`);
+      const summary = summarize(tally);
+      console.info(`[usage] ${label} ${JSON.stringify(summary)}`);
+      await saveMeasurement(label, summary);
     }
   });
+}
+
+// Hosted logs don't last (Vercel Hobby keeps them briefly), so each tally is
+// also kept as a UsageMeasurement row. Best-effort: a failed write never
+// fails the request it measured.
+async function saveMeasurement(label: string, summary: ReturnType<typeof summarize>): Promise<void> {
+  try {
+    // Imported here so code that only counts calls doesn't load Prisma.
+    const { prisma } = await import("@/lib/db");
+    await prisma.usageMeasurement.create({
+      data: {
+        label,
+        google: JSON.stringify(summary.google),
+        googleTotal: summary.googleTotal,
+        openaiCalls: summary.openai.calls,
+        promptTokens: summary.openai.promptTokens,
+        completionTokens: summary.openai.completionTokens,
+        mock: Boolean(process.env.MOCK_PLACES && process.env.MOCK_PLACES !== "0") || Boolean(process.env.MOCK_AI),
+      },
+    });
+  } catch (err) {
+    console.warn(`[usage] ${label}: couldn't save the measurement`, err);
+  }
 }
 
 export function currentTally(): UsageTally | undefined {

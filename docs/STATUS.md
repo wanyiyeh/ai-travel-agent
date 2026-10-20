@@ -6,18 +6,19 @@
 
 ## 現在在做什麼
 
-[PLAN-001](plans/PLAN-001-portfolio-launch.md) 作品集上線，進行中（父 issue #196）。第一張子 issue #182（`MOCK_AI` 涵蓋整個生成流程）的 PR 已開，分支 `plan-001-mock-ai-generate`，等使用者合併。
+[PLAN-001](plans/PLAN-001-portfolio-launch.md) 作品集上線，進行中（父 issue #196）。#182（`MOCK_AI` 涵蓋整個生成流程）已合併。#198（A0：量測生成花費、用量寫進資料庫）的 PR 已開，分支 `plan-001-usage-metering`，等使用者合併。
 
-完成後的狀態：`npm run dev:free` 可以完全不花錢地生成整份行程；沒有 mock 的 OpenAI 呼叫在 `MOCK_AI` 下會被擋下而不是計費。
+量測結果：一次生成（快取全部沒命中）Google 約 US$0.52～0.79、OpenAI 約 US$0.003，每月約 500 次生成在 Google 免費額度內。方法與數字見 [runbook](runbook.md)。
 
 ## 下一步
 
 1. 使用者操作：#181（GCP 預算通知、OpenAI 硬上限）、#197（確認 OpenAI 沒有分享資料給訓練）。
-2. #198 A0：量測一次生成的 Google 呼叫次數（`npm run dev:mock`，OpenAI 真實約 US$0.01，執行前先詢問），並把用量寫進資料庫。
-3. #199 A1：決定地點顯示方式（自建補水 vs Places UI Kit）。
+2. #199 A1：決定地點顯示方式（自建補水 vs Places UI Kit），寫成 ADR。
+3. 之後依序做 #200（脫水）、#201（補水）。
 
 ## 卡點與待決定
 
+- 每日 Google 上限 US$3 只夠約 4 次生成，低於 app 的全站每日上限；在 #213 決定提高上限、降低生成上限或減少查詢（已記在 #213）。
+- #188（Nearby 降到 Pro）的效益變小：每次生成的 Nearby Enterprise 只剩 1～2 次。
 - 改造完成前，`.claude/rules/google-places.md` 禁止新增任何儲存 Google 內容的快取。
-- 開放資料來源（Foursquare、OSM）的試做屬於營利階段，尚未開 issue。
 - Dependabot PR #170、#47 還開著。
