@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import type { StopCandidate } from "@/types/itinerary";
 import { internalErrorResponse } from "@/lib/apiError";
 import { authorizeItinerary } from "@/lib/auth/ownership";
+import { hydratePlacesMetered } from "@/lib/placeDisplay";
 
 const PAGE_SIZE = 3;
 
@@ -38,6 +39,9 @@ export async function GET(
       createdAt: log.createdAt,
       candidates: JSON.parse(log.candidates) as StopCandidate[],
     }));
+
+    // Logs keep place IDs only (ADR-0004): names come back from Google.
+    await hydratePlacesMetered(history.flatMap((entry) => entry.candidates));
 
     const nextCursor = hasMore ? page[page.length - 1].id : null;
 

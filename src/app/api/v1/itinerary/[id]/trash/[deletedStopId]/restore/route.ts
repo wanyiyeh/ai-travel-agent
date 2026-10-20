@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma, j } from "@/lib/db";
 import type { Stop } from "@/types/itinerary";
 import { authorizeItinerary } from "@/lib/auth/ownership";
+import { hydratePlacesMetered } from "@/lib/placeDisplay";
 
 export async function POST(
   _request: Request,
@@ -42,6 +43,8 @@ export async function POST(
       prisma.deletedStop.delete({ where: { id: deletedStopId } }),
     ]);
 
+    // Saved with its place ID only (ADR-0004); the page shows it right away.
+    await hydratePlacesMetered([stop]);
     return NextResponse.json({ success: true, stop, dayId: entry.dayId });
   } catch (error) {
     console.error("[Trash Restore Error]", error);

@@ -8,6 +8,7 @@ import { isRecentEnrichFailure, enrichFailureMarker } from "@/lib/enrichFailure"
 import { MAX_NAME_LENGTH } from "@/lib/inputLimits";
 import { internalErrorResponse } from "@/lib/apiError";
 import { authorizeItinerary } from "@/lib/auth/ownership";
+import { hydratePlacesMetered } from "@/lib/placeDisplay";
 
 // `context` (the trip's destination city) becomes part of a Google Text
 // Search query and a city-center lookup, so it's capped like any name.
@@ -58,6 +59,9 @@ export async function POST(
 
     // Early return if already fully enriched
     if (targetStop.placeId && targetStop.lat && targetStop.lng) {
+      // Stored with its place ID only (ADR-0004); the map writes these
+      // fields onto the stop, so a missing address mustn't blank it.
+      await hydratePlacesMetered([targetStop]);
       return NextResponse.json({
         success: true,
         placeId: targetStop.placeId,

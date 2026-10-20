@@ -1,4 +1,5 @@
 import { googleFetch } from "@/lib/googleFetch";
+import { runMetered } from "@/lib/usageMeter";
 
 /**
  * Fetches back what may not be stored (ADR-0004): a place's name and
@@ -99,8 +100,19 @@ function isChosen(day: Rec, which: DaysToHydrate): boolean {
 
 export async function hydrateDays<T>(days: T[], which: DaysToHydrate): Promise<T[]> {
   const chosen = (days as unknown as Rec[]).filter((d) => d && typeof d === "object" && isChosen(d, which));
-  const items = chosen.flatMap(itemsOf).filter(needsDisplay);
-  if (items.length === 0) return days;
+  await hydratePlaces(chosen.flatMap(itemsOf));
+  return days;
+}
+
+/**
+ * Same as hydrateDays, for loose place items: a trashed stop, a page of
+ * candidate history. Changed in place and returned.
+ */
+export async function hydratePlaces<T>(places: T[]): Promise<T[]> {
+  const items = (places as unknown as Rec[]).filter((p) => p && typeof p === "object" && needsDisplay(p)) as (Rec & {
+    placeId: string;
+  })[];
+  if (items.length === 0) return places;
 
   const displays = await fetchPlaceDisplays(items.map((i) => i.placeId));
   for (const item of items) {
@@ -113,5 +125,10 @@ export async function hydrateDays<T>(days: T[], which: DaysToHydrate): Promise<T
       item.displayUnavailable = true;
     }
   }
-  return days;
+  return places;
+}
+
+/** hydratePlaces inside its own metered run, for routes outside authorizeItinerary's. */
+export function hydratePlacesMetered<T>(places: T[]): Promise<T[]> {
+  return runMetered("hydrate", () => hydratePlaces(places));
 }
