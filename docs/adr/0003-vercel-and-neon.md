@@ -1,7 +1,7 @@
 # ADR-0003：作品集上線使用 Vercel + Neon（Postgres），兩者都在新加坡
 
 日期：2026-10-20
-狀態：Proposed
+狀態：Accepted
 
 ## 背景
 

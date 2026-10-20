@@ -8,8 +8,8 @@
 | --- | --- | --- | --- |
 | 0001 | [文件與任務管理：Issues + git + STATUS + plans](0001-docs-and-task-management.md) | Accepted | 2026-10-19 |
 | 0002 | [保留 PR 合併，Claude 以受限 token 操作 git 與 GitHub](0002-pr-flow-with-scoped-token.md) | Accepted | 2026-10-19 |
-| 0003 | [作品集上線使用 Vercel + Neon，兩者都在新加坡](0003-vercel-and-neon.md) | Proposed | 2026-10-20 |
-| 0004 | [Google 地點內容只存 place ID 與 30 天內的座標](0004-google-maps-content-storage.md) | Proposed | 2026-10-20 |
+| 0003 | [作品集上線使用 Vercel + Neon，兩者都在新加坡](0003-vercel-and-neon.md) | Accepted | 2026-10-20 |
+| 0004 | [Google 地點內容只存 place ID 與 30 天內的座標](0004-google-maps-content-storage.md) | Accepted | 2026-10-20 |
 
 ## 模板
 

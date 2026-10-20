@@ -11,7 +11,7 @@
 
 | 編號 | 標題 | 狀態 | 父 issue |
 | --- | --- | --- | --- |
-| [PLAN-001](PLAN-001-portfolio-launch.md) | 作品集上線（Vercel + Neon，符合 Google Maps Platform 條款） | draft | |
+| [PLAN-001](PLAN-001-portfolio-launch.md) | 作品集上線（Vercel + Neon，符合 Google Maps Platform 條款） | approved | #196 |
 
 ## 模板
 

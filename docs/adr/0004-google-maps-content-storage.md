@@ -1,7 +1,7 @@
 # ADR-0004：Google 地點內容只存 place ID 與 30 天內的座標，其他欄位顯示時才查
 
 日期：2026-10-20
-狀態：Proposed
+狀態：Accepted
 
 ## 背景
 
