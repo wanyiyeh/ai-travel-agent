@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { mockCompletion, mockMissingCopyReply } from "@/lib/mockAi";
 import { openai } from "@/lib/openai";
 import { COPY_PENDING } from "@/lib/copyPending";
 
@@ -72,7 +73,9 @@ export async function fillMissingCopy(days: Rec[], model: string): Promise<void>
   try {
     if (targets.length === 0) return;
     const lines = targets.map((t, i) => `${i}｜${t.kind}｜${t.city}｜${String(t.item.name)}`);
-    const completion = await openai.chat.completions.create({
+    const completion =
+      (await mockCompletion(() => mockMissingCopyReply(targets.map((t) => String(t.item.name))))) ??
+      await openai.chat.completions.create({
       model,
       messages: [
         { role: "system", content: SYSTEM_PROMPT },

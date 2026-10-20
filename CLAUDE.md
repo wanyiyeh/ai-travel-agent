@@ -33,7 +33,7 @@
 
 ## 3. 常用指令
 
-- 開發：`npm run dev`（**真實 Google + OpenAI，會花錢，見 R1**）；`npm run dev:mock`（Google 全部假資料、`prisma/mock.db`，OpenAI 仍是真的；`-- -p 3001` 換 port）
+- 開發：`npm run dev`（**真實 Google + OpenAI，會花錢，見 R1**）；`npm run dev:mock`（Google 全部假資料、`prisma/mock.db`，OpenAI 仍是真的；`-- -p 3001` 換 port）；`npm run dev:free`（Google 與 OpenAI 都是假資料，完全免費）
 - 檢查：`npm run lint`、`npx tsc --noEmit`、`npm run build`
 - 測試：`npm test`（單元，不碰真 DB）；`npx vitest run <檔案>`（單檔）；`npm run test:integration`（真 SQLite `prisma/test.db`、`MOCK_AI=1`，不可平行跑、不可指向 `dev.db`）
 - 資料庫：`npx prisma db push`（改 `schema.prisma` 後同步到 `dev.db`）
@@ -132,7 +132,7 @@
 
 **編號規則**（被糾正或踩雷後新增，格式：`R<編號>. 規則（原因，日期）`）
 
-- R1. **付費 API 要先問**：任何會呼叫真實 Google Places/Routes 或 OpenAI 的操作，先說明會呼叫什麼、大約幾次，得到該次執行的同意才跑。包括 `npm run dev`/`next dev`、第 3 節的付費腳本、任何 `tsx scripts/*`、Playwright、對使用者開著的 dev server 發 curl/fetch。免費：`npm test`、`npm run test:integration`、`npm run build`、`npm run dev:mock`（但其中的 OpenAI 生成仍要先問）。驗證優先用 mock fetch 或 `dev:mock`（2026-07 Google API 成本暴增後訂定）
+- R1. **付費 API 要先問**：任何會呼叫真實 Google Places/Routes 或 OpenAI 的操作，先說明會呼叫什麼、大約幾次，得到該次執行的同意才跑。包括 `npm run dev`/`next dev`、第 3 節的付費腳本、任何 `tsx scripts/*`、Playwright、對使用者開著的 dev server 發 curl/fetch。免費：`npm test`、`npm run test:integration`、`npm run build`、`npm run dev:free`；`npm run dev:mock` 的 Google 是假的，但 OpenAI 生成仍要先問。驗證優先用 mock fetch 或 `dev:free`（2026-07 Google API 成本暴增後訂定）
 - R2. 不用 `git rebase`（含 `-i`）、squash 或 cherry-pick 拆分或整理分支；工作混到同一分支時，之後一個功能一個分支，或手動把相關檔案改動複製到新分支（使用者明確不要，2026-09-06）
 - R3. 開新分支前確認基準是最新的 `origin/main`（`git log --oneline HEAD..origin/main` 為空），分支名不可與本機既有分支重複（重複名稱讓 `git switch -c` 失敗，commit 落到已合併的舊分支，2026-10-11）
 - R4. PR 標題與內容用英文，地名保持原文（從 #86 起，2026-10）

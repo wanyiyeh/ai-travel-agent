@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { COPY_PENDING } from "@/lib/copyPending";
+import { getMockMode } from "@/lib/mockAi";
 import { openai } from "@/lib/openai";
 import { prisma } from "@/lib/db";
 import { searchTextCandidates, type PlaceCandidate } from "@/lib/fetchCityRestaurants";
@@ -54,6 +55,9 @@ function systemPrompt(city: string): string {
  * month — 鎌倉 is a day trip from 東京 all year). A failed call isn't cached.
  */
 export async function listClassicDayTrips(city: string, model: string): Promise<TripList | undefined> {
+  // MOCK_AI: no day trips, and nothing cached (see listSeasonalHighlights).
+  const mock = getMockMode();
+  if (mock) return mock === "error" ? undefined : { trips: [] };
   try {
     const cached = await prisma.classicDayTripCache.findUnique({ where: { city } });
     if (cached) return TripListSchema.parse(JSON.parse(cached.list));

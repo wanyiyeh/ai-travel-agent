@@ -1,3 +1,4 @@
+import { mockCompletion, mockSkeletonCopyReply } from "@/lib/mockAi";
 import { openai } from "@/lib/openai";
 import { SkeletonCopySchema, type SkeletonCopy, type PreferenceIntent } from "@/lib/schemas";
 import type { SkeletonStop } from "@/lib/scheduler/buildDaySkeleton";
@@ -92,7 +93,9 @@ export async function generateSkeletonCopy(
 
   let parsed: SkeletonCopy | undefined;
   try {
-    const completion = await openai.chat.completions.create({
+    const completion =
+      (await mockCompletion(() => mockSkeletonCopyReply(skeleton, hintById))) ??
+      await openai.chat.completions.create({
       model,
       messages: [
         { role: "system", content: buildSystemPrompt() },

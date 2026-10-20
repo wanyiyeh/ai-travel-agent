@@ -1,3 +1,4 @@
+import { mockCompletion, mockTranslatedNamesReply } from "@/lib/mockAi";
 import { openai } from "@/lib/openai";
 
 /**
@@ -20,7 +21,7 @@ export async function translatePlaceNames(
   if (names.length === 0) return identity;
 
   try {
-    const completion = await openai.chat.completions.create({
+    const completion = (await mockCompletion(() => mockTranslatedNamesReply(names))) ?? await openai.chat.completions.create({
       model,
       messages: [
         {

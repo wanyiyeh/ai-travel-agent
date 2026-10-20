@@ -4,8 +4,8 @@ import { haversineKm } from "@/lib/geo";
 /**
  * MOCK_PLACES=1 — fake every Google Places / Routes response so UI flows can
  * be clicked through without billing Google (see
- * plan/places-api-cost-reduction.md section 3). Unlike MOCK_AI, which
- * short-circuits 4 whole routes, this sits at the HTTP layer (googleFetch):
+ * plan/places-api-cost-reduction.md section 3). Like MOCK_AI’s
+ * mockCompletion(), this sits below the caller (here at googleFetch):
  * callers still run their real parsing, caching, filtering and scheduling
  * code — only the network response is fake.
  *
@@ -19,7 +19,7 @@ import { haversineKm } from "@/lib/geo";
  * query string, so a fake place landing in dev.db would keep being served
  * after mock mode is switched off.
  *
- * OpenAI is NOT mocked by this — generation still calls the real model.
+ * OpenAI is NOT mocked by this — set MOCK_AI too (`npm run dev:free`).
  */
 
 export function isMockPlaces(): boolean {

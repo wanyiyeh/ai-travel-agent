@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { COPY_PENDING } from "@/lib/copyPending";
+import { getMockMode } from "@/lib/mockAi";
 import { openai } from "@/lib/openai";
 import { prisma } from "@/lib/db";
 import { searchTextCandidates, type PlaceCandidate } from "@/lib/fetchCityRestaurants";
@@ -65,6 +66,10 @@ function systemPrompt(city: string, month: number): string {
  */
 export async function listSeasonalHighlights(city: string, month: number, model: string): Promise<HighlightList | undefined> {
   const cacheKey = `${city}|${month}`;
+  // MOCK_AI: an empty list, never read from or written to the cache, which
+  // would otherwise pin "nothing this month" on a real city.
+  const mock = getMockMode();
+  if (mock) return mock === "error" ? undefined : { label: "", highlights: [] };
   try {
     const cached = await prisma.seasonalHighlightCache.findUnique({ where: { cacheKey } });
     if (cached) return HighlightListSchema.parse(JSON.parse(cached.list));

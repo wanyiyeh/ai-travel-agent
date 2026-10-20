@@ -45,7 +45,7 @@
 | `GOOGLE_PLACES_API_KEY` | 是（地點/地圖功能） | Google Places API 金鑰（後端用） |
 | `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` | 是（地圖功能） | Google Maps JS API 金鑰（前端用） |
 | `NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID` | 否 | Google Maps Map ID（自訂地圖樣式用） |
-| `MOCK_AI` | 否 | `1` 立即回傳假資料、`slow` 模擬 3.5 秒延遲、`error` 模擬失敗，供部分 AI 路由在不打真實 API 的情況下測試 UI（不是全域生效，細節見 [docs/lib.md](docs/lib.md)） |
+| `MOCK_AI` | 否 | `1` 立即回傳假資料、`slow` 模擬 3.5 秒延遲、`error` 模擬失敗。涵蓋整個行程生成流程，沒有 mock 的 OpenAI 呼叫會被擋下而不是計費（`src/lib/mockAi.ts`）。完全不花錢的開發用 `npm run dev:free` |
 | `AUTH_SECRET` | 是（登入） | 簽署登入 session 的密鑰，32 bytes 以上的隨機字串（`node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`） |
 | `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET` | 是（登入） | Google OAuth 用戶端（Google Auth Platform → 用戶端 → 網頁應用程式；重新導向 URI `http://localhost:3000/api/auth/callback/google`） |
 | `ADMIN_EMAILS` | 否 | 管理者 Google email，逗號分隔；不受使用額度限制 |
@@ -59,7 +59,9 @@
 
 | 指令 | 說明 |
 |---|---|
-| `npm run dev` | 啟動開發伺服器 |
+| `npm run dev` | 啟動開發伺服器（真實 Google 與 OpenAI，會產生費用） |
+| `npm run dev:mock` | 開發伺服器，Google 全部用假資料（`MOCK_PLACES`、`prisma/mock.db`），OpenAI 仍是真的 |
+| `npm run dev:free` | 開發伺服器，Google 與 OpenAI 都用假資料，完全不花錢 |
 | `npm run build` | 建置正式版 |
 | `npm run start` | 啟動已建置的正式版 |
 | `npm run lint` | ESLint 檢查 |

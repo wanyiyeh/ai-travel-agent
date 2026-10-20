@@ -1,3 +1,10 @@
+import {
+  mockCompletion,
+  mockDayStopsReply,
+  mockMealsAndLodgingReply,
+  mockTransitDayStopsReply,
+  mockTransitPlanReply,
+} from "@/lib/mockAi";
 import { openai } from "@/lib/openai";
 import { getCityCenter, sightAreasFor } from "@/lib/placesTextSearch";
 import { fetchNearbyPlaceCandidates, fetchLodgingCandidates, fetchLuxuryRestaurants, getMealPlaceTypes, searchTextCandidates, type RestaurantHint, type BudgetLevel, type PlaceCandidate, type FieldTier, type TypeMatch } from "@/lib/fetchCityRestaurants";
@@ -65,7 +72,9 @@ async function generateTransitDayStopsWithLLM(
   currency: string
 ): Promise<Array<Record<string, unknown>>> {
   const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
-  const completion = await openai.chat.completions.create({
+  const completion =
+    (await mockCompletion(() => mockTransitDayStopsReply(fromCity, toCity))) ??
+    await openai.chat.completions.create({
     model,
     messages: [
       {
@@ -229,7 +238,9 @@ async function planTransitDay(
   domestic = false
 ): Promise<TransitPlan | null> {
   try {
-    const completion = await openai.chat.completions.create({
+    const completion =
+      (await mockCompletion(() => mockTransitPlanReply(fromCity, toCity))) ??
+      await openai.chat.completions.create({
       model,
       messages: [
         {
@@ -1033,7 +1044,9 @@ ${formatCandidateLists(pools)}`
     : "";
   const nightcapRule = withNightcap ? "\n- 小酌（nightcap）從「小酌候選」選，是晚餐後喝一杯的酒吧或居酒屋，不可與當天晚餐同一家" : "";
 
-  const completion = await openai.chat.completions.create({
+  const completion =
+    (await mockCompletion(() => mockMealsAndLodgingReply(cityName, stayDays, pools, askLodging))) ??
+    await openai.chat.completions.create({
     model,
     messages: [
       {
@@ -1083,7 +1096,9 @@ async function generateDayStopsWithLLM(
 ): Promise<Array<Array<Record<string, unknown>>>> {
   const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
 
-  const completion = await openai.chat.completions.create({
+  const completion =
+    (await mockCompletion(() => mockDayStopsReply(cityName, stayDays))) ??
+    await openai.chat.completions.create({
     model,
     messages: [
       {
