@@ -300,3 +300,22 @@ model UsageEvent {
   @@index([deviceId, kind, createdAt])
   @@index([itineraryId, kind])
 }
+
+// What one metered request actually called (usageMeter.ts runMetered), kept
+// in the database because hosted logs don't last. Only call counts by
+// endpoint + field mask (the mask decides the SKU) and OpenAI token counts —
+// no Google content. PLAN-001 A0 (#198): the basis for quotas and the daily cap.
+model UsageMeasurement {
+  id               String   @id @default(uuid())
+  label            String   // e.g. "generate-stream"
+  google           String   // JSON-encoded { "<endpoint> [<field mask>]": count }
+  googleTotal      Int      @map("google_total")
+  openaiCalls      Int      @map("openai_calls")
+  promptTokens     Int      @map("prompt_tokens")
+  completionTokens Int      @map("completion_tokens")
+  // MOCK_PLACES or MOCK_AI was on: the counts are real, nothing was billed.
+  mock             Boolean  @default(false)
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  @@index([label, createdAt])
+}

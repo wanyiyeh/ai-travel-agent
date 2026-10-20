@@ -69,6 +69,7 @@ describe("generate-stream with MOCK_AI and faked Google", () => {
     vi.stubEnv("GOOGLE_PLACES_API_KEY", "integration-fake-key");
     const urls = fakeNetwork();
 
+    const startedAt = new Date();
     const flightInfo = { departureCity: "TPE", arrivalCity: "NRT", returnDepartureCity: "NRT", departureDate: "2026-11-10", returnDate: "2026-11-13" };
     const res = await generate(flightInfo, "198.51.100.120");
     expect(res.status).toBe(200);
@@ -86,6 +87,12 @@ describe("generate-stream with MOCK_AI and faked Google", () => {
     expect(saved).not.toBeNull();
 
     expect(urls.filter((u) => isHost(u, "openai.com"))).toEqual([]);
+
+    // The run's call counts outlive the log (usageMeter.ts), marked as mock.
+    const measurement = await prisma.usageMeasurement.findFirst({
+      where: { label: "generate-stream", createdAt: { gte: startedAt } },
+    });
+    expect(measurement).toMatchObject({ mock: true, openaiCalls: 0 });
   });
 
   it("with MOCK_AI=error the fallback is refused too, so the traveler gets an error and nothing is billed", async () => {

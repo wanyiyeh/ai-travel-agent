@@ -23,6 +23,7 @@
 | `docs/features/` | 每個功能「現在怎麼運作」 |
 | `docs/adr/` | 決策紀錄：為什麼選 A 不選 B |
 | `docs/plans/` | 計畫（規格）：做之前寫，完成後封存 |
+| `docs/runbook.md` | 維運步驟：量測花費、部署、排程、成本排查 |
 | GitHub Issues | 待辦、優先序、「明確不做」（唯一來源） |
 | `.claude/rules/git.md` | 分支、PR、CI、合併、commit 規範（每次載入） |
 | `.claude/rules/coding.md` | 技術棧細節、資料庫、測試、已知陷阱（動 `src/`、`prisma/`、`scripts/`、`tests/` 時載入） |

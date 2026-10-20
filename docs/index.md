@@ -10,6 +10,7 @@
 | 某功能現在怎麼運作 | [功能總覽](features/index.md) |
 | 為什麼這樣決定 | [決策紀錄](adr/README.md) |
 | 某功能的規格與任務 | [計畫](plans/README.md) |
+| 怎麼量測花費、部署、排查 | [Runbook](runbook.md) |
 
 ## 遷移中的舊文件
 
