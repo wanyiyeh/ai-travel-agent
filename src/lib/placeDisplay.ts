@@ -86,12 +86,19 @@ function needsDisplay(item: Rec): item is Rec & { placeId: string } {
  * PLACE_UNAVAILABLE_NAME and `displayUnavailable: true`, so the page still
  * opens; the next write strips both again (placeStorage.ts).
  *
- * `which`: day numbers (`day.day`) to fill, or "all".
+ * `which`: day numbers (`day.day`), "all", or { dayIds } for the routes
+ * that address a day by its id.
  */
-export async function hydrateDays<T>(days: T[], which: number[] | "all"): Promise<T[]> {
-  const chosen = (days as unknown as Rec[]).filter(
-    (d) => d && typeof d === "object" && (which === "all" || which.includes(d.day as number)),
-  );
+export type DaysToHydrate = number[] | "all" | { dayIds: string[] };
+
+function isChosen(day: Rec, which: DaysToHydrate): boolean {
+  if (which === "all") return true;
+  if (Array.isArray(which)) return which.includes(day.day as number);
+  return which.dayIds.includes(day.id as string);
+}
+
+export async function hydrateDays<T>(days: T[], which: DaysToHydrate): Promise<T[]> {
+  const chosen = (days as unknown as Rec[]).filter((d) => d && typeof d === "object" && isChosen(d, which));
   const items = chosen.flatMap(itemsOf).filter(needsDisplay);
   if (items.length === 0) return days;
 
