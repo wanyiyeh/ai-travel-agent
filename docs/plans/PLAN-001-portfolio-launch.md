@@ -62,7 +62,7 @@ created: 2026-10-20
 
 **快取調整**：保留 `PlaceQuery`（查詢字串 → place ID）、`CityCenterMissCache`（確定找不到）。`Place` 表只留 place ID 與座標；`NearbyPlaceCandidatesCache`、`CityPlaceHintsCache` 改成只存 place ID 與座標；`DistanceCache`、`NearestStationCache` 的內容移除。生成成本因此上升，以 #188（Nearby 降到 Pro）抵銷。
 
-**顯示方式**（任務 A1 決定）：自建補水，或改用 Google 的 Places UI Kit。UI Kit 自帶出處標示、單價較低，但樣式受限、計費單位要先確認。
+**顯示方式**（[ADR-0005](../adr/0005-place-display-hybrid.md)）：行程列表由伺服器補查名稱與地址；點開地點的詳情改用 Google 的 Places UI Kit 元件（評分、照片、營業狀態，出處標示內建）。
 
 **地點來源可替換**：候選池的取得包成介面，之後可以加入開放資料來源。
 
@@ -126,7 +126,7 @@ created: 2026-10-20
 ## 完成後遷移清單
 
 - [ ] 功能頁：`docs/features/google-content-storage.md`（脫水／補水、快取規則）、`docs/features/deployment.md`
-- [ ] ADR：A1 的顯示方式決定；0003、0004 狀態改為 Accepted
+- [ ] ADR：0003、0004、0005 都已 Accepted；完成後確認內容仍符合實作
 - [ ] glossary 新詞：脫水、補水
 - [ ] `docs/runbook.md`：部署、排程、成本排查
 - [ ] `docs/data-sources.md`：Google、OpenAI、Open-Meteo、匯率 API、Neon、Vercel
