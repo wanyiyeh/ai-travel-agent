@@ -118,3 +118,23 @@ describe("MOCK_PLACES", () => {
     expect(() => assertMockPlacesDatabase()).not.toThrow();
   });
 });
+
+describe("MOCK_PLACES Place Details", () => {
+  const details = async (id: string, mask = "displayName,formattedAddress") =>
+    mockGoogleResponse(`https://places.googleapis.com/v1/places/${encodeURIComponent(id)}?languageCode=zh-TW`, {
+      headers: { "X-Goog-FieldMask": mask },
+    }).json();
+
+  it("answers with the name the place was found under, so a stored id gets its name back", async () => {
+    const search = await mockGoogleResponse("https://places.googleapis.com/v1/places:searchText", {
+      body: JSON.stringify({ textQuery: "清水寺" }),
+    }).json();
+    const id = search.places[0].id;
+
+    expect(await details(id)).toEqual({ displayName: { text: "清水寺" }, formattedAddress: "Mock address — 清水寺" });
+  });
+
+  it("gives an id from before names were encoded a generic name", async () => {
+    expect((await details("mock-1a2b")).displayName.text).toBe("Mock place mock-1a2b");
+  });
+});

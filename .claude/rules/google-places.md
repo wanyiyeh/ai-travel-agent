@@ -25,6 +25,7 @@ paths:
 
 - `placesTextSearch.ts`：Text Search，取單一最佳結果（補資料、城市搜尋）。同時間相同的請求會合併成一次（in-flight dedupe）。
 - `fetchCityRestaurants.ts`：Nearby Search，批次取候選，注入 prompt 或給候選池、`stop-suggestions` 用。
+- `placeDisplay.ts`：Place Details，依 place ID 取回名稱與地址（Pro 等級），給「只存 place ID」的資料補回顯示用的欄位；只合併同一次呼叫內的重複，不跨請求保存（ADR-0004）。
 - `placeCache.ts`：`Place`/`PlaceQuery` 快取的唯一入口（有幾個 script 自己重寫了這段邏輯，沒有 import 它）。
 
 ## 快取與「記住沒找到」
