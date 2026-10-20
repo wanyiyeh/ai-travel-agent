@@ -9,6 +9,11 @@ paths:
 
 背景：2026-07 曾發生 Google API 費用暴增（`plan/google-api-cost-spike-2026-07.md`、`plan/places-api-cost-reduction.md`）。動到任何會查地點、路線、照片的程式碼前先讀這頁。
 
+## 條款限制（ADR-0004，優先於下面的快取做法）
+
+- Google Maps Platform 條款只允許儲存 place ID，以及最多 30 天的座標；名稱、地址、評分、類型、照片名稱、路線時間與距離都不能存。
+- 現有的快取表正依 PLAN-001 改造。改造完成前：**不新增任何儲存 Google 內容的快取或欄位**；要省錢就合併同一請求內的重複查詢、改用較低的計費等級，或只在需要時才查。
+
 ## 單一出口
 
 - 所有計費的 Google HTTP 呼叫（Text Search、Nearby Search、Routes）都經過 `src/lib/googleFetch.ts`，`MOCK_PLACES` 才能在一個地方把它們換成假資料（`src/lib/mockPlaces.ts`）。照片路由自己檢查 `isMockPlaces()`。

@@ -1,22 +1,22 @@
 # STATUS
 
-更新：2026-10-19
+更新：2026-10-20
 
 > 交接筆記。每次對話結束前**覆蓋**更新，只寫現況，不累加歷史。
 
 ## 現在在做什麼
 
-文件系統改造（參照 epifolio，見 [ADR-0001](adr/0001-docs-and-task-management.md)）。目前這個分支 `docs/doc-system` 建立骨架：`CLAUDE.md`、`.claude/rules/`、`/doc-audit`、`.claude/settings.json`、issue 模板、label 腳本、docs 的索引與模板、改寫 `architecture.md`。
+[PLAN-001](plans/PLAN-001-portfolio-launch.md) 作品集上線的計畫草稿（`status: draft`），在分支 `plan-001-portfolio-launch`，附 [ADR-0003](adr/0003-vercel-and-neon.md)（Vercel + Neon）與 [ADR-0004](adr/0004-google-maps-content-storage.md)（Google 內容只存 place ID 與 30 天座標）兩份草稿，等使用者確認。
+
+背景：調查發現現有快取（`Place` 表、行程內的名稱地址、`DistanceCache` 等）不符合 Google Maps Platform 條款，上線前必須改造。`.claude/rules/google-places.md` 已加上「改造完成前不得新增 Google 內容快取」。
 
 ## 下一步
 
-1. 合併骨架後，把本機 `CLAUDE.local.md` 精簡成只剩本機專屬設定（規則已移到 `CLAUDE.md`）。
-2. 跑 `scripts/setup-labels.sh` 建立 labels。
-3. 從 `plan/*.md`、`docs/process.md`、`docs/lib.md` 整理出待辦清單，使用者確認後批次開成 issue。
-4. `plan/*.md` 搬進 `docs/plans/` 並編號。
-5. 知識遷移：features 頁、補寫過去決策的 ADR、`data-sources.md`、`runbook.md`、`vision.md`；封存 `docs/process.md`。
+1. 使用者確認計畫與兩份 ADR 的草稿，以及「待決定」的四項。
+2. 確認後：`status: approved`，建立父 issue（label `plan`）與子 issue，開始做前置任務（#181、#182）。
 
 ## 卡點與待決定
 
-- `docs/vision.md` 的「非目標」需要使用者決定（例如部署、付費方案、多語系是否在範圍內）。
-- 兩個 Dependabot PR 還開著：#170（minor/patch）、#47（openai 6 → 7，major 升級，需要確認相容性）。
+- PLAN-001「待決定」：訪客能否生成、每日最高 Google 花費、正式環境是否另開 key、網域。
+- 開放資料來源（Foursquare、OSM）的試做屬於營利階段，尚未開 issue。
+- Dependabot PR #170、#47 還開著。
