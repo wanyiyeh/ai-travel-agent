@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { getMockMode } from "@/lib/mockAi";
 import { openai } from "@/lib/openai";
 import { prisma } from "@/lib/db";
 import { searchTextCandidates, type PlaceCandidate } from "@/lib/fetchCityRestaurants";
@@ -34,6 +35,9 @@ const WorksSchema = z.object({ works: z.array(z.string().min(1)).default([]) });
  */
 export async function listFamousWorks(city: string, model: string): Promise<string[] | undefined> {
   const cacheKey = `works:${city}`;
+  // MOCK_AI: no works, and nothing cached (see listSeasonalHighlights).
+  const mock = getMockMode();
+  if (mock) return mock === "error" ? undefined : [];
   try {
     const cached = await prisma.filmLocationCache.findUnique({ where: { cacheKey } });
     if (cached) return WorksSchema.parse(JSON.parse(cached.list)).works;

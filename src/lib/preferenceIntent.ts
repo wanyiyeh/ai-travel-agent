@@ -1,3 +1,4 @@
+import { mockCompletion } from "@/lib/mockAi";
 import { openai } from "@/lib/openai";
 import { UNTRUSTED_INPUT_RULE, wrapUntrusted } from "@/lib/untrustedInput";
 import {
@@ -55,7 +56,7 @@ export async function parsePreferenceIntent(
   if (!trimmed) return NEUTRAL_PREFERENCE_INTENT;
 
   try {
-    const completion = await openai.chat.completions.create({
+    const completion = (await mockCompletion(() => NEUTRAL_PREFERENCE_INTENT)) ?? await openai.chat.completions.create({
       model,
       messages: [
         { role: "system", content: SYSTEM_PROMPT + UNTRUSTED_INPUT_RULE },

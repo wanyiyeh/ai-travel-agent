@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "dev:mock": "node scripts/dev-mock.mjs",
+    "dev:free": "node scripts/dev-mock.mjs --mock-ai",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",

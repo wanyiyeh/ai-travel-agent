@@ -1,5 +1,5 @@
 ---
-status: approved         # draft | approved | in-progress | done
+status: in-progress      # draft | approved | in-progress | done
 branch: plan-001-portfolio-launch
 issue: 196
 created: 2026-10-20
