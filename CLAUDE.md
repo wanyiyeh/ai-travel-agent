@@ -124,7 +124,7 @@
 - 掃描、攻擊、暴力破解或嘗試存取本專案不擁有、或沒有書面授權的系統；只對 localhost、本機 DB 或 mock 測試。
 - 提交、push、記錄或傳給第三方任何秘密：`.env*`、`OPENAI_API_KEY`、`GOOGLE_PLACES_API_KEY`、`NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`、`AUTH_*`、真實使用者資料。
 - 用 `git add -A` / `git add .` 一次加入所有檔案；一律指名檔案。
-- 沒有先說明會失去什麼、並取得該次操作的明確同意，就執行不可逆指令：`git reset --hard`、`git clean -f`、`rm -rf`、刪分支、清空或刪除資料表。
+- 沒有先說明會失去什麼、並取得該次操作的明確同意，就執行不可逆指令：`git reset --hard`、`git clean -f`、`rm -rf`、刪分支（例外：已合併進 `origin/main` 的本機分支可直接用 `git branch -d` 刪除，見 `.claude/rules/git.md`）、清空或刪除資料表。
 - 跳過檢查（`--no-verify`、停用 lint/測試/hook）來硬推 commit。
 - 在 commit 或 PR 加 `Co-Authored-By`、`Generated with Claude` 等 AI 署名。
 - 在 md 檔建立待辦清單或進度紀錄；在文件中手抄參數。

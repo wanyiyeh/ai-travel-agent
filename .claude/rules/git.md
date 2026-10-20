@@ -42,6 +42,8 @@
 3. `gh pr merge <PR> --merge --delete-branch`（merge commit，不 squash、不 rebase）。
 4. `git switch` 到下一個工作分支或停在原處；確認 `main` 的 CI 通過。
 
+使用者自己在 GitHub 合併時也一樣：之後 `git fetch --prune`、切到 `main` 並快轉，再用 `git branch -d` 刪除 `git branch --merged origin/main` 列出的本機分支（`main` 除外），在回覆中列出刪了哪些。使用者 2026-10-20 同意不必每次詢問；`-D`、未合併的分支、遠端分支仍要先問。
+
 ## Commit message 規範
 
 格式（全英文，對應 `.gitmessage`）：
