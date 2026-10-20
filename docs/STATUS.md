@@ -6,17 +6,18 @@
 
 ## 現在在做什麼
 
-[PLAN-001](plans/PLAN-001-portfolio-launch.md) 作品集上線的計畫草稿（`status: draft`），在分支 `plan-001-portfolio-launch`，附 [ADR-0003](adr/0003-vercel-and-neon.md)（Vercel + Neon）與 [ADR-0004](adr/0004-google-maps-content-storage.md)（Google 內容只存 place ID 與 30 天座標）兩份草稿，等使用者確認。
+[PLAN-001](plans/PLAN-001-portfolio-launch.md) 作品集上線已核准（`approved`），父 issue #196，22 張子 issue 已連結（含既有的 #181、#182、#188）。[ADR-0003](adr/0003-vercel-and-neon.md)（Vercel + Neon）與 [ADR-0004](adr/0004-google-maps-content-storage.md)（Google 內容只存 place ID 與 30 天座標）已 Accepted。
 
-背景：調查發現現有快取（`Place` 表、行程內的名稱地址、`DistanceCache` 等）不符合 Google Maps Platform 條款，上線前必須改造。`.claude/rules/google-places.md` 已加上「改造完成前不得新增 Google 內容快取」。
+已決定：訪客可生成、正式與開發共用一組 key、Google 每日上限 US$3、平台子網域並分兩階段上線。
 
 ## 下一步
 
-1. 使用者確認計畫與兩份 ADR 的草稿（待決定事項已全部定案）。
-2. 確認後：`status: approved`，建立父 issue（label `plan`）與子 issue，開始做前置任務（#181、#182）。
+1. 合併計畫的 PR 後，從前置任務開始：#181（使用者在 GCP、OpenAI 主控台操作）、#197（使用者確認 OpenAI 資料分享設定）、#182（`MOCK_AI` 擴充到生成主流程）。
+2. 之後依序做 A（#198 起），再做 B（#208 起）。
+3. 每張子 issue 一個分支、一個 PR，分支名稱以 `plan-001-` 開頭，PR 結尾寫 `Closes #<子 issue>`；開始做第一張時把計畫改成 `in-progress`。
 
 ## 卡點與待決定
 
-- PLAN-001 的待決定事項已全部定案：訪客可生成、共用 key、每日 Google 上限 US$3、平台子網域並分兩階段上線。
+- 改造完成前，`.claude/rules/google-places.md` 禁止新增任何儲存 Google 內容的快取。
 - 開放資料來源（Foursquare、OSM）的試做屬於營利階段，尚未開 issue。
 - Dependabot PR #170、#47 還開著。
