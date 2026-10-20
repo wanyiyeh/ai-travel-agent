@@ -27,8 +27,12 @@ export async function runMetered<T>(label: string, fn: () => Promise<T>): Promis
       return await fn();
     } finally {
       const summary = summarize(tally);
-      console.info(`[usage] ${label} ${JSON.stringify(summary)}`);
-      await saveMeasurement(label, summary);
+      // A run that called nothing (a page view with every name still stored)
+      // isn't worth a log line or a row.
+      if (summary.googleTotal > 0 || summary.openai.calls > 0) {
+        console.info(`[usage] ${label} ${JSON.stringify(summary)}`);
+        await saveMeasurement(label, summary);
+      }
     }
   });
 }

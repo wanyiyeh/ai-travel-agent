@@ -16,6 +16,7 @@ import type OpenAI from "openai";
 import type { RestaurantHint } from "@/lib/fetchCityRestaurants";
 import type { MealLodgingPools } from "@/lib/mealLodgingPicks";
 import type { SkeletonStop } from "@/lib/scheduler/buildDaySkeleton";
+import { recordOpenAICall } from "@/lib/usageMeter";
 
 export type MockMode = "error" | "slow" | "fixture" | null;
 
@@ -183,6 +184,9 @@ export const MOCK_FIXTURES = {
 export async function mockCompletion(reply: () => unknown): Promise<OpenAI.Chat.Completions.ChatCompletion | null> {
   const mode = getMockMode();
   if (!mode) return null;
+  // Counted like MOCK_PLACES counts Google calls, so a mock run still shows
+  // how many calls a real one makes (tokens stay 0).
+  recordOpenAICall(null);
   if (mode === "slow") await mockDelay();
   if (mode === "error") throw new Error("Mock AI error (MOCK_AI=error)");
   return {

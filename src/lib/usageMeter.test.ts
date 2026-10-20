@@ -48,9 +48,20 @@ describe("runMetered", () => {
     expect(log).not.toHaveBeenCalled();
   });
 
-  it("still logs when the run throws", async () => {
+  it("still logs what a run called when it throws", async () => {
     const log = captureLog();
-    await expect(runMetered("boom", async () => { throw new Error("x"); })).rejects.toThrow("x");
+    await expect(
+      runMetered("boom", async () => {
+        recordGoogleCall("https://places.googleapis.com/v1/places:searchText");
+        throw new Error("x");
+      }),
+    ).rejects.toThrow("x");
     expect(log).toHaveBeenCalledTimes(1);
+  });
+
+  it("logs nothing for a run that called nothing", async () => {
+    const log = captureLog();
+    await runMetered("idle", async () => {});
+    expect(log).not.toHaveBeenCalled();
   });
 });

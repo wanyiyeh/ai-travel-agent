@@ -88,11 +88,13 @@ describe("generate-stream with MOCK_AI and faked Google", () => {
 
     expect(urls.filter((u) => isHost(u, "openai.com"))).toEqual([]);
 
-    // The run's call counts outlive the log (usageMeter.ts), marked as mock.
+    // The run's call counts outlive the log (usageMeter.ts), marked as mock:
+    // mocked model calls are counted like a real run's, with no tokens.
     const measurement = await prisma.usageMeasurement.findFirst({
       where: { label: "generate-stream", createdAt: { gte: startedAt } },
     });
-    expect(measurement).toMatchObject({ mock: true, openaiCalls: 0 });
+    expect(measurement).toMatchObject({ mock: true, promptTokens: 0 });
+    expect(measurement!.openaiCalls).toBeGreaterThan(0);
   });
 
   it("with MOCK_AI=error the fallback is refused too, so the traveler gets an error and nothing is billed", async () => {

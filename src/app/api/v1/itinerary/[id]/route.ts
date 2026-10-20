@@ -70,15 +70,25 @@ export async function DELETE(
   }
 }
 
+// `?days=1,3`: fetch place names (ADR-0004) for those days only; the page
+// asks for the days it shows. Without it, every day — until the page opens
+// with only the first day expanded (#202).
+function daysToHydrate(request: Request): number[] | "all" {
+  const param = new URL(request.url).searchParams.get("days");
+  if (!param) return "all";
+  const days = param.split(",").map(Number).filter((n) => Number.isInteger(n) && n > 0);
+  return days.length > 0 ? days : "all";
+}
+
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const { id } = await params;
 
     // Owners, or anyone for an admin-published example (read-only).
-    const access = await authorizeItineraryRead(id);
+    const access = await authorizeItineraryRead(id, daysToHydrate(request));
     if (!access.ok) return access.response;
     const { itinerary } = access;
     const isOwner = access.access === "owner";
