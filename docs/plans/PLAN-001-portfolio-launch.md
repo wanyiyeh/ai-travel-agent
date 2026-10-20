@@ -78,7 +78,7 @@ created: 2026-10-20
 
 **A. Google 條款合規**
 
-4. A0：用 `dev:mock` 重新量測一次生成的 Google 呼叫次數（OpenAI 真實，約 US$0.01，先詢問）。
+4. A0：用 `dev:mock` 重新量測一次生成的 Google 呼叫次數（OpenAI 真實，約 US$0.01，先詢問）。`usageMeter.ts` 的統計除了印 log，也寫進資料庫（Vercel Hobby 的 log 保留很短），上線後才能回頭計算成本。
 5. A1：決定顯示方式（自建補水 vs Places UI Kit），確認 UI Kit 的計費單位與樣式限制，結果寫成 ADR。
 6. A2：脫水函式與可儲存欄位白名單，接進 `db.ts`；測試確保 Google 欄位寫不進資料庫。
 7. A3：補水：行程讀取路徑只補需要的天數；評分、照片點開才查；查詢失敗時降級顯示。
@@ -97,7 +97,13 @@ created: 2026-10-20
 17. B3：量測生成最長時間，設定 `maxDuration`，讓重試與 fallback 落在時間上限內。
 18. B4：排程改成 Vercel Cron 路由：清理過期訪客、刪除過期座標。
 19. B5：上線前防護：寫入 API 的來源檢查、照片路由的 key 改放 header、審查公開文件中的防護細節。
-20. B6：Vercel 與 Neon 設定：新加坡地區、正式與 preview 環境分開、preview 部署保護、Google OAuth／Maps key／Turnstile 的網域。
+20. B6：Vercel 與 Neon 設定：
+    - Neon 與 Vercel **函式地區**都設在新加坡（Vercel 預設是美國東岸）。
+    - 正式與 preview 環境分開，preview 部署保護，preview 不給真實的付費 key。
+    - Google OAuth、Maps key、Turnstile 加上正式網域。
+    - Vercel 的 GitHub App 只授權這個 repo；Vercel 與 GitHub 帳號開啟兩步驟驗證（使用者操作）。
+    - 對照官方文件確認 Hobby 超過額度時的行為，寫進 `docs/runbook.md`。
+    - 資料庫 migration 設計成向前相容：Vercel 可以退回上一版程式，但不會退回 migration。
 21. B7：上線驗證；在正式環境生成 2～3 份公開範例行程；README 加上網址。
 
 ## 已決定
