@@ -37,6 +37,7 @@ created: 2026-10-20
 - 一次真實生成在函式時間上限內完成，串流沒有被截斷。
 - Preview 部署不使用正式資料庫，也不使用正式的付費 key。
 - CI 通過；正式環境沒有設定 `MOCK_AI`、`MOCK_PLACES`。
+- 低調上線期間，頁面帶 `noindex`，README 沒有網址；公開上線後兩者都改回。
 
 ## 邊界情況
 
@@ -104,7 +105,8 @@ created: 2026-10-20
     - Vercel 的 GitHub App 只授權這個 repo；Vercel 與 GitHub 帳號開啟兩步驟驗證（使用者操作）。
     - 對照官方文件確認 Hobby 超過額度時的行為，寫進 `docs/runbook.md`。
     - 資料庫 migration 設計成向前相容：Vercel 可以退回上一版程式，但不會退回 migration。
-21. B7：上線驗證；在正式環境生成 2～3 份公開範例行程；README 加上網址。
+21. B7：低調上線：頁面加上 `noindex`、README 不放網址；上線驗證；在正式環境生成 2～3 份公開範例行程。
+22. B8：公開上線（使用者確認檢查完畢後）：拿掉 `noindex`，README 加上網址。
 
 ## 已決定
 
@@ -115,9 +117,11 @@ created: 2026-10-20
 
 - 每日最高可接受的 Google 花費：US$3（最壞情況約 US$90／月）。GCP 每日配額以請求次數設定，依 A0 量測的呼叫組合、假設免費額度已用完，換算各 API 的每日上限；計算方式寫進 `docs/runbook.md`（2026-10-20）。
 
+- 網域先用 Vercel 的平台子網域（`*.vercel.app`），之後要換自己的網域時，再更新 Google OAuth、Maps key、Turnstile、`AUTH_URL` 四處。分兩階段上線：先低調上線（`noindex`、README 不放網址）檢查，確認沒問題再公開（2026-10-20）。
+
 ## 待決定
 
-- 網域：預設先用平台子網域。
+（無）
 
 ## 完成後遷移清單
 
