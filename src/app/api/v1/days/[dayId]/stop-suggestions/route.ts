@@ -94,7 +94,8 @@ export async function POST(
           })
         : Promise.resolve();
 
-    const access = await authorizeItinerary(itineraryId);
+    // The day's own names keep a candidate it already has out (ADR-0004).
+    const access = await authorizeItinerary(itineraryId, { dayIds: [dayId] });
     if (!access.ok) return access.response;
     const { itinerary } = access;
     // Paid edit: counts against the caller's daily quota (plan/access-control.md §2).

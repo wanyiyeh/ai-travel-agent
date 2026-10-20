@@ -11,6 +11,7 @@ import { isRecentEnrichFailure, enrichFailureMarker } from "@/lib/enrichFailure"
 import { MAX_NAME_LENGTH } from "@/lib/inputLimits";
 import { internalErrorResponse } from "@/lib/apiError";
 import { authorizeItinerary } from "@/lib/auth/ownership";
+import { hydratePlacesMetered } from "@/lib/placeDisplay";
 
 const RequestSchema = z.object({ itineraryId: z.string().min(1).max(MAX_NAME_LENGTH) });
 
@@ -61,6 +62,8 @@ export async function POST(
     // noneFound: no stay was suggested (no pet-friendly lodging nearby) —
     // looking up the area's name would put any hotel there.
     if (accommodation.placeId || accommodation.noneFound) {
+      // Stored with its place ID only (ADR-0004); the page merges this in.
+      await hydratePlacesMetered([accommodation]);
       return NextResponse.json({ success: true, accommodation });
     }
 

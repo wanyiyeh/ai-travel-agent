@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma, j } from "@/lib/db";
 import { authorizeItinerary } from "@/lib/auth/ownership";
+import { hydrateDays } from "@/lib/placeDisplay";
+import { runMetered } from "@/lib/usageMeter";
 
 // Mirrors trash/[deletedStopId]/restore/route.ts — reinserts a trashed whole
 // day at its original position and renumbers the day sequence.
@@ -36,6 +38,8 @@ export async function POST(
       prisma.deletedDay.delete({ where: { id: deletedDayId } }),
     ]);
 
+    // Saved with place IDs only (ADR-0004); the page shows it right away.
+    await runMetered("hydrate", () => hydrateDays([restoredDay], "all"));
     return NextResponse.json({ success: true, day: restoredDay });
   } catch (error) {
     console.error("[Trash Day Restore Error]", error);

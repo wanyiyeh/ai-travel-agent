@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import type { Stop } from "@/types/itinerary";
 import { authorizeItinerary } from "@/lib/auth/ownership";
+import { hydratePlacesMetered } from "@/lib/placeDisplay";
 
 export async function GET(
   _request: Request,
@@ -17,16 +18,17 @@ export async function GET(
       orderBy: { deletedAt: "desc" },
     });
 
-    return NextResponse.json({
-      success: true,
-      entries: entries.map((entry) => ({
-        id: entry.id,
-        dayId: entry.dayId,
-        dayNumber: entry.dayNumber,
-        deletedAt: entry.deletedAt,
-        stop: JSON.parse(entry.stop) as Stop,
-      })),
-    });
+    const list = entries.map((entry) => ({
+      id: entry.id,
+      dayId: entry.dayId,
+      dayNumber: entry.dayNumber,
+      deletedAt: entry.deletedAt,
+      stop: JSON.parse(entry.stop) as Stop,
+    }));
+    // Trash keeps place IDs only (ADR-0004): names come back from Google.
+    await hydratePlacesMetered(list.map((entry) => entry.stop));
+
+    return NextResponse.json({ success: true, entries: list });
   } catch (error) {
     console.error("[Trash GET Error]", error);
     return NextResponse.json({ error: "Failed to fetch trash" }, { status: 500 });
