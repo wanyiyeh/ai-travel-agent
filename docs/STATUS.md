@@ -1,22 +1,23 @@
 # STATUS
 
-更新：2026-10-19
+更新：2026-10-20
 
 > 交接筆記。每次對話結束前**覆蓋**更新，只寫現況，不累加歷史。
 
 ## 現在在做什麼
 
-文件系統改造（參照 epifolio，見 [ADR-0001](adr/0001-docs-and-task-management.md)）。目前這個分支 `docs/doc-system` 建立骨架：`CLAUDE.md`、`.claude/rules/`、`/doc-audit`、`.claude/settings.json`、issue 模板、label 腳本、docs 的索引與模板、改寫 `architecture.md`。
+[PLAN-001](plans/PLAN-001-portfolio-launch.md) 作品集上線已核准（`approved`），父 issue #196，22 張子 issue 已連結（含既有的 #181、#182、#188）。[ADR-0003](adr/0003-vercel-and-neon.md)（Vercel + Neon）與 [ADR-0004](adr/0004-google-maps-content-storage.md)（Google 內容只存 place ID 與 30 天座標）已 Accepted。
+
+已決定：訪客可生成、正式與開發共用一組 key、Google 每日上限 US$3、平台子網域並分兩階段上線。
 
 ## 下一步
 
-1. 合併骨架後，把本機 `CLAUDE.local.md` 精簡成只剩本機專屬設定（規則已移到 `CLAUDE.md`）。
-2. 跑 `scripts/setup-labels.sh` 建立 labels。
-3. 從 `plan/*.md`、`docs/process.md`、`docs/lib.md` 整理出待辦清單，使用者確認後批次開成 issue。
-4. `plan/*.md` 搬進 `docs/plans/` 並編號。
-5. 知識遷移：features 頁、補寫過去決策的 ADR、`data-sources.md`、`runbook.md`、`vision.md`；封存 `docs/process.md`。
+1. 合併計畫的 PR 後，從前置任務開始：#181（使用者在 GCP、OpenAI 主控台操作）、#197（使用者確認 OpenAI 資料分享設定）、#182（`MOCK_AI` 擴充到生成主流程）。
+2. 之後依序做 A（#198 起），再做 B（#208 起）。
+3. 每張子 issue 一個分支、一個 PR，分支名稱以 `plan-001-` 開頭，PR 結尾寫 `Closes #<子 issue>`；開始做第一張時把計畫改成 `in-progress`。
 
 ## 卡點與待決定
 
-- `docs/vision.md` 的「非目標」需要使用者決定（例如部署、付費方案、多語系是否在範圍內）。
-- 兩個 Dependabot PR 還開著：#170（minor/patch）、#47（openai 6 → 7，major 升級，需要確認相容性）。
+- 改造完成前，`.claude/rules/google-places.md` 禁止新增任何儲存 Google 內容的快取。
+- 開放資料來源（Foursquare、OSM）的試做屬於營利階段，尚未開 issue。
+- Dependabot PR #170、#47 還開著。
