@@ -183,6 +183,12 @@ export default function EditableItineraryCard({
   const [collapsedDays, setCollapsedDays] = useState<Set<number>>(
     () => new Set(data.data.days.filter((d) => d.day !== 1).map((d) => d.day)),
   );
+  // Latest values for the async refresh after enrich-all-stops below, which
+  // starts on load but finishes after the reader may have opened more days.
+  const collapsedDaysRef = useRef(collapsedDays);
+  collapsedDaysRef.current = collapsedDays;
+  const placeNamesRef = useRef(placeNames);
+  placeNamesRef.current = placeNames;
 
   const requestNames = (dayNums: number[]) => {
     const missing = daysMissingNames(itinerary.days.filter((d) => dayNums.includes(d.day)));
@@ -1004,10 +1010,18 @@ export default function EditableItineraryCard({
         const res = await fetch(`/api/v1/itinerary/${data.id}/enrich-all-stops`, { method: "POST" });
         if (!res.ok) return;
         const result = await res.json();
-        const refresh = await fetch(`/api/v1/itinerary/${data.id}`);
-        if (refresh.ok) {
-          const refreshed = await refresh.json();
-          setItinerary(refreshed.data);
+        // Re-read only when places were actually filled in, and fetch names
+        // (ADR-0004) only for the days that are open; days opened earlier
+        // keep the names this visit already has.
+        if ((result.enriched ?? 0) + (result.cached ?? 0) > 0) {
+          const openDays = data.data.days
+            .map((d) => d.day)
+            .filter((day) => expandAll || !collapsedDaysRef.current.has(day));
+          const refresh = await fetch(`/api/v1/itinerary/${data.id}?days=${openDays.join(",") || "1"}`);
+          if (refresh.ok) {
+            const refreshed = await refresh.json();
+            setItinerary({ ...refreshed.data, days: withPlaceNames(refreshed.data.days, placeNamesRef.current) });
+          }
         }
         if (result.suspicious > 0) {
           const names = (result.suspiciousStops as { name: string; day: number }[])
