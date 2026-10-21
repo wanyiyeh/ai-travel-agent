@@ -15,6 +15,8 @@ vi.mock("@/lib/db", () => ({
   prisma: {
     itinerary: { findFirst: (...args: unknown[]) => findFirst(...args), update: (...args: unknown[]) => updateMock(...args) },
     deletedDay: { createMany: (...args: unknown[]) => trashMock(...args) },
+    // getActor checks the signed-in user still exists (#225).
+    user: { findUnique: async ({ where }: { where: { id: string } }) => ({ id: where.id }) },
     $transaction: async () => [],
   },
   j: (v: unknown) => v,

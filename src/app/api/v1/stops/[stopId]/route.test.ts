@@ -6,7 +6,7 @@ import { signInAs } from "@tests/setup/mockAuth";
 // looked up (ownership-scoped), 401 = signed out.
 const findFirst = vi.fn<() => Promise<unknown>>(async () => null);
 const update = vi.fn(async () => ({}));
-vi.mock("@/lib/db", () => ({ prisma: { itinerary: { findFirst, update } }, j: (v: unknown) => v }));
+vi.mock("@/lib/db", () => ({ prisma: { itinerary: { findFirst, update }, user: { findUnique: async ({ where }: { where: { id: string } }) => ({ id: where.id }) } }, j: (v: unknown) => v }));
 vi.mock("@/lib/placeCache", () => ({ upsertPlace: async () => {} }));
 
 const { PATCH, DELETE } = await import("./route");

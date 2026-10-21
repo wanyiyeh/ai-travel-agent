@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { signInAs } from "@tests/setup/mockAuth";
 
 const findFirst = vi.fn(async () => null);
-vi.mock("@/lib/db", () => ({ prisma: { itinerary: { findFirst } }, j: (v: unknown) => v }));
+vi.mock("@/lib/db", () => ({ prisma: { itinerary: { findFirst }, user: { findUnique: async ({ where }: { where: { id: string } }) => ({ id: where.id }) } }, j: (v: unknown) => v }));
 
 beforeEach(() => signInAs({ id: "u1", email: "u1@example.com" }));
 

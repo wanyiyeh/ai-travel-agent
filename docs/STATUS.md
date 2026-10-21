@@ -13,13 +13,12 @@
 ## 下一步
 
 1. 使用者操作：#181（GCP 預算通知、OpenAI 硬上限）、#197（確認 OpenAI 沒有分享資料給訓練）。
-2. #225（已登入的使用者換資料庫後存檔失敗）：手動測試時會一直碰到（使用者是管理者、常保持登入），可以排在 #203 之前。
-3. #203（快取表改成只存 place ID 與座標、介紹與交通文字不寫入 Google 內容）；詳情面板的 Places UI Kit 實作前，先用免費 Demo Key 確認重新渲染與計費行為。
+2. #203（快取表改成只存 place ID 與座標、介紹與交通文字不寫入 Google 內容）；詳情面板的 Places UI Kit 實作前，先用免費 Demo Key 確認重新渲染與計費行為。
 
 ## 卡點與待決定
 
 - 每日 Google 上限 US$3 只夠約 4 次生成，低於 app 的全站每日上限；在 #213 決定提高上限、降低生成上限或減少查詢（已記在 #213）。
 - #188（Nearby 降到 Pro）的效益變小：每次生成的 Nearby Enterprise 只剩 1～2 次。
 - 改造完成前，`.claude/rules/google-places.md` 禁止新增任何儲存 Google 內容的快取。
-- 手動測試 `dev:free` 時：用無痕視窗以訪客身分生成（#225）；訪客每人 1 次、同一 IP 每天 2 次。
+- 手動測試 `dev:free`：開關與人機驗證用 `COMPLIANT_PLACE_STORAGE=1 TURNSTILE_SECRET_KEY="" npm run dev:free`；已登入也能用（#225 已修）；訪客每人 1 次、同一 IP 每天 2 次。
 - Dependabot PR #170、#47 還開著。
