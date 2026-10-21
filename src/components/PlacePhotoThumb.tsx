@@ -9,16 +9,19 @@ interface PlacePhotoThumbProps {
   className?: string;
 }
 
-// Not every place has a Google Places photo, and candidates can carry a
-// `photoName` before that place is ever cached server-side — render nothing
-// rather than a broken-image icon when the proxy 404s.
+// Not every place has a Google Places photo — render nothing rather than a
+// broken-image icon when the proxy 404s.
+//
+// Only with a `photoName`: a place read back from storage has none (photo
+// names are Google content, ADR-0004) and its photo is shown in the place
+// details view instead (ADR-0005), so asking the proxy would only 404.
+// Candidates fresh from a search still carry one and keep their thumbnail.
 export function PlacePhotoThumb({ placeId, photoName, size = 64, className = "" }: PlacePhotoThumbProps) {
   const [failed, setFailed] = useState(false);
 
-  if (!placeId || failed) return null;
+  if (!placeId || !photoName || failed) return null;
 
-  const params = new URLSearchParams({ maxWidthPx: String(size * 2) });
-  if (photoName) params.set("name", photoName);
+  const params = new URLSearchParams({ maxWidthPx: String(size * 2), name: photoName });
 
   return (
     // eslint-disable-next-line @next/next/no-img-element
