@@ -36,6 +36,7 @@ import { isDinnerBeforeStop } from "@/lib/fixedEvents";
 import type { Itinerary, Day, Stop, Meal, MealType, Accommodation, StopCandidate } from "@/types/itinerary";
 import { buildDayTimeline, MEAL_TIME_OF_DAY } from "@/lib/dayTimeline";
 import { findRepeatedMeals, slotKey } from "@/lib/mealRepeats";
+import { daysMissingNames, withPlaceNames, type PlaceNameBook } from "@/lib/placeNamesClient";
 
 // A candidate from another day counts as "same city" if it's within this
 // distance of the edited day's own stop centroid — used to build the reuse
@@ -113,6 +114,8 @@ function DayStopsZone({
   );
 }
 
+const EMPTY_PLACE_NAMES: PlaceNameBook = {};
+
 interface EditableItineraryCardProps {
   data: {
     success: boolean;
@@ -131,6 +134,10 @@ interface EditableItineraryCardProps {
   travelMode?: "driving" | "transit";
   /** 同行者 寵物: a link to vets near each night's lodging. */
   withPet?: boolean;
+  /** Place names fetched so far this visit (ADR-0004), by place ID. */
+  placeNames?: PlaceNameBook;
+  /** Fetches names for days that are about to be shown. */
+  onNeedDayNames?: (dayNumbers: number[]) => void;
 }
 
 type EditingStop = {
@@ -150,17 +157,46 @@ export default function EditableItineraryCard({
   readOnly = false,
   travelMode = "transit",
   withPet = false,
+  placeNames = EMPTY_PLACE_NAMES,
+  onNeedDayNames,
 }: EditableItineraryCardProps) {
   const [itinerary, setItinerary] = useState(data.data);
   const [editingStop, setEditingStop] = useState<EditingStop | null>(null);
 
   useEffect(() => {
-    setItinerary(data.data);
+    setItinerary({ ...data.data, days: withPlaceNames(data.data.days, placeNames) });
+    // placeNames is applied by its own effect below; re-running this one for
+    // it would replace edits made since data.data arrived.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data.data]);
+  // Names fetched for newly opened days go into the itinerary in state,
+  // so edits already there are kept.
+  useEffect(() => {
+    setItinerary((prev) => {
+      const days = withPlaceNames(prev.days, placeNames);
+      return days.every((d, i) => d === prev.days[i]) ? prev : { ...prev, days };
+    });
+  }, [placeNames]);
   const [loading, setLoading] = useState<string | null>(null);
-  const [collapsedDays, setCollapsedDays] = useState<Set<number>>(new Set());
+  // Only the first day starts open: each open day's place names are fetched
+  // from Google (ADR-0004), so the rest wait until they're opened.
+  const [collapsedDays, setCollapsedDays] = useState<Set<number>>(
+    () => new Set(data.data.days.filter((d) => d.day !== 1).map((d) => d.day)),
+  );
+  // Latest values for the async refresh after enrich-all-stops below, which
+  // starts on load but finishes after the reader may have opened more days.
+  const collapsedDaysRef = useRef(collapsedDays);
+  collapsedDaysRef.current = collapsedDays;
+  const placeNamesRef = useRef(placeNames);
+  placeNamesRef.current = placeNames;
 
-  const toggleDayCollapse = (dayNum: number) =>
+  const requestNames = (dayNums: number[]) => {
+    const missing = daysMissingNames(itinerary.days.filter((d) => dayNums.includes(d.day)));
+    if (missing.length > 0) onNeedDayNames?.(missing);
+  };
+
+  const toggleDayCollapse = (dayNum: number) => {
+    if (collapsedDays.has(dayNum)) requestNames([dayNum]);
     setCollapsedDays((prev) => {
       const next = new Set(prev);
       if (next.has(dayNum)) {
@@ -170,11 +206,20 @@ export default function EditableItineraryCard({
       }
       return next;
     });
+  };
 
-  const allCollapsed = itinerary.days.length > 0 && itinerary.days.every((d) => collapsedDays.has(d.day));
+  // With only the first day open by default, any collapsed day means the
+  // button opens the rest.
+  const anyCollapsed = itinerary.days.some((d) => collapsedDays.has(d.day));
 
-  const toggleAll = () =>
-    setCollapsedDays(allCollapsed ? new Set() : new Set(itinerary.days.map((d) => d.day)));
+  const toggleAll = () => {
+    if (!anyCollapsed) {
+      setCollapsedDays(new Set(itinerary.days.map((d) => d.day)));
+      return;
+    }
+    requestNames(itinerary.days.map((d) => d.day));
+    setCollapsedDays(new Set());
+  };
 
   const scrollToDay = (dayNum: number) =>
     document.getElementById(`day-card-${dayNum}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -965,10 +1010,18 @@ export default function EditableItineraryCard({
         const res = await fetch(`/api/v1/itinerary/${data.id}/enrich-all-stops`, { method: "POST" });
         if (!res.ok) return;
         const result = await res.json();
-        const refresh = await fetch(`/api/v1/itinerary/${data.id}`);
-        if (refresh.ok) {
-          const refreshed = await refresh.json();
-          setItinerary(refreshed.data);
+        // Re-read only when places were actually filled in, and fetch names
+        // (ADR-0004) only for the days that are open; days opened earlier
+        // keep the names this visit already has.
+        if ((result.enriched ?? 0) + (result.cached ?? 0) > 0) {
+          const openDays = data.data.days
+            .map((d) => d.day)
+            .filter((day) => expandAll || !collapsedDaysRef.current.has(day));
+          const refresh = await fetch(`/api/v1/itinerary/${data.id}?days=${openDays.join(",") || "1"}`);
+          if (refresh.ok) {
+            const refreshed = await refresh.json();
+            setItinerary({ ...refreshed.data, days: withPlaceNames(refreshed.data.days, placeNamesRef.current) });
+          }
         }
         if (result.suspicious > 0) {
           const names = (result.suspiciousStops as { name: string; day: number }[])
@@ -1110,7 +1163,7 @@ export default function EditableItineraryCard({
             onClick={toggleAll}
             className="shrink-0 rounded-md bg-zinc-100 dark:bg-zinc-800 px-2.5 py-1 text-xs font-medium text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors"
           >
-            {allCollapsed ? "展開全部" : "折疊全部"}
+            {anyCollapsed ? "展開全部" : "折疊全部"}
           </button>
           <div className="w-px h-4 shrink-0 bg-zinc-200 dark:bg-zinc-700" />
           {itinerary.days.map((day) => (
@@ -1391,6 +1444,10 @@ export default function EditableItineraryCard({
                   </div>
                 )}
               </div>
+
+              {!isCollapsed && onNeedDayNames && daysMissingNames([day]).length > 0 && (
+                <p className="px-4 pt-3 text-xs text-zinc-400 dark:text-zinc-500">載入地點名稱中…</p>
+              )}
 
               {!isCollapsed && (() => {
                 let lastTimeOfDay: string | undefined = undefined;
