@@ -50,9 +50,11 @@ describe("a session whose user row isn't in this database", () => {
   it("can generate and save an itinerary", async () => {
     vi.stubEnv("TURNSTILE_SECRET_KEY", "");
     vi.stubEnv("GOOGLE_PLACES_API_KEY", "integration-fake-key");
-    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) =>
-      new URL(url).hostname.endsWith("googleapis.com") ? mockGoogleResponse(url, init) : new Response("{}", { status: 404 }),
-    ));
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      const host = new URL(url).hostname;
+      const isGoogle = host === "googleapis.com" || host.endsWith(".googleapis.com");
+      return isGoogle ? mockGoogleResponse(url, init) : new Response("{}", { status: 404 });
+    }));
     signInAs({ id: `from-another-db-3-${stamp}`, email: `generates-${stamp}@example.com` });
 
     const res = await POST(new Request("http://test/api", {
