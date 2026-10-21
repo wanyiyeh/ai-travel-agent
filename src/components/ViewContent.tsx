@@ -11,6 +11,7 @@ import TrashView from "@/components/TrashView";
 import GuestNotice from "@/components/GuestNotice";
 import { signIn } from "next-auth/react";
 import { calculateDayTotalCost, hasAnyStopCost } from "@/lib/costCalculations";
+import { collectPlaceNames, daysMissingNames, withPlaceNames, type PlaceNameBook } from "@/lib/placeNamesClient";
 import { AIRPORTS } from "@/lib/airports";
 
 const DEFAULT_EXCHANGE_RATES: Record<string, number> = {
@@ -118,17 +119,43 @@ export default function ViewContent({ id }: ViewContentProps) {
       // Clipboard can be unavailable (permissions / non-HTTPS); the URL bar works too.
     }
   };
-  const handleDownload = () => {
+  // Place names (ADR-0004) arrive only for the days asked for: the first day
+  // on load, then each day as it's opened. Kept for this visit, by place ID.
+  const [placeNames, setPlaceNames] = useState<PlaceNameBook>({});
+  const loadDayNames = async (dayNumbers: number[]) => {
+    if (dayNumbers.length === 0) return;
+    try {
+      const res = await fetch(`/api/v1/itinerary/${id}?days=${dayNumbers.join(",")}`);
+      if (!res.ok) return;
+      const body = await res.json();
+      const found = collectPlaceNames(body?.data?.days ?? []);
+      setPlaceNames((prev) => ({ ...prev, ...found }));
+    } catch {
+      // The names stay blank; everything else on the page still works.
+    }
+  };
+  const daysWithoutNames = () => daysMissingNames(withPlaceNames(data?.data?.days ?? [], placeNames));
+
+  const handleDownload = async () => {
     if (isGuestItinerary) {
       signIn("google", { redirectTo: window.location.pathname });
       return;
     }
+    // The PDF prints every day, so every day needs its names first.
+    await loadDayNames(daysWithoutNames());
     setPrinting(true);
+  };
+
+  const showMap = () => {
+    setView("map");
+    // The map shows every day's places at once.
+    void loadDayNames(daysWithoutNames());
   };
 
   const fetchData = () => {
     setLoading(true);
-    fetch(`/api/v1/itinerary/${id}`)
+    // Only the first day starts open, so only its names are fetched now.
+    fetch(`/api/v1/itinerary/${id}?days=1`)
       .then((res) => {
         // 404 covers both "doesn't exist" and "not yours" on purpose.
         if (res.status === 401) throw new Error("請先登入才能查看行程");
@@ -447,7 +474,7 @@ export default function ViewContent({ id }: ViewContentProps) {
                   列表
                 </button>
                 <button
-                  onClick={() => setView("map")}
+                  onClick={showMap}
                   className={`px-3 py-1.5 transition-colors ${
                     view === "map"
                       ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
@@ -525,12 +552,14 @@ export default function ViewContent({ id }: ViewContentProps) {
                     hideCostSummary
                     expandAll={printing}
                     readOnly={isPublicView}
+                    placeNames={placeNames}
+                    onNeedDayNames={loadDayNames}
                   />
                 ) : (
                   <ItineraryMap
                     itineraryId={data.id}
                     travelMode={travelMode}
-                    days={data.data.days}
+                    days={withPlaceNames(data.data.days, placeNames)}
                     context={data.config?.generatedWith}
                     readOnly={isPublicView}
                   />
