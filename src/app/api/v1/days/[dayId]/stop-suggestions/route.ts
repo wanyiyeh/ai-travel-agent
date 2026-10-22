@@ -7,10 +7,9 @@ import { StopDescriptionFillSchema } from "@/lib/schemas";
 import type { StopCandidate } from "@/types/itinerary";
 import { getMockMode, mockDelay, MOCK_FIXTURES } from "@/lib/mockAi";
 import { fetchNearbyPlaceCandidates, type PlaceCandidate } from "@/lib/fetchCityRestaurants";
-import { upsertPlace } from "@/lib/placeCache";
 import { haversineKm, centroid, SUSPICIOUS_DISTANCE_KM as SUSPICIOUS_KM } from "@/lib/distanceMatrix";
 import { snapToGrid } from "@/lib/geo";
-import { findDayIndex, getCityHintForDay } from "@/lib/itineraryDays";
+import { findDayIndex } from "@/lib/itineraryDays";
 import { internalErrorResponse } from "@/lib/apiError";
 import { UNTRUSTED_INPUT_RULE, wrapUntrusted, wrapUntrustedList } from "@/lib/untrustedInput";
 import { authorizeItinerary } from "@/lib/auth/ownership";
@@ -144,9 +143,7 @@ export async function POST(
         ? stops[stopIndex]
         : undefined) || stops.find((s) => typeof s.lat === "number" && typeof s.lng === "number");
 
-    const cityHint = getCityHintForDay(day, stopIndex >= 0 ? stopIndex : undefined);
-
-    // A transit day's later stops (per getCityHintForDay above) are required to
+    // A transit day's later stops (per getCityHintForDay in itineraryDays.ts) are required to
     // sit in transitTo, a distinct town from the day's own waypointCity/hub —
     // e.g. a small satellite like Raszyn on a Warsaw->Kraków transit day. A wide
     // radius there lets a much larger, attraction-dense neighboring city (the
@@ -283,18 +280,8 @@ export async function POST(
       return NextResponse.json({ candidates, isFallback: true });
     }
 
-    for (const c of realCandidates) {
-      const query = cityHint ? `${c.name} ${cityHint}` : c.name;
-      await upsertPlace(query, {
-        placeId: c.placeId,
-        name: c.name,
-        address: c.address,
-        lat: c.lat,
-        lng: c.lng,
-        rating: c.rating ?? null,
-        photoName: c.photoName ?? null,
-      });
-    }
+    // No cache write here: the query would be Google's own name for the place,
+    // and a business name may not be stored, even as a key (ADR-0004).
 
     const candidates: StopCandidate[] = realCandidates.map((c) => ({
       name: c.name,

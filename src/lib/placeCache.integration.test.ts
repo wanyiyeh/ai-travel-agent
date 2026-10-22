@@ -1,32 +1,48 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/db";
-import { upsertPlace } from "./placeCache";
+import { COORDS_MAX_AGE_MS, lookupByPlaceId, lookupByQuery, upsertPlace } from "./placeCache";
 
-// Story: a restaurant was first cached from a Nearby Search (which carries a
-// rating), then the same place gets re-resolved by a Text Search, which no
-// longer asks for ratings. The rating must survive the second write.
-describe("upsertPlace keeps an existing rating", () => {
-  const placeId = `rating-keep-${Date.now()}`;
-  const base = { placeId, name: "Rating Keeper", address: "Somewhere", lat: 1, lng: 2 };
+// Story: the place cache may keep only what the Google terms allow (ADR-0004):
+// which place a query found (forever) and that place's coordinates (30 days).
+// A row written before keeps old Google content; the next write clears it.
 
-  afterAll(async () => {
-    await prisma.placeQuery.deleteMany({ where: { placeId } });
-    await prisma.place.deleteMany({ where: { id: placeId } });
+const stamp = Date.now();
+const placeId = `cache-${stamp}`;
+
+afterAll(async () => {
+  await prisma.placeQuery.deleteMany({ where: { placeId } });
+  await prisma.place.deleteMany({ where: { id: placeId } });
+});
+
+describe("the place cache", () => {
+  it("keeps the place ID and coordinates, nothing else", async () => {
+    await upsertPlace(`${placeId} 東京`, { placeId, lat: 35.68, lng: 139.77 });
+
+    const row = await prisma.place.findUniqueOrThrow({ where: { id: placeId } });
+    expect(row).toMatchObject({ lat: 35.68, lng: 139.77, name: null, address: null, rating: null, types: null, photoName: null });
+    expect(row.coordsFetchedAt).toBeInstanceOf(Date);
+    expect(await lookupByQuery(`${placeId} 東京`)).toEqual({ placeId, lat: 35.68, lng: 139.77 });
   });
 
-  it("doesn't overwrite a stored rating with a missing one", async () => {
-    await upsertPlace(`${placeId} nearby`, { ...base, rating: 4.4 });
-    await upsertPlace(`${placeId} text`, { ...base, rating: null });
-    await upsertPlace(`${placeId} text2`, { ...base });
+  it("clears Google content a row kept from before", async () => {
+    await prisma.place.update({
+      where: { id: placeId },
+      data: { name: "淺草寺", address: "台東區", rating: 4.5, types: "[\"tourist_attraction\"]", photoName: "places/x/photos/y" },
+    });
 
-    const row = await prisma.place.findUnique({ where: { id: placeId } });
-    expect(row?.rating).toBe(4.4);
+    await upsertPlace(`${placeId} again`, { placeId, lat: 35.71, lng: 139.79 });
+
+    const row = await prisma.place.findUniqueOrThrow({ where: { id: placeId } });
+    expect(row).toMatchObject({ name: null, address: null, rating: null, types: null, photoName: null, lat: 35.71 });
   });
 
-  it("still updates the rating when a new one is supplied", async () => {
-    await upsertPlace(`${placeId} nearby2`, { ...base, rating: 4.7 });
+  it("reads coordinates older than 30 days as missing, but still knows the place", async () => {
+    await prisma.place.update({
+      where: { id: placeId },
+      data: { coordsFetchedAt: new Date(Date.now() - COORDS_MAX_AGE_MS - 60_000) },
+    });
 
-    const row = await prisma.place.findUnique({ where: { id: placeId } });
-    expect(row?.rating).toBe(4.7);
+    expect(await lookupByQuery(`${placeId} 東京`)).toEqual({ placeId, lat: null, lng: null });
+    expect(await lookupByPlaceId(placeId)).toEqual({ placeId, lat: null, lng: null });
   });
 });

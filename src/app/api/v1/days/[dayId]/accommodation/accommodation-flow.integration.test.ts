@@ -79,8 +79,9 @@ describe("accommodation regenerate -> select flow", () => {
     expect(day?.accommodation?.placeId).toBe(chosen.placeId);
     expect(day?.accommodation?.name).toBe(chosen.name);
 
-    // select() also caches the picked place for reuse elsewhere in the app.
+    // select() no longer seeds the place cache: its query key would be the
+    // hotel's Google name, and a business name may not be stored (ADR-0004).
     const cachedPlace = await prisma.place.findUnique({ where: { id: chosen.placeId } });
-    expect(cachedPlace?.name).toBe(chosen.name);
+    expect(cachedPlace?.name ?? null).toBeNull();
   });
 });

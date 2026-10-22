@@ -125,12 +125,12 @@ async function main() {
     if (place.lat == null || place.lng == null) continue;
     const cityHints = new Set<string>();
     for (const q of place.queries) {
-      const cityPart = q.query.replace(place.name, "").trim();
+      const cityPart = q.query.replace(place.name ?? "", "").trim();
       if (cityPart) cityHints.add(cityPart);
     }
     for (const hint of cityHints) {
       if (!cityGroups.has(hint)) cityGroups.set(hint, []);
-      cityGroups.get(hint)!.push({ id: place.id, name: place.name, lat: place.lat, lng: place.lng });
+      cityGroups.get(hint)!.push({ id: place.id, name: place.name ?? place.id, lat: place.lat, lng: place.lng });
     }
   }
 

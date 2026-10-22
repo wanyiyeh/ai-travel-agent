@@ -3,6 +3,7 @@ import { z } from "zod";
 import { MAX_NAME_LENGTH, MAX_TRIP_DAYS } from "@/lib/inputLimits";
 import { searchPlaceText, getCityCenter, PlacesApiError, type TextSearchPlace } from "@/lib/placesTextSearch";
 import { lookupByQuery, upsertPlace } from "@/lib/placeCache";
+import { fetchPlaceDisplays } from "@/lib/placeDisplay";
 import { nearestCity, NEAREST_CITY_KM_THRESHOLD } from "@/lib/nearestCity";
 import { haversineKm, MAX_PLAUSIBLE_DISTANCE_KM } from "@/lib/distanceMatrix";
 import { PRICE_LEVEL_MAP } from "@/lib/fetchCityRestaurants";
@@ -14,10 +15,10 @@ import { PRICE_LEVEL_MAP } from "@/lib/fetchCityRestaurants";
 // for the exact same query. Cache namespaces are kept distinct per search
 // mode since the same query text can resolve differently depending on which
 // city (or none) it's biased toward.
-// Note: like every other placeCache-backed enrich path, priceLevel isn't
-// persisted through the cache (CachedPlace has no priceLevel field), so a
-// cache hit here returns priceLevel: undefined rather than a stale/wrong
-// value.
+// The cache keeps the place ID and coordinates only (ADR-0004). The search
+// shows the place's name and address, so a cache hit fetches those with Place
+// Details (Pro), still cheaper than a fresh Pro Text Search. A hit has no
+// photo; a fresh search does.
 async function cachedSearchPlaceText(
   cacheKey: string,
   query: string,
@@ -27,27 +28,20 @@ async function cachedSearchPlaceText(
 ): Promise<TextSearchPlace | null> {
   const cached = await lookupByQuery(cacheKey);
   if (cached && cached.lat != null && cached.lng != null) {
-    return {
-      id: cached.placeId,
-      displayName: { text: cached.name },
-      formattedAddress: cached.address ?? "",
-      location: { latitude: cached.lat, longitude: cached.lng },
-      rating: cached.rating ?? undefined,
-      photos: cached.photoName ? [{ name: cached.photoName }] : undefined,
-    };
+    const display = (await fetchPlaceDisplays([cached.placeId])).get(cached.placeId);
+    if (display) {
+      return {
+        id: cached.placeId,
+        displayName: { text: display.name },
+        formattedAddress: display.address ?? "",
+        location: { latitude: cached.lat, longitude: cached.lng },
+      };
+    }
   }
 
   const place = await searchPlaceText(query, apiKey, locationBias, includedType);
   if (place) {
-    await upsertPlace(cacheKey, {
-      placeId: place.id,
-      name: place.displayName.text,
-      address: place.formattedAddress,
-      lat: place.location.latitude,
-      lng: place.location.longitude,
-      rating: place.rating ?? null,
-      photoName: place.photos?.[0]?.name ?? null,
-    });
+    await upsertPlace(cacheKey, { placeId: place.id, lat: place.location.latitude, lng: place.location.longitude });
   }
   return place;
 }

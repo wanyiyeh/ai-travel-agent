@@ -47,17 +47,22 @@ model Itinerary {
 }
 
 
+// A place ID and its coordinates: all the Google terms let us keep
+// (ADR-0004, src/lib/placeCache.ts). Coordinates count for 30 days from
+// coordsFetchedAt. name, address, rating, types and photoName are left from
+// before and no longer written; #206 clears and drops them.
 model Place {
-  id        String        @id
-  name      String
-  address   String?
-  lat       Float?
-  lng       Float?
-  rating    Float?
-  types     String?       // JSON-encoded string[] from Google Places (e.g. ["restaurant","food"])
-  photoName String?       // Places API photo resource name (e.g. "places/{id}/photos/{ref}"), not a URL — see /api/v1/places/[placeId]/photo
-  updatedAt DateTime      @updatedAt
-  queries   PlaceQuery[]
+  id              String       @id
+  name            String?
+  address         String?
+  lat             Float?
+  lng             Float?
+  coordsFetchedAt DateTime?    @map("coords_fetched_at")
+  rating          Float?
+  types           String?
+  photoName       String?
+  updatedAt       DateTime     @updatedAt
+  queries         PlaceQuery[]
 }
 
 model PlaceQuery {

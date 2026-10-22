@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma, j } from "@/lib/db";
 import { lookupByQuery, lookupByPlaceId, upsertPlace } from "@/lib/placeCache";
-import { searchPlaceText, getCityCenter, buildStopQuery } from "@/lib/placesTextSearch";
+import { resolvePlace, fetchPlaceEssentials, getCityCenter, buildStopQuery } from "@/lib/placesTextSearch";
 import { findStopAcrossDays, getCityHintForDay } from "@/lib/itineraryDays";
 import { isRecentEnrichFailure, enrichFailureMarker } from "@/lib/enrichFailure";
 import { MAX_NAME_LENGTH } from "@/lib/inputLimits";
@@ -97,33 +97,26 @@ export async function POST(
     // geographic restriction.
     const cityBias = await getCityCenter(cityHint || context || "", apiKey);
 
-    // Check Place cache before hitting Google API
-    let enriched: { placeId: string; lat: number; lng: number; address: string | null; rating: number | null };
+    // The cache keeps the place ID and coordinates only (ADR-0004). A stop
+    // that already has a place ID only needs its coordinates back (Place
+    // Details Essentials); one without is found with resolvePlace.
+    let enriched: { placeId: string; lat: number; lng: number };
 
     const cached = await lookupByQuery(query);
-    if (cached && cached.lat != null && cached.lng != null) {
-      enriched = { placeId: cached.placeId, lat: cached.lat, lng: cached.lng, address: cached.address, rating: cached.rating };
-    } else if (targetStop.placeId) {
-      const cachedById = await lookupByPlaceId(String(targetStop.placeId));
-      if (cachedById && cachedById.lat != null && cachedById.lng != null) {
-        enriched = { placeId: cachedById.placeId, lat: cachedById.lat, lng: cachedById.lng, address: cachedById.address, rating: cachedById.rating };
-      } else {
-        const place = await searchPlaceText(query, apiKey, cityBias);
-        if (!place) {
-          await markStopNotFound(itineraryId, stopId, query);
-          return NextResponse.json({ error: "Place not found on Google Maps" }, { status: 404 });
-        }
-        enriched = { placeId: place.id, lat: place.location.latitude, lng: place.location.longitude, address: place.formattedAddress, rating: place.rating ?? null };
-        await upsertPlace(query, { placeId: place.id, name: place.displayName.text, address: place.formattedAddress, lat: place.location.latitude, lng: place.location.longitude, rating: place.rating, photoName: place.photos?.[0]?.name ?? null });
-      }
+    const cachedById = !cached && targetStop.placeId ? await lookupByPlaceId(String(targetStop.placeId)) : null;
+    const fresh = [cached, cachedById].find((c) => c && c.lat != null && c.lng != null);
+    if (fresh) {
+      enriched = { placeId: fresh.placeId, lat: fresh.lat!, lng: fresh.lng! };
     } else {
-      const place = await searchPlaceText(query, apiKey, cityBias);
+      const place = targetStop.placeId
+        ? await fetchPlaceEssentials(String(targetStop.placeId), apiKey)
+        : await resolvePlace(query, apiKey, cityBias);
       if (!place) {
         await markStopNotFound(itineraryId, stopId, query);
         return NextResponse.json({ error: "Place not found on Google Maps" }, { status: 404 });
       }
-      enriched = { placeId: place.id, lat: place.location.latitude, lng: place.location.longitude, address: place.formattedAddress, rating: place.rating ?? null };
-      await upsertPlace(query, { placeId: place.id, name: place.displayName.text, address: place.formattedAddress, lat: place.location.latitude, lng: place.location.longitude, rating: place.rating });
+      enriched = { placeId: place.placeId, lat: place.lat, lng: place.lng };
+      await upsertPlace(query, enriched);
     }
 
     const stops = location.day.stops as Record<string, unknown>[];
@@ -134,7 +127,10 @@ export async function POST(
       data: { days: j(days) },
     });
 
-    return NextResponse.json({ success: true, ...enriched });
+    // The map writes the returned address onto the stop; fetched after the
+    // write, so it isn't stored.
+    const [shown] = await hydratePlacesMetered([{ ...stops[location.stopIndex], name: undefined }]);
+    return NextResponse.json({ success: true, ...enriched, address: (shown as { address?: string }).address ?? null });
   } catch (error) {
     return internalErrorResponse("Stop Enrich Error", error, "Failed to enrich stop");
   }

@@ -56,8 +56,15 @@ describe("getCityCenter finds where a visitor actually stays", () => {
   const region = `Lookup Region ${Date.now()}`;
   const bodyOf = (fetchMock: ReturnType<typeof vi.fn>, i: number) =>
     JSON.parse(((fetchMock.mock.calls[i] as unknown as [string, RequestInit])[1].body as string));
-  const at = (lat: number, lng: number) =>
-    new Response(JSON.stringify({ places: [{ id: "p", displayName: { text: "x" }, formattedAddress: "a", location: { latitude: lat, longitude: lng } }] }), { status: 200 });
+  const maskOf = (fetchMock: ReturnType<typeof vi.fn>, i: number) =>
+    new Headers((fetchMock.mock.calls[i] as unknown as [string, RequestInit])[1].headers).get("X-Goog-FieldMask");
+  // A city is found in two cheap calls (resolvePlace): Text Search for the
+  // place ID only, then Place Details for its location.
+  const found = () => new Response(JSON.stringify({ places: [{ id: "p" }] }), { status: 200 });
+  const located = (lat: number, lng: number) =>
+    new Response(JSON.stringify({ location: { latitude: lat, longitude: lng }, types: ["locality"] }), { status: 200 });
+  const at = (lat: number, lng: number) => (url: string) =>
+    url.includes(":searchText") ? found() : located(lat, lng);
 
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -67,20 +74,22 @@ describe("getCityCenter finds where a visitor actually stays", () => {
     await prisma.placeQuery.deleteMany({ where: { query: { in: [`city-center:v2:${city}`, `city-center:v2:${region}`] } } });
   });
 
-  it("asks for a city (locality) first", async () => {
-    const fetchMock = vi.fn(async () => at(41.38, 2.17));
+  it("asks for a city (locality) first, with the free ID-only search and Essentials details", async () => {
+    const fetchMock = vi.fn(async (url: string) => at(41.38, 2.17)(url));
     vi.stubGlobal("fetch", fetchMock);
 
     expect(await getCityCenter(city, "key")).toEqual({ lat: 41.38, lng: 2.17 });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(bodyOf(fetchMock, 0)).toMatchObject({ includedType: "locality", strictTypeFiltering: true });
+    expect(maskOf(fetchMock, 0)).toBe("places.id");
+    expect(maskOf(fetchMock, 1)).toBe("location,types,formattedAddress");
   });
 
   it("falls back to an unrestricted search for a region that isn't a city", async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({ places: [] }), { status: 200 }))
-      .mockResolvedValueOnce(at(29.5, 34));
+      .mockImplementation(async (url: string) => at(29.5, 34)(url));
     vi.stubGlobal("fetch", fetchMock);
 
     expect(await getCityCenter(region, "key")).toEqual({ lat: 29.5, lng: 34 });
