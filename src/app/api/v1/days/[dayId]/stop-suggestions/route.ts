@@ -298,7 +298,9 @@ export async function POST(
 
     const candidates: StopCandidate[] = realCandidates.map((c) => ({
       name: c.name,
-      description: c.rating ? `靠近您行程中的景點，Google 評分 ${c.rating}★` : "靠近您行程中的景點。",
+      // No rating in the text: a description is kept with the stop, and a
+      // Google rating may not be stored (ADR-0004). The picker shows it.
+      description: "靠近您行程中的景點。",
       duration_minutes: 60,
       placeId: c.placeId,
       lat: c.lat,

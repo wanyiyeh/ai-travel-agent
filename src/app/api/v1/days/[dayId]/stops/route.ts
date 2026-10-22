@@ -29,9 +29,10 @@ const BatchRequestSchema = z.object({
 // user can adjust it after adding.
 const DEFAULT_DURATION_MINUTES = 60;
 
-// Manually-added stops otherwise show a bare "Google 評分 X★" line instead of
-// the descriptive sentence AI-generated stops get — ask the model for one so
-// both read the same way. Best-effort: any failure keeps the rating fallback.
+// Manually-added stops get the same kind of descriptive sentence AI-generated
+// stops have — ask the model for one. Best-effort: on failure the description
+// stays empty, since the stored text may not carry Google's rating or address
+// (ADR-0004).
 async function describeStopWithAI(
   name: string,
   tripContext: string,
@@ -200,9 +201,7 @@ export async function POST(
       });
     }
 
-    const fallbackDescription = resolved.rating
-      ? `Google 評分 ${resolved.rating}★`
-      : resolved.address ?? "";
+    const fallbackDescription = "";
     const aiDescription = await describeStopWithAI(resolved.name, itinerary.title, cityHint);
     const currency = ((itinerary.config as Record<string, unknown> | null)?.currency as string) ?? "EUR";
 
