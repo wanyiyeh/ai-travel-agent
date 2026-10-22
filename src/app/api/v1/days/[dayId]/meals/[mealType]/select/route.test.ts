@@ -3,7 +3,7 @@ import { signInAs } from "@tests/setup/mockAuth";
 
 const findFirst = vi.fn<() => Promise<unknown>>();
 const update = vi.fn<(args: { data: { days: Array<{ meals: Record<string, unknown> }> } }) => Promise<unknown>>(async () => ({}));
-vi.mock("@/lib/db", () => ({ prisma: { itinerary: { findFirst, update } }, j: (v: unknown) => v }));
+vi.mock("@/lib/db", () => ({ prisma: { itinerary: { findFirst, update }, user: { findUnique: async ({ where }: { where: { id: string } }) => ({ id: where.id }) } }, j: (v: unknown) => v }));
 vi.mock("@/lib/placeCache", () => ({ upsertPlace: async () => {} }));
 
 const { POST } = await import("./route");

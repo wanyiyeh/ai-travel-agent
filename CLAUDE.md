@@ -138,3 +138,4 @@
 - R3. 開新分支前確認基準是最新的 `origin/main`（`git log --oneline HEAD..origin/main` 為空），分支名不可與本機既有分支重複（重複名稱讓 `git switch -c` 失敗，commit 落到已合併的舊分支，2026-10-11）
 - R4. PR 標題與內容用英文，地名保持原文（從 #86 起，2026-10）
 - R5. `prisma/dev.db` 不進 git（存的是付費 API 快取，跟著切分支會被倒回舊版、重複計費）；checkout `1374c24` 以前的 commit 會覆蓋或刪除本機 `dev.db`，要先備份
+- R6. 判斷網址屬於哪個網域時（包括測試裡的假網路），用 `new URL(url).hostname` 比對「完全相同」或「以 `.網域` 結尾」，不用 `includes` 或只用 `endsWith("網域")`（CodeQL 兩次標為 Incomplete URL substring sanitization：`evilgoogleapis.com` 也會符合，#216、#228，2026-10-21）

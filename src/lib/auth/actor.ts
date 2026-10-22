@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
 import { isAdminEmail } from "@/lib/auth/adminEmails";
 import { GUEST_COOKIE, verifyGuestCookie } from "@/lib/auth/guest";
+import { upsertUserByEmail } from "@/lib/auth/users";
 
 // Who is making this request: a signed-in Google user, or a guest identified
 // by the signed guest cookie (plan/access-control.md §5). Both own
@@ -28,9 +29,21 @@ export async function guestActorFromCookie(value: string | undefined): Promise<A
   return guest ? { kind: "guest", userId: guest.id, email: null, isAdmin: false } : null;
 }
 
+// The session's user id comes from the database the sign-in happened
+// against. Against another one (dev:mock's mock.db, a rebuilt database) that
+// row isn't there, and saving an itinerary for it fails on the foreign key
+// (#225). The email is the user's identity (upsertUserByEmail), so a missing
+// row is found or created by email and its id used instead.
+async function withStoredUser(actor: Extract<Actor, { kind: "user" }>): Promise<Actor> {
+  const row = await prisma.user.findUnique({ where: { id: actor.userId }, select: { id: true } });
+  if (row) return actor;
+  const user = await upsertUserByEmail(actor.email);
+  return { ...actor, userId: user.id };
+}
+
 export async function getActor(): Promise<Actor | null> {
   const fromSession = actorFromSession(await auth());
-  if (fromSession) return fromSession;
+  if (fromSession?.kind === "user") return withStoredUser(fromSession);
   const jar = await cookies();
   return guestActorFromCookie(jar.get(GUEST_COOKIE)?.value);
 }
