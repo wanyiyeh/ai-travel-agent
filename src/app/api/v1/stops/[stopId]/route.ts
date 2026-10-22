@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma, j } from "@/lib/db";
-import { upsertPlace } from "@/lib/placeCache";
 import { findStopAcrossDays } from "@/lib/itineraryDays";
 import { MAX_NAME_LENGTH, MAX_TEXT_LENGTH } from "@/lib/inputLimits";
 import { authorizeItinerary } from "@/lib/auth/ownership";
@@ -104,9 +103,8 @@ export async function PATCH(
     }
     stops[stopIdx] = updatedStop;
 
-    if (isPlaceSwap && placeId && typeof name === "string" && lat != null && lng != null) {
-      await upsertPlace(name, { placeId, name, address: address ?? null, lat, lng, rating: rating ?? null, photoName: photoName ?? null });
-    }
+    // No cache write here: the query would be Google's own name for the place,
+    // and a business name may not be stored, even as a key (ADR-0004).
 
     await prisma.itinerary.update({
       where: { id: itineraryId },

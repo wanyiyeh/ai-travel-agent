@@ -4,7 +4,6 @@ import { prisma, j } from "@/lib/db";
 import { MealSchema } from "@/lib/schemas";
 import { getMockMode, mockDelay } from "@/lib/mockAi";
 import { isMealType } from "@/types/itinerary";
-import { upsertPlace } from "@/lib/placeCache";
 import { findDayIndex } from "@/lib/itineraryDays";
 import { internalErrorResponse } from "@/lib/apiError";
 import { authorizeItinerary } from "@/lib/auth/ownership";
@@ -70,17 +69,9 @@ export async function POST(
     }
     const saved = current?.fixedEvent ? { ...meal, fixedEvent: current.fixedEvent } : meal;
 
-    if (meal.placeId && meal.lat != null && meal.lng != null) {
-      await upsertPlace(meal.name, {
-        placeId: meal.placeId,
-        name: meal.name,
-        address: meal.address ?? null,
-        lat: meal.lat,
-        lng: meal.lng,
-        rating: meal.rating ?? null,
-        photoName: meal.photoName ?? null,
-      });
-    }
+    // No cache write here: the query would be Google's own name for the place,
+    // and a business name may not be stored, even as a key (ADR-0004).
+
     const meals = { ...(day.meals as Record<string, unknown> | undefined), [mealType]: saved };
     days[dayIndex] = { ...day, meals };
 

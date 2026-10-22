@@ -105,6 +105,108 @@ export function searchPlaceText(
   return promise;
 }
 
+// The one best match for `query`, the same way for both lookups below.
+function textSearchBody(query: string, locationBias?: { lat: number; lng: number } | null, includedType?: string): string {
+  return JSON.stringify({
+    textQuery: query,
+    maxResultCount: 1,
+    languageCode: "zh-TW",
+    ...(locationBias
+      ? {
+          locationBias: {
+            circle: {
+              center: { latitude: locationBias.lat, longitude: locationBias.lng },
+              radius: CITY_BIAS_RADIUS_METERS,
+            },
+          },
+        }
+      : {}),
+    // includedType alone is just a ranking preference — Google can still
+    // return other types. strictTypeFiltering makes it a hard filter, which
+    // is what a city-only search actually needs (see route.ts's city-add path).
+    ...(includedType ? { includedType, strictTypeFiltering: true } : {}),
+  });
+}
+
+/**
+ * Where a place is, for the many lookups that only need to find it — enrich,
+ * city centers — and not to show Google's name for it (ADR-0004: the name is
+ * fetched when shown). Two cheap calls instead of one Pro Text Search:
+ * - Text Search asking for the place ID only: the Essentials (IDs Only)
+ *   tier, which the price list has as free and unlimited;
+ * - Place Details for location, types and address: the Essentials tier.
+ * Field tiers per developers.google.com/maps/documentation/places/web-service/data-fields
+ * (2026-10-21). Rejects a match too far from `locationBias`, like searchPlaceText.
+ */
+export interface ResolvedPlace {
+  placeId: string;
+  lat: number;
+  lng: number;
+  types: string[];
+  address: string | null;
+}
+
+const ID_ONLY_FIELD_MASK = "places.id";
+const ESSENTIALS_FIELD_MASK = "location,types,formattedAddress";
+
+export function resolvePlace(
+  query: string,
+  apiKey: string,
+  locationBias?: { lat: number; lng: number } | null,
+  includedType?: string,
+): Promise<ResolvedPlace | null> {
+  const key = JSON.stringify(["resolve", query, locationBias?.lat ?? null, locationBias?.lng ?? null, includedType ?? null]);
+  const existing = inFlightResolves.get(key);
+  if (existing) return existing;
+  const promise = resolvePlaceUncached(query, apiKey, locationBias, includedType).finally(() => {
+    inFlightResolves.delete(key);
+  });
+  inFlightResolves.set(key, promise);
+  return promise;
+}
+
+const inFlightResolves = new Map<string, Promise<ResolvedPlace | null>>();
+
+async function resolvePlaceUncached(
+  query: string,
+  apiKey: string,
+  locationBias?: { lat: number; lng: number } | null,
+  includedType?: string,
+): Promise<ResolvedPlace | null> {
+  const res = await googleFetch(PLACES_TEXT_SEARCH_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Goog-Api-Key": apiKey, "X-Goog-FieldMask": ID_ONLY_FIELD_MASK },
+    body: textSearchBody(query, locationBias, includedType),
+  });
+  if (!res.ok) throw new PlacesApiError(res.status);
+  const placeId: string | undefined = (await res.json()).places?.[0]?.id;
+  if (!placeId) return null;
+
+  const place = await fetchPlaceEssentials(placeId, apiKey);
+  if (!place) return null;
+  if (locationBias && haversineKm(place.lat, place.lng, locationBias.lat, locationBias.lng) > REJECT_KM_THRESHOLD) {
+    return null;
+  }
+  return place;
+}
+
+/** Coordinates, types and address of a known place: Place Details at the Essentials tier. */
+export async function fetchPlaceEssentials(placeId: string, apiKey: string): Promise<ResolvedPlace | null> {
+  const res = await googleFetch(`https://places.googleapis.com/v1/places/${encodeURIComponent(placeId)}?languageCode=zh-TW`, {
+    headers: { "X-Goog-Api-Key": apiKey, "X-Goog-FieldMask": ESSENTIALS_FIELD_MASK },
+  });
+  if (!res.ok) throw new PlacesApiError(res.status);
+  const data = (await res.json()) as { location?: { latitude: number; longitude: number }; types?: string[]; formattedAddress?: string };
+  if (!data.location) return null;
+  return {
+    placeId,
+    lat: data.location.latitude,
+    lng: data.location.longitude,
+    types: data.types ?? [],
+    address: data.formattedAddress ?? null,
+  };
+}
+
 async function searchPlaceTextUncached(
   query: string,
   apiKey: string,
@@ -118,25 +220,7 @@ async function searchPlaceTextUncached(
       "X-Goog-Api-Key": apiKey,
       "X-Goog-FieldMask": FIELD_MASK,
     },
-    body: JSON.stringify({
-      textQuery: query,
-      maxResultCount: 1,
-      languageCode: "zh-TW",
-      ...(locationBias
-        ? {
-            locationBias: {
-              circle: {
-                center: { latitude: locationBias.lat, longitude: locationBias.lng },
-                radius: CITY_BIAS_RADIUS_METERS,
-              },
-            },
-          }
-        : {}),
-      // includedType alone is just a ranking preference — Google can still
-      // return other types. strictTypeFiltering makes it a hard filter, which
-      // is what a city-only search actually needs (see route.ts's city-add path).
-      ...(includedType ? { includedType, strictTypeFiltering: true } : {}),
-    }),
+    body: textSearchBody(query, locationBias, includedType),
   });
 
   if (!res.ok) throw new PlacesApiError(res.status);
@@ -225,12 +309,12 @@ export async function getCityCenter(
   // rather than surfacing the failure here; the caller that actually needs to
   // report a real error (the direct search a user triggers) sees it via its
   // own searchPlaceText call instead.
-  let place: TextSearchPlace | null;
+  let place: ResolvedPlace | null;
   try {
     // As a city first: unrestricted, "Barcelona" matched a Taipei bar called
     // 巴賽隆納俱樂部. Regions and islands (西奈半島, 石垣島) aren't localities,
     // so those fall back to the unrestricted search.
-    place = (await searchPlaceText(cityName, apiKey, null, "locality")) ?? (await searchPlaceText(cityName, apiKey));
+    place = (await resolvePlace(cityName, apiKey, null, "locality")) ?? (await resolvePlace(cityName, apiKey));
   } catch (err) {
     if (err instanceof PlacesApiError) return null;
     throw err;
@@ -244,14 +328,7 @@ export async function getCityCenter(
     return null;
   }
 
-  await upsertPlace(cacheKey, {
-    placeId: place.id,
-    name: place.displayName.text,
-    address: place.formattedAddress,
-    lat: place.location.latitude,
-    lng: place.location.longitude,
-    rating: place.rating ?? null,
-  });
+  await upsertPlace(cacheKey, { placeId: place.placeId, lat: place.lat, lng: place.lng });
 
-  return { lat: place.location.latitude, lng: place.location.longitude };
+  return { lat: place.lat, lng: place.lng };
 }

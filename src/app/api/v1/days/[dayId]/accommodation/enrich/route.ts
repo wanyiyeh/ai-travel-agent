@@ -3,8 +3,7 @@ import { z } from "zod";
 import { prisma, j } from "@/lib/db";
 import { iataToCity } from "@/lib/iataCity";
 import { lookupByQuery, upsertPlace } from "@/lib/placeCache";
-import { searchPlaceText, getCityCenter } from "@/lib/placesTextSearch";
-import { PRICE_LEVEL_MAP } from "@/lib/fetchCityRestaurants";
+import { resolvePlace, getCityCenter } from "@/lib/placesTextSearch";
 import { estimateLodgingCostPerNight, estimateLodgingCostRange } from "@/lib/priceLevelCost";
 import { findDayIndex } from "@/lib/itineraryDays";
 import { isRecentEnrichFailure, enrichFailureMarker } from "@/lib/enrichFailure";
@@ -104,25 +103,14 @@ export async function POST(
 
     const cityBias = await getCityCenter(cityHint, apiKey);
 
-    // Check cache before hitting Google API
+    // The cache keeps the place ID and coordinates only (ADR-0004); anything
+    // else comes from resolvePlace's two cheap calls on a miss.
     const cached = await lookupByQuery(query);
-    let placeId: string;
-    let placeName: string;
-    let placeAddress: string | null;
-    let placeLat: number;
-    let placeLng: number;
-    let placeRating: number | null;
-    let placePriceLevel: number | null = null;
-
+    let found: { placeId: string; lat: number; lng: number; address: string | null };
     if (cached && cached.lat != null && cached.lng != null) {
-      placeId = cached.placeId;
-      placeName = cached.name;
-      placeAddress = cached.address;
-      placeLat = cached.lat;
-      placeLng = cached.lng;
-      placeRating = cached.rating;
+      found = { placeId: cached.placeId, lat: cached.lat, lng: cached.lng, address: null };
     } else {
-      const place = await searchPlaceText(query, apiKey, cityBias);
+      const place = await resolvePlace(query, apiKey, cityBias);
       if (!place) {
         await markAccommodationNotFound(itineraryId, dayId, query);
         return NextResponse.json(
@@ -130,29 +118,23 @@ export async function POST(
           { status: 404 }
         );
       }
-      placeId = place.id;
-      placeName = place.displayName.text;
-      placeAddress = place.formattedAddress;
-      placeLat = place.location.latitude;
-      placeLng = place.location.longitude;
-      placeRating = place.rating ?? null;
-      placePriceLevel = place.priceLevel ? (PRICE_LEVEL_MAP[place.priceLevel] ?? null) : null;
-      await upsertPlace(query, { placeId: place.id, name: place.displayName.text, address: place.formattedAddress, lat: place.location.latitude, lng: place.location.longitude, rating: place.rating, photoName: place.photos?.[0]?.name ?? null });
+      found = place;
+      await upsertPlace(query, { placeId: place.placeId, lat: place.lat, lng: place.lng });
     }
 
-    const estimatedCost = estimateLodgingCostPerNight(config.currency, placePriceLevel);
-    const costRange = estimateLodgingCostRange(config.currency, placePriceLevel);
+    // Price level is an Enterprise field and was never asked for here, so
+    // the estimate is the currency's default either way.
+    const estimatedCost = estimateLodgingCostPerNight(config.currency, null);
+    const costRange = estimateLodgingCostRange(config.currency, null);
 
-    const enriched = {
+    const enriched: Record<string, unknown> = {
       ...accommodation,
       enrichFailure: undefined,
-      name: accName ?? placeName,
-      placeId,
-      lat: placeLat,
-      lng: placeLng,
-      address: placeAddress,
-      rating: placeRating,
-      priceLevel: placePriceLevel,
+      ...(accName ? { name: accName } : {}),
+      placeId: found.placeId,
+      lat: found.lat,
+      lng: found.lng,
+      ...(found.address ? { address: found.address } : {}),
       ...(estimatedCost !== undefined ? { estimated_cost: estimatedCost } : {}),
       ...(costRange !== undefined
         ? { estimated_cost_low: costRange[0], estimated_cost_high: costRange[1] }
@@ -166,6 +148,9 @@ export async function POST(
       data: { days: j(days) },
     });
 
+    // Lodging generated as an area only now has a hotel; the page shows its
+    // name, fetched after the write so it isn't stored (ADR-0004).
+    await hydratePlacesMetered([enriched]);
     return NextResponse.json({ success: true, accommodation: enriched });
   } catch (error) {
     return internalErrorResponse("Accommodation Enrich Error", error, "Failed to enrich accommodation");

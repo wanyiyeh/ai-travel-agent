@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { searchPlaceText } from "./placesTextSearch";
+import { fetchPlaceEssentials, resolvePlace, searchPlaceText } from "./placesTextSearch";
 
 const PLACE = {
   id: "p1",
@@ -70,5 +70,61 @@ describe("searchPlaceText field mask", () => {
       expect(mask).not.toContain(enterpriseField);
     }
     expect(mask).toEqual(expect.arrayContaining(["places.id", "places.location", "places.photos"]));
+  });
+});
+
+describe("resolvePlace", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  // Text Search answers with the place ID, Place Details with where it is.
+  function google(details: Record<string, unknown> | null, searchPlaces: unknown[] = [{ id: "p1" }]) {
+    const fetchMock = vi.fn(async (url: string) =>
+      url.includes(":searchText")
+        ? new Response(JSON.stringify({ places: searchPlaces }), { status: 200 })
+        : new Response(JSON.stringify(details ?? {}), { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  }
+
+  it("finds a place with an ID-only search, then its location, types and address", async () => {
+    google({ location: { latitude: 35.71, longitude: 139.79 }, types: ["tourist_attraction"], formattedAddress: "台東區" });
+
+    expect(await resolvePlace("淺草寺 東京", "key", { lat: 35.68, lng: 139.77 })).toEqual({
+      placeId: "p1",
+      lat: 35.71,
+      lng: 139.79,
+      types: ["tourist_attraction"],
+      address: "台東區",
+    });
+  });
+
+  it("gives up without a details call when the search finds nothing", async () => {
+    const fetchMock = google(null, []);
+    expect(await resolvePlace("no such place", "key")).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects a same-named place a continent away from the city", async () => {
+    google({ location: { latitude: -34.6, longitude: -58.38 } }); // Buenos Aires, for a Tokyo day
+    expect(await resolvePlace("Cafe Tortoni 東京", "key", { lat: 35.68, lng: 139.77 })).toBeNull();
+  });
+});
+
+describe("fetchPlaceEssentials", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("asks Place Details for Essentials-tier fields only", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ location: { latitude: 1, longitude: 2 } }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fetchPlaceEssentials("p1", "key");
+
+    const init = (fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1];
+    expect(new Headers(init.headers).get("X-Goog-FieldMask")).toBe("location,types,formattedAddress");
   });
 });

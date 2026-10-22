@@ -527,11 +527,11 @@ async function enrichAccommodation(accommodation: any, city: string, apiKey: str
   let placeData: PlaceEnrichment | null = null;
 
   if (cached && cached.lat != null && cached.lng != null) {
-    placeData = { placeId: cached.placeId, name: cached.name, lat: cached.lat, lng: cached.lng, address: cached.address, rating: cached.rating ?? undefined, priceLevel: null, photoName: cached.photoName };
+    placeData = { placeId: cached.placeId, name: accName ?? accArea ?? "", lat: cached.lat, lng: cached.lng, address: null, rating: undefined, priceLevel: null, photoName: null };
   } else {
     placeData = await searchPlaceForSeed(query, apiKey, { withPriceLevel: true });
     if (placeData) {
-      await upsertPlace(query, { placeId: placeData.placeId, name: placeData.name, address: placeData.address, lat: placeData.lat, lng: placeData.lng, rating: placeData.rating, photoName: placeData.photoName });
+      await upsertPlace(query, { placeId: placeData.placeId, lat: placeData.lat, lng: placeData.lng });
     }
     await new Promise(r => setTimeout(r, 150));
   }
@@ -570,14 +570,14 @@ async function enrichMeals(meals: any, city: string, apiKey: string): Promise<{ 
 
     const cached = await lookupByQuery(query);
     if (cached && cached.lat != null && cached.lng != null) {
-      result[mealType] = { ...meal, placeId: cached.placeId, lat: cached.lat, lng: cached.lng, address: cached.address, rating: cached.rating, photoName: cached.photoName };
+      result[mealType] = { ...meal, placeId: cached.placeId, lat: cached.lat, lng: cached.lng };
       cacheHits++;
       continue;
     }
 
     const placeData = await searchPlaceForSeed(query, apiKey);
     if (placeData) {
-      await upsertPlace(query, { placeId: placeData.placeId, name: placeData.name, address: placeData.address, lat: placeData.lat, lng: placeData.lng, rating: placeData.rating, photoName: placeData.photoName });
+      await upsertPlace(query, { placeId: placeData.placeId, lat: placeData.lat, lng: placeData.lng });
       result[mealType] = { ...meal, placeId: placeData.placeId, lat: placeData.lat, lng: placeData.lng, address: placeData.address, rating: placeData.rating ?? null, photoName: placeData.photoName ?? null };
       enriched++;
     } else {
@@ -618,7 +618,7 @@ async function enrichDaysWithPlaces(days: any[], apiKey: string, currency?: stri
       // Check DB cache first — skip API call if already known
       const cached = await lookupByQuery(query);
       if (cached && cached.lat != null && cached.lng != null) {
-        enrichedStops.push({ ...stop, placeId: cached.placeId, lat: cached.lat, lng: cached.lng, address: cached.address, rating: cached.rating, photoName: cached.photoName });
+        enrichedStops.push({ ...stop, placeId: cached.placeId, lat: cached.lat, lng: cached.lng });
         cacheHits++;
         continue;
       }
@@ -626,7 +626,7 @@ async function enrichDaysWithPlaces(days: any[], apiKey: string, currency?: stri
       const placeData = await searchPlaceForSeed(query, apiKey);
 
       if (placeData) {
-        await upsertPlace(query, { placeId: placeData.placeId, name: placeData.name, address: placeData.address, lat: placeData.lat, lng: placeData.lng, rating: placeData.rating, photoName: placeData.photoName });
+        await upsertPlace(query, { placeId: placeData.placeId, lat: placeData.lat, lng: placeData.lng });
         enrichedStops.push({ ...stop, placeId: placeData.placeId, lat: placeData.lat, lng: placeData.lng, address: placeData.address, rating: placeData.rating ?? null, photoName: placeData.photoName ?? null });
         enriched++;
       } else {

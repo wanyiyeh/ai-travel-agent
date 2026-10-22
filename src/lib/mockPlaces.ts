@@ -75,18 +75,28 @@ function locateByText(text: string): LatLng {
 
 // The name rides in the id, so a later Place Details request for it (when
 // the stored itinerary only kept the id, ADR-0004) answers with the same name.
-function mockPlaceId(seed: string, name: string): string {
-  return `mock-${hash(seed).toString(16)}-${Buffer.from(name, "utf8").toString("base64url")}`;
+// So do its coordinates: finding a place now asks Text Search for the ID
+// only, then Place Details for where it is (resolvePlace).
+// Format: mock-<hash>~<lat>~<lng>~<base64url name>. IDs from before carried
+// only the name (mock-<hash>-<name>); their place is placed by the name.
+function mockPlaceId(seed: string, name: string, at: LatLng): string {
+  return `mock-${hash(seed).toString(16)}~${at.lat}~${at.lng}~${Buffer.from(name, "utf8").toString("base64url")}`;
 }
 
-function nameFromMockId(id: string): string {
+function parseMockId(id: string): { name: string; at: LatLng | null } {
+  const parts = id.split("~");
+  if (parts.length === 4) {
+    const name = Buffer.from(parts[3], "base64url").toString("utf8");
+    const at = { lat: Number(parts[1]), lng: Number(parts[2]) };
+    return { name: name || `Mock place ${id}`, at: Number.isFinite(at.lat) && Number.isFinite(at.lng) ? at : null };
+  }
   const encoded = id.split("-").slice(2).join("-");
   const name = encoded ? Buffer.from(encoded, "base64url").toString("utf8") : "";
-  return name || `Mock place ${id}`;
+  return { name: name || `Mock place ${id}`, at: null };
 }
 
 function fakePlace(seed: string, name: string, at: LatLng, extra: Record<string, unknown> = {}) {
-  const id = mockPlaceId(seed, name);
+  const id = mockPlaceId(seed, name, at);
   return {
     id,
     displayName: { text: name },
@@ -178,8 +188,15 @@ function applyFieldMask(data: { places: Record<string, unknown>[] }, mask: strin
 // Place Details (GET /v1/places/{id}): the field mask has no "places." prefix.
 function mockPlaceDetails(url: string, mask: string[] | null) {
   const id = decodeURIComponent(url.split("/v1/places/")[1].split("?")[0]);
-  const name = nameFromMockId(id);
-  const place: Record<string, unknown> = { id, displayName: { text: name }, formattedAddress: `Mock address — ${name}` };
+  const { name, at } = parseMockId(id);
+  const where = at ?? locateByText(name);
+  const place: Record<string, unknown> = {
+    id,
+    displayName: { text: name },
+    formattedAddress: `Mock address — ${name}`,
+    location: { latitude: where.lat, longitude: where.lng },
+    types: ["point_of_interest", "establishment"],
+  };
   if (!mask || mask.includes("*")) return place;
   return Object.fromEntries(Object.entries(place).filter(([k]) => mask.includes(k)));
 }

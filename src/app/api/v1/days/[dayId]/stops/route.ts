@@ -4,8 +4,7 @@ import { MAX_LIST_LENGTH, MAX_NAME_LENGTH } from "@/lib/inputLimits";
 import { prisma, j } from "@/lib/db";
 import { StopCandidateSchema, StopDescriptionFillSchema } from "@/lib/schemas";
 import { lookupByQuery, upsertPlace } from "@/lib/placeCache";
-import { searchPlaceText, getCityCenter } from "@/lib/placesTextSearch";
-import { PRICE_LEVEL_MAP } from "@/lib/fetchCityRestaurants";
+import { resolvePlace, getCityCenter } from "@/lib/placesTextSearch";
 import { estimateAttractionCost } from "@/lib/priceLevelCost";
 import { openai } from "@/lib/openai";
 import { findDayIndex, getCityHintForDay } from "@/lib/itineraryDays";
@@ -165,57 +164,41 @@ export async function POST(
     const cityHint = getCityHintForDay(day);
     const query = cityHint ? `${stopName} ${cityHint}` : stopName;
 
-    let resolved: { placeId: string; name: string; lat: number; lng: number; address: string | null; rating: number | null; priceLevel: number | null };
+    // The name is what the traveler typed: ours to keep. Google's own name
+    // for the place is fetched when it's shown (ADR-0004).
+    let resolved: { placeId: string; lat: number; lng: number; address: string | null };
 
     const cached = await lookupByQuery(query);
     if (cached && cached.lat != null && cached.lng != null) {
-      // The place cache doesn't store priceLevel, so a cache hit falls back
-      // to estimateAttractionCost's no-signal default rather than a real one.
-      resolved = { placeId: cached.placeId, name: cached.name, lat: cached.lat, lng: cached.lng, address: cached.address, rating: cached.rating, priceLevel: null };
+      resolved = { placeId: cached.placeId, lat: cached.lat, lng: cached.lng, address: null };
     } else {
       const cityBias = await getCityCenter(cityHint, apiKey);
-      const place = await searchPlaceText(query, apiKey, cityBias);
+      const place = await resolvePlace(query, apiKey, cityBias);
       if (!place) {
         return NextResponse.json(
           { error: "在 Google 地圖上找不到這個地點，請確認名稱是否正確" },
           { status: 404 }
         );
       }
-      resolved = {
-        placeId: place.id,
-        name: place.displayName.text,
-        lat: place.location.latitude,
-        lng: place.location.longitude,
-        address: place.formattedAddress,
-        rating: place.rating ?? null,
-        priceLevel: place.priceLevel ? (PRICE_LEVEL_MAP[place.priceLevel] ?? null) : null,
-      };
-      await upsertPlace(query, {
-        placeId: place.id,
-        name: place.displayName.text,
-        address: place.formattedAddress,
-        lat: place.location.latitude,
-        lng: place.location.longitude,
-        rating: place.rating,
-        photoName: place.photos?.[0]?.name ?? null,
-      });
+      resolved = place;
+      await upsertPlace(query, { placeId: place.placeId, lat: place.lat, lng: place.lng });
     }
 
     const fallbackDescription = "";
-    const aiDescription = await describeStopWithAI(resolved.name, itinerary.title, cityHint);
+    const aiDescription = await describeStopWithAI(stopName, itinerary.title, cityHint);
     const currency = ((itinerary.config as Record<string, unknown> | null)?.currency as string) ?? "EUR";
 
     const newStop = {
       id: crypto.randomUUID(),
-      name: resolved.name,
+      name: stopName,
       description: aiDescription ?? fallbackDescription,
       duration_minutes: DEFAULT_DURATION_MINUTES,
       placeId: resolved.placeId,
       lat: resolved.lat,
       lng: resolved.lng,
-      address: resolved.address,
-      rating: resolved.rating,
-      estimated_cost: estimateAttractionCost(currency, resolved.priceLevel),
+      ...(resolved.address ? { address: resolved.address } : {}),
+      // Price level is an Enterprise field and isn't fetched: the default estimate.
+      estimated_cost: estimateAttractionCost(currency, null),
       orderIndex: stops.length,
     };
 

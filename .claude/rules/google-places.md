@@ -23,10 +23,13 @@ paths:
 
 ## 資料進入的路徑
 
-- `placesTextSearch.ts`：Text Search，取單一最佳結果（補資料、城市搜尋）。同時間相同的請求會合併成一次（in-flight dedupe）。
+- `placesTextSearch.ts`：
+  - **`resolvePlace`**：只是要「找到地點」時用這個（補資料、城市中心）。Text Search 只取 `places.id`（Essentials IDs Only，免費），再用 Place Details 取 `location,types,formattedAddress`（Essentials）。已知 place ID、只缺座標時直接用 `fetchPlaceEssentials`。
+  - **`searchPlaceText`**：要把名稱顯示給使用者時才用（「加景點」的搜尋框），Pro 等級。
+  - 欄位計費等級以官方表為準：developers.google.com/maps/documentation/places/web-service/data-fields。兩者都會合併同時間相同的請求。
 - `fetchCityRestaurants.ts`：Nearby Search，批次取候選，注入 prompt 或給候選池、`stop-suggestions` 用。
 - `placeDisplay.ts`：Place Details，依 place ID 取回名稱與地址（Pro 等級），給「只存 place ID」的資料補回顯示用的欄位；只合併同一次呼叫內的重複，不跨請求保存（ADR-0004）。
-- `placeCache.ts`：`Place`/`PlaceQuery` 快取的唯一入口（有幾個 script 自己重寫了這段邏輯，沒有 import 它）。
+- `placeCache.ts`：`Place`/`PlaceQuery` 快取的唯一入口。只存 place ID（`PlaceQuery`，永久）與座標（附 `coordsFetchedAt`，超過 `COORDS_MAX_AGE_MS` 視為沒有）。**查詢字串（快取的 key）必須是我們自己的文字**（LLM 寫的名稱、使用者輸入），不可用 Google 回傳的名稱當 key。
 
 ## 快取與「記住沒找到」
 

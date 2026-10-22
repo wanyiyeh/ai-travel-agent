@@ -3,7 +3,6 @@ import { z } from "zod";
 import { prisma, j } from "@/lib/db";
 import { AccommodationSchema } from "@/lib/schemas";
 import { getMockMode, mockDelay } from "@/lib/mockAi";
-import { upsertPlace } from "@/lib/placeCache";
 import { findDayIndex } from "@/lib/itineraryDays";
 import { internalErrorResponse } from "@/lib/apiError";
 import { authorizeItinerary } from "@/lib/auth/ownership";
@@ -53,18 +52,8 @@ export async function POST(
       return NextResponse.json({ error: "Day not found" }, { status: 404 });
     }
 
-    if (accommodation.placeId && accommodation.lat != null && accommodation.lng != null) {
-      const accName = accommodation.name ?? accommodation.area;
-      await upsertPlace(`${accName} ${accommodation.area}`.trim(), {
-        placeId: accommodation.placeId,
-        name: accName,
-        address: accommodation.address ?? null,
-        lat: accommodation.lat,
-        lng: accommodation.lng,
-        rating: accommodation.rating ?? null,
-        photoName: accommodation.photoName ?? null,
-      });
-    }
+    // No cache write here: the query would be Google's own name for the place,
+    // and a business name may not be stored, even as a key (ADR-0004).
 
     days[dayIndex] = { ...days[dayIndex], accommodation };
 

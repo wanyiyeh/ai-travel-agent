@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma, j } from "@/lib/db";
 import { lookupByQuery, upsertPlace } from "@/lib/placeCache";
-import { searchPlaceText, getCityCenter, buildStopQuery, buildMealQuery } from "@/lib/placesTextSearch";
+import { resolvePlace, getCityCenter, buildStopQuery, buildMealQuery } from "@/lib/placesTextSearch";
 import { haversineKm, centroid, SUSPICIOUS_DISTANCE_KM as SUSPICIOUS_KM } from "@/lib/distanceMatrix";
-import { PRICE_LEVEL_MAP } from "@/lib/fetchCityRestaurants";
 import { estimateMealCost } from "@/lib/priceLevelCost";
 import { translatePlaceNames } from "@/lib/translatePlaceNames";
 import { getCityHintForDay } from "@/lib/itineraryDays";
@@ -158,52 +157,41 @@ export async function POST(
                 placeId: cached.placeId,
                 lat: cached.lat,
                 lng: cached.lng,
-                address: cached.address,
-                rating: cached.rating,
                 enrichFailure: undefined,
               };
               cachedCount++;
             } else {
-              const place = await searchPlaceText(query, apiKey, cityBias);
+              const place = await resolvePlace(query, apiKey, cityBias);
               if (!place) {
                 failedCount++;
                 meals[mealKey] = { ...meal, enrichFailure: enrichFailureMarker(query, "not_found") };
                 continue;
               }
-              if (tooFarFromCity(place.location.latitude, place.location.longitude)) {
+              if (tooFarFromCity(place.lat, place.lng)) {
                 failedCount++;
                 meals[mealKey] = { ...meal, enrichFailure: enrichFailureMarker(query, "too_far") };
                 suspiciousStops.push({
                   name: displayName,
                   day: typeof day.day === "number" ? day.day : 0,
                   reason: `距 ${cityHint || "行程城市"} 約 ${Math.round(
-                    haversineKm(place.location.latitude, place.location.longitude, cityBias!.lat, cityBias!.lng),
+                    haversineKm(place.lat, place.lng, cityBias!.lat, cityBias!.lng),
                   )} km，地點可能搜尋有誤，未套用`,
                 });
                 continue;
               }
-              const priceLevel = place.priceLevel ? (PRICE_LEVEL_MAP[place.priceLevel] ?? null) : null;
+              const priceLevel = null; // Enterprise field, not fetched
               const estimatedCost = estimateMealCost(currency, mealKey, priceLevel);
               meals[mealKey] = {
                 ...meal,
                 name: displayName,
-                placeId: place.id,
-                lat: place.location.latitude,
-                lng: place.location.longitude,
-                address: place.formattedAddress,
-                rating: place.rating ?? null,
+                placeId: place.placeId,
+                lat: place.lat,
+                lng: place.lng,
+                address: place.address,
                 enrichFailure: undefined,
                 ...(estimatedCost !== undefined ? { estimated_cost: estimatedCost } : {}),
               };
-              await upsertPlace(query, {
-                placeId: place.id,
-                name: place.displayName.text,
-                address: place.formattedAddress,
-                lat: place.location.latitude,
-                lng: place.location.longitude,
-                rating: place.rating,
-                photoName: place.photos?.[0]?.name ?? null,
-              });
+              await upsertPlace(query, { placeId: place.placeId, lat: place.lat, lng: place.lng });
               enrichedCount++;
             }
           } catch {
@@ -265,36 +253,25 @@ export async function POST(
               placeId: cached.placeId,
               lat: cached.lat,
               lng: cached.lng,
-              address: cached.address,
-              rating: cached.rating,
             };
             cachedCount++;
           } else {
-            const place = await searchPlaceText(query, apiKey, stopBias);
+            const place = await resolvePlace(query, apiKey, stopBias);
             if (!place) {
               failedCount++;
               stops[i] = { ...stop, enrichFailure: enrichFailureMarker(query, "not_found") };
               continue;
             }
-            enrichedLat = place.location.latitude;
-            enrichedLng = place.location.longitude;
+            enrichedLat = place.lat;
+            enrichedLng = place.lng;
             baseFields = {
               name: displayName,
-              placeId: place.id,
+              placeId: place.placeId,
               lat: enrichedLat,
               lng: enrichedLng,
-              address: place.formattedAddress,
-              rating: place.rating ?? null,
+              address: place.address,
             };
-            await upsertPlace(query, {
-              placeId: place.id,
-              name: place.displayName.text,
-              address: place.formattedAddress,
-              lat: enrichedLat,
-              lng: enrichedLng,
-              rating: place.rating,
-              photoName: place.photos?.[0]?.name ?? null,
-            });
+            await upsertPlace(query, { placeId: place.placeId, lat: enrichedLat, lng: enrichedLng });
             enrichedCount++;
           }
 
