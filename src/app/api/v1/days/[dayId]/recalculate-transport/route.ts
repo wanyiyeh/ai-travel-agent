@@ -51,11 +51,10 @@ export async function POST(
         ? (days[dayIndex - 1].accommodation as Record<string, unknown> | undefined)
         : undefined;
 
-    const prevAccommodation = prevAccommodationObj
-      ? prevAccommodationObj.name
-        ? `${prevAccommodationObj.name}（${prevAccommodationObj.area}）`
-        : `${prevAccommodationObj.area}`
-      : null;
+    // The area only: the model writes this into transport_from_prev, which is
+    // stored, and a hotel's Google name may not be (ADR-0004).
+    const prevAccommodation =
+      prevAccommodationObj && typeof prevAccommodationObj.area === "string" ? `${prevAccommodationObj.area}的住宿` : null;
 
     const originDesc = isFirstDay
       ? "機場（去程航班抵達）"
