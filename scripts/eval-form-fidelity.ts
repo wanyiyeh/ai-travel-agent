@@ -6,13 +6,16 @@
  * the same path generate-stream/route.ts takes (assembleItineraryDays ->
  * repairs -> validateItinerary + validateGeography), then measured with
  * src/lib/evalMetrics.ts and checked against what each choice should do.
- * Does not hit the HTTP route or save itineraries; candidate pools are cached
- * as usual. Each scenario logs its own "[usage] eval <id>" call counts.
+ * Does not hit the HTTP route or save itineraries. Each scenario logs its own
+ * "[usage] eval <id>" call counts. Place types for the metrics are looked up
+ * live (scripts/lib/livePlaceEssentials.ts), only with --yes; without it the
+ * type-based metrics are left out.
  *
  * REAL OpenAI + Google calls — confirm before running (CLAUDE.local.md).
  *
  *   npm run eval-form-fidelity -- --dry-run            list scenarios, no API calls
  *   npm run eval-form-fidelity                         run everything
+ *   npm run eval-form-fidelity -- --yes                also look up place types
  *   npm run eval-form-fidelity -- --only=tokyo-baseline,tokyo-late
  *
  * Writes the full results to eval-results/form-fidelity-<timestamp>.json.
@@ -24,6 +27,7 @@ import { resolve } from "path";
 // No import-time side effects (unlike openai.ts), so safe before the .env load.
 import { NIGHTCAP_TYPES } from "../src/lib/drinkPlaces";
 import { haversineKm } from "../src/lib/geo";
+import { loadPlaceEssentials } from "./lib/livePlaceEssentials";
 
 try {
   const envContent = readFileSync(resolve(process.cwd(), ".env"), "utf-8");
@@ -977,13 +981,18 @@ async function main() {
     results.push(result);
   }
 
-  // Google types for every cached candidate, to classify stops and meals.
+  // Google types of every place in the results, to classify stops and meals.
+  // Not cached any more (ADR-0004), so looked up live, only with --yes.
+  type PlaceItem = { placeId?: string };
+  const placeIds = results.flatMap((r) =>
+    (r.days ?? []).flatMap((day) => {
+      const stops = (day.stops as PlaceItem[] | undefined) ?? [];
+      const meals = Object.values((day.meals as Record<string, PlaceItem> | undefined) ?? {});
+      return [...stops, ...meals].map((item) => item?.placeId).filter((id): id is string => !!id);
+    }),
+  );
   const placeTypes = new Map<string, string[]>();
-  for (const row of await prisma.nearbyPlaceCandidatesCache.findMany({ select: { candidates: true } })) {
-    for (const c of JSON.parse(row.candidates) as Array<{ placeId?: string; types?: string[] }>) {
-      if (c.placeId && c.types) placeTypes.set(c.placeId, c.types);
-    }
-  }
+  for (const [id, place] of (await loadPlaceEssentials(placeIds)) ?? []) placeTypes.set(id, place.types);
   const twdPerUnit = await getTwdRates();
 
   const metricsById = new Map<string, Metrics>();

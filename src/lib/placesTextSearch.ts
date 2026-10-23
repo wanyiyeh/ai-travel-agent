@@ -55,13 +55,12 @@ const CITY_BIAS_RADIUS_METERS = 50000;
 // vague activity description), Google can still return its single global
 // best text match a continent away. Past that distance the bias has clearly
 // lost to a same-keyword homonym, so reject rather than save a wrong-place
-// match (mirrors the threshold in scripts/enrich-all-itineraries.ts).
+// match.
 const REJECT_KM_THRESHOLD = 1500;
 
 // Single source of truth for how a stop's Text Search query (and therefore
 // its PlaceQuery cache key) is built. Every caller — the single-stop enrich
-// route, the bulk enrich-all-stops route, the enrich-all-itineraries script,
-// and the cache-only backfill script — must build this string identically,
+// route and the bulk enrich-all-stops route — must build this string identically,
 // or the same real-world place ends up under different cache keys and silently
 // re-bills Google on every "backfill" that doesn't actually hit the same key.
 export function buildStopQuery(name: string, district: string | null | undefined, cityHint: string): string {
