@@ -22,15 +22,16 @@ paths:
 
 ## 資料庫
 
-- Prisma + SQLite。SQLite 沒有 `Json` 型別，`Itinerary.days`、`Itinerary.config` 存成 JSON 字串；`src/lib/db.ts` 的 Prisma extension 在讀寫時自動 `JSON.parse`/`stringify`，所以 `src/app/api/v1/**` 把它們當物件用。
+- Prisma + PostgreSQL（本機 `docker-compose.yml`，正式 Neon，ADR-0003、ADR-0007）。`Itinerary.days`、`Itinerary.config` 仍存成 JSON 字串（從 SQLite 沿用）；`src/lib/db.ts` 的 Prisma extension 在讀寫時自動 `JSON.parse`/`stringify`，所以 `src/app/api/v1/**` 把它們當物件用。
 - **`scripts/*.ts` 不用這個 client**：它們在 Next.js 模組圖之外，各自 `new PrismaClient()`，要自己 `JSON.parse`/`stringify`。在 script 和 route 之間搬邏輯時要注意。
-- 改 `schema.prisma` 後跑 `npx prisma db push`。
-- `MOCK_PLACES=1` 時，`db.ts` 在載入時檢查 `DATABASE_URL` 必須含 "mock"，避免假地點寫進 `dev.db`。
+- 改 `schema.prisma` 後跑 `npx prisma migrate dev --name <slug>`，把產生的 `prisma/migrations/` 一起 commit；不要用 `db push`。
+- 原生 SQL 的資料表名稱要加雙引號（`"Itinerary"`）：Postgres 會把沒加引號的名稱轉成小寫。
+- `MOCK_PLACES=1` 時，`db.ts` 在載入時檢查 `DATABASE_URL` 必須含 "mock"，避免假地點寫進開發資料庫。
 
 ## 測試
 
 - 單元測試（`src/**/*.test.ts`，不含 `*.integration.test.ts`）是封閉的，不碰真 DB。
-- 整合測試（`src/**/*.integration.test.ts`）跑在真 SQLite `prisma/test.db`（由 `tests/integration/global-setup.ts` 建立），`MOCK_AI=1`，`fileParallelism: false`。不可平行執行，不可指向 `dev.db`。
+- 整合測試（`src/**/*.integration.test.ts`）跑在真 Postgres `travel_test`（`tests/integration/global-setup.ts` 每次用 migration 重建），`MOCK_AI=1`，`fileParallelism: false`。不可平行執行，不可指向開發資料庫。需要 Docker 的 Postgres 在跑。
 - 有 `playwright` 套件，但沒有設定檔也沒有 E2E 測試，不要假設存在。
 - 修 bug 先寫一個修改前會失敗的測試。
 

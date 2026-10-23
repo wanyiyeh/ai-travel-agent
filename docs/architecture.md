@@ -2,7 +2,7 @@
 
 ## 總覽
 
-Next.js 16 App Router 單體應用，資料存在 SQLite（Prisma），行程內容由 OpenAI 與規則引擎共同產生，真實地點來自 Google Places / Routes。`src/app/api/v1/**` 的路由很薄，邏輯幾乎都在 `src/lib/`。
+Next.js 16 App Router 單體應用，資料存在 PostgreSQL（Prisma；本機 Docker、正式 Neon），行程內容由 OpenAI 與規則引擎共同產生，真實地點來自 Google Places / Routes。`src/app/api/v1/**` 的路由很薄，邏輯幾乎都在 `src/lib/`。
 
 ```mermaid
 flowchart LR
@@ -12,7 +12,7 @@ flowchart LR
   LIB --> SCH[src/lib/scheduler<br/>規則引擎]
   LIB --> OAI[OpenAI]
   LIB --> GF[googleFetch.ts] --> G[Google Places / Routes]
-  LIB --> DB[(SQLite<br/>Itinerary + 快取表)]
+  LIB --> DB[(PostgreSQL<br/>Itinerary + 快取表)]
 ```
 
 ## 使用者與存取

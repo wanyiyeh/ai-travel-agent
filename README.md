@@ -7,7 +7,7 @@
 - **Framework**：Next.js 16 (App Router)
 - **UI**：Tailwind CSS
 - **AI**：OpenAI API（預設 `gpt-4o-mini`，可用 `OPENAI_MODEL` 切換）
-- **DB**：SQLite + Prisma ORM
+- **DB**：PostgreSQL + Prisma ORM（本機用 Docker，正式環境用 Neon）
 - **地圖**：`@vis.gl/react-google-maps`
 - **地點資料**：Google Places API（Text Search / Place Details / Photos）
 - **拖拉排序**：`@dnd-kit`
@@ -20,11 +20,12 @@
    npm install
    ```
 2. 設定環境變數（見下表），建立 `.env.local`
-3. 建立本地 DB
+3. 啟動本機 Postgres（需要先開 Docker Desktop），並套用 migration
    ```bash
-   npx prisma db push
+   npm run db:up
+   npx prisma migrate deploy
    ```
-   `prisma/dev.db` 不進版控（裡面是付費 API 的快取，跟著 git 切換會被倒回舊版本、重複計費），每個環境各自建立。
+   `docker-compose.yml` 建立三個資料庫：`travel`（`npm run dev`）、`travel_mock`（`dev:mock`、`dev:free`）、`travel_test`（整合測試）。資料存在 Docker volume，`docker compose down -v` 會刪掉。
 4. （選用）灌入測試資料——會實際呼叫 OpenAI 與 Google Places，會產生費用
    ```bash
    npm run seed
@@ -39,7 +40,7 @@
 
 | 變數 | 必填 | 說明 |
 |---|---|---|
-| `DATABASE_URL` | 是 | SQLite 連線字串（例：`file:./dev.db`） |
+| `DATABASE_URL` | 是 | Postgres 連線字串；本機為 `postgresql://travel:travel@localhost:5432/travel` |
 | `OPENAI_API_KEY` | 是 | OpenAI API 金鑰 |
 | `OPENAI_MODEL` | 否 | 預設 `gpt-4o-mini` |
 | `GOOGLE_PLACES_API_KEY` | 是（地點/地圖功能） | Google Places API 金鑰（後端用） |
@@ -60,7 +61,7 @@
 | 指令 | 說明 |
 |---|---|
 | `npm run dev` | 啟動開發伺服器（真實 Google 與 OpenAI，會產生費用） |
-| `npm run dev:mock` | 開發伺服器，Google 全部用假資料（`MOCK_PLACES`、`prisma/mock.db`），OpenAI 仍是真的 |
+| `npm run dev:mock` | 開發伺服器，Google 全部用假資料（`MOCK_PLACES`、`travel_mock` 資料庫），OpenAI 仍是真的 |
 | `npm run dev:free` | 開發伺服器，Google 與 OpenAI 都用假資料，完全不花錢 |
 | `npm run build` | 建置正式版 |
 | `npm run start` | 啟動已建置的正式版 |
