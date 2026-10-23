@@ -4,6 +4,7 @@ import type { Meal, MealType } from "@/types/itinerary";
 import { InlinePriceEditor } from "@/components/InlinePriceEditor";
 import { PlacePhotoThumb } from "@/components/PlacePhotoThumb";
 import { buildPlaceMapsUrl } from "@/lib/googleMapsUrl";
+import { PlaceDetailsButton } from "@/components/PlaceDetailsButton";
 
 export const MEAL_META: Record<MealType, { label: string; icon: string }> = {
   breakfast: { label: "早餐", icon: "🌅" },
@@ -97,6 +98,7 @@ export function MealTimelineRow({
                 )}
               </div>
             )}
+            <PlaceDetailsButton placeId={meal.placeId} className="mt-1" />
             {editable && (
               <p className="mt-1">
                 <InlinePriceEditor

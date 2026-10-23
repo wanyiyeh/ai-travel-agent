@@ -38,6 +38,7 @@ import { buildDayTimeline, MEAL_TIME_OF_DAY } from "@/lib/dayTimeline";
 import { findRepeatedMeals, slotKey } from "@/lib/mealRepeats";
 import { daysMissingNames, withPlaceNames, type PlaceNameBook } from "@/lib/placeNamesClient";
 import GoogleMapsAttribution from "@/components/GoogleMapsAttribution";
+import { PlaceDetailsButton } from "@/components/PlaceDetailsButton";
 
 // A candidate from another day counts as "same city" if it's within this
 // distance of the edited day's own stop centroid — used to build the reuse
@@ -1856,6 +1857,7 @@ export default function EditableItineraryCard({
                               )}
                             </div>
                           </div>
+                          <PlaceDetailsButton placeId={day.accommodation.placeId} className="shrink-0 self-center" />
                           {day.accommodation.placeId && (
                             <a
                               data-print-hidden
