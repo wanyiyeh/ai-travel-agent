@@ -13,7 +13,7 @@ paths:
 
 - Google Maps Platform 條款只允許儲存 place ID，以及最多 30 天的座標；名稱、地址、評分、類型、照片名稱、路線時間與距離都不能存。
 - 寫入行程、候選紀錄、垃圾桶時，`src/lib/db.ts` 用 `src/lib/placeStorage.ts` 的白名單移除 Google 欄位（`COMPLIANT_PLACE_STORAGE=1` 時生效）。**新增自己的欄位要加進白名單**，否則會被丟掉；Google 的欄位一律不加。
-- 現有的快取表正依 PLAN-001 改造。改造完成前：**不新增任何儲存 Google 內容的快取或欄位**；要省錢就合併同一請求內的重複查詢、改用較低的計費等級，或只在需要時才查。
+- **不新增任何儲存 Google 內容的快取或欄位**；要省錢就合併同一請求內的重複查詢（`src/lib/requestMemo.ts`）、改用較低的計費等級，或只在需要時才查。
 
 ## 單一出口
 
@@ -27,15 +27,16 @@ paths:
   - **`resolvePlace`**：只是要「找到地點」時用這個（補資料、城市中心）。Text Search 只取 `places.id`（Essentials IDs Only，免費），再用 Place Details 取 `location,types,formattedAddress`（Essentials）。已知 place ID、只缺座標時直接用 `fetchPlaceEssentials`。
   - **`searchPlaceText`**：要把名稱顯示給使用者時才用（「加景點」的搜尋框），Pro 等級。
   - 欄位計費等級以官方表為準：developers.google.com/maps/documentation/places/web-service/data-fields。兩者都會合併同時間相同的請求。
-- `fetchCityRestaurants.ts`：Nearby Search，批次取候選，注入 prompt 或給候選池、`stop-suggestions` 用。
+- `fetchCityRestaurants.ts`：Nearby Search 與 Text Search，批次取候選，注入 prompt 或給候選池、`stop-suggestions` 用。實際的查詢在 `PlaceSource` 介面後面（目前只有 `googlePlaceSource`），換資料來源時只換這一處。
 - `placeDisplay.ts`：Place Details，依 place ID 取回名稱與地址（Pro 等級），給「只存 place ID」的資料補回顯示用的欄位；只合併同一次呼叫內的重複，不跨請求保存（ADR-0004）。
 - `placeCache.ts`：`Place`/`PlaceQuery` 快取的唯一入口。只存 place ID（`PlaceQuery`，永久）與座標（附 `coordsFetchedAt`，超過 `COORDS_MAX_AGE_MS` 視為沒有）。**查詢字串（快取的 key）必須是我們自己的文字**（LLM 寫的名稱、使用者輸入），不可用 Google 回傳的名稱當 key。
 
-## 快取與「記住沒找到」
+## 同一請求內共用與「記住沒找到」
 
-- 各種 `*Cache` 資料表把 Google/AI 的結果按不同形狀快取起來，同城市、同路線重複生成時不再付費。
-- **失敗的查詢不寫進快取**，只有「確定找不到」才記，這樣暫時性錯誤下次會重試，不會被永久釘死。
-- 因此任何新的查詢路徑都要自己處理「記住沒找到」，不然每次都會重新計費。現有做法：
+- 候選池、城市提示、最近車站、路線（Routes）的結果不能跨請求保存（ADR-0004），只在同一個請求內共用：`runMetered`（`src/lib/usageMeter.ts`）設定請求邊界，`memoizeSuccessInRequest`（`src/lib/requestMemo.ts`）讓重複的查詢只付一次。請求結束就丟掉，所以同城市再生成一次會再付費。
+- `*Cache` 資料表只留給 AI 結果與我們自己的資料；`CityPlaceHintsCache`、`NearbyPlaceCandidatesCache`、`NearestStationCache`、`DistanceCache` 已不再讀寫。
+- **失敗的查詢不記**，只有「確定找不到」才記，這樣暫時性錯誤下次會重試，不會被釘死。查詢函式失敗時回傳 `undefined`，確定沒有結果時回傳 `[]` 或 `null`。
+- 會寫進資料庫的「記住沒找到」只能用我們自己的文字當 key。現有做法：
   - 補資料路由把失敗記在項目上的 `enrichFailure`（以查詢字串為 key，一段時間後才重試，見 `src/lib/enrichFailure.ts`）。
   - `getCityCenter` 把確定沒找到的城市記在 `CityCenterMissCache`。
 

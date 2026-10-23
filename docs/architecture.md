@@ -30,7 +30,7 @@ flowchart TD
   A[表單：航班、日期、偏好] --> B["parsePreferenceIntent()<br/>自由文字 → PreferenceIntent"]
   B --> C["planTrip()<br/>LLM 決定城市順序與天數"]
   C --> D[逐城市產生每天內容]
-  D --> D1[候選池：fetchCityRestaurants 等<br/>Nearby Search + 快取]
+  D --> D1[候選池：fetchCityRestaurants 等<br/>Nearby Search，同一請求內共用]
   D1 --> D2["規則引擎：partitionCandidatesByDay<br/>→ selectAndOrderStops → assignTimeSlots"]
   D2 --> D3[LLM 寫文案、三餐、住宿]
   D3 --> E["assembleItineraryDays()<br/>組成完整 days，含移動日、回程日"]
@@ -56,7 +56,8 @@ flowchart TD
 - `Place`/`PlaceQuery`：查詢字串到地點的快取，唯一入口 `src/lib/placeCache.ts`。
 - `DeletedStop`/`DeletedDay`：垃圾桶與復原。
 - `*CandidateLog`：每批候選的完整紀錄，供除錯。
-- `*Cache`：把 Google 與 AI 結果依不同形狀快取，同城市、同路線重複生成時不再付費。只記確定的「找不到」，失敗不記（見 `.claude/rules/google-places.md`）。完整欄位以 `prisma/schema.prisma` 為準。
+- `*Cache`：AI 結果與我們自己的資料（季節亮點、經典一日遊、城市中心沒找到等）的快取，同城市重複生成時不再付費。只記確定的「找不到」，失敗不記（見 `.claude/rules/google-places.md`）。完整欄位以 `prisma/schema.prisma` 為準。
+- Google 的候選池、路線、最近車站依條款不能保存（ADR-0004），只在同一請求內共用（`src/lib/requestMemo.ts`）；`CityPlaceHintsCache`、`NearbyPlaceCandidatesCache`、`NearestStationCache`、`DistanceCache` 已不再讀寫。
 
 ## 設計原則
 

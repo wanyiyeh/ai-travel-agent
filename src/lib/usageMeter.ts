@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import { withRequestMemo } from "@/lib/requestMemo";
 
 // Per-request tally of billable outbound calls, so we can see what one
 // request (e.g. a trip generation) actually costs. googleFetch and the OpenAI
@@ -20,9 +21,11 @@ function newTally(): UsageTally {
   return { google: {}, openai: { calls: 0, promptTokens: 0, completionTokens: 0 } };
 }
 
+// A metered run is one request, so it's also where repeated lookups within
+// the request are answered once (requestMemo.ts).
 export async function runMetered<T>(label: string, fn: () => Promise<T>): Promise<T> {
   const tally = newTally();
-  return storage.run(tally, async () => {
+  return storage.run(tally, () => withRequestMemo(async () => {
     try {
       return await fn();
     } finally {
@@ -34,7 +37,7 @@ export async function runMetered<T>(label: string, fn: () => Promise<T>): Promis
         await saveMeasurement(label, summary);
       }
     }
-  });
+  }));
 }
 
 // Hosted logs don't last (Vercel Hobby keeps them briefly), so each tally is

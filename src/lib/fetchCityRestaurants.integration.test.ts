@@ -1,10 +1,11 @@
-import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
-import { prisma } from "@/lib/db";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { withRequestMemo } from "@/lib/requestMemo";
 import { fetchLodgingCandidates, fetchLuxuryRestaurants, fetchNearbyPlaceCandidates, searchTextCandidates } from "./fetchCityRestaurants";
 
 // Story: one generation asks for the same city's attractions with different
 // counts (transit day, sightseeing days, departure day). Nearby Search bills
-// per request, so they should share one fetched-and-cached pool.
+// per request, so they should share one pool within the request. Results may
+// not be kept after it (ADR-0004).
 describe("fetchNearbyPlaceCandidates shares one pool across counts", () => {
   // Unique per run so rows from an earlier run can't answer these calls.
   const coords = { lat: 30 + (Date.now() % 100000) / 1e6, lng: 40 };
@@ -18,24 +19,24 @@ describe("fetchNearbyPlaceCandidates shares one pool across counts", () => {
     vi.unstubAllGlobals();
   });
 
-  afterAll(async () => {
-    await prisma.nearbyPlaceCandidatesCache.deleteMany({
-      where: { cacheKey: { startsWith: `${coords.lat.toFixed(4)},` } },
-    });
-  });
 
-  it("fetches the max once, then slices every count from the cache", async () => {
+  it("fetches the max once per request, then slices every count from it", async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({ places }), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
 
-    const small = await fetchNearbyPlaceCandidates(coords, "key", ["tourist_attraction"], 10000, 6);
-    const large = await fetchNearbyPlaceCandidates(coords, "key", ["tourist_attraction"], 10000, 14);
+    const [small, large] = await withRequestMemo(async () => [
+      await fetchNearbyPlaceCandidates(coords, "key", ["tourist_attraction"], 10000, 6),
+      await fetchNearbyPlaceCandidates(coords, "key", ["tourist_attraction"], 10000, 14),
+    ]);
 
     expect(small.map((c) => c.placeId)).toEqual(places.slice(0, 6).map((p) => p.id));
     expect(large.map((c) => c.placeId)).toEqual(places.slice(0, 14).map((p) => p.id));
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const body = JSON.parse((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body as string);
     expect(body.maxResultCount).toBe(20);
+
+    await withRequestMemo(() => fetchNearbyPlaceCandidates(coords, "key", ["tourist_attraction"], 10000, 6));
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -62,11 +63,6 @@ describe("fetchNearbyPlaceCandidates billing tiers", () => {
     vi.unstubAllGlobals();
   });
 
-  afterAll(async () => {
-    await prisma.nearbyPlaceCandidatesCache.deleteMany({
-      where: { cacheKey: { startsWith: `${coords.lat.toFixed(4)},` } },
-    });
-  });
 
   it("asks only for Pro fields by default, and never sends the ignored priceLevels filter", async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({ places }), { status: 200 }));
@@ -103,13 +99,15 @@ describe("fetchNearbyPlaceCandidates billing tiers", () => {
     expect(place.accessibleEntrance).toBe(true);
   });
 
-  it("asks whether a restaurant suits children only on the kids tier, cached apart", async () => {
+  it("asks whether a restaurant suits children only on the kids tier, pooled apart", async () => {
     const kidsPlaces = [{ ...places[0], goodForChildren: true, menuForChildren: false }];
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({ places: kidsPlaces }), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
 
-    await fetchNearbyPlaceCandidates(coords, "key", ["ramen_restaurant"], 5000, 10, "enterprise");
-    const [kid] = await fetchNearbyPlaceCandidates(coords, "key", ["ramen_restaurant"], 5000, 10, "kids");
+    const [kid] = await withRequestMemo(async () => {
+      await fetchNearbyPlaceCandidates(coords, "key", ["ramen_restaurant"], 5000, 10, "enterprise");
+      return fetchNearbyPlaceCandidates(coords, "key", ["ramen_restaurant"], 5000, 10, "kids");
+    });
 
     expect(maskOf(request(fetchMock, 0))).not.toContain("goodForChildren");
     expect(maskOf(request(fetchMock, 1))).toContain("places.goodForChildren,places.menuForChildren");
@@ -117,12 +115,14 @@ describe("fetchNearbyPlaceCandidates billing tiers", () => {
     expect(kid).toMatchObject({ goodForChildren: true, menuForChildren: false });
   });
 
-  it("lets a Pro search reuse a cached Enterprise pool instead of paying again", async () => {
+  it("lets a Pro search reuse the request's Enterprise pool instead of paying again", async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({ places }), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
 
-    await fetchNearbyPlaceCandidates(coords, "key", ["cafe"], 5000, 10, "enterprise");
-    const fromPro = await fetchNearbyPlaceCandidates(coords, "key", ["cafe"], 5000, 10, "pro");
+    const fromPro = await withRequestMemo(async () => {
+      await fetchNearbyPlaceCandidates(coords, "key", ["cafe"], 5000, 10, "enterprise");
+      return fetchNearbyPlaceCandidates(coords, "key", ["cafe"], 5000, 10, "pro");
+    });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fromPro.map((c) => c.placeId)).toEqual(["p1"]);
@@ -132,8 +132,10 @@ describe("fetchNearbyPlaceCandidates billing tiers", () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({ places }), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
 
-    await fetchNearbyPlaceCandidates(coords, "key", ["bakery"], 5000, 10, "pro");
-    await fetchNearbyPlaceCandidates(coords, "key", ["bakery"], 5000, 10, "enterprise");
+    await withRequestMemo(async () => {
+      await fetchNearbyPlaceCandidates(coords, "key", ["bakery"], 5000, 10, "pro");
+      await fetchNearbyPlaceCandidates(coords, "key", ["bakery"], 5000, 10, "enterprise");
+    });
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
@@ -156,16 +158,6 @@ describe("fetchLodgingCandidates for the luxury tier", () => {
     vi.unstubAllGlobals();
   });
 
-  afterAll(async () => {
-    await prisma.nearbyPlaceCandidatesCache.deleteMany({
-      where: {
-        OR: [
-          { cacheKey: { startsWith: `${coords.lat.toFixed(4)},` } },
-          { cacheKey: { startsWith: `text:luxury hotel@${coords.lat.toFixed(4)},` } },
-        ],
-      },
-    });
-  });
 
   it("puts brand hotels first without an extra search when the pool has one", async () => {
     const fetchMock = vi.fn(async () =>
@@ -207,15 +199,6 @@ describe("fetchLuxuryRestaurants", () => {
     vi.unstubAllGlobals();
   });
 
-  afterAll(async () => {
-    for (const lat of [coords.lat, coords.lat + 0.5]) {
-      for (const query of ["restaurant", "fine dining", "高級餐廳"]) {
-        await prisma.nearbyPlaceCandidatesCache.deleteMany({
-          where: { cacheKey: { startsWith: `text:${query}@${lat.toFixed(4)},` } },
-        });
-      }
-    }
-  });
 
   it("searches fine dining and expensive places, filtering price server-side, and reads prices back", async () => {
     const fetchMock = vi.fn(async () =>
@@ -250,9 +233,9 @@ describe("fetchLuxuryRestaurants", () => {
     expect(found).toHaveLength(1);
     expect(found[0].priceRange).toEqual({ currency: "JPY", start: 8000, end: 15000 });
 
-    // cached: a second call doesn't pay again
+    // Nothing is kept after the request (ADR-0004): the next one pays again.
     await fetchLuxuryRestaurants(coords, "key", 3000, "JPY");
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 
   it("searches 高級餐廳 for a trip at home", async () => {
@@ -284,11 +267,6 @@ describe("fetchLodgingCandidates for the budget tier", () => {
     vi.unstubAllGlobals();
   });
 
-  afterAll(async () => {
-    await prisma.nearbyPlaceCandidatesCache.deleteMany({
-      where: { cacheKey: { startsWith: `${coords.lat.toFixed(4)},` } },
-    });
-  });
 
   it("searches budget lodging types only, without generic lodging", async () => {
     const fetchMock = vi.fn(async () =>
@@ -327,9 +305,6 @@ describe("searchTextCandidates for drinks", () => {
     vi.unstubAllGlobals();
   });
 
-  afterAll(async () => {
-    await prisma.nearbyPlaceCandidatesCache.deleteMany({ where: { cacheKey: { contains: `@${coords.lat.toFixed(4)},` } } });
-  });
 
   // Story: a car-rental search with an 80km bias got a 400 from Google and the
   // trip fell back to a generic 「租車公司」.
@@ -355,14 +330,16 @@ describe("searchTextCandidates for drinks", () => {
   });
 
   // A small town with no matcha café would otherwise pay for the same empty
-  // search on every trip there.
-  it("remembers a search that found nothing", async () => {
+  // search on every day of the trip.
+  it("remembers a search that found nothing within the request", async () => {
     const town = { lat: coords.lat, lng: 48 };
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({}), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
 
-    await searchTextCandidates("matcha", town, "key", 3000, undefined, { minRating: 3.5 });
-    const again = await searchTextCandidates("matcha", town, "key", 3000, undefined, { minRating: 3.5 });
+    const again = await withRequestMemo(async () => {
+      await searchTextCandidates("matcha", town, "key", 3000, undefined, { minRating: 3.5 });
+      return searchTextCandidates("matcha", town, "key", 3000, undefined, { minRating: 3.5 });
+    });
 
     expect(again).toEqual([]);
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -373,8 +350,10 @@ describe("searchTextCandidates for drinks", () => {
     const fetchMock = vi.fn(async () => new Response("quota", { status: 429 }));
     vi.stubGlobal("fetch", fetchMock);
 
-    await searchTextCandidates("matcha", town, "key", 3000, undefined, { minRating: 3.5 });
-    await searchTextCandidates("matcha", town, "key", 3000, undefined, { minRating: 3.5 });
+    await withRequestMemo(async () => {
+      await searchTextCandidates("matcha", town, "key", 3000, undefined, { minRating: 3.5 });
+      await searchTextCandidates("matcha", town, "key", 3000, undefined, { minRating: 3.5 });
+    });
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
@@ -391,9 +370,6 @@ describe("fetchNearbyPlaceCandidates matching the main type only", () => {
     vi.unstubAllGlobals();
   });
 
-  afterAll(async () => {
-    await prisma.nearbyPlaceCandidatesCache.deleteMany({ where: { cacheKey: { startsWith: `${coords.lat.toFixed(4)},` } } });
-  });
 
   it("sends includedPrimaryTypes instead of includedTypes", async () => {
     const fetchMock = vi.fn(async () => reply());
@@ -411,8 +387,10 @@ describe("fetchNearbyPlaceCandidates matching the main type only", () => {
     const fetchMock = vi.fn(async () => reply());
     vi.stubGlobal("fetch", fetchMock);
 
-    await fetchNearbyPlaceCandidates(town, "key", ["bar"], 3000, 20, "pro");
-    await fetchNearbyPlaceCandidates(town, "key", ["bar"], 3000, 20, "pro", "primary");
+    await withRequestMemo(async () => {
+      await fetchNearbyPlaceCandidates(town, "key", ["bar"], 3000, 20, "pro");
+      await fetchNearbyPlaceCandidates(town, "key", ["bar"], 3000, 20, "pro", "primary");
+    });
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
