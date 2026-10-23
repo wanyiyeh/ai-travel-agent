@@ -3,8 +3,8 @@
  * us keep (ADR-0004, ADR-0006, src/lib/googleContentAudit.ts). Exits with
  * status 1 when anything is found, so it can gate a deploy. Changes nothing.
  *
- *   npm run audit-google-content                                  # dev.db (DATABASE_URL in .env)
- *   DATABASE_URL="file:./mock.db" npm run audit-google-content    # mock.db
+ *   npm run audit-google-content                                  # dev database (DATABASE_URL in .env)
+ *   DATABASE_URL="postgresql://travel:travel@localhost:5432/travel_mock" npm run audit-google-content    # travel_mock
  * Makes no Google/OpenAI calls.
  */
 

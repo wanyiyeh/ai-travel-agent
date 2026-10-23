@@ -7,8 +7,8 @@
  * housekeeping, not access control.
  *
  * Run daily once deployed; until then by hand:
- *   npm run cleanup-expired-guests                                  # dev.db (DATABASE_URL in .env)
- *   DATABASE_URL="file:./mock.db" npm run cleanup-expired-guests    # mock.db
+ *   npm run cleanup-expired-guests                                  # dev database (DATABASE_URL in .env)
+ *   DATABASE_URL="postgresql://travel:travel@localhost:5432/travel_mock" npm run cleanup-expired-guests    # travel_mock
  * Makes no Google/OpenAI calls.
  */
 

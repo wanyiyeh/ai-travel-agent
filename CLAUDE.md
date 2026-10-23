@@ -1,7 +1,7 @@
 # ai-travel-agent
 
 以機票為核心的 AI 旅遊行程規劃工具。輸入去回程航班與偏好，產生每日景點、住宿、三餐，可再編輯、重新生成或重新規劃城市。作品集專案，尚未部署。
-技術棧：Next.js 16 App Router、React 19、TypeScript、Tailwind CSS、Prisma + SQLite、OpenAI、Google Places / Routes、Auth.js（版本以 `package.json` 為準）。
+技術棧：Next.js 16 App Router、React 19、TypeScript、Tailwind CSS、Prisma + PostgreSQL（本機 Docker、正式 Neon）、OpenAI、Google Places / Routes、Auth.js（版本以 `package.json` 為準）。
 
 ## 1. 工作階段規則
 
@@ -34,10 +34,10 @@
 
 ## 3. 常用指令
 
-- 開發：`npm run dev`（**真實 Google + OpenAI，會花錢，見 R1**）；`npm run dev:mock`（Google 全部假資料、`prisma/mock.db`，OpenAI 仍是真的；`-- -p 3001` 換 port）；`npm run dev:free`（Google 與 OpenAI 都是假資料，完全免費）
+- 開發：`npm run dev`（**真實 Google + OpenAI，會花錢，見 R1**）；`npm run dev:mock`（Google 全部假資料、`travel_mock` 資料庫，OpenAI 仍是真的；`-- -p 3001` 換 port）；`npm run dev:free`（Google 與 OpenAI 都是假資料，完全免費）
 - 檢查：`npm run lint`、`npx tsc --noEmit`、`npm run build`
-- 測試：`npm test`（單元，不碰真 DB）；`npx vitest run <檔案>`（單檔）；`npm run test:integration`（真 SQLite `prisma/test.db`、`MOCK_AI=1`，不可平行跑、不可指向 `dev.db`）
-- 資料庫：`npx prisma db push`（改 `schema.prisma` 後同步到 `dev.db`）
+- 測試：`npm test`（單元，不碰真 DB）；`npx vitest run <檔案>`（單檔）；`npm run test:integration`（真 Postgres `travel_test`、`MOCK_AI=1`，不可平行跑、不可指向開發資料庫）
+- 資料庫：先開 Docker Desktop，`npm run db:up` 啟動本機 Postgres；改 `schema.prisma` 後 `npx prisma migrate dev --name <slug>` 產生 migration
 - 付費腳本（全部要先問，見 R1）：`npm run seed`、`shadow-compare`、`validate-preference-intent`、`batch-test-rule-engine`、`eval-form-fidelity`，以及任何 `tsx scripts/*`
 - 文件健檢：`/doc-audit`（只出報告，不自動修改）
 - 環境變數見 `README.md` 與 `.env.local.example`。
@@ -48,7 +48,8 @@
 - `src/lib/`：商業邏輯（生成、Places、快取、驗證、額度）；`src/lib/scheduler/` 是規則引擎（純函式）；`src/lib/auth/` 是使用者、訪客、擁有權
 - `src/auth.ts`：Auth.js 設定；`src/proxy.ts`：API 限流與 body 大小上限
 - `src/components/`、`src/hooks/`：前端；`src/types/`：共用型別
-- `prisma/`：schema；`dev.db`（不進 git）、`mock.db`、`test.db`
+- `prisma/`：schema 與 `migrations/`；舊的 SQLite 檔（`dev.db`、`mock.db`，不進 git）只剩搬資料用
+- `docker-compose.yml`、`docker/`：本機 Postgres（ADR-0007）
 - `scripts/`：一次性或批次腳本（自己建 `PrismaClient`，見 `.claude/rules/coding.md`）
 - `tests/`：整合測試的 global setup 與 mock
 - `docs/`：專案文件；`.claude/`：Claude 規則與指令；`.github/`：CI、Dependabot、issue 模板

@@ -12,6 +12,7 @@
 | 0004 | [Google 地點內容只存 place ID 與 30 天內的座標](0004-google-maps-content-storage.md) | Accepted | 2026-10-20 |
 | 0005 | [列表由伺服器補查名稱與地址，地點詳情改用 Places UI Kit](0005-place-display-hybrid.md) | Accepted | 2026-10-20 |
 | 0006 | [每個座標附上取得時間，超過 30 天就刪除](0006-coordinate-expiry.md) | Accepted | 2026-10-23 |
+| 0007 | [本機開發與整合測試用 Docker 跑 Postgres，CI 用 Postgres service](0007-local-postgres-docker.md) | Accepted | 2026-10-23 |
 
 ## 模板
 

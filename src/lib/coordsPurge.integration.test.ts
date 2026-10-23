@@ -57,7 +57,7 @@ describe("purgeExpiredCoords", () => {
     const result = await purgeExpiredCoords(plain, now);
 
     expect(result.itineraries).toBeGreaterThanOrEqual(1);
-    const [stored] = await rawJson(plain.$queryRaw`SELECT days AS value FROM Itinerary WHERE id = ${itinerary.id}`);
+    const [stored] = await rawJson(plain.$queryRaw`SELECT days AS value FROM "Itinerary" WHERE id = ${itinerary.id}`);
     expect(stored.stops[0]).toEqual({ id: "s-old", placeId: "ChIJ-old", description: "九月的景點。" });
     expect(stored.stops[1]).toMatchObject({ lat: 3, lng: 4, coordsFetchedAt: recent });
     expect(stored.stops[2]).toMatchObject({ name: "成田機場", lat: 35.77 });
@@ -65,8 +65,8 @@ describe("purgeExpiredCoords", () => {
     // Not an edit: the trip's last-saved time stays.
     expect((await plain.itinerary.findUnique({ where: { id: itinerary.id } }))?.updatedAt).toEqual(stamp);
 
-    expect(await rawJson(plain.$queryRaw`SELECT stop AS value FROM DeletedStop WHERE id = ${trashed.id}`)).not.toHaveProperty("lat");
-    const candidates = await rawJson(plain.$queryRaw`SELECT candidates AS value FROM StopCandidateLog WHERE id = ${log.id}`);
+    expect(await rawJson(plain.$queryRaw`SELECT stop AS value FROM "DeletedStop" WHERE id = ${trashed.id}`)).not.toHaveProperty("lat");
+    const candidates = await rawJson(plain.$queryRaw`SELECT candidates AS value FROM "StopCandidateLog" WHERE id = ${log.id}`);
     expect(candidates[0]).not.toHaveProperty("lat");
     expect(candidates[1]).toHaveProperty("lat", 3);
     expect(await plain.place.findUnique({ where: { id: placeId } })).toMatchObject({ lat: null, lng: null, coordsFetchedAt: null });
@@ -77,11 +77,11 @@ describe("purgeExpiredCoords", () => {
     const { id } = await prisma.itinerary.create({ data: { userId, title: "t", days: j([day]), config: j({}) } });
 
     await purgeExpiredCoords(plain, now);
-    const [kept] = await rawJson(plain.$queryRaw`SELECT days AS value FROM Itinerary WHERE id = ${id}`);
+    const [kept] = await rawJson(plain.$queryRaw`SELECT days AS value FROM "Itinerary" WHERE id = ${id}`);
     expect(kept.stops[0]).toMatchObject({ lat: 5, lng: 6 });
 
     await purgeExpiredCoords(plain, new Date(now.getTime() + COORDS_MAX_AGE_MS + DAY));
-    const [purged] = await rawJson(plain.$queryRaw`SELECT days AS value FROM Itinerary WHERE id = ${id}`);
+    const [purged] = await rawJson(plain.$queryRaw`SELECT days AS value FROM "Itinerary" WHERE id = ${id}`);
     expect(purged.stops[0]).toEqual({ id: "s1", placeId: "ChIJ-fresh" });
   });
 });

@@ -70,7 +70,7 @@ afterEach(() => {
 
 describe("place names on a stored-without-names itinerary", () => {
   it("was saved without them", async () => {
-    const rows = await prisma.$queryRaw<{ days: string }[]>`SELECT days FROM Itinerary WHERE id = ${itineraryId}`;
+    const rows = await prisma.$queryRaw<{ days: string }[]>`SELECT days FROM "Itinerary" WHERE id = ${itineraryId}`;
     expect(rows[0].days).not.toContain("淺草寺");
   });
 

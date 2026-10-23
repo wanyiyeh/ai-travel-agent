@@ -4,8 +4,8 @@
  * Places keep their IDs; coordinates come back when a day is next shown.
  *
  * Run daily once deployed (#211); until then by hand:
- *   npm run purge-expired-coords                                  # dev.db (DATABASE_URL in .env)
- *   DATABASE_URL="file:./mock.db" npm run purge-expired-coords    # mock.db
+ *   npm run purge-expired-coords                                  # dev database (DATABASE_URL in .env)
+ *   DATABASE_URL="postgresql://travel:travel@localhost:5432/travel_mock" npm run purge-expired-coords    # travel_mock
  * Makes no Google/OpenAI calls.
  */
 

@@ -33,7 +33,7 @@ export function assertMockPlacesDatabase(): void {
     throw new Error(
       `MOCK_PLACES is on but DATABASE_URL (${url || "unset"}) isn't a mock database — ` +
         "fake places would be cached into your real DB. Use `npm run dev:mock` " +
-        "(DATABASE_URL=file:./mock.db) instead.",
+        "(the travel_mock database) instead.",
     );
   }
 }
