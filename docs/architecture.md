@@ -53,7 +53,8 @@ flowchart TD
 
 - `Itinerary.days`、`Itinerary.config` 是 JSON 字串；`src/lib/db.ts` 的 extension 自動 parse/stringify（`scripts/` 不經過它）。`days` 的形狀見 `src/types/itinerary.ts` 的 `Day`。
 - `User`（`isGuest`、`disabledAt`）、`UsageEvent`（額度計算）。
-- `RateLimitWindow`、`DailyCallCount`、`GenerationLock`：限流、每日呼叫上限、生成鎖；舊資料由 `scripts/cleanup-expired-guests.ts` 清除。
+- `RateLimitWindow`、`DailyCallCount`、`GenerationLock`：限流、每日呼叫上限、生成鎖。
+- 每日清理：Vercel Cron（`vercel.json`）每天呼叫 `src/app/api/cron/daily/route.ts`，刪除過期訪客、舊使用紀錄、限流舊資料與超過 30 天的座標（`src/lib/housekeeping.ts`），以 `CRON_SECRET` 保護。
 - `Place`/`PlaceQuery`：查詢字串到地點的快取，唯一入口 `src/lib/placeCache.ts`。
 - 行程、候選紀錄、垃圾桶裡的地點座標都附 `coordsFetchedAt`，超過 30 天由 `src/lib/coordsPurge.ts` 刪除，顯示時重新取得（ADR-0006）。
 - `DeletedStop`/`DeletedDay`：垃圾桶與復原。

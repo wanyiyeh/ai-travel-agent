@@ -44,7 +44,7 @@
 
 ## 4. 目錄結構
 
-- `src/app/`：頁面與路由；`src/app/api/v1/**` 是薄薄一層，邏輯幾乎都在 `src/lib/`；`src/app/api/auth/` 是 Auth.js
+- `src/app/`：頁面與路由；`src/app/api/v1/**` 是薄薄一層，邏輯幾乎都在 `src/lib/`；`src/app/api/auth/` 是 Auth.js；`src/app/api/cron/` 是 Vercel Cron 的每日清理（`vercel.json`）
 - `src/lib/`：商業邏輯（生成、Places、快取、驗證、額度）；`src/lib/scheduler/` 是規則引擎（純函式）；`src/lib/auth/` 是使用者、訪客、擁有權
 - `src/auth.ts`：Auth.js 設定；`src/proxy.ts`：API 限流與 body 大小上限
 - `src/components/`、`src/hooks/`：前端；`src/types/`：共用型別
