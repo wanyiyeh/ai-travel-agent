@@ -54,6 +54,7 @@ flowchart TD
 - `Itinerary.days`、`Itinerary.config` 是 JSON 字串；`src/lib/db.ts` 的 extension 自動 parse/stringify（`scripts/` 不經過它）。`days` 的形狀見 `src/types/itinerary.ts` 的 `Day`。
 - `User`（`isGuest`、`disabledAt`）、`UsageEvent`（額度計算）。
 - `Place`/`PlaceQuery`：查詢字串到地點的快取，唯一入口 `src/lib/placeCache.ts`。
+- 行程、候選紀錄、垃圾桶裡的地點座標都附 `coordsFetchedAt`，超過 30 天由 `src/lib/coordsPurge.ts` 刪除，顯示時重新取得（ADR-0006）。
 - `DeletedStop`/`DeletedDay`：垃圾桶與復原。
 - `*CandidateLog`：每批候選的完整紀錄，供除錯。
 - `*Cache`：AI 結果與我們自己的資料（季節亮點、經典一日遊、城市中心沒找到等）的快取，同城市重複生成時不再付費。只記確定的「找不到」，失敗不記（見 `.claude/rules/google-places.md`）。完整欄位以 `prisma/schema.prisma` 為準。

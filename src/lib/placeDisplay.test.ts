@@ -27,7 +27,7 @@ function foundPlace(name: string) {
   const res = mockGoogleResponse("https://places.googleapis.com/v1/places:searchText", {
     body: JSON.stringify({ textQuery: name }),
   });
-  return res.json() as Promise<{ places: { id: string; formattedAddress: string }[] }>;
+  return res.json() as Promise<{ places: { id: string; formattedAddress: string; location: { latitude: number; longitude: number } }[] }>;
 }
 
 async function trip() {
@@ -81,8 +81,26 @@ describe("hydrateDays", () => {
   });
 });
 
+// Story: a trip saved two months ago lost its coordinates to the 30-day purge
+// (ADR-0006); opening a day must put them back, fresh, in the same lookup.
+describe("hydrateDays after the coordinates were purged", () => {
+  it("brings the coordinates back with a new fetch time, without an extra request", async () => {
+    const calls = fakeGoogle();
+    const sensoji = (await foundPlace("淺草寺")).places[0];
+    const days: Record<string, unknown>[] = [{ day: 1, stops: [{ placeId: sensoji.id, description: "寺廟。" }] }];
+    const before = Date.now();
+
+    await hydrateDays(days, [1]);
+
+    const [stop] = (days[0] as { stops: Record<string, unknown>[] }).stops;
+    expect(stop).toMatchObject({ name: "淺草寺", lat: sensoji.location.latitude, lng: sensoji.location.longitude });
+    expect(Date.parse(stop.coordsFetchedAt as string)).toBeGreaterThanOrEqual(before);
+    expect(calls).toHaveLength(1);
+  });
+});
+
 describe("fetchPlaceDisplays", () => {
-  it("asks only for the name and address (the Pro tier)", async () => {
+  it("asks only for the name and address (the Pro tier) and the location, which costs nothing more", async () => {
     vi.stubEnv("GOOGLE_PLACES_API_KEY", "test-key");
     const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => mockGoogleResponse(url, init));
     vi.stubGlobal("fetch", fetchSpy);
@@ -90,7 +108,7 @@ describe("fetchPlaceDisplays", () => {
     await fetchPlaceDisplays(["mock-1"]);
 
     const init = fetchSpy.mock.calls[0][1] as RequestInit;
-    expect(new Headers(init.headers).get("X-Goog-FieldMask")).toBe("displayName,formattedAddress");
+    expect(new Headers(init.headers).get("X-Goog-FieldMask")).toBe("displayName,formattedAddress,location");
   });
 
   it("makes no request without an API key", async () => {

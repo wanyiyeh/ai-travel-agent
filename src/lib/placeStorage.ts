@@ -15,17 +15,23 @@
 
 type Rec = Record<string, unknown>;
 
+// How long coordinates may be kept (Service Specific Terms 14.3, 19.3).
+// Lives here, with no database import, so scripts can share it.
+export const COORDS_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+
 export function isCompliantPlaceStorage(): boolean {
   return process.env.COMPLIANT_PLACE_STORAGE === "1";
 }
 
 // Fields every kind of place item may keep: our own content, the place ID,
-// and coordinates (purged after 30 days, #204).
+// and coordinates with when they were fetched (purged after 30 days,
+// coordsPurge.ts, ADR-0006).
 const COMMON_FIELDS = [
   "id",
   "placeId",
   "lat",
   "lng",
+  "coordsFetchedAt",
   "description",
   "estimated_cost",
   "enrichFailure",
@@ -82,7 +88,23 @@ function strip(item: unknown, fields: Set<string>): unknown {
     if (fields.has(key)) kept[key] = value;
   }
   if (keepsName(rec) && "name" in rec) kept.name = rec.name;
+  stampCoords(kept);
   return kept;
+}
+
+function hasCoords(item: Rec): boolean {
+  return typeof item.lat === "number" && typeof item.lng === "number";
+}
+
+/**
+ * Coordinates without a fetch time were fetched in this request (a
+ * generation, an enrich, a hydrated day), so they're stamped now; a stamp
+ * already there is kept, so rewriting an old day doesn't make its
+ * coordinates look new (ADR-0006).
+ */
+function stampCoords(item: Rec): void {
+  if (!hasCoords(item)) delete item.coordsFetchedAt;
+  else if (typeof item.coordsFetchedAt !== "string") item.coordsFetchedAt = new Date().toISOString();
 }
 
 export function stripStop(stop: unknown): unknown {

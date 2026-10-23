@@ -34,6 +34,15 @@ Route Matrix 每次請求都是 1 個起點 × 1 個終點（`src/lib/distanceMa
 
 OpenAI（`gpt-4o-mini`）每次生成約 US$0.003～0.004。
 
+## 刪除過期座標
+
+Google 的座標最多保存 30 天（[ADR-0006](adr/0006-coordinate-expiry.md)）。`npm run purge-expired-coords` 從行程、候選紀錄、垃圾桶與 `Place` 表刪掉過期或沒有取得時間的座標，不呼叫任何 API。上線後每天執行（#211）；之前手動：
+
+- `COMPLIANT_PLACE_STORAGE=1 npm run purge-expired-coords`（`dev.db`）
+- `COMPLIANT_PLACE_STORAGE=1 DATABASE_URL="file:./mock.db" npm run purge-expired-coords`（`mock.db`）
+
+沒有設定 `COMPLIANT_PLACE_STORAGE=1` 時什麼都不做：那時寫入不記錄取得時間，所有座標都會被當成過期。第一次在舊資料庫執行，會刪掉開關啟用前留下的全部座標；打開那一天時會重新取得。
+
 ## 換算每日配額
 
 GCP 的每日配額以請求次數設定，分不出當天用的是不是免費額度。要讓「最壞情況每天不超過上限」，就要假設每次都照價收費：

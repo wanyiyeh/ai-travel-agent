@@ -15,6 +15,8 @@ export type Stop = {
   placeId?: string;
   lat?: number;
   lng?: number;
+  /** ISO time the coordinates were fetched; purged after 30 days (ADR-0006). */
+  coordsFetchedAt?: string;
   address?: string;
   rating?: number | null;
   openingHours?: string | null;
@@ -37,6 +39,8 @@ export type Accommodation = {
   placeId?: string;
   lat?: number;
   lng?: number;
+  /** ISO time the coordinates were fetched; purged after 30 days (ADR-0006). */
+  coordsFetchedAt?: string;
   address?: string;
   rating?: number | null;
   priceLevel?: number | null;
@@ -68,6 +72,8 @@ export type Meal = {
   placeId?: string;
   lat?: number;
   lng?: number;
+  /** ISO time the coordinates were fetched; purged after 30 days (ADR-0006). */
+  coordsFetchedAt?: string;
   address?: string;
   rating?: number | null;
   photoName?: string | null;
@@ -107,6 +113,8 @@ export type StopCandidate = {
   placeId?: string;
   lat?: number;
   lng?: number;
+  /** ISO time the coordinates were fetched; purged after 30 days (ADR-0006). */
+  coordsFetchedAt?: string;
   address?: string;
   rating?: number | null;
   photoName?: string | null;
