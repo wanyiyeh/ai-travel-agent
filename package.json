@@ -22,7 +22,8 @@
     "cleanup-expired-guests": "tsx scripts/cleanup-expired-guests.ts",
     "purge-expired-coords": "tsx scripts/purge-expired-coords.ts",
     "audit-google-content": "tsx scripts/audit-google-content.ts",
-    "cleanup-google-content": "tsx scripts/cleanup-google-content.ts"
+    "cleanup-google-content": "tsx scripts/cleanup-google-content.ts",
+    "copy-sqlite-to-postgres": "tsx scripts/copy-sqlite-to-postgres.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
