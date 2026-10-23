@@ -8,9 +8,6 @@
  *
  * Lists of what to keep, not what to drop: a field added later is left out
  * until it's added here, so new Google data can't slip into the database.
- *
- * Behind COMPLIANT_PLACE_STORAGE=1 until fetching names back is in place, so
- * the app keeps working between the PLAN-001 pull requests.
  */
 
 type Rec = Record<string, unknown>;
@@ -18,10 +15,6 @@ type Rec = Record<string, unknown>;
 // How long coordinates may be kept (Service Specific Terms 14.3, 19.3).
 // Lives here, with no database import, so scripts can share it.
 export const COORDS_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
-
-export function isCompliantPlaceStorage(): boolean {
-  return process.env.COMPLIANT_PLACE_STORAGE === "1";
-}
 
 // Fields every kind of place item may keep: our own content, the place ID,
 // and coordinates with when they were fetched (purged after 30 days,

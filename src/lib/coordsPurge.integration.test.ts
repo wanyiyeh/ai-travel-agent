@@ -38,7 +38,6 @@ async function rawJson(sql: Promise<{ value: string }[]>) {
 
 describe("purgeExpiredCoords", () => {
   it("removes expired coordinates from an itinerary, the trash, candidate history and the Place table", async () => {
-    vi.stubEnv("COMPLIANT_PLACE_STORAGE", "1");
     const oldStop = { id: "s-old", placeId: "ChIJ-old", lat: 1, lng: 2, coordsFetchedAt: old, description: "九月的景點。" };
     const recentStop = { id: "s-new", placeId: "ChIJ-new", lat: 3, lng: 4, coordsFetchedAt: recent };
     const airport = { id: "s-air", name: "成田機場", lat: 35.77, lng: 140.39 };
@@ -57,7 +56,7 @@ describe("purgeExpiredCoords", () => {
 
     const result = await purgeExpiredCoords(plain, now);
 
-    expect(result?.itineraries).toBeGreaterThanOrEqual(1);
+    expect(result.itineraries).toBeGreaterThanOrEqual(1);
     const [stored] = await rawJson(plain.$queryRaw`SELECT days AS value FROM Itinerary WHERE id = ${itinerary.id}`);
     expect(stored.stops[0]).toEqual({ id: "s-old", placeId: "ChIJ-old", description: "九月的景點。" });
     expect(stored.stops[1]).toMatchObject({ lat: 3, lng: 4, coordsFetchedAt: recent });
@@ -73,17 +72,7 @@ describe("purgeExpiredCoords", () => {
     expect(await plain.place.findUnique({ where: { id: placeId } })).toMatchObject({ lat: null, lng: null, coordsFetchedAt: null });
   });
 
-  it("does nothing with COMPLIANT_PLACE_STORAGE off, where writes record no fetch times", async () => {
-    vi.stubEnv("COMPLIANT_PLACE_STORAGE", "");
-    const placeId = `ChIJ-off-${Date.now()}`;
-    await prisma.place.create({ data: { id: placeId, lat: 1, lng: 2 } });
-
-    expect(await purgeExpiredCoords(plain, now)).toBeNull();
-    expect(await plain.place.findUnique({ where: { id: placeId } })).toMatchObject({ lat: 1, lng: 2 });
-  });
-
   it("keeps coordinates a write just stamped, and the next purge a month later removes them", async () => {
-    vi.stubEnv("COMPLIANT_PLACE_STORAGE", "1");
     const day = { id: "d1", day: 1, stops: [{ id: "s1", placeId: "ChIJ-fresh", lat: 5, lng: 6 }] };
     const { id } = await prisma.itinerary.create({ data: { userId, title: "t", days: j([day]), config: j({}) } });
 

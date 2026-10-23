@@ -41,12 +41,11 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-describe("with COMPLIANT_PLACE_STORAGE=1", () => {
+describe("every write", () => {
   it.each([
     ["an object", [day]],
     ["a j() string", j([day])],
   ])("an itinerary created with days as %s keeps no Google content", async (_label, days) => {
-    vi.stubEnv("COMPLIANT_PLACE_STORAGE", "1");
     const created = await prisma.itinerary.create({ data: { userId, title: "t", days: days as string, config: j({}) } });
 
     expect(leaks(await rawDays(created.id))).toEqual([]);
@@ -54,7 +53,6 @@ describe("with COMPLIANT_PLACE_STORAGE=1", () => {
   });
 
   it("an update, and the trash and candidate history written in one transaction, keep none either", async () => {
-    vi.stubEnv("COMPLIANT_PLACE_STORAGE", "1");
     const { id } = await prisma.itinerary.create({ data: { userId, title: "t", days: j([]), config: j({}) } });
 
     await prisma.$transaction([
@@ -72,13 +70,5 @@ describe("with COMPLIANT_PLACE_STORAGE=1", () => {
     expect(leaks(trashedDay.day)).toEqual([]);
     expect(leaks(log.candidates)).toEqual([]);
     expect(JSON.parse(log.candidates)[0]).toMatchObject({ placeId: "ChIJ-sensoji" });
-  });
-});
-
-describe("without the flag", () => {
-  it("stores days as before, until fetching names back is in place", async () => {
-    vi.stubEnv("COMPLIANT_PLACE_STORAGE", "");
-    const created = await prisma.itinerary.create({ data: { userId, title: "t", days: j([day]), config: j({}) } });
-    expect(leaks(await rawDays(created.id))).toEqual(GOOGLE_FIELDS);
   });
 });

@@ -9,7 +9,7 @@
 **完全免費的量測**（Google 與 OpenAI 都是假資料）：
 
 1. 用一個全新的資料庫，避免讀到舊的 `PlaceQuery`：`MOCK_PLACES=1 DATABASE_URL="file:./mock.db.measure-YYYYMMDD" npx prisma db push --skip-generate`（檔名要以 `mock.db` 開頭，才會被 `.gitignore` 排除）。
-2. 用同樣的資料庫啟動 `npx next dev -p 3005`，加上 `MOCK_PLACES=1 MOCK_AI=1 COMPLIANT_PLACE_STORAGE=1 TURNSTILE_SECRET_KEY=""`（開發環境略過人機驗證，讓 curl 可以直接呼叫）。同一個資料夾只能有一個 dev server，先停掉其他的。
+2. 用同樣的資料庫啟動 `npx next dev -p 3005`，加上 `MOCK_PLACES=1 MOCK_AI=1 TURNSTILE_SECRET_KEY=""`（開發環境略過人機驗證，讓 curl 可以直接呼叫）。同一個資料夾只能有一個 dev server，先停掉其他的。
 3. `curl -N -X POST http://localhost:3005/api/v1/generate-stream`，body 帶 `flightInfo`；每次用不同的 `x-forwarded-for`，避免碰到訪客額度。
 4. 讀 `UsageMeasurement` 表或伺服器的 `[usage]` log。
 
@@ -38,10 +38,21 @@ OpenAI（`gpt-4o-mini`）每次生成約 US$0.003～0.004。
 
 Google 的座標最多保存 30 天（[ADR-0006](adr/0006-coordinate-expiry.md)）。`npm run purge-expired-coords` 從行程、候選紀錄、垃圾桶與 `Place` 表刪掉過期或沒有取得時間的座標，不呼叫任何 API。上線後每天執行（#211）；之前手動：
 
-- `COMPLIANT_PLACE_STORAGE=1 npm run purge-expired-coords`（`dev.db`）
-- `COMPLIANT_PLACE_STORAGE=1 DATABASE_URL="file:./mock.db" npm run purge-expired-coords`（`mock.db`）
+- `npm run purge-expired-coords`（`dev.db`）
+- `DATABASE_URL="file:./mock.db" npm run purge-expired-coords`（`mock.db`）
 
-沒有設定 `COMPLIANT_PLACE_STORAGE=1` 時什麼都不做：那時寫入不記錄取得時間，所有座標都會被當成過期。第一次在舊資料庫執行，會刪掉開關啟用前留下的全部座標；打開那一天時會重新取得。
+沒有取得時間的座標視為過期：第一次在舊資料庫執行，會刪掉 #204 以前留下的座標；打開那一天時會重新取得。
+
+## 稽核與清理 Google 內容
+
+寫入時一律移除 Google 欄位（`src/lib/placeStorage.ts`），但在那之前存下的資料可能還有名稱、地址、評分、照片、沒有時間的座標，以及舊快取表的內容（`src/lib/googleContentAudit.ts`）。
+
+1. 稽核：`npm run audit-google-content`。印出每個資料表的違規筆數，`total` 為 0 才算合規；有違規時以狀態碼 1 結束。
+2. 備份：先複製資料庫，例如 `cp prisma/dev.db prisma/dev.db.backup-YYYYMMDD`。清理不可逆。
+3. 預覽：`npm run cleanup-google-content` 只列出會移除什麼。
+4. 清理：`npm run cleanup-google-content -- --yes`。結束後會再稽核一次。可以重複執行。
+
+對 `mock.db` 加上 `DATABASE_URL="file:./mock.db"`。不呼叫任何 API。
 
 ## 換算每日配額
 

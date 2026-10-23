@@ -77,7 +77,8 @@ describe("accommodation regenerate -> select flow", () => {
     const day = days.find((d) => d.id === dayId);
 
     expect(day?.accommodation?.placeId).toBe(chosen.placeId);
-    expect(day?.accommodation?.name).toBe(chosen.name);
+    // The hotel's name is Google's: only its place ID is kept (ADR-0004).
+    expect(day?.accommodation?.name).toBeUndefined();
 
     // select() no longer seeds the place cache: its query key would be the
     // hotel's Google name, and a business name may not be stored (ADR-0004).

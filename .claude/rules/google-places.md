@@ -12,7 +12,7 @@ paths:
 ## 條款限制（ADR-0004，優先於下面的快取做法）
 
 - Google Maps Platform 條款只允許儲存 place ID，以及最多 30 天的座標；名稱、地址、評分、類型、照片名稱、路線時間與距離都不能存。
-- 寫入行程、候選紀錄、垃圾桶時，`src/lib/db.ts` 用 `src/lib/placeStorage.ts` 的白名單移除 Google 欄位（`COMPLIANT_PLACE_STORAGE=1` 時生效）。**新增自己的欄位要加進白名單**，否則會被丟掉；Google 的欄位一律不加。
+- 寫入行程、候選紀錄、垃圾桶時，`src/lib/db.ts` 用 `src/lib/placeStorage.ts` 的白名單移除 Google 欄位，沒有開關。**新增自己的欄位要加進白名單**，否則會被丟掉；Google 的欄位一律不加。
 - 座標附 `coordsFetchedAt`：寫入時沒有時間的座標會蓋上現在的時間，所以**不可以**把舊座標去掉時間再寫回去。`src/lib/coordsPurge.ts` 刪除超過 30 天的座標（ADR-0006）。
 - **不新增任何儲存 Google 內容的快取或欄位**；要省錢就合併同一請求內的重複查詢（`src/lib/requestMemo.ts`）、改用較低的計費等級，或只在需要時才查。
 
