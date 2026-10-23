@@ -8,7 +8,7 @@
 
 [PLAN-001](plans/PLAN-001-portfolio-launch.md) 作品集上線，進行中（父 issue #196）。Google 合規的 A 系列已完成：寫入時一律移除 Google 欄位、顯示時補名稱（[ADR-0005](adr/0005-place-display-hybrid.md)）、候選池與路線只在同一請求內共用、座標 30 天清除（[ADR-0006](adr/0006-coordinate-expiry.md)）、Google Maps 標誌與 Places UI Kit 地點詳情、稽核與清理（`npm run audit-google-content`）、舊欄位與四張內容快取表已從結構移除。`dev.db`、`mock.db` 已清理並 `db push`，稽核為 0（備份在 `prisma/*.db.backup-20261023`，確定不需要可自行刪除）。
 
-#208（SQLite → Postgres）進行中：本機改用 Docker 的 Postgres（[ADR-0007](adr/0007-local-postgres-docker.md)），`prisma migrate` 基準線已建立，整合測試在 Postgres 上全數通過，CI 已加 Postgres service。第一個 PR 已合併，使用者的 `.env` 已指向本機 Postgres。第二個 PR 是把 `dev.db`、`mock.db` 的資料搬進 `travel`、`travel_mock`（目前這兩個資料庫還是空的）。
+#208（SQLite → Postgres）進行中：本機改用 Docker 的 Postgres（[ADR-0007](adr/0007-local-postgres-docker.md)），`prisma migrate` 基準線已建立，整合測試在 Postgres 上全數通過，CI 已加 Postgres service。第一個 PR 已合併，使用者的 `.env` 已指向本機 Postgres。第二個 PR（搬資料腳本 `npm run copy-sqlite-to-postgres`，已在暫時的資料庫試過）已開，等使用者合併；`travel`、`travel_mock` 的實際搬移在合併後執行（要使用者同意）。
 
 #188（Nearby 降到 Pro）評估後不做：省約 1～2%，卻會讓午晚餐的預算篩選與餐費估算失準；改在 #242 評估減少 Nearby Search 次數。
 
@@ -17,7 +17,7 @@
 ## 下一步
 
 1. 使用者操作：#181（GCP 預算通知、OpenAI 硬上限）、#197（確認 OpenAI 沒有分享資料給訓練）、#207（書面詢問 Google 灰色地帶）。
-2. #208 第二個 PR：搬資料腳本（執行前要使用者同意）。接著 #209（限流與熔斷改存 Postgres）。
+2. 合併後對 `travel`、`travel_mock` 執行搬資料，再稽核。接著 #209（限流與熔斷改存 Postgres）。
 3. 可穿插的小項目：#242（減少 Nearby 次數的評估）、#239（mock 模式的地圖不要計費）。
 
 ## 卡點與待決定
