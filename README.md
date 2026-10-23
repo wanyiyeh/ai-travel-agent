@@ -46,7 +46,6 @@
 | `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` | 是（地圖功能） | Google Maps JS API 金鑰（前端用） |
 | `NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID` | 否 | Google Maps Map ID（自訂地圖樣式用） |
 | `MOCK_AI` | 否 | `1` 立即回傳假資料、`slow` 模擬 3.5 秒延遲、`error` 模擬失敗。涵蓋整個行程生成流程，沒有 mock 的 OpenAI 呼叫會被擋下而不是計費（`src/lib/mockAi.ts`）。完全不花錢的開發用 `npm run dev:free` |
-| `COMPLIANT_PLACE_STORAGE` | 否 | `1` 時寫入資料庫前移除 Google 的地點內容，只留 place ID 與座標（ADR-0004）。PLAN-001 改造期間的暫時開關，補水完成前請勿開啟 |
 | `AUTH_SECRET` | 是（登入） | 簽署登入 session 的密鑰，32 bytes 以上的隨機字串（`node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`） |
 | `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET` | 是（登入） | Google OAuth 用戶端（Google Auth Platform → 用戶端 → 網頁應用程式；重新導向 URI `http://localhost:3000/api/auth/callback/google`） |
 | `ADMIN_EMAILS` | 否 | 管理者 Google email，逗號分隔；不受使用額度限制 |
@@ -70,7 +69,9 @@
 | `npm run backfill-places` | 補齊尚未快取的地點資料 |
 | `npm run enrich-all` | 批次補齊行程中缺座標的景點（`--backfill-photos --photo-limit=N` 可額外補照片，opt-in） |
 | `npm run check-places` | 檢查地點資料完整性 |
-| `npm run purge-expired-coords` | 刪除超過 30 天的 Google 座標（需要 `COMPLIANT_PLACE_STORAGE=1`，不呼叫任何 API，見 `docs/runbook.md`） |
+| `npm run purge-expired-coords` | 刪除超過 30 天的 Google 座標（不呼叫任何 API，見 `docs/runbook.md`） |
+| `npm run audit-google-content` | 檢查資料庫裡還有沒有不能保存的 Google 內容，有就以狀態碼 1 結束（不改任何資料） |
+| `npm run cleanup-google-content` | 移除舊資料裡的 Google 內容；不加 `-- --yes` 只列出會移除什麼（不可逆，先備份，見 `docs/runbook.md`） |
 
 ## 專案結構
 
