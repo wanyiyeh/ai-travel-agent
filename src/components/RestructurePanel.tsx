@@ -22,6 +22,7 @@ import { dateOfTripDay } from "@/lib/fixedEvents";
 import { keptSightseeingDayNumber, type LayoutCity } from "@/lib/restructureLayout";
 import { suburbKindFor } from "@/lib/suburbKind";
 import { useSortableItem } from "@/hooks/useSortableItem";
+import GoogleMapsAttribution from "@/components/GoogleMapsAttribution";
 
 // Same threshold as src/lib/nearestCity.ts's NEAREST_CITY_KM_THRESHOLD —
 // imported from distanceMatrix.ts (not nearestCity.ts itself) because that
@@ -452,6 +453,7 @@ export default function RestructurePanel({
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [pendingAttraction, setPendingAttraction] = useState<LockedAttractionState | null>(null);
+  const hasLockedAttractions = cities.some((c) => c.lockedAttractions.length > 0);
   const [applying, setApplying] = useState(false);
   const [applyError, setApplyError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
@@ -1009,6 +1011,8 @@ export default function RestructurePanel({
                 </div>
               </SortableContext>
             </DndContext>
+            {/* Must-see attractions come from a Google search, shown without a map. */}
+            {(pendingAttraction || hasLockedAttractions) && <GoogleMapsAttribution />}
 
             {mode === "city" && originIata && destinationIata && maxRecommendedInserts > 0 && (
               <div className="rounded-lg border border-violet-200 dark:border-violet-800/50 bg-violet-50 dark:bg-violet-950/20 overflow-hidden">
@@ -1200,6 +1204,7 @@ export default function RestructurePanel({
                       </p>
                     ) : null;
                   })}
+            {hasLockedAttractions && <GoogleMapsAttribution />}
                   {city.lockedAttractions.length > 0 && (
                     <p className="text-xs text-purple-600 dark:text-purple-400">
                       🔒 鎖定景點日：{city.lockedAttractions.map((a) => a.name).join("、")}

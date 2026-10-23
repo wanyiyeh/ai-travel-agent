@@ -5,6 +5,7 @@ import Link from "next/link";
 import { formatDuration } from "@/types/itinerary";
 import type { Stop, DayWithId } from "@/types/itinerary";
 import { PlacePhotoThumb } from "@/components/PlacePhotoThumb";
+import GoogleMapsAttribution from "@/components/GoogleMapsAttribution";
 
 interface TrashEntry {
   id: string;
@@ -279,6 +280,9 @@ export default function TrashView({ itineraryId, onClose, onChange }: TrashViewP
           );
         })}
       </div>
+
+      {/* Trashed places are shown with their Google names, without a map. */}
+      {(entries.length > 0 || dayEntries.length > 0) && <GoogleMapsAttribution />}
     </div>
   );
 }

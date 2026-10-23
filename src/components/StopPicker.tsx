@@ -6,6 +6,7 @@ import type { Stop, StopCandidate } from "@/types/itinerary";
 import { CandidateCard } from "@/components/picker/CandidateCard";
 import { HistoryPanel, HistoryToggleButton } from "@/components/picker/HistoryPanel";
 import { useCandidateHistory } from "@/components/picker/useCandidateHistory";
+import GoogleMapsAttribution from "@/components/GoogleMapsAttribution";
 
 interface StopPickerProps {
   itineraryId: string;
@@ -164,6 +165,9 @@ export function StopPicker({
       </div>
 
       <HistoryPanel accent={ACCENT} history={history} renderCandidate={renderCandidateCard} />
+
+      {/* Candidates are Google places, shown without a map. */}
+      <GoogleMapsAttribution />
     </div>
   );
 }

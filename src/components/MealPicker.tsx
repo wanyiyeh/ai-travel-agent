@@ -5,6 +5,7 @@ import type { Meal, MealCandidate, MealType } from "@/types/itinerary";
 import { CandidateCard } from "@/components/picker/CandidateCard";
 import { HistoryPanel, HistoryToggleButton } from "@/components/picker/HistoryPanel";
 import { useCandidateHistory } from "@/components/picker/useCandidateHistory";
+import GoogleMapsAttribution from "@/components/GoogleMapsAttribution";
 
 interface MealPickerProps {
   itineraryId: string;
@@ -164,6 +165,9 @@ export function MealPicker({
       </div>
 
       <HistoryPanel accent={ACCENT} history={history} renderCandidate={renderCandidateCard} />
+
+      {/* Candidates are Google places, shown without a map. */}
+      <GoogleMapsAttribution />
     </div>
   );
 }

@@ -2,6 +2,7 @@
 
 import { formatDuration } from "@/types/itinerary";
 import type { Day } from "@/types/itinerary";
+import GoogleMapsAttribution from "@/components/GoogleMapsAttribution";
 
 // Mirrors useStreamingGenerate's TripPlanPreview — the rule-engine path's
 // "plan" SSE event (plan/hybrid-rule-engine-scheduling.md Phase 5(c)),
@@ -130,6 +131,8 @@ export default function StreamingPreview({
           {Array.from({ length: remainingSkeletonCount }).map((_, idx) => (
             <SkeletonDayCard key={`skeleton-${idx}`} />
           ))}
+          {/* Streamed days carry Google place names. */}
+          {liveDays.length > 0 && <GoogleMapsAttribution />}
         </div>
 
         {liveDays.length > 0 && (
