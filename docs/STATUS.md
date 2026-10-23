@@ -6,19 +6,20 @@
 
 ## 現在在做什麼
 
-[PLAN-001](plans/PLAN-001-portfolio-launch.md) 作品集上線，進行中（父 issue #196）。#182（`MOCK_AI` 涵蓋整個生成流程）已合併。#198（量測生成花費）已合併。#199（A1）已決定混合方式（[ADR-0005](adr/0005-place-display-hybrid.md)）並合併。#200（A2：寫入時移除 Google 欄位）已合併，以 `COMPLIANT_PLACE_STORAGE=1` 控制，目前預設關閉。#201（補水）已完成。#202（行程頁只展開第一天，其他天、列印、地圖需要時才補名稱）已完成：使用者用 `dev:free` 開啟開關手動驗證，重新整理只補第一天、每展開一天只補那一天。#225（已登入的使用者換資料庫後存檔失敗）已修。#203 拆成三個 PR：第一個（文字不寫入 Google 的評分、地址、飯店名稱）已合併；第二個（找地點改用 IDs Only + Essentials，`Place` 表只存 ID 與座標）已開，等使用者合併。
+[PLAN-001](plans/PLAN-001-portfolio-launch.md) 作品集上線，進行中（父 issue #196）。#182、#198、#199（[ADR-0005](adr/0005-place-display-hybrid.md)）、#200（寫入時移除 Google 欄位，`COMPLIANT_PLACE_STORAGE=1` 控制，目前預設關閉）、#201、#202、#225 已合併。#203 拆成三個 PR，前兩個已合併；第三個（四張快取表不再讀寫，改成同一請求內共用 `src/lib/requestMemo.ts`；候選池放在 `PlaceSource` 介面後面）已開 PR，等使用者合併。
 
-量測結果：一次生成（快取全部沒命中）Google 約 US$0.52～0.79、OpenAI 約 US$0.003，每月約 500 次生成在 Google 免費額度內。方法與數字見 [runbook](runbook.md)。
+量測結果見 [runbook](runbook.md)；改成不快取之後的新數字還沒量（見卡點）。
 
 ## 下一步
 
 1. 使用者操作：#181（GCP 預算通知、OpenAI 硬上限）、#197（確認 OpenAI 沒有分享資料給訓練）。
-2. #203 第三個 PR：候選池、路線時間、最近車站四張快取表直接不存（2026-10-22 決定，理由見 #203）、地點來源介面、量測費用；詳情面板的 Places UI Kit 實作前，先用免費 Demo Key 確認重新渲染與計費行為。
+2. 用 `dev:free` 量測 #203 之後的每次生成費用，更新 runbook。
+3. #204（座標 30 天清除）、#205（標示與 Places UI Kit；實作前先用免費 Demo Key 確認重新渲染與計費行為）、#206（清理舊欄位與四張快取表、開啟開關）。
 
 ## 卡點與待決定
 
-- 每日 Google 上限 US$3 只夠約 4 次生成，低於 app 的全站每日上限；在 #213 決定提高上限、降低生成上限或減少查詢（已記在 #213）。
+- 量測要另開一個 dev server，但 port 3000 已有一個在跑（Next 不允許同一資料夾兩個 dev server）；需要使用者先停掉它。
+- 每日 Google 上限 US$3 只夠約 4 次生成，低於 app 的全站每日上限；在 #213 決定提高上限、降低生成上限或減少查詢（已記在 #213）。不快取之後同城市重複生成會再付費，數字可能再上升。
 - #188（Nearby 降到 Pro）的效益變小：每次生成的 Nearby Enterprise 只剩 1～2 次。
-- 改造完成前，`.claude/rules/google-places.md` 禁止新增任何儲存 Google 內容的快取。
-- 手動測試 `dev:free`：開關與人機驗證用 `COMPLIANT_PLACE_STORAGE=1 TURNSTILE_SECRET_KEY="" npm run dev:free`；已登入也能用（#225 已修）；訪客每人 1 次、同一 IP 每天 2 次。
+- 手動測試 `dev:free`：開關與人機驗證用 `COMPLIANT_PLACE_STORAGE=1 TURNSTILE_SECRET_KEY="" npm run dev:free`；訪客每人 1 次、同一 IP 每天 2 次。
 - Dependabot PR #170、#47 還開著。
