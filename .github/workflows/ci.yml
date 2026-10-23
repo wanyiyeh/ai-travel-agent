@@ -9,8 +9,24 @@ on:
 jobs:
   ci:
     runs-on: ubuntu-latest
+    # Integration tests run against Postgres (ADR-0007); the suite rebuilds
+    # travel_test from the migrations (tests/integration/global-setup.ts).
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: travel
+          POSTGRES_PASSWORD: travel
+          POSTGRES_DB: travel_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U travel"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     env:
-      DATABASE_URL: "file:./dev.db"
+      DATABASE_URL: "postgresql://travel:travel@localhost:5432/travel_test"
       OPENAI_API_KEY: "sk-ci-placeholder"
       GOOGLE_PLACES_API_KEY: "ci-placeholder"
       NEXT_PUBLIC_GOOGLE_MAPS_API_KEY: "ci-placeholder"
