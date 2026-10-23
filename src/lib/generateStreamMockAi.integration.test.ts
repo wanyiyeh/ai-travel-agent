@@ -119,4 +119,28 @@ describe("generate-stream with MOCK_AI and faked Google", () => {
     expect(events.map((e) => e.type)).toContain("error");
     expect(urls.filter((u) => isHost(u, "openai.com"))).toEqual([]);
   });
+
+  // Story: on Vercel the function is cut off at maxDuration. When the
+  // rule-engine path fails too late for an old-flow attempt to finish, the
+  // traveler is told it took too long instead of the connection dropping,
+  // and no half-made trip is saved (#210).
+  it("says the trip took too long, and saves nothing, when there's no time left for the fallback", async () => {
+    vi.stubEnv("TURNSTILE_SECRET_KEY", "");
+    vi.stubEnv("GOOGLE_PLACES_API_KEY", "integration-fake-key");
+    vi.stubEnv("MOCK_AI", "error");
+    vi.stubEnv("GENERATION_DEADLINE_MS_FOR_TESTS", "1000");
+    const urls = fakeNetwork();
+    const before = await prisma.itinerary.count();
+
+    const res = await generate(
+      { departureCity: "TPE", arrivalCity: "KIX", returnDepartureCity: "KIX", departureDate: "2026-11-10", returnDate: "2026-11-12" },
+      "198.51.100.122",
+    );
+    const events = await readEvents(res);
+
+    expect(events.find((e) => e.type === "complete")).toBeUndefined();
+    expect(events.find((e) => e.type === "error")).toMatchObject({ code: "timeout", error: "生成時間過長" });
+    expect(await prisma.itinerary.count()).toBe(before);
+    expect(urls.filter((u) => isHost(u, "openai.com"))).toEqual([]);
+  });
 });
