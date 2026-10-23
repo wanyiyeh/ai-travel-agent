@@ -53,7 +53,7 @@
 | `CRON_SECRET` | 正式環境必填 | Vercel Cron 呼叫每日清理（`/api/cron/daily`）時帶的密碼，16 個字元以上的隨機字串。沒設定時這個路由一律拒絕 |
 | `NEXT_PUBLIC_TURNSTILE_SITE_KEY` / `TURNSTILE_SECRET_KEY` | 正式環境必填 | Cloudflare Turnstile（生成行程前的人機驗證）。開發環境沒設定時會略過驗證；正式環境沒設定則一律拒絕生成 |
 
-> 兩組 Google key 請分開：前端的 `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` 會被打包進瀏覽器、人人看得到，只開 Maps JavaScript API 並限制網域；後端的 `GOOGLE_PLACES_API_KEY` 只開 Places API (New) 與 Routes API。細節見 [plan/security-hardening.md](plan/security-hardening.md) Phase 0。
+> 兩組 Google key 請分開：前端的 `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` 會被打包進瀏覽器、人人看得到，只開 Maps JavaScript API 與 Places UI Kit，並限制網域；後端的 `GOOGLE_PLACES_API_KEY` 只開 Places API (New) 與 Routes API。目前的防護整理在 [plan/security-hardening.md](plan/security-hardening.md)。
 >
 > Google Places API 有實際費用，開發時建議留意用量（可參考 [plan/google-api-cost-spike-2026-07.md](plan/google-api-cost-spike-2026-07.md) 記錄過的踩雷經驗）。
 
