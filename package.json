@@ -22,7 +22,9 @@
     "eval-form-fidelity": "tsx scripts/eval-form-fidelity.ts",
     "claim-demo-itineraries": "tsx scripts/claim-demo-itineraries.ts",
     "cleanup-expired-guests": "tsx scripts/cleanup-expired-guests.ts",
-    "purge-expired-coords": "tsx scripts/purge-expired-coords.ts"
+    "purge-expired-coords": "tsx scripts/purge-expired-coords.ts",
+    "audit-google-content": "tsx scripts/audit-google-content.ts",
+    "cleanup-google-content": "tsx scripts/cleanup-google-content.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
