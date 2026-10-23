@@ -6,6 +6,7 @@ import { formatDuration } from "@/types/itinerary";
 import type { Stop } from "@/types/itinerary";
 import { PlacePhotoThumb } from "@/components/PlacePhotoThumb";
 import { buildPlaceMapsUrl } from "@/lib/googleMapsUrl";
+import { PlaceDetailsButton } from "@/components/PlaceDetailsButton";
 import { isBigSight, tourLinks } from "@/lib/tourLinks";
 
 const DURATION_STEP = 15;
@@ -287,6 +288,7 @@ export function SortableStop({
                 )}
               </div>
             )}
+            <PlaceDetailsButton placeId={stop.placeId} className="mb-1.5" />
             {stop.fixedEvent ? (
               <p className="text-xs text-blue-600 dark:text-blue-400 font-medium">
                 🕒 {stop.fixedEvent.startTime}～{stop.fixedEvent.endTime}

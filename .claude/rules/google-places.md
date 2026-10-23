@@ -21,7 +21,7 @@ paths:
 - 沒有搭配 Google 地圖、卻顯示 Google 地點內容（名稱、地址）的畫面，要放 `src/components/GoogleMapsAttribution.tsx`（官方 Google Maps 標誌，放在內容上方或下方、同一個容器裡）。目前放在行程列表（含列印）、生成預覽、三種候選清單、整天編輯、垃圾桶、重新規劃的必去景點。**新增這類畫面時要一起加**。
 - 地圖本身有 Google 的標示，`ItineraryMap` 裡不用另外加。
 - 標誌檔在 `public/attribution/`，來自官方 Google_Maps_Attribution_Assets.zip，不可修改。
-- 照片：縮圖可以不標作者，因為點縮圖會打開 `src/components/PlaceDetailsDialog.tsx`（Places UI Kit 的 Place Details 元件），裡面內建 Google Maps 標示、照片作者與原始頁面連結。**新增顯示照片的地方要用 `PlacePhotoThumb`**，不要自己畫照片。
+- 照片：縮圖可以不標作者，因為點縮圖會打開 `src/components/PlaceDetailsDialog.tsx`（Places UI Kit 的 Place Details 元件），裡面內建 Google Maps 標示、照片作者與原始頁面連結。**新增顯示照片的地方要用 `PlacePhotoThumb`**，不要自己畫照片。存好的行程沒有照片名稱，列表上的每個 Google 地點改用 `PlaceDetailsButton`（「照片與詳情」）打開同一個視窗。
 - Places UI Kit 每建立一個元件計費一次（Essentials）。2026-10-23 用 `/dev/place-details` 實測：開著時重新渲染不會多計費，只有打開才算。mock 模式的假地點不載入元件。
 
 ## 單一出口
