@@ -58,7 +58,7 @@ flowchart TD
 - `DeletedStop`/`DeletedDay`：垃圾桶與復原。
 - `*CandidateLog`：每批候選的完整紀錄，供除錯。
 - `*Cache`：AI 結果與我們自己的資料（季節亮點、經典一日遊、城市中心沒找到等）的快取，同城市重複生成時不再付費。只記確定的「找不到」，失敗不記（見 `.claude/rules/google-places.md`）。完整欄位以 `prisma/schema.prisma` 為準。
-- Google 的候選池、路線、最近車站依條款不能保存（ADR-0004），只在同一請求內共用（`src/lib/requestMemo.ts`）；`CityPlaceHintsCache`、`NearbyPlaceCandidatesCache`、`NearestStationCache`、`DistanceCache` 已不再讀寫。
+- Google 的候選池、路線、最近車站依條款不能保存（ADR-0004），只在同一請求內共用（`src/lib/requestMemo.ts`），資料庫裡沒有它們的表。`Place` 只有 place ID 與附取得時間的座標。
 
 ## 設計原則
 

@@ -38,7 +38,6 @@ paths:
 
 - `src/lib/openai.ts` 在 **import 時**就會因為沒有 `OPENAI_API_KEY` 而拋錯；一個 route 即使不呼叫 OpenAI，只要間接 import 到它，就會在載入時失敗。
 - `MOCK_AI` 有兩層：幾個編輯路由在呼叫模型前就回傳 `MOCK_FIXTURES`；生成流程的每個呼叫點用 `mockCompletion()` 依輸入產生假回應，後面的解析照常執行。其餘沒有 mock 的呼叫會被 `openai.ts` 擋下（回傳錯誤，不計費），包括舊的整段 LLM fallback。**新增 OpenAI 呼叫點時，同時在 `mockAi.ts` 加上它的假回應**。會寫快取的 AI 結果（季節亮點、經典一日遊、影劇作品）在 mock 模式下不讀也不寫快取。
-- `validateGeography.ts` 的同日距離檢查，在 `scripts/check-place-data.ts` 裡還有一份手抄的版本，兩者沒有統一。
 - 生成主流程是規則引擎（`src/lib/scheduler/`）排骨架、LLM 寫文案（`assembleItineraryDays.ts` → `itineraryCityGen.ts`）；這條路徑失敗時，`generate-stream/route.ts` 會退回舊的「一次串流整份行程」流程（prompt 在 `itineraryGen.ts`），所以舊流程不是死程式碼，不能刪。
 
 ## 程式碼規範
