@@ -7,9 +7,9 @@
  * the database up first.
  *
  * Without --yes it only prints what it would remove:
- *   npm run cleanup-google-content                                        # dry run, dev.db
- *   npm run cleanup-google-content -- --yes                               # dev.db
- *   DATABASE_URL="file:./mock.db" npm run cleanup-google-content -- --yes # mock.db
+ *   npm run cleanup-google-content                                        # dry run, dev database
+ *   npm run cleanup-google-content -- --yes                               # dev database
+ *   DATABASE_URL="postgresql://travel:travel@localhost:5432/travel_mock" npm run cleanup-google-content -- --yes # travel_mock
  * Safe to run again. Makes no Google/OpenAI calls.
  */
 

@@ -5,8 +5,8 @@
  *
  * Idempotent — re-running moves nothing once the demo user owns nothing.
  * Run once per database:
- *   npm run claim-demo-itineraries                                  # dev.db (DATABASE_URL in .env)
- *   DATABASE_URL="file:./mock.db" npm run claim-demo-itineraries    # mock.db
+ *   npm run claim-demo-itineraries                                  # dev database (DATABASE_URL in .env)
+ *   DATABASE_URL="postgresql://travel:travel@localhost:5432/travel_mock" npm run claim-demo-itineraries    # travel_mock
  * Makes no Google/OpenAI calls.
  */
 

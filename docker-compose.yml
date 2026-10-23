@@ -1,0 +1,25 @@
+# Local Postgres for development and integration tests (ADR-0007). One
+# container, three databases: travel (npm run dev), travel_mock (dev:mock,
+# dev:free) and travel_test (npm run test:integration). Local-only
+# credentials; production uses Neon (ADR-0003).
+#
+#   docker compose up -d db     # or: npm run db:up
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: travel
+      POSTGRES_PASSWORD: travel
+      POSTGRES_DB: travel
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/postgres-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U travel"]
+      interval: 5s
+      retries: 10
+
+volumes:
+  pgdata:

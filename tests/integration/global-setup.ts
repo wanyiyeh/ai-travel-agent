@@ -1,10 +1,12 @@
 import { execSync } from "node:child_process";
+import { TEST_DATABASE_URL } from "./databaseUrl";
 
-// Runs once before the integration suite: pushes the current Prisma schema
-// onto a dedicated test.db file so tests never touch prisma/dev.db.
+// Runs once before the integration suite: rebuilds the dedicated test
+// database from the migrations, so tests never touch the dev database and
+// the migrations themselves are exercised.
 export default function setup() {
-  execSync("npx prisma db push --skip-generate --accept-data-loss", {
-    env: { ...process.env, DATABASE_URL: "file:./test.db" },
+  execSync("npx prisma migrate reset --force --skip-generate --skip-seed", {
+    env: { ...process.env, DATABASE_URL: TEST_DATABASE_URL },
     stdio: "inherit",
   });
 }

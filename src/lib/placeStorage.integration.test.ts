@@ -26,7 +26,7 @@ const GOOGLE_FIELDS = ["淺草寺", "Asakusa", "4.5", "photos/abc"];
 const leaks = (raw: string) => GOOGLE_FIELDS.filter((value) => raw.includes(value));
 
 async function rawDays(id: string): Promise<string> {
-  const rows = await prisma.$queryRaw<{ days: string }[]>`SELECT days FROM Itinerary WHERE id = ${id}`;
+  const rows = await prisma.$queryRaw<{ days: string }[]>`SELECT days FROM "Itinerary" WHERE id = ${id}`;
   return rows[0].days;
 }
 

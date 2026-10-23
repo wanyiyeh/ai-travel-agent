@@ -1,8 +1,9 @@
 import { defineConfig } from "vitest/config";
 import path from "node:path";
+import { TEST_DATABASE_URL } from "./tests/integration/databaseUrl";
 
 // Separate from vitest.config.ts (unit tests) because these hit a real
-// SQLite db via Prisma — kept out of `npm test` so the fast unit suite
+// Postgres database via Prisma — kept out of `npm test` so the fast unit suite
 // stays hermetic and CI can run them independently.
 export default defineConfig({
   resolve: {
@@ -18,9 +19,9 @@ export default defineConfig({
     include: ["src/**/*.integration.test.ts"],
     globalSetup: ["./tests/integration/global-setup.ts"],
     env: {
-      // Relative sqlite paths resolve against prisma/schema.prisma's
-      // directory, not the repo root — this lands at prisma/test.db.
-      DATABASE_URL: "file:./test.db",
+      // travel_test in the local Docker Postgres (docker-compose.yml), or
+      // the CI service; never the dev database.
+      DATABASE_URL: TEST_DATABASE_URL,
       MOCK_AI: "1",
       // Signs guest cookies and keys the IP hash in usage quotas.
       AUTH_SECRET: "integration-test-secret",
@@ -31,7 +32,7 @@ export default defineConfig({
       // Open-Meteo has no key to blank (climate.ts).
       CLIMATE_LOOKUPS: "off",
     },
-    // Prisma writes to one shared SQLite file — parallel files would race
+    // Prisma writes to one shared database — parallel files would race
     // on table state (e.g. one test's cleanup deleting another's fixture).
     fileParallelism: false,
   },
