@@ -16,6 +16,9 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "AI Travel Agent",
   description: "AI-powered travel itinerary generator",
+  // Low-key launch (PLAN-001 #214): kept out of search results while the
+  // site is checked in production; #215 removes this when it goes public.
+  robots: { index: false, follow: false },
 };
 
 export default function RootLayout({
