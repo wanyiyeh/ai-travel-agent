@@ -1,12 +1,12 @@
 import { haversineKm } from "@/lib/distanceMatrix";
 import { getIataCoords } from "@/lib/airports";
-import { prisma, j } from "@/lib/db";
 import { googleFetch } from "@/lib/googleFetch";
 import { isBudgetLodging, isLuxuryLodging, rankLodgingByBudget } from "@/lib/lodgingTiers";
 import { onSearchIsland } from "@/lib/islandGroups";
 import { CAFE_MEAL_TYPES } from "@/lib/cafeMealSlots";
 import { NIGHTCAP_TYPES } from "@/lib/drinkPlaces";
 import type { MealType } from "@/types/itinerary";
+import { memoizeSuccessInRequest, peekRequestMemo } from "@/lib/requestMemo";
 
 const NEARBY_SEARCH_URL = "https://places.googleapis.com/v1/places:searchNearby";
 
@@ -43,36 +43,19 @@ const HINTS_FIELD_MASK = "places.displayName,places.location,places.types";
 /** Which field set a candidate search asks for — see PRO_FIELD_MASK. */
 export type FieldTier = "pro" | "enterprise" | "kids" | "pets";
 
-// Shared TTL for every Nearby Search cache in this file (city hint lists,
-// candidate pools, nearest-station lookups) — Places results change slowly,
-// and this matches the TTL already used for the recommendation caches
-// elsewhere in the app (see transit-recommendations/route.ts).
-const NEARBY_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
-
-async function getCachedOrFetchHints(
+// Nearby Search results may not be cached across requests (ADR-0004): the
+// city hint lists, candidate pools and nearest stations below are fetched
+// per request, and only repeats within the request are answered once
+// (requestMemo.ts); a failed call isn't kept, so a later one retries. The
+// CityPlaceHintsCache, NearbyPlaceCandidatesCache and
+// NearestStationCache tables are no longer read or written; #206 drops them.
+function getCachedOrFetchHints(
   iataCode: string,
   kind: string,
   budget: string,
-  fetcher: () => Promise<RestaurantHint[]>,
+  fetcher: () => Promise<RestaurantHint[] | undefined>,
 ): Promise<RestaurantHint[]> {
-  const where = { iataCode_kind_budget: { iataCode, kind, budget } };
-
-  const cached = await prisma.cityPlaceHintsCache.findUnique({ where });
-  if (cached && Date.now() - cached.updatedAt.getTime() < NEARBY_CACHE_TTL_MS) {
-    return JSON.parse(cached.hints) as RestaurantHint[];
-  }
-
-  const hints = await fetcher();
-  // Don't cache an empty result (e.g. a transient API error) — let the next
-  // call retry instead of pinning "no hints" for 30 days.
-  if (hints.length > 0) {
-    await prisma.cityPlaceHintsCache.upsert({
-      where,
-      create: { iataCode, kind, budget, hints: j(hints) },
-      update: { hints: j(hints) },
-    });
-  }
-  return hints;
+  return memoizeSuccessInRequest(`hints:${iataCode}|${kind}|${budget}`, fetcher).then((hints) => hints ?? []);
 }
 
 export type BudgetLevel = "budget" | "moderate" | "luxury";
@@ -169,8 +152,8 @@ export function getLodgingTypes(budget?: BudgetLevel): string[] {
  * Nearby Search restricted to a set of Table A place types, returning just
  * name hints. Shared by the restaurant/breakfast/attraction fetchers below —
  * they differ only in which types and radius they pass. Pro fields only (no
- * rating), so it bills at the Pro tier — see PRO_FIELD_MASK. Returns empty
- * array on any error so callers can gracefully degrade.
+ * rating), so it bills at the Pro tier — see PRO_FIELD_MASK. Returns
+ * undefined on any error, which the caller turns into an empty list.
  */
 async function searchNearbyHints(
   coords: { lat: number; lng: number },
@@ -178,7 +161,7 @@ async function searchNearbyHints(
   includedTypes: string[],
   radius: number,
   maxCount: number,
-): Promise<RestaurantHint[]> {
+): Promise<RestaurantHint[] | undefined> {
   try {
     const res = await googleFetch(NEARBY_SEARCH_URL, {
       method: "POST",
@@ -203,7 +186,7 @@ async function searchNearbyHints(
 
     if (!res.ok) {
       console.warn(`[Places API] ${includedTypes.join(",")} HTTP ${res.status}`);
-      return [];
+      return undefined;
     }
 
     const data = await res.json();
@@ -218,7 +201,7 @@ async function searchNearbyHints(
       .filter((r: RestaurantHint) => r.name.length > 0);
   } catch (err) {
     console.warn(`[Places API] ${includedTypes.join(",")} fetch failed:`, err);
-    return [];
+    return undefined;
   }
 }
 
@@ -397,12 +380,6 @@ export type TypeMatch = "any" | "primary";
 // paying for its own.
 const NEARBY_FETCH_COUNT = 20;
 
-async function readFreshCandidates(cacheKey: string): Promise<PlaceCandidate[] | null> {
-  const cached = await prisma.nearbyPlaceCandidatesCache.findUnique({ where: { cacheKey } });
-  if (!cached || Date.now() - cached.updatedAt.getTime() >= NEARBY_CACHE_TTL_MS) return null;
-  return (JSON.parse(cached.candidates) as PlaceCandidate[]).map((p) => ({ ...p, name: cleanPlaceName(p.name) }));
-}
-
 // Some businesses put an ad in their Google name: 「花蓮將軍府1936(免預約入園，
 // 加LINE官方好友享優惠)」, 「又一村文創（各店家詳細營業時間請見粉專）」,
 // 「找樂子義式料理（結束營業前90分鐘不再收客）」.
@@ -421,6 +398,40 @@ export function cleanPlaceName(name: string): string {
 }
 
 /**
+ * Where candidate pools come from. Google is the only source today; another
+ * one (e.g. open data, PLAN-001) would implement this and replace
+ * googlePlaceSource below, leaving the per-request sharing, island filter and
+ * every caller unchanged. Both methods resolve to undefined for a failed call
+ * and [] for a confirmed empty result, so only the latter is shared.
+ */
+export interface PlaceSource {
+  nearby(
+    coords: { lat: number; lng: number },
+    apiKey: string,
+    types: string[],
+    radius: number,
+    maxCount: number,
+    tier: FieldTier,
+    match: TypeMatch,
+  ): Promise<PlaceCandidate[] | undefined>;
+  searchText(
+    query: string,
+    coords: { lat: number; lng: number },
+    apiKey: string,
+    radius: number,
+    includedType: string | undefined,
+    options: { tier: FieldTier; priceLevels?: string[]; minRating?: number },
+  ): Promise<PlaceCandidate[] | undefined>;
+}
+
+const googlePlaceSource: PlaceSource = {
+  nearby: fetchNearbyPlaceCandidatesUncached,
+  searchText: searchTextCandidatesUncached,
+};
+
+const placeSource: PlaceSource = googlePlaceSource;
+
+/**
  * Nearby place search that keeps real geo data (placeId/lat/lng/address).
  * Used to build real, pickable candidate lists (e.g. day stop suggestions,
  * accommodation candidates). `tier` picks the field set and so the billing
@@ -435,29 +446,22 @@ export async function fetchNearbyPlaceCandidates(
   tier: FieldTier = "pro",
   match: TypeMatch = "any",
 ): Promise<PlaceCandidate[]> {
-  // Key keeps the maxCount slot (fixed at NEARBY_FETCH_COUNT) so rows
-  // already cached by maxCount=20 callers stay valid.
-  const cacheKey = buildCandidatesCacheKey(coords, types, radius, NEARBY_FETCH_COUNT, tier, match);
+  // Repeats within the request share one pool (requestMemo.ts); nothing is
+  // kept past it (ADR-0004).
+  const key = `nearby:${buildCandidatesCacheKey(coords, types, radius, NEARBY_FETCH_COUNT, tier, match)}`;
   // An Enterprise pool has every Pro field too, so a Pro caller can reuse one
-  // rather than paying again for the same places.
-  const cached =
-    (await readFreshCandidates(cacheKey)) ??
-    (tier === "pro"
-      ? await readFreshCandidates(buildCandidatesCacheKey(coords, types, radius, NEARBY_FETCH_COUNT, "enterprise", match))
-      : null);
+  // this request already paid for.
+  const enterprise =
+    tier === "pro"
+      ? peekRequestMemo<PlaceCandidate[]>(`nearby:${buildCandidatesCacheKey(coords, types, radius, NEARBY_FETCH_COUNT, "enterprise", match)}`)
+      : undefined;
+  // A failed Enterprise call rejects its memo entry; fall back to a Pro search.
+  const fromEnterprise = enterprise ? await enterprise.catch(() => undefined) : undefined;
+  const candidates =
+    fromEnterprise ??
+    (await memoizeSuccessInRequest(key, () => placeSource.nearby(coords, apiKey, types, radius, NEARBY_FETCH_COUNT, tier, match))) ??
+    [];
   // On 馬祖 or 澎湖, only the island the search is on (islandGroups.ts).
-  if (cached) return onSearchIsland(coords, cached).slice(0, maxCount);
-
-  const candidates = await fetchNearbyPlaceCandidatesUncached(coords, apiKey, types, radius, NEARBY_FETCH_COUNT, tier, match);
-  // Don't cache an empty pool — could be a transient API failure rather than
-  // a genuinely sparse area, so let the next call retry instead of pinning it.
-  if (candidates.length > 0) {
-    await prisma.nearbyPlaceCandidatesCache.upsert({
-      where: { cacheKey },
-      create: { cacheKey, candidates: j(candidates) },
-      update: { candidates: j(candidates) },
-    });
-  }
   return onSearchIsland(coords, candidates).slice(0, maxCount);
 }
 
@@ -485,7 +489,7 @@ async function fetchNearbyPlaceCandidatesUncached(
   maxCount: number,
   tier: FieldTier,
   match: TypeMatch,
-): Promise<PlaceCandidate[]> {
+): Promise<PlaceCandidate[] | undefined> {
   try {
     const res = await googleFetch(NEARBY_SEARCH_URL, {
       method: "POST",
@@ -510,7 +514,7 @@ async function fetchNearbyPlaceCandidatesUncached(
 
     if (!res.ok) {
       console.warn(`[Places API Candidates] HTTP ${res.status}`);
-      return [];
+      return undefined;
     }
 
     const data = await res.json();
@@ -535,7 +539,7 @@ async function fetchNearbyPlaceCandidatesUncached(
       .filter((c: PlaceCandidate) => c.name.length > 0 && c.placeId.length > 0);
   } catch (err) {
     console.warn(`[Places API Candidates] fetch failed:`, err);
-    return [];
+    return undefined;
   }
 }
 
@@ -560,10 +564,22 @@ export async function searchTextCandidates(
 ): Promise<PlaceCandidate[]> {
   const priceKey = priceLevels ? [...priceLevels].sort().join(",") : "";
   const ratingKey = minRating !== undefined ? `:r${minRating}` : "";
-  const cacheKey = `text:${query}@${roundCoord(coords.lat)},${roundCoord(coords.lng)}:${radius}:${includedType ?? ""}:${priceKey}:${tier}${ratingKey}`;
-  const cached = await readFreshCandidates(cacheKey);
-  if (cached) return onSearchIsland(coords, cached);
+  const memoKey = `text:${query}@${roundCoord(coords.lat)},${roundCoord(coords.lng)}:${radius}:${includedType ?? ""}:${priceKey}:${tier}${ratingKey}`;
+  const candidates =
+    (await memoizeSuccessInRequest(memoKey, () =>
+      placeSource.searchText(query, coords, apiKey, radius, includedType, { tier, priceLevels, minRating }),
+    )) ?? [];
+  return onSearchIsland(coords, candidates);
+}
 
+async function searchTextCandidatesUncached(
+  query: string,
+  coords: { lat: number; lng: number },
+  apiKey: string,
+  radius: number,
+  includedType: string | undefined,
+  { tier, priceLevels, minRating }: { tier: FieldTier; priceLevels?: string[]; minRating?: number },
+): Promise<PlaceCandidate[] | undefined> {
   let candidates: PlaceCandidate[] = [];
   try {
     const res = await googleFetch(TEXT_SEARCH_URL, {
@@ -590,7 +606,7 @@ export async function searchTextCandidates(
     });
     if (!res.ok) {
       console.warn(`[Places API Text Candidates] HTTP ${res.status}`);
-      return [];
+      return undefined;
     }
     const data = await res.json();
     candidates = (data.places ?? [])
@@ -610,18 +626,10 @@ export async function searchTextCandidates(
       .filter((c: PlaceCandidate) => c.name.length > 0 && c.placeId.length > 0);
   } catch (err) {
     console.warn(`[Places API Text Candidates] fetch failed:`, err);
-    return [];
+    return undefined;
   }
 
-  // Every failed request returned above, so an empty list here is a
-  // confirmed "found nothing" (no matcha café in a small town) — cached too,
-  // or each trip there would pay for the same empty search again.
-  await prisma.nearbyPlaceCandidatesCache.upsert({
-    where: { cacheKey },
-    create: { cacheKey, candidates: j(candidates) },
-    update: { candidates: j(candidates) },
-  });
-  return onSearchIsland(coords, candidates);
+  return candidates;
 }
 
 // Below this many budget-tier places, a budget search also brings in regular lodging.
@@ -712,31 +720,17 @@ export async function findNearestStation(
   coords: { lat: number; lng: number },
   apiKey: string,
 ): Promise<NearestStation | null> {
-  const cacheKey = `${roundCoord(coords.lat)},${roundCoord(coords.lng)}`;
-  const cached = await prisma.nearestStationCache.findUnique({ where: { cacheKey } });
-  if (cached && Date.now() - cached.updatedAt.getTime() < NEARBY_CACHE_TTL_MS) {
-    return cached.station ? (JSON.parse(cached.station) as NearestStation) : null;
-  }
-
-  // ok distinguishes "the API call succeeded (found a station, or confirmed
-  // none nearby)" from a network/HTTP failure — only the former is cached, so
-  // a transient outage retries next time instead of pinning "no station" for
-  // STATION cache TTL.
-  const { ok, station } = await findNearestStationUncached(coords, apiKey);
-  if (ok) {
-    await prisma.nearestStationCache.upsert({
-      where: { cacheKey },
-      create: { cacheKey, station: station ? j(station) : null },
-      update: { station: station ? j(station) : null },
-    });
-  }
-  return station;
+  // A station's name is Google content, so nothing is kept past the request.
+  const station = await memoizeSuccessInRequest(`station:${roundCoord(coords.lat)},${roundCoord(coords.lng)}`, () =>
+    findNearestStationUncached(coords, apiKey),
+  );
+  return station ?? null;
 }
 
 async function findNearestStationUncached(
   coords: { lat: number; lng: number },
   apiKey: string,
-): Promise<{ ok: boolean; station: NearestStation | null }> {
+): Promise<NearestStation | null | undefined> {
   try {
     const res = await googleFetch(NEARBY_SEARCH_URL, {
       method: "POST",
@@ -759,23 +753,20 @@ async function findNearestStationUncached(
       }),
     });
 
-    if (!res.ok) return { ok: false, station: null };
+    if (!res.ok) return undefined;
 
     const data = await res.json();
     const station = data.places?.[0];
-    if (!station?.location || !station.displayName?.text) return { ok: true, station: null };
+    if (!station?.location || !station.displayName?.text) return null;
 
     return {
-      ok: true,
-      station: {
-        name: station.displayName.text,
-        distanceMeters: Math.round(
-          haversineKm(coords.lat, coords.lng, station.location.latitude, station.location.longitude) * 1000
-        ),
-      },
+      name: station.displayName.text,
+      distanceMeters: Math.round(
+        haversineKm(coords.lat, coords.lng, station.location.latitude, station.location.longitude) * 1000
+      ),
     };
   } catch {
-    return { ok: false, station: null };
+    return undefined;
   }
 }
 

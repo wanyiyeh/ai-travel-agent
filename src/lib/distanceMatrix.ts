@@ -1,11 +1,11 @@
-import { prisma, j } from "@/lib/db";
+import { memoizeSuccessInRequest } from "@/lib/requestMemo";
 import { googleFetch } from "@/lib/googleFetch";
 import { haversineKm, centroid, SUSPICIOUS_DISTANCE_KM, MAX_PLAUSIBLE_DISTANCE_KM } from "@/lib/geo";
 import { estimateTransit, isInJapan } from "@/lib/transitEstimate";
 
 // Re-exported so existing server-side importers of this module don't need to
 // change — but browser-facing code should import these from @/lib/geo
-// directly, since this file also pulls in @/lib/db (PrismaClient).
+// directly, since this file also pulls in server-only Google calls.
 export { haversineKm, centroid, SUSPICIOUS_DISTANCE_KM, MAX_PLAUSIBLE_DISTANCE_KM };
 
 import type { TravelMode } from "@/lib/travelMode";
@@ -56,13 +56,8 @@ function locationCacheKey(loc: Location): string {
   return typeof loc === "string" ? loc : `${roundCoord(loc.lat)},${roundCoord(loc.lng)}`;
 }
 
-// Cached wrapper: this was previously the only real Google API call in the
-// codebase with zero caching, unlike every Places lookup — repeatedly
-// recalculating a day's transport (drag reorder, bulk-edit, delete/undo) or
-// regenerating the same city re-billed Google for the exact same leg every
-// time. Origin/destination order is preserved (not canonicalized) since
-// duration can differ by direction.
-const DISTANCE_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+// One Routes leg, shared within the request. Origin/destination order is
+// preserved (not canonicalized) since duration can differ by direction.
 
 export async function getDistance(
   origin: Location,
@@ -71,22 +66,13 @@ export async function getDistance(
 ): Promise<DistanceResult | null> {
   const cacheKey = `${locationCacheKey(origin)}->${locationCacheKey(destination)}:${mode}`;
 
-  const cached = await prisma.distanceCache.findUnique({ where: { cacheKey } });
-  if (cached && Date.now() - cached.updatedAt.getTime() < DISTANCE_CACHE_TTL_MS) {
-    return JSON.parse(cached.distance) as DistanceResult | null;
-  }
-
-  const result = await fetchDistanceFromRoutesApi(origin, destination, mode);
-  // A confirmed "no route" (e.g. no transit coverage between two stops) is
-  // cached as null, so it isn't re-billed on every generation; an API error
-  // (undefined) isn't, so the next call retries.
-  if (result !== undefined) {
-    await prisma.distanceCache.upsert({
-      where: { cacheKey },
-      create: { cacheKey, distance: j(result) },
-      update: { distance: j(result) },
-    });
-  }
+  // Route durations and distances may not be cached (Service Specific Terms
+  // 19.3, ADR-0004), so a leg is only shared within the request that asked
+  // for it (requestMemo.ts). DistanceCache is no longer read or written;
+  // #206 drops it.
+  // An API error (undefined) isn't kept, even within the request, so a later
+  // call retries; a confirmed "no route" (null) is.
+  const result = await memoizeSuccessInRequest(`route:${cacheKey}`, () => fetchDistanceFromRoutesApi(origin, destination, mode));
   return result ?? null;
 }
 
@@ -95,7 +81,7 @@ export async function getDistance(
 // with a 10k/month free tier and better volume discounts. Requires the
 // "Routes API" to be enabled for the project behind GOOGLE_PLACES_API_KEY.
 // Returns null when Google confirms there's no route (ROUTE_NOT_FOUND) and
-// undefined for any error, so getDistance only caches the former.
+// undefined for any error, so getDistance only shares the former.
 async function fetchDistanceFromRoutesApi(
   origin: Location,
   destination: Location,

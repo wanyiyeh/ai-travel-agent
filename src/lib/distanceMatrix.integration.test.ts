@@ -1,12 +1,15 @@
-import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
-import { prisma } from "@/lib/db";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { describeTransport, getDistance, getDistancesForStopPairs } from "./distanceMatrix";
+import { withRequestMemo } from "@/lib/requestMemo";
 
-// Story: two stops in a small town have no transit coverage. Every generation
-// that schedules that leg asks Routes for a transit route first — a confirmed
-// "no route" must be remembered, but an API error must not be.
-describe("getDistance remembers confirmed no-route results", () => {
-  // Unique per run so rows from an earlier run can't answer these calls.
+// Story: two stops in a small town have no transit coverage. A generation that
+// schedules that leg more than once asks Routes once; a confirmed "no route"
+// is shared within the request, an API error isn't, and nothing is kept after
+// it (route results may not be cached, ADR-0004).
+describe("getDistance shares a leg within one request, and keeps nothing after it", () => {
+  // Route durations may not be cached (ADR-0004): a leg asked for twice in
+  // one request is fetched once (requestMemo.ts), and the next request asks
+  // Routes again.
   const offset = (Date.now() % 100000) / 1e6;
   const noRouteOrigin = { lat: 10 + offset, lng: 20 };
   const erroringOrigin = { lat: 11 + offset, lng: 20 };
@@ -16,32 +19,30 @@ describe("getDistance remembers confirmed no-route results", () => {
     vi.unstubAllGlobals();
   });
 
-  afterAll(async () => {
-    await prisma.distanceCache.deleteMany({
-      where: { cacheKey: { startsWith: `${noRouteOrigin.lat.toFixed(4)},` } },
-    });
-    await prisma.distanceCache.deleteMany({
-      where: { cacheKey: { startsWith: `${erroringOrigin.lat.toFixed(4)},` } },
-    });
-  });
-
-  it("queries Routes once for a leg with no route, then answers from the cache", async () => {
+  it("queries Routes once per request for a leg with no route", async () => {
     const fetchMock = vi.fn(
       async () => new Response(JSON.stringify([{ originIndex: 0, destinationIndex: 0, condition: "ROUTE_NOT_FOUND" }]), { status: 200 })
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    expect(await getDistance(noRouteOrigin, destination, "transit")).toBeNull();
-    expect(await getDistance(noRouteOrigin, destination, "transit")).toBeNull();
+    await withRequestMemo(async () => {
+      expect(await getDistance(noRouteOrigin, destination, "transit")).toBeNull();
+      expect(await getDistance(noRouteOrigin, destination, "transit")).toBeNull();
+    });
     expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await withRequestMemo(() => getDistance(noRouteOrigin, destination, "transit"));
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it("does not cache a Routes API error, so the next call retries", async () => {
+  it("does not keep a Routes API error, even within the request, so the next call retries", async () => {
     const fetchMock = vi.fn(async () => new Response("", { status: 500 }));
     vi.stubGlobal("fetch", fetchMock);
 
-    expect(await getDistance(erroringOrigin, destination, "transit")).toBeNull();
-    expect(await getDistance(erroringOrigin, destination, "transit")).toBeNull();
+    await withRequestMemo(async () => {
+      expect(await getDistance(erroringOrigin, destination, "transit")).toBeNull();
+      expect(await getDistance(erroringOrigin, destination, "transit")).toBeNull();
+    });
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });
@@ -89,6 +90,5 @@ describe("getDistancesForStopPairs in Japan", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(leg).toMatchObject({ mode: "transit", durationSeconds: 1988 });
     expect(leg).not.toHaveProperty("estimated");
-    await prisma.distanceCache.deleteMany({ where: { cacheKey: { startsWith: `${(37.5547 + offset).toFixed(4)},` } } });
   });
 });
