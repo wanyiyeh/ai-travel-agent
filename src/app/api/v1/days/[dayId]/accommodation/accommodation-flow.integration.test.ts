@@ -80,9 +80,8 @@ describe("accommodation regenerate -> select flow", () => {
     // The hotel's name is Google's: only its place ID is kept (ADR-0004).
     expect(day?.accommodation?.name).toBeUndefined();
 
-    // select() no longer seeds the place cache: its query key would be the
+    // select() doesn't seed the place cache: its query key would be the
     // hotel's Google name, and a business name may not be stored (ADR-0004).
-    const cachedPlace = await prisma.place.findUnique({ where: { id: chosen.placeId } });
-    expect(cachedPlace?.name ?? null).toBeNull();
+    expect(await prisma.placeQuery.count({ where: { placeId: chosen.placeId } })).toBe(0);
   });
 });

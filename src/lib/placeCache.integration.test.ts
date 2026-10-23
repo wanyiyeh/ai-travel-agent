@@ -19,21 +19,9 @@ describe("the place cache", () => {
     await upsertPlace(`${placeId} 東京`, { placeId, lat: 35.68, lng: 139.77 });
 
     const row = await prisma.place.findUniqueOrThrow({ where: { id: placeId } });
-    expect(row).toMatchObject({ lat: 35.68, lng: 139.77, name: null, address: null, rating: null, types: null, photoName: null });
+    expect(row).toMatchObject({ lat: 35.68, lng: 139.77 });
     expect(row.coordsFetchedAt).toBeInstanceOf(Date);
     expect(await lookupByQuery(`${placeId} 東京`)).toEqual({ placeId, lat: 35.68, lng: 139.77 });
-  });
-
-  it("clears Google content a row kept from before", async () => {
-    await prisma.place.update({
-      where: { id: placeId },
-      data: { name: "淺草寺", address: "台東區", rating: 4.5, types: "[\"tourist_attraction\"]", photoName: "places/x/photos/y" },
-    });
-
-    await upsertPlace(`${placeId} again`, { placeId, lat: 35.71, lng: 139.79 });
-
-    const row = await prisma.place.findUniqueOrThrow({ where: { id: placeId } });
-    expect(row).toMatchObject({ name: null, address: null, rating: null, types: null, photoName: null, lat: 35.71 });
   });
 
   it("reads coordinates older than 30 days as missing, but still knows the place", async () => {

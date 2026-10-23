@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/db";
 import { isMockPlaces, mockPhotoSvg } from "@/lib/mockPlaces";
 import { isValidPhotoName } from "@/lib/placePhotoName";
 
@@ -67,11 +66,10 @@ export async function GET(
   const { placeId } = await params;
   const { searchParams } = new URL(request.url);
 
-  // Picker candidates carry their own `photos[0].name` before they've ever
-  // been upserted into the Place cache (that only happens on select/enrich),
-  // so a caller can pass it directly instead of relying on a DB lookup that
-  // would 404 for a place nobody has picked yet. Checked before the mock
-  // short-circuit so `dev:mock` exercises the same rejection path.
+  // The caller passes the photo name it got with a fresh search result:
+  // photo names are Google content and aren't stored (ADR-0004), so there's
+  // nothing to look up. Checked before the mock short-circuit so `dev:mock`
+  // exercises the same rejection path.
   const requestedPhotoName = searchParams.get("name");
   if (requestedPhotoName && !isValidPhotoName(requestedPhotoName, placeId)) {
     return NextResponse.json({ error: "Invalid photo name" }, { status: 400 });
@@ -90,14 +88,8 @@ export async function GET(
     return NextResponse.json({ error: "GOOGLE_PLACES_API_KEY not configured" }, { status: 503 });
   }
 
-  let photoName = requestedPhotoName;
+  const photoName = requestedPhotoName;
   if (!photoName) {
-    const place = await prisma.place.findUnique({ where: { id: placeId } });
-    photoName = place?.photoName ?? null;
-  }
-  // The cached name came from Google, but it's spliced into the same keyed
-  // URL, so hold it to the same shape rather than trusting the DB blindly.
-  if (!photoName || !isValidPhotoName(photoName, placeId)) {
     return NextResponse.json({ error: "No photo available for this place" }, { status: 404 });
   }
 

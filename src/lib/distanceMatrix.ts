@@ -68,8 +68,7 @@ export async function getDistance(
 
   // Route durations and distances may not be cached (Service Specific Terms
   // 19.3, ADR-0004), so a leg is only shared within the request that asked
-  // for it (requestMemo.ts). DistanceCache is no longer read or written;
-  // #206 drops it.
+  // for it (requestMemo.ts).
   // An API error (undefined) isn't kept, even within the request, so a later
   // call retries; a confirmed "no route" (null) is.
   const result = await memoizeSuccessInRequest(`route:${cacheKey}`, () => fetchDistanceFromRoutesApi(origin, destination, mode));

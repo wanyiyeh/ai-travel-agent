@@ -49,18 +49,12 @@ model Itinerary {
 
 // A place ID and its coordinates: all the Google terms let us keep
 // (ADR-0004, src/lib/placeCache.ts). Coordinates count for 30 days from
-// coordsFetchedAt. name, address, rating, types and photoName are left from
-// before and no longer written; #206 clears and drops them.
+// coordsFetchedAt (ADR-0006).
 model Place {
   id              String       @id
-  name            String?
-  address         String?
   lat             Float?
   lng             Float?
   coordsFetchedAt DateTime?    @map("coords_fetched_at")
-  rating          Float?
-  types           String?
-  photoName       String?
   updatedAt       DateTime     @updatedAt
   queries         PlaceQuery[]
 }
@@ -178,36 +172,6 @@ model ItineraryRecommendationCache {
   @@id([itineraryId, originIata, destinationIata])
 }
 
-// Nearby Search results for a city's breakfast/main-meal/snack/attraction hint
-// lists (see fetchCityRestaurants.ts), keyed by IATA code + hint kind (+ budget
-// for the budget-sensitive main-meal kind). These lists barely change day to
-// day, but were previously re-fetched from Google on every itinerary
-// generation for the same city — this cache lets repeat generations for a
-// popular city (e.g. Tokyo) reuse one Places API response instead of paying
-// for it again.
-model CityPlaceHintsCache {
-  iataCode String
-  kind     String   // "breakfast" | "mainMeal" | "snack" | "attraction"
-  budget   String   @default("") // BudgetLevel for "mainMeal", "" otherwise
-  hints    String   // JSON-encoded RestaurantHint[]
-  updatedAt DateTime @updatedAt
-
-  @@id([iataCode, kind, budget])
-}
-
-// Raw Nearby Search "candidate" pool (real placeId/lat/lng, not just name/rating)
-// for a given point + search params — used by day stop-suggestions ("換一批")
-// and accommodation candidate search. cacheKey encodes rounded coords, radius,
-// maxCount, sorted types and sorted priceLevels so distinct call shapes never
-// collide. Never written on an empty result, so a transient API failure or a
-// genuinely sparse area just retries next time instead of caching "nothing" for
-// 30 days.
-model NearbyPlaceCandidatesCache {
-  cacheKey   String   @id
-  candidates String   // JSON-encoded PlaceCandidate[]
-  updatedAt  DateTime @updatedAt
-}
-
 // Nearest subway/train/light-rail station for a rounded coordinate (see
 // findNearestStation). station is null when a successful search genuinely
 // found nothing within range — that "no station nearby" answer is itself
@@ -254,12 +218,6 @@ model FilmLocationCache {
   updatedAt DateTime @updatedAt
 }
 
-model NearestStationCache {
-  cacheKey  String   @id
-  station   String?  // JSON-encoded NearestStation, or null = confirmed none found
-  updatedAt DateTime @updatedAt
-}
-
 // City names getCityCenter() searched for and Google confirmed it couldn't
 // find (e.g. a landmark like "富士山" used as a day's waypointCity). Found
 // centers live in PlaceQuery ("city-center:" keys), but that table needs a
@@ -268,20 +226,6 @@ model NearestStationCache {
 // are written — a Places API error isn't, so it retries next time.
 model CityCenterMissCache {
   cityName  String   @id
-  updatedAt DateTime @updatedAt
-}
-
-// Routes API (Compute Route Matrix) result for a single origin/destination
-// pair + travel mode (see getDistance/getDistancesForStopPairs in
-// distanceMatrix.ts). cacheKey encodes rounded origin/destination coords (or
-// raw address string) + mode so distinct call shapes never collide; origin
-// and destination are kept in order (not canonicalized) since duration can
-// differ by direction. Never written when the API call fails or reports no
-// route, so a transient error or a genuinely routeless pair retries next
-// time instead of getting pinned.
-model DistanceCache {
-  cacheKey  String   @id
-  distance  String   // JSON-encoded DistanceResult
   updatedAt DateTime @updatedAt
 }
 
