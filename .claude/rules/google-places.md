@@ -26,7 +26,7 @@ paths:
 
 ## 單一出口
 
-- 所有計費的 Google HTTP 呼叫（Text Search、Nearby Search、Routes）都經過 `src/lib/googleFetch.ts`，`MOCK_PLACES` 才能在一個地方把它們換成假資料（`src/lib/mockPlaces.ts`）。照片路由自己檢查 `isMockPlaces()`。
+- 所有計費的 Google HTTP 呼叫（Text Search、Nearby Search、Routes）都經過 `src/lib/googleFetch.ts`，`MOCK_PLACES` 才能在一個地方把它們換成假資料（`src/lib/mockPlaces.ts`）。照片路由也走 `googleFetch`，key 放在 header；mock 模式在路由裡先回假圖。
 - **新增任何 Google API 呼叫點都要走 `googleFetch.ts`**，否則 mock 模式下照樣計費。
 - `scripts/*` 還是直接用 `fetch` 呼叫 Google，繞過了這個出口；跑它們一律依 R1 先問。
 
