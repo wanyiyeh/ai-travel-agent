@@ -3,7 +3,8 @@
  * candidate history and the Place table (ADR-0006, src/lib/coordsPurge.ts).
  * Places keep their IDs; coordinates come back when a day is next shown.
  *
- * Run daily once deployed (#211); until then by hand:
+ * Vercel Cron runs it daily with the rest of the cleanup
+ * (src/app/api/cron/daily/route.ts); by hand:
  *   npm run purge-expired-coords                                  # dev database (DATABASE_URL in .env)
  *   DATABASE_URL="postgresql://travel:travel@localhost:5432/travel_mock" npm run purge-expired-coords    # travel_mock
  * Makes no Google/OpenAI calls.
