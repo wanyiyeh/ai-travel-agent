@@ -19,7 +19,7 @@ flowchart LR
 
 - 只有 Google 登入（`src/auth.ts`，JWT session）。未登入的訪客也能生成，由簽章 cookie 識別、行程會過期；登入時認領訪客行程（`src/lib/auth/guest.ts`）。
 - 行程讀寫都檢查擁有權（`src/lib/auth/ownership.ts`）。
-- 花錢的操作受三層保護：`src/proxy.ts` 依 IP 與成本等級限流；`src/lib/quota.ts` 依使用者、IP、裝置計算額度，紀錄在 `UsageEvent`；生成前要通過 Cloudflare Turnstile。管理者（`ADMIN_EMAILS`）不受額度限制。
+- 花錢的操作受三層保護：`src/proxy.ts` 依 IP 與成本等級限流；`src/lib/quota.ts` 依使用者、IP、裝置計算額度，紀錄在 `UsageEvent`；生成前要通過 Cloudflare Turnstile。管理者（`ADMIN_EMAILS`）不受額度限制。另有全站每日呼叫上限（`src/lib/dailyBudget.ts`）與每個 IP 同時只能一個生成的鎖。限流、每日上限與生成鎖存在 Postgres，多個伺服器實例共用（`src/lib/sharedState.ts`，#209）；單元測試用記憶體版本（`SHARED_STATE=memory`）。
 
 ## 行程生成主流程
 
@@ -53,6 +53,7 @@ flowchart TD
 
 - `Itinerary.days`、`Itinerary.config` 是 JSON 字串；`src/lib/db.ts` 的 extension 自動 parse/stringify（`scripts/` 不經過它）。`days` 的形狀見 `src/types/itinerary.ts` 的 `Day`。
 - `User`（`isGuest`、`disabledAt`）、`UsageEvent`（額度計算）。
+- `RateLimitWindow`、`DailyCallCount`、`GenerationLock`：限流、每日呼叫上限、生成鎖；舊資料由 `scripts/cleanup-expired-guests.ts` 清除。
 - `Place`/`PlaceQuery`：查詢字串到地點的快取，唯一入口 `src/lib/placeCache.ts`。
 - 行程、候選紀錄、垃圾桶裡的地點座標都附 `coordsFetchedAt`，超過 30 天由 `src/lib/coordsPurge.ts` 刪除，顯示時重新取得（ADR-0006）。
 - `DeletedStop`/`DeletedDay`：垃圾桶與復原。

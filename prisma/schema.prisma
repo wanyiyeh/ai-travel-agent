@@ -268,3 +268,33 @@ model UsageMeasurement {
 
   @@index([label, createdAt])
 }
+
+// Per-client request counts for the sliding-window rate limit in
+// src/proxy.ts (rateLimit.ts). A key keeps its current and previous window;
+// older ones are deleted on the next hit or by scripts/cleanup-expired-guests.ts.
+// Shared by every server instance (#209).
+model RateLimitWindow {
+  key         String
+  windowStart DateTime @map("window_start")
+  count       Int
+
+  @@id([key, windowStart])
+}
+
+// Billable outbound calls per service and UTC day: the site-wide circuit
+// breaker (dailyBudget.ts), shared by every server instance (#209).
+model DailyCallCount {
+  service String
+  day     String // UTC date, YYYY-MM-DD
+  count   Int
+
+  @@id([service, day])
+}
+
+// One trip generation at a time per client (rateLimit.ts). A lease expires
+// on its own, so a crashed instance can't lock a client out (#209).
+model GenerationLock {
+  key       String   @id
+  lease     String
+  expiresAt DateTime @map("expires_at")
+}

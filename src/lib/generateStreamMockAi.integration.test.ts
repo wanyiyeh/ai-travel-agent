@@ -90,8 +90,14 @@ describe("generate-stream with MOCK_AI and faked Google", () => {
 
     // The run's call counts outlive the log (usageMeter.ts), marked as mock:
     // mocked model calls are counted like a real run's, with no tokens.
-    const measurement = await prisma.usageMeasurement.findFirst({
-      where: { label: "generate-stream", createdAt: { gte: startedAt } },
+    // Saved as the metered run finishes, just after the stream closes, so
+    // wait for it rather than read once.
+    const measurement = await vi.waitFor(async () => {
+      const row = await prisma.usageMeasurement.findFirst({
+        where: { label: "generate-stream", createdAt: { gte: startedAt } },
+      });
+      if (!row) throw new Error("not saved yet");
+      return row;
     });
     expect(measurement).toMatchObject({ mock: true, promptTokens: 0 });
     expect(measurement!.openaiCalls).toBeGreaterThan(0);

@@ -2,11 +2,9 @@
 // route runs. The point is cost: one scripted client looping on a route that
 // calls OpenAI or Google would otherwise bill without limit.
 //
-// The store is in-process memory, which is right for a single server (or
-// `next dev`). On a multi-instance / serverless deploy each instance would
-// count separately — swap createMemoryStore() for a shared store (e.g.
-// Redis) behind the same RateLimitStore interface. See
-// plan/security-hardening.md Phase 1b.
+// Serverless instances don't share memory, so the stores the app uses live
+// in Postgres (sharedStatePostgres.ts, picked in sharedState.ts, #209); the
+// in-memory ones here serve the unit tests.
 
 export type RateLimitTier = "generate" | "ai" | "google" | "photo" | "default";
 
@@ -83,7 +81,7 @@ export interface RateLimitResult {
 }
 
 export interface RateLimitStore {
-  hit(key: string, rule: RateLimitRule, now?: number): RateLimitResult;
+  hit(key: string, rule: RateLimitRule, now?: number): Promise<RateLimitResult>;
 }
 
 interface WindowEntry {
@@ -96,22 +94,29 @@ interface WindowEntry {
 // fixed window plus the previous one, weighted by how much of it still
 // overlaps. O(1) memory per key, without the 2x burst a plain fixed window
 // allows at a window boundary. Blocked requests don't count against the limit.
+// Shared by both stores: given this window's and the previous window's
+// counts, whether one more request fits.
+export function decideWindow(count: number, prevCount: number, { limit, windowMs }: RateLimitRule, now: number): RateLimitResult {
+  const elapsed = now - Math.floor(now / windowMs) * windowMs;
+  const estimated = prevCount * (1 - elapsed / windowMs) + count;
+  if (estimated + 1 > limit) {
+    return { allowed: false, remaining: 0, retryAfterSeconds: retryAfter({ windowStart: 0, count, prevCount }, limit, windowMs, elapsed) };
+  }
+  return { allowed: true, remaining: Math.max(0, Math.floor(limit - estimated - 1)), retryAfterSeconds: 0 };
+}
+
 export function createMemoryStore(maxKeys = 10_000): RateLimitStore {
   const entries = new Map<string, WindowEntry>();
 
   return {
-    hit(key, { limit, windowMs }, now = Date.now()) {
-      const windowStart = Math.floor(now / windowMs) * windowMs;
+    async hit(key, rule, now = Date.now()) {
+      const windowStart = Math.floor(now / rule.windowMs) * rule.windowMs;
       let entry = entries.get(key);
-      if (!entry || entry.windowStart < windowStart - windowMs) {
+      if (!entry || entry.windowStart < windowStart - rule.windowMs) {
         entry = { windowStart, count: 0, prevCount: 0 };
       } else if (entry.windowStart < windowStart) {
         entry = { windowStart, count: 0, prevCount: entry.count };
       }
-
-      const elapsed = now - windowStart;
-      const prevWeight = 1 - elapsed / windowMs;
-      const estimated = entry.prevCount * prevWeight + entry.count;
 
       // Re-insert so Map order tracks recency; evict the stalest key when full.
       entries.delete(key);
@@ -121,11 +126,9 @@ export function createMemoryStore(maxKeys = 10_000): RateLimitStore {
       }
       entries.set(key, entry);
 
-      if (estimated + 1 > limit) {
-        return { allowed: false, remaining: 0, retryAfterSeconds: retryAfter(entry, limit, windowMs, elapsed) };
-      }
-      entry.count += 1;
-      return { allowed: true, remaining: Math.max(0, Math.floor(limit - estimated - 1)), retryAfterSeconds: 0 };
+      const result = decideWindow(entry.count, entry.prevCount, rule, now);
+      if (result.allowed) entry.count += 1;
+      return result;
     },
   };
 }
@@ -145,35 +148,32 @@ function retryAfter(entry: WindowEntry, limit: number, windowMs: number, elapsed
   return Math.max(1, Math.ceil(waitMs / 1000));
 }
 
-// Survives Next dev's module reloads, like the other in-process caches here.
-const globalForRateLimit = globalThis as unknown as { apiRateLimitStore?: RateLimitStore };
-export const apiRateLimitStore = (globalForRateLimit.apiRateLimitStore ??= createMemoryStore());
+// One long-running request per client at a time — a trip generation streams
+// for tens of seconds and fans out into many OpenAI/Google calls, so
+// parallel ones multiply cost faster than the per-day count alone would
+// catch. A lease expires after GENERATION_LEASE_MS even if never released
+// (an instance that crashed mid-generation), and releasing needs the lease,
+// so a late release can't free the next request's lock.
+export const GENERATION_LEASE_MS = 10 * 60 * 1000;
 
-// Caps how many long-running requests one client can have open at once — a
-// trip generation streams for tens of seconds and fans out into many
-// OpenAI/Google calls, so parallel ones multiply cost faster than the
-// per-day count alone would catch.
 export interface ConcurrencyGate {
-  tryAcquire(key: string): boolean;
-  release(key: string): void;
+  /** A lease to hand back to release(), or null when the key is busy. */
+  tryAcquire(key: string, now?: number): Promise<string | null>;
+  release(key: string, lease: string): Promise<void>;
 }
 
-export function createConcurrencyGate(maxPerKey: number): ConcurrencyGate {
-  const active = new Map<string, number>();
+export function createMemoryGate(leaseMs = GENERATION_LEASE_MS): ConcurrencyGate {
+  const held = new Map<string, { lease: string; expiresAt: number }>();
   return {
-    tryAcquire(key) {
-      const current = active.get(key) ?? 0;
-      if (current >= maxPerKey) return false;
-      active.set(key, current + 1);
-      return true;
+    async tryAcquire(key, now = Date.now()) {
+      const current = held.get(key);
+      if (current && current.expiresAt > now) return null;
+      const lease = crypto.randomUUID();
+      held.set(key, { lease, expiresAt: now + leaseMs });
+      return lease;
     },
-    release(key) {
-      const current = active.get(key) ?? 0;
-      if (current <= 1) active.delete(key);
-      else active.set(key, current - 1);
+    async release(key, lease) {
+      if (held.get(key)?.lease === lease) held.delete(key);
     },
   };
 }
-
-const globalForGate = globalThis as unknown as { generateStreamGate?: ConcurrencyGate };
-export const generateStreamGate = (globalForGate.generateStreamGate ??= createConcurrencyGate(1));

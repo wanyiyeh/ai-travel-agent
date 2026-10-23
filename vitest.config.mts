@@ -21,9 +21,12 @@ export default defineConfig({
     // - no Google key: lookups skip themselves (tests stub one when needed);
     // - a fake OpenAI key: openai.ts needs one at import, and it can't bill;
     // - a database that doesn't exist: any query fails to connect;
-    // - no weather lookups: Open-Meteo has no key to blank (climate.ts).
+    // - no weather lookups: Open-Meteo has no key to blank (climate.ts);
+    // - in-memory rate limits, generation lock and daily budget, instead of
+    //   the Postgres ones (sharedState.ts).
     env: {
       CLIMATE_LOOKUPS: "off",
+      SHARED_STATE: "memory",
       GOOGLE_PLACES_API_KEY: "",
       OPENAI_API_KEY: "unit-tests-never-call-openai",
       DATABASE_URL: "postgresql://unit-tests-must-not-use-a-database@127.0.0.1:1/none",

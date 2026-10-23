@@ -1,7 +1,8 @@
 // Site-wide circuit breaker: a hard cap on billable outbound calls per UTC
 // day, counted at the two choke points (googleFetch and the OpenAI client's
 // fetch). Per-IP limits in rateLimit.ts can be dodged by spreading requests
-// over many IPs; this can't. It's in-process, so it resets on restart — the
+// over many IPs; this can't. The count the app uses lives in Postgres
+// (sharedStatePostgres.ts), so every server instance shares it (#209); the
 // GCP daily quotas and the OpenAI project spend limit are the outer caps.
 
 export type BudgetedService = "google" | "openai";
@@ -13,37 +14,41 @@ export const DAILY_CALL_BUDGET: Record<BudgetedService, number> = {
   openai: 1000,
 };
 
-interface DayCount {
-  day: string;
-  count: number;
+export interface DailyBudgetStore {
+  /**
+   * Counts one call and returns whether it's within today's budget. A
+   * refused call isn't counted, so the counter can't run away while blocked.
+   */
+  consume(service: BudgetedService, now?: number): Promise<boolean>;
 }
 
-const globalForBudget = globalThis as unknown as { dailyCallCounts?: Map<BudgetedService, DayCount> };
-const counts = (globalForBudget.dailyCallCounts ??= new Map());
-
-function utcDay(now: number): string {
+export function utcDay(now: number): string {
   return new Date(now).toISOString().slice(0, 10);
 }
 
-// Counts one call and returns whether it's within today's budget. A refused
-// call isn't counted, so the counter can't run away while blocked.
-export function consumeDailyBudget(service: BudgetedService, now = Date.now()): boolean {
-  const day = utcDay(now);
-  let entry = counts.get(service);
-  if (!entry || entry.day !== day) {
-    entry = { day, count: 0 };
-    counts.set(service, entry);
-  }
-  if (entry.count >= DAILY_CALL_BUDGET[service]) {
-    console.warn(`[dailyBudget] ${service} daily call budget (${DAILY_CALL_BUDGET[service]}) exhausted; refusing call`);
-    return false;
-  }
-  entry.count += 1;
-  return true;
+export function warnBudgetExhausted(service: BudgetedService, limit: number): void {
+  console.warn(`[dailyBudget] ${service} daily call budget (${limit}) exhausted; refusing call`);
 }
 
-export function resetDailyBudgetForTests() {
-  counts.clear();
+/** In-process counts, for the unit tests (sharedState.ts). */
+export function createMemoryDailyBudget(limits: Record<BudgetedService, number> = DAILY_CALL_BUDGET): DailyBudgetStore {
+  const counts = new Map<BudgetedService, { day: string; count: number }>();
+  return {
+    async consume(service, now = Date.now()) {
+      const day = utcDay(now);
+      let entry = counts.get(service);
+      if (!entry || entry.day !== day) {
+        entry = { day, count: 0 };
+        counts.set(service, entry);
+      }
+      if (entry.count >= limits[service]) {
+        warnBudgetExhausted(service, limits[service]);
+        return false;
+      }
+      entry.count += 1;
+      return true;
+    },
+  };
 }
 
 // A synthetic 429 in place of the real call. Callers already treat a non-OK
