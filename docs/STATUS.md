@@ -6,18 +6,16 @@
 
 ## 現在在做什麼
 
-[PLAN-001](plans/PLAN-001-portfolio-launch.md) 作品集上線，進行中（父 issue #196）。Google 合規的 A 系列已完成：寫入時一律移除 Google 欄位、顯示時補名稱（[ADR-0005](adr/0005-place-display-hybrid.md)）、候選池與路線只在同一請求內共用、座標 30 天清除（[ADR-0006](adr/0006-coordinate-expiry.md)）、Google Maps 標誌與 Places UI Kit 地點詳情、稽核與清理（`npm run audit-google-content`）、舊欄位與四張內容快取表已從結構移除。`dev.db`、`mock.db` 已清理並 `db push`，稽核為 0（備份在 `prisma/*.db.backup-20261023`，確定不需要可自行刪除）。
+[PLAN-001](plans/PLAN-001-portfolio-launch.md) 作品集上線，進行中（父 issue #196）。**已部署到 https://ai-travel-agent-blond.vercel.app**（Vercel Hobby、函式在新加坡；資料庫是 Neon 新加坡的 `travel`，preview 用 `travel_mock` 且全部 mock）。設定步驟見 [deploy.md](deploy.md)，完成紀錄在 #213。上線檢查都通過：Google 登入、一次生成、每日清理、正式資料庫稽核 No violations。
 
-#208（SQLite → Postgres）完成：本機用 Docker 的 Postgres（[ADR-0007](adr/0007-local-postgres-docker.md)），`prisma migrate` 管理結構，`dev.db`、`mock.db` 的資料已搬進 `travel`、`travel_mock`，稽核為 0。#209（限流、全站每日上限、生成鎖改存 Postgres，多個實例共用）已合併。#210（`maxDuration` 300 秒、280 秒期限內才重試或改走舊流程，逾時回明確錯誤、不存半成品；量測見 runbook）已合併。#211（每日清理改成 Vercel Cron 呼叫的 `/api/cron/daily`，以 `CRON_SECRET` 保護）已合併；正式環境要在 Vercel 設定 `CRON_SECRET`（#213）。#212（跨站寫入阻擋、照片路由的 key 改放 header 並走 `googleFetch`、舊資安計畫改成現況說明，未完成項目移到 issue #249～#252）已合併。#249（key 外洩檢查）已完成，沒有需要輪替的 key。#213 的程式與文件部分（`.env.example` 進 repo、`vercel.json` 設新加坡、[部署步驟](deploy.md)）已合併；App 自己算每日花費上限拆到 #255，上線後再做。
+Google 合規（A 系列，ADR-0004～0006）與部署準備（#208～#213）都已合併。#258（行程列表每個地點加「照片與詳情」按鈕，打開 Places UI Kit）已合併。
 
-#188（Nearby 降到 Pro）評估後不做：省約 1～2%，卻會讓午晚餐的預算篩選與餐費估算失準；改在 #242 評估減少 Nearby Search 次數。
-
-量測結果（2026-10-23，`dev:free`）：一次生成 Google 約 US$0.24～0.41，最貴的是 Nearby Search Pro；假的 OpenAI 會讓 Text Search 少算。方法與數字見 [runbook](runbook.md)。
+量測結果（2026-10-23）：一次生成 Google 約 US$0.24～0.41；生成時間 30～50 秒（[runbook](runbook.md)）。GCP 每日配額已設（GetPlace 800、SearchNearby 300、SearchText 300、Photo 300、RouteMatrix 400，用不到的 API 設 0），GetPlace 有 80% 用量警告。
 
 ## 下一步
 
 1. 使用者操作：#181（GCP 預算通知、OpenAI 硬上限）、#197（確認 OpenAI 沒有分享資料給訓練）、#207（書面詢問 Google 灰色地帶）。
-2. 使用者照 [deploy.md](deploy.md) 設定 Neon 與 Vercel（#213 其餘驗收條件），完成後 #214 低調上線與驗證。
+2. #214 低調上線：頁面加 `noindex`、README 不放網址、正式環境生成 2～3 份公開範例行程；之後 #215 正式公開。
 3. 可穿插的小項目：#242（減少 Nearby 次數的評估）、#239（mock 模式的地圖不要計費）。
 
 ## 卡點與待決定
