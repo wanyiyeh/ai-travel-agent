@@ -37,6 +37,7 @@ import type { Itinerary, Day, Stop, Meal, MealType, Accommodation, StopCandidate
 import { buildDayTimeline, MEAL_TIME_OF_DAY } from "@/lib/dayTimeline";
 import { findRepeatedMeals, slotKey } from "@/lib/mealRepeats";
 import { daysMissingNames, withPlaceNames, type PlaceNameBook } from "@/lib/placeNamesClient";
+import GoogleMapsAttribution from "@/components/GoogleMapsAttribution";
 
 // A candidate from another day counts as "same city" if it's within this
 // distance of the edited day's own stop centroid — used to build the reuse
@@ -1913,6 +1914,9 @@ export default function EditableItineraryCard({
             </Fragment>
           );
         })}
+
+        {/* Place names here are Google's, shown without a map (also on the PDF). */}
+        <GoogleMapsAttribution />
       </div>
 
       <DragOverlay>

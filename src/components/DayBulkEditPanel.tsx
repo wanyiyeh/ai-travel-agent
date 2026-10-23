@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { formatDuration } from "@/types/itinerary";
 import type { StopCandidate } from "@/types/itinerary";
+import GoogleMapsAttribution from "@/components/GoogleMapsAttribution";
 
 interface ReusableStop {
   dayNumber: number;
@@ -332,6 +333,9 @@ export function DayBulkEditPanel({
           跳過，完成編輯
         </button>
       </div>
+
+      {/* Suggested stops are Google places, shown without a map. */}
+      <GoogleMapsAttribution />
     </div>
   );
 }

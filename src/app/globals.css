@@ -90,4 +90,13 @@ body {
   a {
     text-decoration: none !important;
   }
+
+  /* Paper is white even with an OS in dark mode: always the gray Google
+     Maps logo (GoogleMapsAttribution.tsx). */
+  [data-gmaps-logo="light"] {
+    display: block !important;
+  }
+  [data-gmaps-logo="dark"] {
+    display: none !important;
+  }
 }
