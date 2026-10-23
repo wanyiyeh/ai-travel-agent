@@ -1,5 +1,5 @@
 import type { PrismaClient } from "@prisma/client";
-import { COORDS_MAX_AGE_MS, isCompliantPlaceStorage } from "@/lib/placeStorage";
+import { COORDS_MAX_AGE_MS } from "@/lib/placeStorage";
 
 /**
  * Deletes Google coordinates older than COORDS_MAX_AGE_MS (ADR-0006): from
@@ -85,13 +85,7 @@ async function* pages<T extends { id: string }>(fetchPage: (afterId: string) => 
   }
 }
 
-/**
- * Runs the purge. Returns null without touching anything unless
- * COMPLIANT_PLACE_STORAGE=1: with it off, writes don't record fetch times, so
- * every coordinate would read as expired.
- */
-export async function purgeExpiredCoords(prisma: PrismaClient, now = new Date()): Promise<PurgeResult | null> {
-  if (!isCompliantPlaceStorage()) return null;
+export async function purgeExpiredCoords(prisma: PrismaClient, now = new Date()): Promise<PurgeResult> {
   const cutoff = now.getTime() - COORDS_MAX_AGE_MS;
   const page = { take: PAGE_SIZE, orderBy: { id: "asc" as const } };
   const result: PurgeResult = { itineraries: 0, deletedStops: 0, deletedDays: 0, candidateLogs: 0, places: 0 };

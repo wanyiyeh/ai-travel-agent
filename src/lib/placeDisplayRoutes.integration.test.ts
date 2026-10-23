@@ -28,7 +28,6 @@ async function found(name: string): Promise<string> {
 const post = (body: unknown) => new Request("http://test", { method: "POST", body: JSON.stringify(body) });
 
 beforeAll(async () => {
-  vi.stubEnv("COMPLIANT_PLACE_STORAGE", "1");
   const sensoji = await found("淺草寺");
   await prisma.user.create({ data: owner });
   await prisma.itinerary.create({

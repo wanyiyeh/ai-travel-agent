@@ -42,7 +42,6 @@ type Stop = { name?: string; address?: string };
 const stopsOf = (body: { data: { days: { stops: Stop[] }[] } }, day: number) => body.data.days[day - 1].stops;
 
 beforeAll(async () => {
-  vi.stubEnv("COMPLIANT_PLACE_STORAGE", "1");
   await prisma.user.create({ data: owner });
   await prisma.itinerary.create({
     data: {
