@@ -38,6 +38,28 @@ import type { Day, Itinerary } from "@/types/itinerary";
 // repairMissingAccommodation already patches it before validation runs.
 const MAX_GENERATION_ATTEMPTS = 3;
 
+// Vercel Hobby's longest function run; the streamed response counts too
+// (#210). Past it the function is cut off mid-stream with nothing saved.
+export const maxDuration = 300;
+
+// No new work starts after this, measured from the request: what's left of
+// maxDuration is for saving and closing the stream.
+const GENERATION_DEADLINE_MS = 280_000;
+
+// What an old-flow attempt needs before it's started. The longest one
+// measured took 40s (a 10-day trip, docs/runbook.md); doubled for a slow
+// OpenAI. The rule-engine path took up to 50s, so even after it fails there
+// is room for a couple of attempts.
+const OLD_FLOW_ATTEMPT_MS = 80_000;
+
+// Told to the traveler when the deadline stops a generation; nothing is saved.
+const TIMEOUT_EVENT = {
+  type: "error",
+  code: "timeout",
+  error: "生成時間過長",
+  details: "這次行程排太久還沒完成，請再試一次。",
+};
+
 function hasNonLastDayThinDay(
   issues: { code: string; day?: number }[],
   totalDays: number,
@@ -85,6 +107,9 @@ function addIdsPreservingExisting(data: AssembledItinerary) {
 }
 
 export async function POST(request: Request) {
+  // Integration tests shorten the deadline to reach the timeout path.
+  const deadline = Date.now() + (Number(process.env.GENERATION_DEADLINE_MS_FOR_TESTS) || GENERATION_DEADLINE_MS);
+  const timeLeft = () => deadline - Date.now();
   try {
     const body = await request.json().catch(() => null);
     // Rejects before any OpenAI/Google call: an over-long trip or prompt is
@@ -293,6 +318,12 @@ export async function POST(request: Request) {
             close();
             return;
           }
+          if (timeLeft() < OLD_FLOW_ATTEMPT_MS) {
+            console.warn(`[Stream] ${Math.round(timeLeft() / 1000)}s left; no time for the old-flow fallback`);
+            send(JSON.stringify(TIMEOUT_EVENT));
+            close();
+            return;
+          }
 
           if (newPathEmittedEvents) {
             // The rule-engine path got far enough to show the client a partial
@@ -339,6 +370,12 @@ export async function POST(request: Request) {
               close();
               return;
             }
+            if (timeLeft() < OLD_FLOW_ATTEMPT_MS) {
+              console.warn(`[Stream] ${Math.round(timeLeft() / 1000)}s left; stopping before attempt ${attempt}`);
+              send(JSON.stringify(TIMEOUT_EVENT));
+              close();
+              return;
+            }
             if (attempt > 1) {
               const retryData = JSON.stringify({
                 type: "retry",
@@ -348,30 +385,43 @@ export async function POST(request: Request) {
               send(retryData);
             }
 
-            const completion = await openai.chat.completions.create({
-              model: process.env.OPENAI_MODEL ?? "gpt-4o-mini",
-              messages: [
-                { role: "system", content: systemPrompt + UNTRUSTED_INPUT_RULE },
-                { role: "user", content: userContent },
-              ],
-              response_format: { type: "json_object" },
-              temperature: 0.7,
-              max_tokens: 16000,
-              stream: true,
-            });
-
+            // Cut off at the deadline rather than by Vercel, so the traveler
+            // gets a clear error instead of a dropped connection.
+            const attemptSignal = AbortSignal.timeout(Math.max(1, timeLeft()));
             let accumulatedContent = "";
+            try {
+              const completion = await openai.chat.completions.create(
+                {
+                  model: process.env.OPENAI_MODEL ?? "gpt-4o-mini",
+                  messages: [
+                    { role: "system", content: systemPrompt + UNTRUSTED_INPUT_RULE },
+                    { role: "user", content: userContent },
+                  ],
+                  response_format: { type: "json_object" },
+                  temperature: 0.7,
+                  max_tokens: 16000,
+                  stream: true,
+                },
+                { signal: attemptSignal },
+              );
 
-            for await (const chunk of completion) {
-              const content = chunk.choices[0]?.delta?.content || "";
-              if (content) {
-                accumulatedContent += content;
-                const data = JSON.stringify({
-                  type: "chunk",
-                  content: accumulatedContent,
-                });
-                send(data);
+              for await (const chunk of completion) {
+                const content = chunk.choices[0]?.delta?.content || "";
+                if (content) {
+                  accumulatedContent += content;
+                  const data = JSON.stringify({
+                    type: "chunk",
+                    content: accumulatedContent,
+                  });
+                  send(data);
+                }
               }
+            } catch (error) {
+              if (!attemptSignal.aborted) throw error;
+              console.warn(`[Stream] deadline reached during attempt ${attempt}; nothing saved`);
+              send(JSON.stringify(TIMEOUT_EVENT));
+              close();
+              return;
             }
 
             try {
