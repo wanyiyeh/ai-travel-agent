@@ -23,7 +23,8 @@
 | `docs/features/` | 每個功能「現在怎麼運作」 |
 | `docs/adr/` | 決策紀錄：為什麼選 A 不選 B |
 | `docs/plans/` | 計畫（規格）：做之前寫，完成後封存 |
-| `docs/runbook.md` | 維運步驟：量測花費、部署、排程、成本排查 |
+| `docs/runbook.md` | 維運步驟：量測花費、排程、成本排查 |
+| `docs/deploy.md` | 第一次部署到 Vercel + Neon 的設定步驟 |
 | GitHub Issues | 待辦、優先序、「明確不做」（唯一來源） |
 | `.claude/rules/git.md` | 分支、PR、CI、合併、commit 規範（每次載入） |
 | `.claude/rules/coding.md` | 技術棧細節、資料庫、測試、已知陷阱（動 `src/`、`prisma/`、`scripts/`、`tests/` 時載入） |
@@ -40,7 +41,7 @@
 - 資料庫：先開 Docker Desktop，`npm run db:up` 啟動本機 Postgres；改 `schema.prisma` 後 `npx prisma migrate dev --name <slug>` 產生 migration
 - 付費腳本（全部要先問，見 R1）：`npm run seed`、`shadow-compare`、`validate-preference-intent`、`batch-test-rule-engine`、`eval-form-fidelity`，以及任何 `tsx scripts/*`
 - 文件健檢：`/doc-audit`（只出報告，不自動修改）
-- 環境變數見 `README.md` 與 `.env.local.example`。
+- 環境變數見 `README.md` 與 `.env.example`。
 
 ## 4. 目錄結構
 
@@ -108,7 +109,7 @@
 | 被使用者糾正或踩雷 | 本檔第 11 節新增編號規則 |
 | 接入新的外部 API 或資料源 | `docs/data-sources.md` |
 | 出現維運步驟（部署、排程、成本排查） | `docs/runbook.md` |
-| 新增或修改 scripts、安裝步驟、環境變數 | `README.md`；環境變數另加 `.env.local.example` |
+| 新增或修改 scripts、安裝步驟、環境變數 | `README.md`；環境變數另加 `.env.example` |
 | 發現新工作 | 開 issue（不寫 TODO、不建 md 待辦） |
 | 每次對話結束 | 覆蓋 `docs/STATUS.md` |
 
