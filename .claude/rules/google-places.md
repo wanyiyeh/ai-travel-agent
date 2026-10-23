@@ -13,6 +13,7 @@ paths:
 
 - Google Maps Platform 條款只允許儲存 place ID，以及最多 30 天的座標；名稱、地址、評分、類型、照片名稱、路線時間與距離都不能存。
 - 寫入行程、候選紀錄、垃圾桶時，`src/lib/db.ts` 用 `src/lib/placeStorage.ts` 的白名單移除 Google 欄位（`COMPLIANT_PLACE_STORAGE=1` 時生效）。**新增自己的欄位要加進白名單**，否則會被丟掉；Google 的欄位一律不加。
+- 座標附 `coordsFetchedAt`：寫入時沒有時間的座標會蓋上現在的時間，所以**不可以**把舊座標去掉時間再寫回去。`src/lib/coordsPurge.ts` 刪除超過 30 天的座標（ADR-0006）。
 - **不新增任何儲存 Google 內容的快取或欄位**；要省錢就合併同一請求內的重複查詢（`src/lib/requestMemo.ts`）、改用較低的計費等級，或只在需要時才查。
 
 ## 單一出口
@@ -28,7 +29,7 @@ paths:
   - **`searchPlaceText`**：要把名稱顯示給使用者時才用（「加景點」的搜尋框），Pro 等級。
   - 欄位計費等級以官方表為準：developers.google.com/maps/documentation/places/web-service/data-fields。兩者都會合併同時間相同的請求。
 - `fetchCityRestaurants.ts`：Nearby Search 與 Text Search，批次取候選，注入 prompt 或給候選池、`stop-suggestions` 用。實際的查詢在 `PlaceSource` 介面後面（目前只有 `googlePlaceSource`），換資料來源時只換這一處。
-- `placeDisplay.ts`：Place Details，依 place ID 取回名稱與地址（Pro 等級），給「只存 place ID」的資料補回顯示用的欄位；只合併同一次呼叫內的重複，不跨請求保存（ADR-0004）。
+- `placeDisplay.ts`：Place Details，依 place ID 取回名稱、地址與座標（Pro 等級；座標是 Essentials 欄位，不多付錢），給「只存 place ID」的資料補回顯示用的欄位，並補回被清掉的座標；只合併同一次呼叫內的重複，不跨請求保存（ADR-0004、ADR-0006）。
 - `placeCache.ts`：`Place`/`PlaceQuery` 快取的唯一入口。只存 place ID（`PlaceQuery`，永久）與座標（附 `coordsFetchedAt`，超過 `COORDS_MAX_AGE_MS` 視為沒有）。**查詢字串（快取的 key）必須是我們自己的文字**（LLM 寫的名稱、使用者輸入），不可用 Google 回傳的名稱當 key。
 
 ## 同一請求內共用與「記住沒找到」

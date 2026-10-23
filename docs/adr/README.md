@@ -11,6 +11,7 @@
 | 0003 | [作品集上線使用 Vercel + Neon，兩者都在新加坡](0003-vercel-and-neon.md) | Accepted | 2026-10-20 |
 | 0004 | [Google 地點內容只存 place ID 與 30 天內的座標](0004-google-maps-content-storage.md) | Accepted | 2026-10-20 |
 | 0005 | [列表由伺服器補查名稱與地址，地點詳情改用 Places UI Kit](0005-place-display-hybrid.md) | Accepted | 2026-10-20 |
+| 0006 | [每個座標附上取得時間，超過 30 天就刪除](0006-coordinate-expiry.md) | Accepted | 2026-10-23 |
 
 ## 模板
 

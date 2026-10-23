@@ -70,6 +70,7 @@
 | `npm run backfill-places` | 補齊尚未快取的地點資料 |
 | `npm run enrich-all` | 批次補齊行程中缺座標的景點（`--backfill-photos --photo-limit=N` 可額外補照片，opt-in） |
 | `npm run check-places` | 檢查地點資料完整性 |
+| `npm run purge-expired-coords` | 刪除超過 30 天的 Google 座標（需要 `COMPLIANT_PLACE_STORAGE=1`，不呼叫任何 API，見 `docs/runbook.md`） |
 
 ## 專案結構
 
