@@ -19,7 +19,7 @@
    ```bash
    npm install
    ```
-2. 設定環境變數（見下表），建立 `.env.local`
+2. 設定環境變數：把 `.env.example` 複製成 `.env` 後填入自己的值（見下表；Prisma 指令只讀 `.env`）
 3. 啟動本機 Postgres（需要先開 Docker Desktop），並套用 migration
    ```bash
    npm run db:up
@@ -50,6 +50,8 @@
 | `AUTH_SECRET` | 是（登入） | 簽署登入 session 的密鑰，32 bytes 以上的隨機字串（`node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`） |
 | `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET` | 是（登入） | Google OAuth 用戶端（Google Auth Platform → 用戶端 → 網頁應用程式；重新導向 URI `http://localhost:3000/api/auth/callback/google`） |
 | `ADMIN_EMAILS` | 否 | 管理者 Google email，逗號分隔；不受使用額度限制 |
+| `MOCK_PLACES` / `MOCK_DATABASE_URL` | 否 | Google 全部用假資料（`npm run dev:mock`、`dev:free` 會自動設定）；資料庫名稱必須含 `mock`。不要在正式環境設定 |
+| `CSP_ENFORCE` | 否 | `1` 時 CSP 改成強制執行（預設只回報，#250） |
 | `CRON_SECRET` | 正式環境必填 | Vercel Cron 呼叫每日清理（`/api/cron/daily`）時帶的密碼，16 個字元以上的隨機字串。沒設定時這個路由一律拒絕 |
 | `NEXT_PUBLIC_TURNSTILE_SITE_KEY` / `TURNSTILE_SECRET_KEY` | 正式環境必填 | Cloudflare Turnstile（生成行程前的人機驗證）。開發環境沒設定時會略過驗證；正式環境沒設定則一律拒絕生成 |
 
