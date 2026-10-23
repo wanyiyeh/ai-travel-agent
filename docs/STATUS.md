@@ -6,15 +6,14 @@
 
 ## 現在在做什麼
 
-[PLAN-001](plans/PLAN-001-portfolio-launch.md) 作品集上線，進行中（父 issue #196）。#182、#198、#199（[ADR-0005](adr/0005-place-display-hybrid.md)）、#200（寫入時移除 Google 欄位，`COMPLIANT_PLACE_STORAGE=1` 控制，目前預設關閉）、#201、#202、#225 已合併。#203 拆成三個 PR，前兩個已合併；第三個（四張快取表不再讀寫，改成同一請求內共用 `src/lib/requestMemo.ts`；候選池放在 `PlaceSource` 介面後面）已開 PR，等使用者合併。
+[PLAN-001](plans/PLAN-001-portfolio-launch.md) 作品集上線，進行中（父 issue #196）。#182、#198、#199（[ADR-0005](adr/0005-place-display-hybrid.md)）、#200（寫入時移除 Google 欄位，`COMPLIANT_PLACE_STORAGE=1` 控制，目前預設關閉）、#201、#202、#225、#233（Next.js 升到 16.4.2，修 critical 漏洞）已合併。#203 拆成三個 PR，前兩個已合併；第三個（四張快取表不再讀寫，改成同一請求內共用 `src/lib/requestMemo.ts`；候選池放在 `PlaceSource` 介面後面）已開 PR，等使用者合併。
 
 量測結果（2026-10-23，`dev:free`）：一次生成 Google 約 US$0.24～0.41，最貴的是 Nearby Search Pro；假的 OpenAI 會讓 Text Search 少算。方法與數字見 [runbook](runbook.md)。
 
 ## 下一步
 
-1. #233：Next.js 有 critical 漏洞，`npm audit` 讓所有 PR 的 CI 失敗；升級後 #232 才能合併。
-2. 使用者操作：#181（GCP 預算通知、OpenAI 硬上限）、#197（確認 OpenAI 沒有分享資料給訓練）。
-3. #204（座標 30 天清除）、#205（標示與 Places UI Kit；實作前先用免費 Demo Key 確認重新渲染與計費行為）、#206（清理舊欄位與四張快取表、開啟開關）。
+1. 使用者操作：#181（GCP 預算通知、OpenAI 硬上限）、#197（確認 OpenAI 沒有分享資料給訓練）。
+2. #204（座標 30 天清除）、#205（標示與 Places UI Kit；實作前先用免費 Demo Key 確認重新渲染與計費行為）、#206（清理舊欄位與四張快取表、開啟開關）。
 
 ## 卡點與待決定
 
