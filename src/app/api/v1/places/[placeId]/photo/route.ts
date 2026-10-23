@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { googleFetch } from "@/lib/googleFetch";
 import { isMockPlaces, mockPhotoSvg } from "@/lib/mockPlaces";
 import { isValidPhotoName } from "@/lib/placePhotoName";
 
@@ -45,8 +46,10 @@ async function resolvePhotoUri(photoName: string, maxWidthPx: number, apiKey: st
     return cached.photoUri;
   }
 
-  const mediaUrl = `${PLACES_API_BASE}/${photoName}/media?maxWidthPx=${maxWidthPx}&key=${apiKey}&skipHttpRedirect=true`;
-  const res = await fetch(mediaUrl);
+  // The key goes in a header, not the URL, so it can't end up in a request
+  // log; and through googleFetch, so photos count against the daily budget.
+  const mediaUrl = `${PLACES_API_BASE}/${photoName}/media?maxWidthPx=${maxWidthPx}&skipHttpRedirect=true`;
+  const res = await googleFetch(mediaUrl, { headers: { "X-Goog-Api-Key": apiKey } });
   if (!res.ok) return null;
 
   const data = await res.json();

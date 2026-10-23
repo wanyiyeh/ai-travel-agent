@@ -61,10 +61,10 @@ export function classifyApiPath(pathname: string, method: string): RateLimitTier
   return "default";
 }
 
-// x-forwarded-for is set by the hosting platform's proxy (Vercel, a reverse
-// proxy in front of `next start`, and `next dev` itself). Without a trusted
-// proxy in front, a client can forge it to dodge per-IP limits — the global
-// daily budget in dailyBudget.ts is the backstop for that.
+// x-forwarded-for is set by the hosting platform's proxy. Vercel overwrites
+// whatever the client sent, so it can't be forged there; `next dev` and a
+// bare `next start` pass it through, so locally it's whatever the caller
+// says (the global daily budget in dailyBudget.ts still caps the total).
 export function clientIp(headers: Headers): string {
   const forwarded = headers.get("x-forwarded-for");
   if (forwarded) {

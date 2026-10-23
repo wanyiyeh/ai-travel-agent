@@ -4,10 +4,31 @@ import { RATE_LIMITS, classifyApiPath, clientIp } from "@/lib/rateLimit";
 import { apiRateLimitStore } from "@/lib/sharedState";
 
 const METHODS_WITH_BODY = new Set(["POST", "PUT", "PATCH"]);
+const WRITE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+// Auth.js checks its own requests (CSRF token, OAuth state).
+const AUTH_PATH_PREFIX = "/api/auth/";
+
+/**
+ * Whether a browser sent this write from another site (CSRF, #212). Both
+ * headers are set by the browser and can't be changed by a page. A request
+ * with neither didn't come from a browser; it can't ride on a visitor's
+ * cookies, and the rate limits and quotas still apply to it.
+ */
+export function isCrossSiteWrite(request: NextRequest): boolean {
+  if (!WRITE_METHODS.has(request.method) || request.nextUrl.pathname.startsWith(AUTH_PATH_PREFIX)) return false;
+  const fetchSite = request.headers.get("sec-fetch-site");
+  if (fetchSite) return fetchSite !== "same-origin";
+  const origin = request.headers.get("origin");
+  return origin !== null && origin !== request.nextUrl.origin;
+}
 const DEVICE_COOKIE = "device_id";
 const DEVICE_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 export async function proxy(request: NextRequest) {
+  if (isCrossSiteWrite(request)) {
+    return NextResponse.json({ error: "Cross-site request blocked" }, { status: 403 });
+  }
+
   // Per-client rate limit first, keyed by IP + cost tier, so a client
   // looping on an OpenAI/Google route gets a 429 before the route runs.
   const tier = classifyApiPath(request.nextUrl.pathname, request.method);
