@@ -1,17 +1,18 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { MAX_REQUEST_BODY_BYTES } from "@/lib/inputLimits";
-import { RATE_LIMITS, apiRateLimitStore, classifyApiPath, clientIp } from "@/lib/rateLimit";
+import { RATE_LIMITS, classifyApiPath, clientIp } from "@/lib/rateLimit";
+import { apiRateLimitStore } from "@/lib/sharedState";
 
 const METHODS_WITH_BODY = new Set(["POST", "PUT", "PATCH"]);
 const DEVICE_COOKIE = "device_id";
 const DEVICE_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
-export function proxy(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   // Per-client rate limit first, keyed by IP + cost tier, so a client
   // looping on an OpenAI/Google route gets a 429 before the route runs.
   const tier = classifyApiPath(request.nextUrl.pathname, request.method);
   const rule = RATE_LIMITS[tier];
-  const result = apiRateLimitStore.hit(`${tier}:${clientIp(request.headers)}`, rule);
+  const result = await apiRateLimitStore.hit(`${tier}:${clientIp(request.headers)}`, rule);
   if (!result.allowed) {
     return NextResponse.json(
       { error: "Too many requests", retryAfterSeconds: result.retryAfterSeconds },

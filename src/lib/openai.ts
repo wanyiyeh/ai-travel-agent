@@ -1,5 +1,6 @@
 import OpenAI from "openai";
-import { budgetExhaustedResponse, consumeDailyBudget } from "@/lib/dailyBudget";
+import { budgetExhaustedResponse } from "@/lib/dailyBudget";
+import { consumeDailyBudget } from "@/lib/sharedState";
 import { getMockMode } from "@/lib/mockAi";
 import { currentTally, recordOpenAICall } from "@/lib/usageMeter";
 
@@ -26,7 +27,7 @@ export const openai = new OpenAI({
     // fixture is refused here rather than billed — e.g. the old full-LLM
     // fallback in generate-stream, which then reports its usual error.
     if (getMockMode()) return mockAiBlockedResponse();
-    if (!consumeDailyBudget("openai")) return budgetExhaustedResponse("openai");
+    if (!(await consumeDailyBudget("openai"))) return budgetExhaustedResponse("openai");
     const res = await fetch(url, init);
     if (currentTally()) {
       // Token counts come back in the JSON body; a streamed response doesn't

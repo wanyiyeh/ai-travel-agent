@@ -12,30 +12,30 @@ function request(method: string, headers: Record<string, string> = {}) {
 const passesThrough = (res: Response) => res.headers.get("x-middleware-next") === "1";
 
 describe("proxy request-size guard", () => {
-  it("lets a normal-sized POST through", () => {
-    expect(passesThrough(proxy(request("POST", { "content-length": "512" })))).toBe(true);
+  it("lets a normal-sized POST through", async () => {
+    expect(passesThrough(await proxy(request("POST", { "content-length": "512" })))).toBe(true);
   });
 
-  it("lets an empty POST through", () => {
-    expect(passesThrough(proxy(request("POST", { "content-length": "0" })))).toBe(true);
+  it("lets an empty POST through", async () => {
+    expect(passesThrough(await proxy(request("POST", { "content-length": "0" })))).toBe(true);
   });
 
-  it("rejects a body over the cap with 413", () => {
-    const res = proxy(request("PATCH", { "content-length": String(MAX_REQUEST_BODY_BYTES + 1) }));
+  it("rejects a body over the cap with 413", async () => {
+    const res = await proxy(request("PATCH", { "content-length": String(MAX_REQUEST_BODY_BYTES + 1) }));
     expect(res.status).toBe(413);
   });
 
-  it("rejects a garbage Content-Length with 413", () => {
-    expect(proxy(request("POST", { "content-length": "lots" })).status).toBe(413);
+  it("rejects a garbage Content-Length with 413", async () => {
+    expect((await proxy(request("POST", { "content-length": "lots" }))).status).toBe(413);
   });
 
-  it("rejects a body-carrying request with no Content-Length with 411", () => {
-    expect(proxy(request("PUT")).status).toBe(411);
+  it("rejects a body-carrying request with no Content-Length with 411", async () => {
+    expect((await proxy(request("PUT"))).status).toBe(411);
   });
 
-  it("ignores methods without a body", () => {
-    expect(passesThrough(proxy(request("GET")))).toBe(true);
-    expect(passesThrough(proxy(request("DELETE")))).toBe(true);
+  it("ignores methods without a body", async () => {
+    expect(passesThrough(await proxy(request("GET")))).toBe(true);
+    expect(passesThrough(await proxy(request("DELETE")))).toBe(true);
   });
 });
 
@@ -47,25 +47,25 @@ describe("proxy rate limit", () => {
     });
   }
 
-  it("returns 429 with Retry-After once a client exceeds its tier", () => {
+  it("returns 429 with Retry-After once a client exceeds its tier", async () => {
     const ip = "203.0.113.10";
     const { limit } = RATE_LIMITS.generate;
     for (let i = 0; i < limit; i++) {
-      expect(passesThrough(proxy(fromIp(ip, "/api/v1/generate-stream")))).toBe(true);
+      expect(passesThrough(await proxy(fromIp(ip, "/api/v1/generate-stream")))).toBe(true);
     }
-    const blocked = proxy(fromIp(ip, "/api/v1/generate-stream"));
+    const blocked = await proxy(fromIp(ip, "/api/v1/generate-stream"));
     expect(blocked.status).toBe(429);
     expect(Number(blocked.headers.get("Retry-After"))).toBeGreaterThan(0);
   });
 
-  it("keeps tiers and clients separate", () => {
+  it("keeps tiers and clients separate", async () => {
     const ip = "203.0.113.11";
-    for (let i = 0; i < RATE_LIMITS.generate.limit; i++) proxy(fromIp(ip, "/api/v1/generate-stream"));
-    expect(proxy(fromIp(ip, "/api/v1/generate-stream")).status).toBe(429);
+    for (let i = 0; i < RATE_LIMITS.generate.limit; i++) await proxy(fromIp(ip, "/api/v1/generate-stream"));
+    expect((await proxy(fromIp(ip, "/api/v1/generate-stream"))).status).toBe(429);
     // Same client, cheap route: unaffected.
-    expect(passesThrough(proxy(fromIp(ip, "/api/v1/itinerary/i1", "GET")))).toBe(true);
+    expect(passesThrough(await proxy(fromIp(ip, "/api/v1/itinerary/i1", "GET")))).toBe(true);
     // Different client, same route: unaffected.
-    expect(passesThrough(proxy(fromIp("203.0.113.12", "/api/v1/generate-stream")))).toBe(true);
+    expect(passesThrough(await proxy(fromIp("203.0.113.12", "/api/v1/generate-stream")))).toBe(true);
   });
 });
 
@@ -73,21 +73,21 @@ describe("proxy device id", () => {
   const get = (cookie?: string) =>
     proxy(new NextRequest("http://test/api/v1/itinerary/x", { headers: cookie ? { cookie, "x-forwarded-for": "203.0.113.50" } : { "x-forwarded-for": "203.0.113.50" } }));
 
-  it("issues an httpOnly device_id to a browser that has none", () => {
-    const res = get();
+  it("issues an httpOnly device_id to a browser that has none", async () => {
+    const res = await get();
     const setCookie = res.headers.get("set-cookie") ?? "";
     expect(setCookie).toMatch(/device_id=[0-9a-f-]{36}/);
     expect(setCookie.toLowerCase()).toContain("httponly");
   });
 
-  it("passes the new id through to this same request, so the route sees it", () => {
-    const res = get();
+  it("passes the new id through to this same request, so the route sees it", async () => {
+    const res = await get();
     const issued = /device_id=([0-9a-f-]{36})/.exec(res.headers.get("set-cookie") ?? "")![1];
     expect(res.headers.get("x-middleware-request-cookie") ?? "").toContain(issued);
   });
 
-  it("keeps an existing valid id and replaces a malformed one", () => {
-    expect(get("device_id=11111111-2222-3333-4444-555555555555").headers.get("set-cookie")).toBeNull();
-    expect(get("device_id=not-a-uuid").headers.get("set-cookie")).toMatch(/device_id=[0-9a-f-]{36}/);
+  it("keeps an existing valid id and replaces a malformed one", async () => {
+    expect((await get("device_id=11111111-2222-3333-4444-555555555555")).headers.get("set-cookie")).toBeNull();
+    expect((await get("device_id=not-a-uuid")).headers.get("set-cookie")).toMatch(/device_id=[0-9a-f-]{36}/);
   });
 });

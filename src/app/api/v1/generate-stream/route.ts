@@ -19,7 +19,8 @@ import {
 } from "@/lib/itineraryGen";
 import { FixedEventCityError } from "@/lib/tripPlan";
 import { assembleItineraryDays, type AssembledItinerary } from "@/lib/assembleItineraryDays";
-import { clientIp, generateStreamGate } from "@/lib/rateLimit";
+import { clientIp } from "@/lib/rateLimit";
+import { generateStreamGate } from "@/lib/sharedState";
 import { newRequestId } from "@/lib/apiError";
 import { UNTRUSTED_INPUT_RULE, wrapUntrusted } from "@/lib/untrustedInput";
 import { runMetered } from "@/lib/usageMeter";
@@ -101,7 +102,8 @@ export async function POST(request: Request) {
     // One generation at a time per client; released when the stream ends,
     // whichever way it ends.
     const ip = clientIp(request.headers);
-    if (!generateStreamGate.tryAcquire(ip)) {
+    const lease = await generateStreamGate.tryAcquire(ip);
+    if (!lease) {
       return Response.json(
         { error: "A generation is already in progress" },
         { status: 429, headers: { "Retry-After": "30" } },
@@ -124,7 +126,7 @@ export async function POST(request: Request) {
         const captcha = await verifyTurnstileToken(parsed.data.turnstileToken, ip);
         if (!captcha.ok) {
           console.warn(`[generate-stream] Turnstile rejected: ${captcha.reason}`);
-          generateStreamGate.release(ip);
+          await generateStreamGate.release(ip, lease);
           return captchaFailedResponse();
         }
       }
@@ -134,7 +136,7 @@ export async function POST(request: Request) {
       const fingerprint = requestFingerprint(request);
       const decision = await checkQuota(actor, "generate", fingerprint);
       if (!decision.ok) {
-        generateStreamGate.release(ip);
+        await generateStreamGate.release(ip, lease);
         return quotaExceededResponse(decision);
       }
 
@@ -155,7 +157,7 @@ export async function POST(request: Request) {
         await recordUsage("generate", { userId: ownerId, isGuest: actor?.kind !== "user" }, fingerprint);
       }
     } catch (error) {
-      generateStreamGate.release(ip);
+      await generateStreamGate.release(ip, lease);
       throw error;
     }
 
@@ -501,7 +503,7 @@ export async function POST(request: Request) {
           send(errorData);
           close();
         } finally {
-          generateStreamGate.release(ip);
+          await generateStreamGate.release(ip, lease);
         }
       }),
     });
