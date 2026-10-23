@@ -38,7 +38,7 @@
 - 檢查：`npm run lint`、`npx tsc --noEmit`、`npm run build`
 - 測試：`npm test`（單元，不碰真 DB）；`npx vitest run <檔案>`（單檔）；`npm run test:integration`（真 SQLite `prisma/test.db`、`MOCK_AI=1`，不可平行跑、不可指向 `dev.db`）
 - 資料庫：`npx prisma db push`（改 `schema.prisma` 後同步到 `dev.db`）
-- 付費腳本（全部要先問，見 R1）：`npm run seed`、`backfill-places`、`enrich-all`、`check-places`、`shadow-compare`、`validate-preference-intent`、`batch-test-rule-engine`、`eval-form-fidelity`，以及任何 `tsx scripts/*`
+- 付費腳本（全部要先問，見 R1）：`npm run seed`、`shadow-compare`、`validate-preference-intent`、`batch-test-rule-engine`、`eval-form-fidelity`，以及任何 `tsx scripts/*`
 - 文件健檢：`/doc-audit`（只出報告，不自動修改）
 - 環境變數見 `README.md` 與 `.env.local.example`。
 

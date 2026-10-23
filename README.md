@@ -66,9 +66,6 @@
 | `npm run start` | 啟動已建置的正式版 |
 | `npm run lint` | ESLint 檢查 |
 | `npm run seed` | 灌入測試資料 |
-| `npm run backfill-places` | 補齊尚未快取的地點資料 |
-| `npm run enrich-all` | 批次補齊行程中缺座標的景點（`--backfill-photos --photo-limit=N` 可額外補照片，opt-in） |
-| `npm run check-places` | 檢查地點資料完整性 |
 | `npm run purge-expired-coords` | 刪除超過 30 天的 Google 座標（不呼叫任何 API，見 `docs/runbook.md`） |
 | `npm run audit-google-content` | 檢查資料庫裡還有沒有不能保存的 Google 內容，有就以狀態碼 1 結束（不改任何資料） |
 | `npm run cleanup-google-content` | 移除舊資料裡的 Google 內容；不加 `-- --yes` 只列出會移除什麼（不可逆，先備份，見 `docs/runbook.md`） |

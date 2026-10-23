@@ -43,7 +43,7 @@ paths:
 ## 同一請求內共用與「記住沒找到」
 
 - 候選池、城市提示、最近車站、路線（Routes）的結果不能跨請求保存（ADR-0004），只在同一個請求內共用：`runMetered`（`src/lib/usageMeter.ts`）設定請求邊界，`memoizeSuccessInRequest`（`src/lib/requestMemo.ts`）讓重複的查詢只付一次。請求結束就丟掉，所以同城市再生成一次會再付費。
-- `*Cache` 資料表只留給 AI 結果與我們自己的資料；`CityPlaceHintsCache`、`NearbyPlaceCandidatesCache`、`NearestStationCache`、`DistanceCache` 已不再讀寫。
+- `*Cache` 資料表只留給 AI 結果與我們自己的資料，**不新增存 Google 內容的快取表**。
 - **失敗的查詢不記**，只有「確定找不到」才記，這樣暫時性錯誤下次會重試，不會被釘死。查詢函式失敗時回傳 `undefined`，確定沒有結果時回傳 `[]` 或 `null`。
 - 會寫進資料庫的「記住沒找到」只能用我們自己的文字當 key。現有做法：
   - 補資料路由把失敗記在項目上的 `enrichFailure`（以查詢字串為 key，一段時間後才重試，見 `src/lib/enrichFailure.ts`）。

@@ -11,9 +11,12 @@
  * generation. That's the comparison plan section 5 Phase 2 calls for before
  * wiring the rule engine into any real route.
  *
- * Read-only: no writes to the DB, no OpenAI/Places calls.
- * Run: npx tsx scripts/shadow-compare-scheduler.ts [pace] [--verbose]
+ * Coordinates and place types may not be stored (ADR-0004, ADR-0006), so
+ * they're looked up live (scripts/lib/livePlaceEssentials.ts): billed per
+ * place, ask first (R1). No OpenAI calls, no writes.
+ * Run: npx tsx scripts/shadow-compare-scheduler.ts [pace] [--verbose] [--yes]
  *   pace: relaxed | moderate | intensive (default: moderate)
+ *   without --yes: prints the lookup count and cost only
  */
 
 import { PrismaClient } from "@prisma/client";
@@ -23,6 +26,7 @@ import { buildDaySkeleton, type SkeletonStop } from "../src/lib/scheduler/buildD
 import type { StopCandidate } from "../src/lib/scheduler/selectAndOrderStops";
 import type { DurationCategory, Pace } from "../src/lib/scheduler/assignTimeSlots";
 import { mapPlaceTypeToCategory } from "../src/lib/scheduler/mapPlaceTypeToCategory";
+import { loadPlaceEssentials } from "./lib/livePlaceEssentials";
 
 try {
   const envContent = readFileSync(resolve(process.cwd(), ".env"), "utf-8");
@@ -43,13 +47,14 @@ const pace: Pace = paceArg ?? "moderate";
 
 type LlmStop = {
   id?: string;
-  name: string;
+  name?: string;
   lat?: number;
   lng?: number;
   rating?: number | null;
   duration_minutes: number;
   time_of_day?: "morning" | "afternoon" | "evening";
   placeId?: string;
+  description?: string;
 };
 
 type LlmDay = {
@@ -57,7 +62,7 @@ type LlmDay = {
   day: number;
   isTransitDay?: boolean;
   stops?: LlmStop[];
-  accommodation?: { lat?: number; lng?: number } | null;
+  accommodation?: { placeId?: string; lat?: number; lng?: number } | null;
 };
 
 type DayComparison = {
@@ -167,24 +172,38 @@ function compareDay(
 async function main() {
   const itineraries = await prisma.itinerary.findMany({ select: { id: true, title: true, days: true } });
 
-  // Backfilled by scripts/backfill-place-types.ts — only covers placeIds
-  // already referenced by comparable days, not the full Place cache.
-  const places = await prisma.place.findMany({ where: { types: { not: null } }, select: { id: true, types: true } });
+  // Stored stops keep only their place IDs: coordinates and types come from
+  // a live lookup, and the log shows a stop by its description instead of
+  // its (Google) name.
+  const parsedDays = itineraries.map((it) => JSON.parse(it.days as unknown as string) as LlmDay[]);
+  const placeIds = parsedDays.flatMap((days) =>
+    days.flatMap((d) => [...(d.stops ?? []).map((s) => s.placeId), d.accommodation?.placeId]).filter((id): id is string => !!id),
+  );
+  const places = await loadPlaceEssentials(placeIds);
+  if (!places) return;
   const categoryByPlaceId = new Map<string, DurationCategory>();
-  for (const p of places) {
-    const category = mapPlaceTypeToCategory(JSON.parse(p.types as string));
-    if (category) categoryByPlaceId.set(p.id, category);
+  for (const [id, place] of places) {
+    const category = mapPlaceTypeToCategory(place.types);
+    if (category) categoryByPlaceId.set(id, category);
   }
+  const withLiveCoords = <T extends { placeId?: string; lat?: number; lng?: number } | null | undefined>(item: T): T => {
+    const place = item?.placeId ? places.get(item.placeId) : undefined;
+    return place && item ? { ...item, lat: place.lat, lng: place.lng } : item;
+  };
 
   const results: DayComparison[] = [];
   let skippedTransit = 0;
   let skippedTooFewStops = 0;
   let skippedMissingCoords = 0;
 
-  for (const it of itineraries) {
-    const days = JSON.parse(it.days as unknown as string) as LlmDay[];
+  for (const [i, it] of itineraries.entries()) {
+    const days = parsedDays[i].map((d) => ({
+      ...d,
+      stops: (d.stops ?? []).map((s) => ({ ...withLiveCoords(s), name: s.name ?? s.description?.slice(0, 12) ?? s.placeId ?? "?" })),
+      accommodation: withLiveCoords(d.accommodation),
+    }));
     for (const day of days) {
-      const stops = day.stops ?? [];
+      const stops = day.stops;
       if (day.isTransitDay) { skippedTransit++; continue; }
       if (stops.length < 2) { skippedTooFewStops++; continue; }
       if (!stops.every((s) => typeof s.lat === "number" && typeof s.lng === "number")) {
@@ -204,7 +223,7 @@ async function main() {
   );
 
   if (results.length === 0) {
-    console.log("\n沒有可比較的天數（可能需要先跑 npm run enrich-all 補齊座標）。");
+    console.log("\n沒有可比較的天數（地點查不到座標的天數會被略過）。");
     return;
   }
 

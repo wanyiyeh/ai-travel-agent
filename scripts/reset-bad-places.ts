@@ -1,10 +1,10 @@
 /**
  * One-off fix for stops that got mismatched to a same-named place elsewhere
  * (e.g. "金門大橋 洛杉磯" resolving to Kinmen, Taiwan instead of the Golden
- * Gate Bridge). Found via `npm run check-places`.
+ * Gate Bridge). Found via the check-places script (removed in #206).
  *
  * Clears the cached placeId/lat/lng/address on the affected stops so the
- * next `npm run enrich-all` re-queries them (now with location bias), and
+ * next enrich of those stops re-queries them (now with location bias), and
  * removes the bad rows from the Place/PlaceQuery cache.
  *
  * Run: npx tsx scripts/reset-bad-places.ts
@@ -93,7 +93,7 @@ async function main() {
   console.log(
     `\n完成：清除 ${clearedStops} 個 stop 的快取欄位，刪除 ${deletedQueries.count} 筆 PlaceQuery、${deletedPlaces.count} 筆 Place`
   );
-  console.log("接著執行 `npm run enrich-all` 以重新查詢正確地點。");
+  console.log("打開這些行程、補齊景點時會重新查詢正確地點。");
 }
 
 main()

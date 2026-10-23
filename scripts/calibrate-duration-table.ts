@@ -6,12 +6,14 @@
  * placeholder guesses, never checked against what the LLM actually assigns.
  *
  * For every stop across all seeded itineraries whose placeId resolves to a
- * category via mapPlaceTypeToCategory (using Place.types backfilled by
- * scripts/backfill-place-types.ts), buckets its real `duration_minutes` by
+ * category via mapPlaceTypeToCategory, buckets its real `duration_minutes` by
  * category and reports count/median/mean — a suggested replacement table.
+ * Place types may not be stored (ADR-0004), so they're looked up live
+ * (scripts/lib/livePlaceEssentials.ts): billed per place, ask first (R1).
  *
- * Read-only: no writes, no API calls (reuses the already-backfilled Place.types).
- * Run: npx tsx scripts/calibrate-duration-table.ts
+ * Read-only: no writes.
+ * Run: npx tsx scripts/calibrate-duration-table.ts          # prints the lookup count and cost
+ *      npx tsx scripts/calibrate-duration-table.ts --yes    # looks them up
  */
 
 import { PrismaClient } from "@prisma/client";
@@ -19,6 +21,7 @@ import { readFileSync } from "fs";
 import { resolve } from "path";
 import { mapPlaceTypeToCategory } from "../src/lib/scheduler/mapPlaceTypeToCategory";
 import type { DurationCategory } from "../src/lib/scheduler/assignTimeSlots";
+import { loadPlaceEssentials } from "./lib/livePlaceEssentials";
 
 try {
   const envContent = readFileSync(resolve(process.cwd(), ".env"), "utf-8");
@@ -40,15 +43,19 @@ function median(nums: number[]): number {
 }
 
 async function main() {
-  const [itineraries, places] = await Promise.all([
-    prisma.itinerary.findMany({ select: { days: true } }),
-    prisma.place.findMany({ where: { types: { not: null } }, select: { id: true, types: true } }),
-  ]);
+  const itineraries = await prisma.itinerary.findMany({ select: { days: true } });
+  const stopPlaceIds = itineraries.flatMap((it) =>
+    (JSON.parse(it.days as unknown as string) as LlmDay[])
+      .filter((d) => !d.isTransitDay)
+      .flatMap((d) => (d.stops ?? []).map((s) => s.placeId).filter((id): id is string => !!id)),
+  );
+  const places = await loadPlaceEssentials(stopPlaceIds);
+  if (!places) return;
 
   const categoryByPlaceId = new Map<string, DurationCategory>();
-  for (const p of places) {
-    const category = mapPlaceTypeToCategory(JSON.parse(p.types as string));
-    if (category) categoryByPlaceId.set(p.id, category);
+  for (const [id, place] of places) {
+    const category = mapPlaceTypeToCategory(place.types);
+    if (category) categoryByPlaceId.set(id, category);
   }
 
   const durationsByCategory = new Map<DurationCategory, number[]>();

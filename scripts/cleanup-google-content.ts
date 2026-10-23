@@ -2,9 +2,8 @@
  * Removes Google content the terms don't let us keep from what was stored
  * before writes were stripped (ADR-0004, ADR-0006,
  * src/lib/googleContentAudit.ts): names, addresses, ratings and photos in
- * itineraries, the trash and candidate history; coordinates past 30 days;
- * the legacy Place columns; and every row of the four content cache tables.
- * Place IDs, our own text and fresh coordinates stay. Not reversible: back
+ * itineraries, the trash and candidate history, and coordinates past 30
+ * days. Place IDs, our own text and fresh coordinates stay. Not reversible: back
  * the database up first.
  *
  * Without --yes it only prints what it would remove:

@@ -5,10 +5,10 @@ import { COORDS_MAX_AGE_MS, stripAccommodation, stripCandidates, stripDay, strip
 /**
  * Finds and removes Google content the terms don't let us keep (ADR-0004):
  * names, addresses, ratings, photos and other fields outside the
- * placeStorage.ts allowlists, coordinates past 30 days (ADR-0006), the
- * legacy Place columns, and rows of the cache tables that held candidate
- * pools, stations and routes (#203). Writes have been stripped since #206;
- * this is for what was stored before, and the audit proves the result.
+ * placeStorage.ts allowlists, and coordinates past 30 days (ADR-0006).
+ * Writes have been stripped since #206; this is for what was stored before,
+ * and the audit proves the result. The legacy Place columns and the content
+ * cache tables (#203) are gone from the schema.
  *
  * Takes a plain PrismaClient so scripts can run it; JSON columns are read as
  * strings or parsed objects alike.
@@ -113,20 +113,13 @@ async function collect<T extends { id: string }>(fetchPage: (afterId: string) =>
   return rows;
 }
 
-const LEGACY_PLACE_COLUMNS = ["name", "address", "rating", "types", "photoName"] as const;
-const legacyPlaceWhere = { OR: LEGACY_PLACE_COLUMNS.map((column) => ({ [column]: { not: null } })) };
-
 export interface AuditReport {
   itineraries: ColumnFindings;
   deletedStops: ColumnFindings;
   deletedDays: ColumnFindings;
   candidateLogs: ColumnFindings;
-  /** Place rows still holding a name, address, rating, types or photo. */
-  placeLegacyColumns: number;
   /** Place rows with coordinates past 30 days or without a fetch time. */
   placeExpiredCoords: number;
-  /** Rows left in CityPlaceHintsCache, NearbyPlaceCandidatesCache, NearestStationCache and DistanceCache. */
-  contentCacheRows: number;
   /** Rows (or Place rows) with anything above; 0 means nothing to clean. */
   total: number;
 }
@@ -150,7 +143,6 @@ export async function auditGoogleContent(prisma: PrismaClient, now = new Date())
     deletedStops: auditColumn(deletedStops.map((r) => r.stop), "stop", cutoff),
     deletedDays: auditColumn(deletedDays.map((r) => r.day), "day", cutoff),
     candidateLogs: auditColumn(logs.map((r) => r.candidates), "candidates", cutoff),
-    placeLegacyColumns: await prisma.place.count({ where: legacyPlaceWhere }),
     placeExpiredCoords: await prisma.place.count({
       where: {
         OR: [
@@ -159,18 +151,9 @@ export async function auditGoogleContent(prisma: PrismaClient, now = new Date())
         ],
       },
     }),
-    contentCacheRows:
-      (await prisma.cityPlaceHintsCache.count()) +
-      (await prisma.nearbyPlaceCandidatesCache.count()) +
-      (await prisma.nearestStationCache.count()) +
-      (await prisma.distanceCache.count()),
   };
   const columns = [report.itineraries, report.deletedStops, report.deletedDays, report.candidateLogs];
-  const total =
-    columns.reduce((sum, c) => sum + c.googleFields + c.expiredCoords, 0) +
-    report.placeLegacyColumns +
-    report.placeExpiredCoords +
-    report.contentCacheRows;
+  const total = columns.reduce((sum, c) => sum + c.googleFields + c.expiredCoords, 0) + report.placeExpiredCoords;
   return { ...report, total };
 }
 
@@ -179,8 +162,6 @@ export interface CleanupResult {
   deletedStops: number;
   deletedDays: number;
   candidateLogs: number;
-  placeLegacyColumns: number;
-  contentCacheRows: number;
 }
 
 /**
@@ -197,8 +178,6 @@ export async function cleanupGoogleContent(prisma: PrismaClient, now = new Date(
     deletedStops: 0,
     deletedDays: 0,
     candidateLogs: 0,
-    placeLegacyColumns: 0,
-    contentCacheRows: 0,
   };
 
   for await (const row of pages((a) => prisma.itinerary.findMany({ ...after(a), select: { id: true, days: true, updatedAt: true } }))) {
@@ -242,20 +221,6 @@ export async function cleanupGoogleContent(prisma: PrismaClient, now = new Date(
     await prisma.accommodationCandidateLog.update({ where: { id: row.id }, data: { candidates } });
     result.candidateLogs++;
   }
-
-  const places = await prisma.place.updateMany({
-    where: legacyPlaceWhere,
-    data: { name: null, address: null, rating: null, types: null, photoName: null },
-  });
-  result.placeLegacyColumns = places.count;
-
-  const caches = await Promise.all([
-    prisma.cityPlaceHintsCache.deleteMany(),
-    prisma.nearbyPlaceCandidatesCache.deleteMany(),
-    prisma.nearestStationCache.deleteMany(),
-    prisma.distanceCache.deleteMany(),
-  ]);
-  result.contentCacheRows = caches.reduce((sum, c) => sum + c.count, 0);
 
   return result;
 }

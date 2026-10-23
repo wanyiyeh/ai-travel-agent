@@ -45,7 +45,7 @@ Google 的座標最多保存 30 天（[ADR-0006](adr/0006-coordinate-expiry.md)�
 
 ## 稽核與清理 Google 內容
 
-寫入時一律移除 Google 欄位（`src/lib/placeStorage.ts`），但在那之前存下的資料可能還有名稱、地址、評分、照片、沒有時間的座標，以及舊快取表的內容（`src/lib/googleContentAudit.ts`）。
+寫入時一律移除 Google 欄位（`src/lib/placeStorage.ts`），但在那之前存下的資料可能還有名稱、地址、評分、照片、沒有時間的座標（`src/lib/googleContentAudit.ts`）。`Place` 表的舊欄位與四張內容快取表已從資料庫結構移除（#206），`npx prisma db push` 時一併刪掉。
 
 1. 稽核：`npm run audit-google-content`。印出每個資料表的違規筆數，`total` 為 0 才算合規；有違規時以狀態碼 1 結束。
 2. 備份：先複製資料庫，例如 `cp prisma/dev.db prisma/dev.db.backup-YYYYMMDD`。清理不可逆。

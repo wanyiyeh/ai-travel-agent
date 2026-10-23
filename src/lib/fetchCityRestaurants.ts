@@ -46,9 +46,7 @@ export type FieldTier = "pro" | "enterprise" | "kids" | "pets";
 // Nearby Search results may not be cached across requests (ADR-0004): the
 // city hint lists, candidate pools and nearest stations below are fetched
 // per request, and only repeats within the request are answered once
-// (requestMemo.ts); a failed call isn't kept, so a later one retries. The
-// CityPlaceHintsCache, NearbyPlaceCandidatesCache and
-// NearestStationCache tables are no longer read or written; #206 drops them.
+// (requestMemo.ts); a failed call isn't kept, so a later one retries.
 function getCachedOrFetchHints(
   iataCode: string,
   kind: string,
@@ -76,9 +74,8 @@ export interface RestaurantHint {
   // Added for the scheduler rule engine (plan/hybrid-rule-engine-scheduling.md
   // Phase 3) to consume these hints as StopCandidates — lat/lng is required by
   // buildDaySkeleton, types feeds mapPlaceTypeToCategory for duration estimates.
-  // Optional since existing CityPlaceHintsCache rows written before this change
-  // won't have them until their 30-day TTL naturally refreshes; prompt-building
-  // code here only ever reads name/rating and ignores these.
+  // Optional: prompt-building code here only ever reads name/rating and
+  // ignores these.
   lat?: number;
   lng?: number;
   types?: string[];
@@ -311,10 +308,8 @@ export interface PlaceCandidate {
   photoName?: string | null;
   // Added for the scheduler rule engine (plan/hybrid-rule-engine-scheduling.md
   // Phase 3) — mapPlaceTypeToCategory feeds this into duration estimates, same
-  // reasoning as RestaurantHint.types. Optional since existing
-  // NearbyPlaceCandidatesCache rows (30-day TTL) won't have it until they
-  // naturally refresh; every other existing caller here only ever reads the
-  // fields above and ignores this one.
+  // reasoning as RestaurantHint.types. Optional: every other caller here only
+  // ever reads the fields above and ignores this one.
   types?: string[];
   /** Kids tier only (KIDS_FIELD_MASK); absent when Google doesn't say. */
   goodForChildren?: boolean;

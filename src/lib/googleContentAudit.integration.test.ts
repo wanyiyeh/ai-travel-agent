@@ -4,9 +4,9 @@ import { prisma } from "@/lib/db";
 import { auditGoogleContent, cleanupGoogleContent } from "@/lib/googleContentAudit";
 import { COORDS_MAX_AGE_MS } from "@/lib/placeStorage";
 
-// Story: a database from before writes were stripped holds itineraries with
-// Google names and ratings, untimed coordinates, Place rows with names, and
-// cached candidate pools. The cleanup leaves the place IDs and our own text,
+// Story: a database from before writes were stripped holds itineraries,
+// trash and candidate history with Google names and ratings, and untimed
+// coordinates. The cleanup leaves the place IDs and our own text,
 // and the audit then finds nothing (ADR-0004, ADR-0006).
 
 // Old rows are written with a plain client: db.ts would strip them.
@@ -37,13 +37,10 @@ describe("cleanupGoogleContent", () => {
     await plain.mealCandidateLog.create({
       data: { itineraryId: itinerary.id, dayId: "d1", mealType: "lunch", candidates: JSON.stringify([{ ...oldStop, priceLevel: 2 }]) },
     });
-    await plain.place.create({ data: { id: `ChIJ-legacy-${tag}`, name: "淺草寺", address: "Asakusa", lat: 1, lng: 2, coordsFetchedAt: new Date(recent) } });
-    await plain.nearbyPlaceCandidatesCache.create({ data: { cacheKey: `audit-${tag}`, candidates: "[]" } });
 
     const before = await auditGoogleContent(plain, now);
     expect(before.itineraries.googleFields).toBeGreaterThanOrEqual(1);
-    expect(before.placeLegacyColumns).toBeGreaterThanOrEqual(1);
-    expect(before.contentCacheRows).toBeGreaterThanOrEqual(1);
+    expect(before.candidateLogs.googleFields).toBeGreaterThanOrEqual(1);
 
     await cleanupGoogleContent(plain, now);
 
@@ -51,13 +48,12 @@ describe("cleanupGoogleContent", () => {
     const [day] = JSON.parse((await plain.itinerary.findUniqueOrThrow({ where: { id: itinerary.id } })).days);
     expect(day.stops[0]).toEqual({ id: "s1", placeId: "ChIJ-old", description: "寺廟。" }); // untimed coordinates went too
     expect(day.stops[1]).toEqual({ id: "s2", placeId: "ChIJ-fresh", lat: 3, lng: 4, coordsFetchedAt: recent });
-    expect(await plain.place.findUnique({ where: { id: `ChIJ-legacy-${tag}` } })).toMatchObject({ name: null, address: null, lat: 1 });
   });
 
   it("changes nothing when run again", async () => {
     await cleanupGoogleContent(plain, now);
     const again = await cleanupGoogleContent(plain, now);
-    expect(again).toEqual({ itineraries: 0, deletedStops: 0, deletedDays: 0, candidateLogs: 0, placeLegacyColumns: 0, contentCacheRows: 0 });
+    expect(again).toEqual({ itineraries: 0, deletedStops: 0, deletedDays: 0, candidateLogs: 0 });
   });
 
   it("treats coordinates past 30 days as a violation", async () => {
