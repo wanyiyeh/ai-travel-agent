@@ -30,7 +30,7 @@ paths:
 
 ## 測試
 
-- 單元測試（`src/**/*.test.ts`，不含 `*.integration.test.ts`）是封閉的，不碰真 DB。
+- 單元測試（`src/**/*.test.ts`，不含 `*.integration.test.ts`）是封閉的，不碰真 DB；限流、生成鎖、每日上限用記憶體版本（`SHARED_STATE=memory`，`src/lib/sharedState.ts`）。兩種版本共用 `tests/contracts/sharedState.ts` 的行為測試。
 - 整合測試（`src/**/*.integration.test.ts`）跑在真 Postgres `travel_test`（`tests/integration/global-setup.ts` 每次用 migration 重建），`MOCK_AI=1`，`fileParallelism: false`。不可平行執行，不可指向開發資料庫。需要 Docker 的 Postgres 在跑。
 - 有 `playwright` 套件，但沒有設定檔也沒有 E2E 測試，不要假設存在。
 - 修 bug 先寫一個修改前會失敗的測試。
