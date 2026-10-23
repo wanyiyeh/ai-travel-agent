@@ -50,12 +50,25 @@ Vercel Hobby 的函式最長 300 秒，串流的時間也算在內（`maxDuratio
 
 ## 刪除過期座標
 
-Google 的座標最多保存 30 天（[ADR-0006](adr/0006-coordinate-expiry.md)）。`npm run purge-expired-coords` 從行程、候選紀錄、垃圾桶與 `Place` 表刪掉過期或沒有取得時間的座標，不呼叫任何 API。上線後每天執行（#211）；之前手動：
+Google 的座標最多保存 30 天（[ADR-0006](adr/0006-coordinate-expiry.md)）。`npm run purge-expired-coords` 從行程、候選紀錄、垃圾桶與 `Place` 表刪掉過期或沒有取得時間的座標，不呼叫任何 API。正式環境由每日排程執行（見「每日清理」）；本機手動：
 
 - `npm run purge-expired-coords`（開發資料庫）
 - `DATABASE_URL="postgresql://travel:travel@localhost:5432/travel_mock" npm run purge-expired-coords`（`travel_mock`）
 
 沒有取得時間的座標視為過期：第一次在舊資料庫執行，會刪掉 #204 以前留下的座標；打開那一天時會重新取得。
+
+## 每日清理（Vercel Cron）
+
+`vercel.json` 讓 Vercel 每天 UTC 19:00（台灣 03:00）呼叫 `/api/cron/daily`（`src/lib/housekeeping.ts`）：
+
+- 刪除過期的訪客行程與訪客、30 天前的使用紀錄、過期的限流紀錄、每日呼叫計數與生成鎖（本機手動：`npm run cleanup-expired-guests`）。
+- 刪除超過 30 天的 Google 座標（本機手動：`npm run purge-expired-coords`）。
+
+設定與檢查：
+
+1. 在 Vercel 專案的環境變數加上 `CRON_SECRET`（16 個字元以上的隨機字串）。Vercel 呼叫時會自動帶 `Authorization: Bearer <CRON_SECRET>`；沒設定時路由回 503，帶錯回 401。
+2. 部署後在 Vercel 的 Cron Jobs 頁面可以看到排程，也能手動觸發一次；回應是各項刪除的筆數。
+3. Hobby 方案的排程每天一次，實際執行時間落在指定的那一小時內。
 
 ## 稽核與清理 Google 內容
 
