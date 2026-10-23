@@ -69,6 +69,31 @@ describe("proxy rate limit", () => {
   });
 });
 
+// Story: a page on another site makes a visitor's browser POST to our API,
+// riding on their session or guest cookie (CSRF). The browser marks where
+// the request came from; anything not from our own pages is refused (#212).
+describe("proxy cross-site writes", () => {
+  const write = (method: string, headers: Record<string, string>, path = "/api/v1/itinerary/i1") =>
+    proxy(new NextRequest(`http://test${path}`, { method, headers: { "content-length": "2", ...headers } }));
+
+  it("lets our own pages write", async () => {
+    expect(passesThrough(await write("POST", { "sec-fetch-site": "same-origin", origin: "http://test" }))).toBe(true);
+    expect(passesThrough(await write("PATCH", { origin: "http://test" }))).toBe(true);
+  });
+
+  it("refuses a write from another site, by Sec-Fetch-Site or by Origin", async () => {
+    expect((await write("POST", { "sec-fetch-site": "cross-site", origin: "https://evil.example" })).status).toBe(403);
+    expect((await write("DELETE", { "sec-fetch-site": "same-site" })).status).toBe(403);
+    expect((await write("PUT", { origin: "https://evil.example" })).status).toBe(403);
+  });
+
+  it("leaves reads, non-browser clients and Auth.js's own routes alone", async () => {
+    expect(passesThrough(await proxy(new NextRequest("http://test/api/v1/itinerary/i1", { headers: { "sec-fetch-site": "cross-site" } })))).toBe(true);
+    expect(passesThrough(await write("POST", {}))).toBe(true);
+    expect(passesThrough(await write("POST", { "sec-fetch-site": "cross-site" }, "/api/auth/callback/google"))).toBe(true);
+  });
+});
+
 describe("proxy device id", () => {
   const get = (cookie?: string) =>
     proxy(new NextRequest("http://test/api/v1/itinerary/x", { headers: cookie ? { cookie, "x-forwarded-for": "203.0.113.50" } : { "x-forwarded-for": "203.0.113.50" } }));
