@@ -21,7 +21,8 @@
     "batch-test-rule-engine": "tsx scripts/batch-test-rule-engine.ts",
     "eval-form-fidelity": "tsx scripts/eval-form-fidelity.ts",
     "claim-demo-itineraries": "tsx scripts/claim-demo-itineraries.ts",
-    "cleanup-expired-guests": "tsx scripts/cleanup-expired-guests.ts"
+    "cleanup-expired-guests": "tsx scripts/cleanup-expired-guests.ts",
+    "purge-expired-coords": "tsx scripts/purge-expired-coords.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

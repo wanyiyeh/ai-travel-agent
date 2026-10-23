@@ -32,7 +32,25 @@ describe("stripStop", () => {
       placeId: "ChIJ-sensoji",
       lat: 35.7148,
       lng: 139.7967,
+      coordsFetchedAt: expect.any(String),
     });
+  });
+
+  // ADR-0006: the 30-day purge needs to know when every coordinate was fetched.
+  it("stamps coordinates that arrive without a fetch time with now", () => {
+    const before = Date.now();
+    const { coordsFetchedAt } = stripStop(googleStop) as { coordsFetchedAt: string };
+    expect(Date.parse(coordsFetchedAt)).toBeGreaterThanOrEqual(before);
+  });
+
+  it("keeps a fetch time already there, so rewriting an old day doesn't make it look new", () => {
+    const old = "2026-09-01T00:00:00.000Z";
+    expect(stripStop({ ...googleStop, coordsFetchedAt: old })).toMatchObject({ coordsFetchedAt: old });
+  });
+
+  it("drops a fetch time left without coordinates", () => {
+    const noCoords = { ...googleStop, lat: undefined, lng: undefined, coordsFetchedAt: "2026-09-01T00:00:00.000Z" };
+    expect(stripStop(noCoords)).not.toHaveProperty("coordsFetchedAt");
   });
 
   it("keeps the name of a stop with no place ID: it's the model's or the traveler's own words", () => {
@@ -80,8 +98,8 @@ describe("stripDay", () => {
     const stripped = stripDay(day) as typeof day;
     expect(stripped).toMatchObject({ id: "d1", day: 1, theme: "下町散步", waypointCity: "東京", weatherNote: "日落約 16:30" });
     expect(stripped.stops[0]).not.toHaveProperty("name");
-    expect(stripped.meals.lunch).toEqual({ placeId: "ChIJ-daikokuya", lat: 35.71, lng: 139.79, description: "天丼名店。", estimated_cost: 2000 });
-    expect(stripped.accommodation).toEqual({ area: "新宿", reason: "交通方便", placeId: "ChIJ-gracery", lat: 35.69, lng: 139.70 });
+    expect(stripped.meals.lunch).toEqual({ placeId: "ChIJ-daikokuya", lat: 35.71, lng: 139.79, coordsFetchedAt: expect.any(String), description: "天丼名店。", estimated_cost: 2000 });
+    expect(stripped.accommodation).toEqual({ area: "新宿", reason: "交通方便", placeId: "ChIJ-gracery", lat: 35.69, lng: 139.70, coordsFetchedAt: expect.any(String) });
   });
 
   it("also strips the days remove-waypoint keeps for undo", () => {

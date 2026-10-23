@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { COORDS_MAX_AGE_MS } from "@/lib/placeStorage";
 
 /**
  * Query string → place ID, and a place's coordinates — the only Google
@@ -11,9 +12,8 @@ import { prisma } from "@/lib/db";
  * on the row it touches. #206 cleans up the rest and drops them.
  */
 
-// How long coordinates may be kept (Service Specific Terms 14.3, 19.3).
-// Older ones read as missing here; #204 deletes them.
-export const COORDS_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+// Older coordinates read as missing here; coordsPurge.ts deletes them.
+export { COORDS_MAX_AGE_MS };
 
 export interface CachedPlace {
   placeId: string;

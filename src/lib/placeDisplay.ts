@@ -8,17 +8,20 @@ import { runMetered } from "@/lib/usageMeter";
  * within one call are merged.
  *
  * Name + address is the Place Details Pro tier (displayName is a Pro field).
+ * The request also asks for the location: an Essentials field, so it costs
+ * nothing extra, and it brings back coordinates the 30-day purge removed
+ * (ADR-0006).
  * Ratings, photos and opening hours are not fetched here: the place details
  * view shows them through Places UI Kit (ADR-0005).
  */
 
-export type PlaceDisplay = { name: string; address: string | null };
+export type PlaceDisplay = { name: string; address: string | null; lat?: number; lng?: number };
 
 // Shown in place of a name Google couldn't give us (quota used up, a
 // retired place ID); never stored, since the place keeps its ID.
 export const PLACE_UNAVAILABLE_NAME = "（地點資訊暫時無法載入）";
 
-const FIELD_MASK = "displayName,formattedAddress";
+const FIELD_MASK = "displayName,formattedAddress,location";
 const CONCURRENCY = 5;
 
 async function fetchOne(placeId: string, apiKey: string): Promise<PlaceDisplay | null> {
@@ -29,9 +32,19 @@ async function fetchOne(placeId: string, apiKey: string): Promise<PlaceDisplay |
       console.warn(`[placeDisplay] ${placeId}: HTTP ${res.status}`);
       return null;
     }
-    const data = (await res.json()) as { displayName?: { text?: string }; formattedAddress?: string };
+    const data = (await res.json()) as {
+      displayName?: { text?: string };
+      formattedAddress?: string;
+      location?: { latitude?: number; longitude?: number };
+    };
     const name = data.displayName?.text?.trim();
-    return name ? { name, address: data.formattedAddress ?? null } : null;
+    if (!name) return null;
+    const { latitude: lat, longitude: lng } = data.location ?? {};
+    return {
+      name,
+      address: data.formattedAddress ?? null,
+      ...(typeof lat === "number" && typeof lng === "number" ? { lat, lng } : {}),
+    };
   } catch (err) {
     console.warn(`[placeDisplay] ${placeId}: failed`, err);
     return null;
@@ -81,8 +94,8 @@ function needsDisplay(item: Rec): item is Rec & { placeId: string } {
 }
 
 /**
- * Fills in the name and address of every place on the chosen days that came
- * back from storage with only its place ID. `days` is changed in place and
+ * Fills in the name, address and fresh coordinates of every place on the
+ * chosen days that came back from storage with only its place ID. `days` is changed in place and
  * also returned. A place Google couldn't give a name for gets
  * PLACE_UNAVAILABLE_NAME and `displayUnavailable: true`, so the page still
  * opens; the next write strips both again (placeStorage.ts).
@@ -120,6 +133,12 @@ export async function hydratePlaces<T>(places: T[]): Promise<T[]> {
     if (display) {
       item.name = display.name;
       if (display.address) item.address = display.address;
+      // Fresh coordinates, stamped now so a write keeps them another 30 days.
+      if (display.lat !== undefined && display.lng !== undefined) {
+        item.lat = display.lat;
+        item.lng = display.lng;
+        item.coordsFetchedAt = new Date().toISOString();
+      }
     } else {
       item.name = PLACE_UNAVAILABLE_NAME;
       item.displayUnavailable = true;
