@@ -7,7 +7,7 @@
     "dev:mock": "node scripts/dev-mock.mjs",
     "dev:free": "node scripts/dev-mock.mjs --mock-ai",
     "db:up": "docker compose up -d --wait db",
-    "build": "next build",
+    "build": "prisma generate && next build",
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
