@@ -6,7 +6,7 @@
 
 ## 現在在做什麼
 
-[PLAN-002](plans/PLAN-002-llm-without-google-content.md)（`in-progress`，父 issue #262，子 issue #263～#271，分支 `plan-002-llm-without-google-content`）：LLM 的輸入不放任何 Google 內容，地點文案改寫「為什麼安排這裡」，避開服務條款 3.2.3(c) 的灰色地帶，取代向 Google 書面詢問（#207）。決策見 [ADR-0008](adr/0008-no-google-content-in-llm-input.md)。`partOf` 改用 Google 的 `containingPlaces`（2026-10-25 實測 5 組都正確）。#207、#226 已以 not planned 關閉。
+[PLAN-002](plans/PLAN-002-llm-without-google-content.md)（`in-progress`，父 issue #262，子 issue #263～#271，分支 `plan-002-llm-without-google-content`）：LLM 的輸入不放任何 Google 內容，地點文案改寫「為什麼安排這裡」，避開服務條款 3.2.3(c) 的灰色地帶，取代向 Google 書面詢問（#207）。決策見 [ADR-0008](adr/0008-no-google-content-in-llm-input.md)。`partOf` 改用 Google 的 `containingPlaces`（2026-10-25 實測 8 組）。#207、#226 已以 not planned 關閉。
 
 [PLAN-001](plans/PLAN-001-portfolio-launch.md) 作品集上線仍在進行（父 issue #196）。已部署到 Vercel（低調上線期間網址不寫進 repo）、Neon 新加坡；設定見 [deploy.md](deploy.md)。#214 低調上線只剩訪客生成一次、生成 2～3 份公開範例。
 
@@ -14,7 +14,7 @@
 
 ## 下一步
 
-1. PLAN-002：#263 守門測試已完成（`src/lib/llmInputGuard.test.ts`，違規處以 `it.fails` 標記）；下一個 #264（`partOf` 改用 `containingPlaces`），依序做到 #271。
+1. PLAN-002：#263 守門測試、#264 `partOf` 改用 `containingPlaces`（在候選池排除，公園類與獨立目的地除外）已完成；下一個 #265（生成主流程文案改寫「為什麼安排這裡」），依序做到 #271。
 2. 使用者操作：#181（GCP 預算通知、OpenAI 硬上限，p0）、#197（OpenAI 不分享資料給訓練）。
 3. PLAN-002 完成後再做 #214 的公開範例（現在生成會帶舊文案，要重做），之後 #215 正式公開。
 4. 公開前另需 #261（隱私權說明頁）。
