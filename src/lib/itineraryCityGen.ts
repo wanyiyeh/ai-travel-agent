@@ -1517,16 +1517,9 @@ async function stopsWithFixedEvents(
         )
       : walkOrRide;
   };
-  const [stopCopy, legs] = await Promise.all([copy, legsAlong(items)]);
+  const [stopCopy, distances] = await Promise.all([copy, legsAlong(items)]);
   const scheduled = assembleScheduledStops(skeleton, candidateById, stopCopy, skeleton.map(() => null), currency);
-  // A stop the copy found to be part of another (箱根神社 and its
-  // 「Heiwa-no-Torii (Hakone Shrine)」, which no name check can match) goes;
-  // the other's description mentions it. Its legs are worked out again
-  // without it — usually cached, except the one leg that now joins its
-  // neighbours.
-  const kept = items.filter((item) => item.skeletonIndex === undefined || !stopCopy.stops[skeleton[item.skeletonIndex].id]?.partOf);
-  const distances = kept.length === items.length ? legs : await legsAlong(kept);
-  return kept.map((item, k) => {
+  return items.map((item, k) => {
     const dist = k > 0 ? distances[k - 1] : null;
     const base = item.skeletonIndex !== undefined ? scheduled[item.skeletonIndex] : { ...item.stop };
     delete base.transport_from_prev;

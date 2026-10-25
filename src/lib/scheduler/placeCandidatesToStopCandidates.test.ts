@@ -125,3 +125,47 @@ describe("placeCandidatesToStopCandidates related places", () => {
     expect(candidates.every((c) => c.groupId === undefined)).toBe(true);
   });
 });
+
+// Google's containingPlaces, probed 2026-10-25 (PLAN-002): 和平鳥居 lies
+// within 箱根神社, 東大寺 within 奈良公園, 淺草寺 雷門 within 淺草寺.
+describe("placeCandidatesToStopCandidates parts of another sight", () => {
+  const shrine = place({ placeId: "shrine", name: "箱根神社", lat: 35.2048, lng: 139.0254, types: ["shinto_shrine"] });
+  const torii = place({ placeId: "torii", name: "和平鳥居", lat: 35.2059, lng: 139.0236, types: ["tourist_attraction"], containingPlaceIds: ["shrine"] });
+  const ids = (places: PlaceCandidate[]) => placeCandidatesToStopCandidates(places).candidates.map((c) => c.id);
+
+  it("leaves out a place that lies within another in the pool, whichever comes first", () => {
+    expect(ids([shrine, torii])).toEqual(["shrine"]);
+    expect(ids([torii, shrine])).toEqual(["shrine"]);
+  });
+
+  it("keeps it when what it lies within isn't in the pool", () => {
+    expect(ids([torii])).toEqual(["torii"]);
+  });
+
+  it("keeps a sight inside a park", () => {
+    const park = place({ placeId: "park", name: "奈良公園", lat: 34.6851, lng: 135.843, types: ["park", "tourist_attraction"] });
+    const temple = place({ placeId: "temple", name: "東大寺", lat: 34.689, lng: 135.8398, types: ["buddhist_temple"], containingPlaceIds: ["park"] });
+    expect(ids([park, temple])).toEqual(["park", "temple"]);
+  });
+
+  it("keeps a destination of its own, such as a museum in a temple's grounds", () => {
+    const museum = place({ placeId: "museum", name: "寶物館", lat: 35.205, lng: 139.025, types: ["museum"], containingPlaceIds: ["shrine"] });
+    expect(ids([shrine, museum])).toEqual(["shrine", "museum"]);
+  });
+
+  it("keeps a place more than PART_OF_MAX_KM away", () => {
+    const far = { ...torii, lat: 35.225 };
+    expect(ids([shrine, far])).toEqual(["shrine", "torii"]);
+  });
+
+  it("keeps a pair the name check relates, back to back", () => {
+    const temple = place({ placeId: "sensoji", name: "淺草寺", lat: 35.7148, lng: 139.7967, types: ["buddhist_temple"] });
+    const gate = place({ placeId: "gate", name: "淺草寺 雷門", lat: 35.7111, lng: 139.7964, containingPlaceIds: ["sensoji"] });
+    expect(ids([temple, gate])).toEqual(["sensoji", "gate"]);
+  });
+
+  it("keeps both of two places listed within each other", () => {
+    const shrineWithin = { ...shrine, containingPlaceIds: ["torii"] };
+    expect(ids([shrineWithin, torii])).toEqual(["shrine", "torii"]);
+  });
+});

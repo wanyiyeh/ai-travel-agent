@@ -63,6 +63,30 @@ export function isRelatedPlace(a: { name: string; lat: number; lng: number }, b:
   return haversineKm(a.lat, a.lng, b.lat, b.lng) <= RELATED_PLACE_MAX_KM;
 }
 
+// How far a part can be from the sight it's part of: a torii 230m from its
+// shrine, a waterfall's observatory 125m from it.
+export const PART_OF_MAX_KM = 1;
+
+// Google lists sights inside a park as within it (東大寺 in 奈良公園, 箕面大瀑布
+// in its 國定公園), but a park doesn't stand in for what's in it.
+const AREA_TYPES = new Set(["park", "national_park", "state_park", "city_park", "garden", "botanical_garden", "nature_preserve"]);
+// A place worth its own visit even inside another (a museum in a temple's grounds).
+const DESTINATION_TYPES = new Set(["museum", "art_gallery", "art_museum", "zoo", "aquarium", "amusement_park", "theme_park"]);
+
+/**
+ * Whether `part` lies within `whole` per Google's containingPlaces (和平鳥居
+ * within 箱根神社, 千本鳥居 within 伏見稻荷大社) and so needs no stop of its own.
+ * Not when `whole` is a park or `part` a destination of its own, and not
+ * for a pair isRelatedPlace already keeps back to back (淺草寺 and 雷門).
+ * Replaces the copy model's partOf: no place name reaches it (ADR-0008).
+ */
+export function isPartOf(part: PlaceCandidate, whole: PlaceCandidate): boolean {
+  if (part.placeId === whole.placeId || !part.containingPlaceIds?.includes(whole.placeId)) return false;
+  if (whole.types?.some((t) => AREA_TYPES.has(t)) || part.types?.some((t) => DESTINATION_TYPES.has(t))) return false;
+  if (haversineKm(part.lat, part.lng, whole.lat, whole.lng) > PART_OF_MAX_KM) return false;
+  return !isRelatedPlace(part, whole);
+}
+
 export function placeCandidatesToStopCandidates(
   places: PlaceCandidate[]
 ): PlaceCandidateToStopCandidateResult {
@@ -72,10 +96,13 @@ export function placeCandidatesToStopCandidates(
   // 沖繩戰跡國定公園 came back twice, ~200m apart, and filled a whole day),
   // so a repeated name counts as the same place: the first, more popular one stays.
   const seenNames = new Set<string>();
+  // A part of another sight in the pool leaves its slot to a different
+  // sight, rather than a second visit to the same one.
+  const parts = new Set(places.filter((p) => places.some((w) => isPartOf(p, w) && !isPartOf(w, p))).map((p) => p.placeId));
 
   places.forEach((place, index) => {
     const nameKey = place.name.trim().toLowerCase();
-    if (candidateById.has(place.placeId) || seenNames.has(nameKey)) return;
+    if (candidateById.has(place.placeId) || seenNames.has(nameKey) || parts.has(place.placeId)) return;
     seenNames.add(nameKey);
 
     // Joins the group of the first (most popular) related place already kept.

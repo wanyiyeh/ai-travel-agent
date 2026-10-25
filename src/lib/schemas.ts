@@ -185,9 +185,6 @@ export const SkeletonCopySchema = z.object({
     z.object({
       description: z.string(),
       highlight: z.string().optional(),
-      // The id of another stop this one is the same place as, or a part of
-      // (a shrine's torii, a waterfall's observatory) — see generateSkeletonCopy.
-      partOf: z.string().optional(),
     })
   ),
 });

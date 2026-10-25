@@ -19,8 +19,10 @@ const NEARBY_SEARCH_URL = "https://places.googleapis.com/v1/places:searchNearby"
 // accessibilityOptions is a Pro field too, for 長輩 (plan 1.5): a wheelchair-
 // accessible entrance scores a sight up. Pools cached before it was asked for
 // lack it until they refresh (30 days).
+// containingPlaces is Pro and only place IDs: the sight a place is part of
+// (箱根神社 for its 和平鳥居), so the pool keeps one of the two (ADR-0008).
 export const PRO_FIELD_MASK =
-  "places.id,places.displayName,places.location,places.formattedAddress,places.photos,places.types,places.accessibilityOptions";
+  "places.id,places.displayName,places.location,places.formattedAddress,places.photos,places.types,places.accessibilityOptions,places.containingPlaces";
 export const ENTERPRISE_FIELD_MASK = `${PRO_FIELD_MASK},places.rating,places.priceLevel,places.priceRange`;
 // 親子 only (plan/form-preference-wiring.md 1.5): whether a restaurant suits
 // children, an Enterprise + Atmosphere field — the costliest tier, so only
@@ -318,6 +320,8 @@ export interface PlaceCandidate {
   accessibleEntrance?: boolean;
   /** Pets tier only (PETS_FIELD_MASK); absent when Google doesn't say. */
   allowsDogs?: boolean;
+  /** Place IDs of the places this one lies within (containingPlaces); absent when Google lists none. */
+  containingPlaceIds?: string[];
 }
 
 export type PriceRange = { currency: string; start?: number; end?: number };
@@ -474,7 +478,13 @@ type NearbyPlaceResult = {
   menuForChildren?: boolean;
   accessibilityOptions?: { wheelchairAccessibleEntrance?: boolean };
   allowsDogs?: boolean;
+  containingPlaces?: { id?: string }[];
 };
+
+function containingPlaceIds(p: NearbyPlaceResult): { containingPlaceIds?: string[] } {
+  const ids = (p.containingPlaces ?? []).flatMap((c) => (c.id ? [c.id] : []));
+  return ids.length > 0 ? { containingPlaceIds: ids } : {};
+}
 
 async function fetchNearbyPlaceCandidatesUncached(
   coords: { lat: number; lng: number },
@@ -530,6 +540,7 @@ async function fetchNearbyPlaceCandidatesUncached(
         ...(p.accessibilityOptions?.wheelchairAccessibleEntrance !== undefined
           ? { accessibleEntrance: p.accessibilityOptions.wheelchairAccessibleEntrance }
           : {}),
+        ...containingPlaceIds(p),
       }))
       .filter((c: PlaceCandidate) => c.name.length > 0 && c.placeId.length > 0);
   } catch (err) {
@@ -617,6 +628,7 @@ async function searchTextCandidatesUncached(
         photoName: p.photos?.[0]?.name ?? null,
         types: p.types,
         ...(p.allowsDogs !== undefined ? { allowsDogs: p.allowsDogs } : {}),
+        ...containingPlaceIds(p),
       }))
       .filter((c: PlaceCandidate) => c.name.length > 0 && c.placeId.length > 0);
   } catch (err) {

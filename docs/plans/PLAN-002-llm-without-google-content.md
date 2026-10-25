@@ -58,11 +58,11 @@ LLM 文案的輸入改成「每個 stop id 的安排資料」：
 
 - 文案沿用 `description` 欄位，不改 schema 與 `placeStorage.ts` 的白名單
 - `dayTheme` 也只用上表的資料
-- `partOf`（名稱不同、其實是同一處，例如神社與它的鳥居）改用 Google 的 `containingPlaces`：同一天裡 A 的 `containingPlaces` 有 B 的 place ID，A 就併入 B（從當天移除）。
+- `partOf`（名稱不同、其實是同一處，例如神社與它的鳥居）改用 Google 的 `containingPlaces`，在建立候選池時排除（`placeCandidatesToStopCandidates`），空出的位置由規則引擎補上；LLM 的 `partOf` 一併移除。A 的 `containingPlaces` 有池中的 B、兩者在距離上限內、名稱開頭不同，且 B 不是公園類、A 不是獨立目的地類（博物館、動物園等），A 才不進候選池。類型清單見 `src/lib/scheduler/placeCandidatesToStopCandidates.ts`。
   - 是 Pro 欄位、只含 place ID；候選查詢的 field mask（`src/lib/fetchCityRestaurants.ts` 的 `PRO_FIELD_MASK`）本來就是 Pro 以上，加進去不多付錢。只在同一請求內由程式使用，不存、不給 LLM
   - 沿用 `PART_OF_MAX_KM` 的距離上限，以及「`isRelatedPlace` 成立的兩站保留」的現有行為（淺草寺與雷門照舊排成相鄰兩站）
   - 被併入的子地點不再寫進主地點的文案
-  - 2026-10-25 實測 5 組（Place Details 10 次）：伏見稻荷大社／千本鳥居、箱根神社／和平鳥居、東大寺／二月堂、淺草寺／雷門都由子地點的 `containingPlaces` 連到主地點；倫敦塔／倫敦塔橋沒有連結（正確）；`subDestinations` 全部是空的，不使用
+  - 2026-10-25 實測 5 組（Place Details 10 次）：伏見稻荷大社／千本鳥居、箱根神社／和平鳥居、東大寺／二月堂、淺草寺／雷門都由子地點的 `containingPlaces` 連到主地點；倫敦塔／倫敦塔橋沒有連結（正確）；`subDestinations` 全部是空的，不使用。第二次實測 3 組（Place Details 6 次）：東大寺的 `containingPlaces` 是奈良公園、箕面大瀑布的是明治之森箕面國定公園，所以需要「公園類不當主地點」的條件；東京國立博物館沒有連到上野恩賜公園
   - 中英文名稱各一筆的重複抓不到，列為已知限制（#272）
 - 景點建議的排除清單改成在 LLM 回應後用 place ID 過濾
 

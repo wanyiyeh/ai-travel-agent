@@ -11,7 +11,7 @@ import { NEUTRAL_PREFERENCE_INTENT, type PreferenceIntent } from "@/lib/schemas"
 const createMock = vi.fn();
 const nearbyMock = vi.fn();
 const textMock = vi.fn();
-type CopyResult = { stops: Record<string, { description: string; partOf?: string }> };
+type CopyResult = { stops: Record<string, { description: string }> };
 const copyMock = vi.fn<(...args: unknown[]) => Promise<CopyResult>>(async () => ({ stops: {} }));
 const distancesMock = vi.fn<(stops: unknown[], pickMode: (km: number) => string) => Promise<null[]>>(async (stops) =>
   stops.slice(1).map(() => null)
@@ -950,25 +950,8 @@ describe("generateThemedDayStops — 想買什麼", () => {
   });
 });
 
-// 箱根: 箱根神社 and 「Heiwa-no-Torii (Hakone Shrine)」, its own torii 230m off,
-// were two stops of one day. The copy says which stop is part of another.
-describe("a stop that's part of another", () => {
-  it("leaves out a stop the copy marks as part of another, and joins its neighbours up", async () => {
-    copyMock.mockImplementation(async (...args: unknown[]) => {
-      const skeleton = args[0] as { id: string }[];
-      return { stops: skeleton.length > 1 ? { [skeleton[1].id]: { description: "d", partOf: skeleton[0].id } } : {} };
-    });
-
-    const [day] = await generateDayStops("東京", 1, "JPY", [], undefined, NEUTRAL_PREFERENCE_INTENT);
-    const skeleton = copyMock.mock.calls[0][0] as { id: string }[];
-
-    expect(day.map((s) => s.placeId)).not.toContain(skeleton[1].id);
-    expect(day).toHaveLength(skeleton.length - 1);
-    // the legs were worked out again without it
-    expect(distancesMock).toHaveBeenCalledTimes(2);
-  });
-
-  it("keeps every stop and works the legs out once otherwise", async () => {
+describe("a day's legs", () => {
+  it("keeps every stop and works the legs out once", async () => {
     const [day] = await generateDayStops("東京", 1, "JPY", [], undefined, NEUTRAL_PREFERENCE_INTENT);
     const skeleton = copyMock.mock.calls[0][0] as { id: string }[];
 

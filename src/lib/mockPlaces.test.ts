@@ -75,6 +75,22 @@ describe("MOCK_PLACES", () => {
     }
   });
 
+  it("Nearby Search for sights lists the last one within the first, like a shrine's torii", async () => {
+    const res = mockGoogleResponse(
+      "https://places.googleapis.com/v1/places:searchNearby",
+      post({
+        includedTypes: ["tourist_attraction"],
+        maxResultCount: 5,
+        locationRestriction: { circle: { center: { latitude: PRAGUE.lat, longitude: PRAGUE.lng }, radius: 20000 } },
+      }),
+    );
+    const { places } = await res.json();
+    const [first, last] = [places[0], places[places.length - 1]];
+    expect(last.containingPlaces).toEqual([{ id: first.id }]);
+    expect(haversineKm(first.location.latitude, first.location.longitude, last.location.latitude, last.location.longitude)).toBeLessThan(0.2);
+    expect(places.slice(0, -1).every((p: { containingPlaces?: unknown }) => p.containingPlaces === undefined)).toBe(true);
+  });
+
   it("returns only the fields the request's field mask asked for, like the real API", async () => {
     const search = (mask: string) =>
       mockGoogleResponse("https://places.googleapis.com/v1/places:searchNearby", {

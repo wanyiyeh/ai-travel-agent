@@ -3,8 +3,6 @@ import { openai } from "@/lib/openai";
 import { SkeletonCopySchema, type SkeletonCopy, type PreferenceIntent } from "@/lib/schemas";
 import type { SkeletonStop } from "@/lib/scheduler/buildDaySkeleton";
 import type { RestaurantHint } from "@/lib/fetchCityRestaurants";
-import { isRelatedPlace } from "@/lib/scheduler/placeCandidatesToStopCandidates";
-import { haversineKm } from "@/lib/geo";
 
 const PACE_LABEL: Record<NonNullable<PreferenceIntent["pace"]>, string> = {
   relaxed: "步調放鬆、悠閒",
@@ -20,17 +18,12 @@ function buildSystemPrompt(): string {
 嚴格規則：
 - 只能用「給定的 stop id」當 key 回傳，不可以自己發明 id、不可以新增景點、不可以回傳
   時間、順序、地點、placeId 等任何非文字欄位——這些都已經確定，你只負責補文字。
-- 唯一的例外：如果某個景點其實跟今天另一個景點是同一個地方（只是名稱不同，例如一個中文、
-  一個英文），或是它的一部分（例如神社的鳥居、瀑布的觀景台、公園裡的瀑布），就在這個景點
-  填 "partOf": "<另一個景點的 stop id>"，並在另一個景點的 description 裡順便提到它
-  （例如「……湖邊的平和鳥居是熱門拍照點」）。兩個地方只是相鄰、名稱相似，但是各自獨立的
-  景點（例如倫敦塔和倫敦塔橋、澀谷十字路口和澀谷 SKY），**不要**填 partOf。不確定就不要填。
 - description 要具體描述這個景點本身，不要空泛（例如避免「值得一去的好地方」這種話）。
 - 不要提到「規則引擎」「系統排定」等內部術語，寫得自然像真人旅遊文案。
 - 只輸出 JSON，不要加任何說明文字或註解。
 
 Output strictly valid JSON matching this schema:
-{ "dayTheme": string (optional), "stops": { "<stop id>": { "description": string, "highlight": string (optional), "partOf": string (optional) } } }`;
+{ "dayTheme": string (optional), "stops": { "<stop id>": { "description": string, "highlight": string (optional) } } }`;
 }
 
 function buildUserPrompt(
@@ -119,39 +112,6 @@ export async function generateSkeletonCopy(
   for (const s of skeleton) {
     stops[s.id] = parsed?.stops[s.id] ?? fallbackStops[s.id];
   }
-  for (const s of skeleton) {
-    const target = stops[s.id].partOf;
-    if (target !== undefined && !isPartOfAllowed(s.id, target, stops, hintById)) {
-      const { description, highlight } = stops[s.id];
-      stops[s.id] = highlight === undefined ? { description } : { description, highlight };
-    }
-  }
 
   return { dayTheme: parsed?.dayTheme, stops };
-}
-
-// How far a part can be from what it's part of: a torii 230m from its shrine,
-// a waterfall's observatory 125m from it. 「Minookoen」, 18km out in 箕面,
-// went missing from a day with 大阪城 — taken, it seems, for part of 大阪城公園.
-const PART_OF_MAX_KM = 1;
-
-/**
- * Whether the model's `partOf` can stand: another of the day's stops, within
- * PART_OF_MAX_KM of it, not itself pointing elsewhere (no chains or loops),
- * and not a pair the name check already relates (placeCandidatesToStopCandidates'
- * isRelatedPlace). Those stay as two stops back to back on purpose — 淺草寺
- * and its 雷門, and 倫敦塔 with 倫敦塔橋, which are two different sights.
- */
-function isPartOfAllowed(
-  id: string,
-  target: string,
-  stops: SkeletonCopy["stops"],
-  hintById: Map<string, RestaurantHint>
-): boolean {
-  if (target === id || !(target in stops) || stops[target].partOf !== undefined) return false;
-  const a = hintById.get(id);
-  const b = hintById.get(target);
-  if (a?.lat == null || a.lng == null || b?.lat == null || b.lng == null) return false;
-  if (haversineKm(a.lat, a.lng, b.lat, b.lng) > PART_OF_MAX_KM) return false;
-  return !isRelatedPlace({ name: a.name, lat: a.lat, lng: a.lng }, { name: b.name, lat: b.lat, lng: b.lng });
 }
