@@ -1,0 +1,85 @@
+---
+status: in-progress      # draft | approved | in-progress | done
+branch: plan-002-llm-without-google-content
+issue: 262
+created: 2026-10-25
+---
+
+# PLAN-002：LLM 的輸入不放 Google 內容，文案改寫「為什麼安排這裡」
+
+## 目標
+
+避開服務條款 3.2.3(c)「以 Google Maps 內容創作內容」的灰色地帶，讓作品集公開（#215）前確定合規。做法與取捨見 [ADR-0008](../adr/0008-no-google-content-in-llm-input.md)。
+
+## 非目標
+
+- 不改地點的來源與挑選方式（Google 候選池＋規則引擎照舊）
+- 不改成由 LLM 提出景點名稱（#226）
+- 不改用模板寫文案（之後另開 issue 評估）
+- 不接開放資料（#227）
+- 不動 LLM 自己提出名稱的流程（季節亮點、經典一日遊、影劇取景）：輸入本來就沒有 Google 內容
+
+## 驗收條件
+
+- 所有 OpenAI 呼叫的輸入都不包含 Google 回傳的名稱、地址、評分、類型、評論；由守門測試證明（假地點的名稱用特殊字串，檢查每一次呼叫的 messages）
+- 生成後每個景點、餐點、住宿都有一句「為什麼安排這裡」的文案，不會出現空白；呼叫失敗時退回規則產生的固定文字
+- 文案不寫地點本身的特色、營業時間、價格等事實
+- 景點建議、加景點、重新生成餐廳與住宿、重新規劃都遵守同樣的規則
+- `translatePlaceNames` 移除，名稱顯示 Google 的 `zh-TW` 名稱
+- 原本由 LLM 判斷的 `partOf`（同一地點的不同名稱、鳥居與神社）依設計摘要的決定處理
+- 舊的整段生成 fallback 的 prompt 不再放 Google 餐廳名稱
+- `npm run lint`、`npx tsc --noEmit`、`npm test`、`npm run test:integration` 通過
+
+## 邊界情況
+
+- 使用者自己輸入的名稱（固定行程、手動輸入的景點、必去景點）可以交給 LLM；從 Google 搜尋結果選的地點不行
+- 一天只有一個景點、或景點都是同一主題：文案仍要有變化，不重複同一句
+- Google 沒有中文名稱：顯示原文，不補翻譯
+- 移動日、交通項目、沒有 place ID 的項目：維持現有文案
+- mock 模式（`MOCK_AI=1`）：每個改過的呼叫點都要更新 `mockAi.ts` 的假回應
+
+## 成本
+
+- 開發與測試：`npm test`、`npm run test:integration`、`npm run dev:free`，免費
+- 品質確認：完成後用 `npm run dev:mock` 生成 1～2 次（OpenAI 計費、Google 假資料），執行前先詢問
+- 不需要真實 Google 呼叫
+
+## 設計摘要
+
+LLM 文案的輸入改成「每個 stop id 的安排資料」：
+
+| 欄位 | 來源 |
+| --- | --- |
+| 類別（景點／早餐／午餐…） | 我們自己的槽位 |
+| 為哪個主題或偏好找的 | 規則引擎送出的查詢類別，不是 Google 回傳的類型 |
+| 時段、停留時間 | 規則引擎、停留時間對照表 |
+| 與前後地點的關係（步行可到、同一區） | 規則引擎算出的距離分級，不放路線時間（Routes 的結果） |
+| 城市、使用者偏好 | 使用者輸入、`PreferenceIntent` |
+
+- 文案沿用 `description` 欄位，不改 schema 與 `placeStorage.ts` 的白名單
+- `dayTheme` 也只用上表的資料
+- `partOf`（名稱不同、其實是同一處，例如神社與它的鳥居）改用 Google 的 `containingPlaces`：同一天裡 A 的 `containingPlaces` 有 B 的 place ID，A 就併入 B（從當天移除）。
+  - 是 Pro 欄位、只含 place ID；候選查詢的 field mask（`src/lib/fetchCityRestaurants.ts` 的 `PRO_FIELD_MASK`）本來就是 Pro 以上，加進去不多付錢。只在同一請求內由程式使用，不存、不給 LLM
+  - 沿用 `PART_OF_MAX_KM` 的距離上限，以及「`isRelatedPlace` 成立的兩站保留」的現有行為（淺草寺與雷門照舊排成相鄰兩站）
+  - 被併入的子地點不再寫進主地點的文案
+  - 2026-10-25 實測 5 組（Place Details 10 次）：伏見稻荷大社／千本鳥居、箱根神社／和平鳥居、東大寺／二月堂、淺草寺／雷門都由子地點的 `containingPlaces` 連到主地點；倫敦塔／倫敦塔橋沒有連結（正確）；`subDestinations` 全部是空的，不使用
+  - 中英文名稱各一筆的重複抓不到，列為已知限制（#272）
+- 景點建議的排除清單改成在 LLM 回應後用 place ID 過濾
+
+## 任務拆解
+
+1. 守門測試：攔截所有 OpenAI 呼叫，假地點名稱出現在輸入就失敗（先寫，現在應該會失敗）（#263）
+2. `partOf` 改用 `containingPlaces`：候選查詢加欄位、`mockPlaces.ts` 補假資料、規則判斷與測試（#264）
+3. 生成主流程：`skeletonCopy.ts` 改輸入與 prompt（#265）
+4. 補文案：`missingCopy.ts` 改成不送名稱（#266）
+5. 編輯路由：加景點（`stops`）、景點建議（`stop-suggestions`）、重新生成餐廳與住宿（#267）
+6. 移除 `translatePlaceNames` 與呼叫點（#268）
+7. 舊的整段生成 fallback：拿掉 `restaurantHintsPrompt`（#269）
+8. 清除既有行程裡用舊作法寫的文案，執行前先列出影響範圍請使用者確認（#270）
+9. 文件：功能頁、`.claude/rules/google-places.md` 加一條「LLM 輸入不放 Google 內容」（#271）
+
+## 完成後遷移清單
+
+- [ ] 功能頁：生成與編輯相關頁面說明文案的來源
+- [ ] ADR：docs/adr/0008-no-google-content-in-llm-input.md 改為 Accepted
+- [ ] glossary 新詞（若有）

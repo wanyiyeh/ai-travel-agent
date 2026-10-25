@@ -13,6 +13,7 @@
 | 0005 | [列表由伺服器補查名稱與地址，地點詳情改用 Places UI Kit](0005-place-display-hybrid.md) | Accepted | 2026-10-20 |
 | 0006 | [每個座標附上取得時間，超過 30 天就刪除](0006-coordinate-expiry.md) | Accepted | 2026-10-23 |
 | 0007 | [本機開發與整合測試用 Docker 跑 Postgres，CI 用 Postgres service](0007-local-postgres-docker.md) | Accepted | 2026-10-23 |
+| 0008 | [LLM 的輸入不放任何 Google Maps 內容，文案改寫「為什麼安排這裡」](0008-no-google-content-in-llm-input.md) | Accepted | 2026-10-25 |
 
 ## 模板
 

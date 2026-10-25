@@ -12,6 +12,7 @@
 | 編號 | 標題 | 狀態 | 父 issue |
 | --- | --- | --- | --- |
 | [PLAN-001](PLAN-001-portfolio-launch.md) | 作品集上線（Vercel + Neon，符合 Google Maps Platform 條款） | in-progress | #196 |
+| [PLAN-002](PLAN-002-llm-without-google-content.md) | LLM 的輸入不放 Google 內容，文案改寫「為什麼安排這裡」 | in-progress | #262 |
 
 ## 模板
 
