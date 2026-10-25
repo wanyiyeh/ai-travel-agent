@@ -1,19 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { capturedMessages, expectNoGoogleContent, googleName } from "@tests/contracts/googleContent";
-import type { SkeletonStop } from "@/lib/scheduler/buildDaySkeleton";
 import type { RestaurantHint } from "@/lib/fetchCityRestaurants";
 
 // ADR-0008 guard: every OpenAI call fed by Google places must leave the
 // places' Google content out of the prompt. Call sites that still send it
 // are marked it.fails until their PLAN-002 sub-issue fixes them; switch
 // each back to it() then (vitest reports an it.fails that starts passing).
+// The rule-engine day's stop copy (skeletonCopy.ts) no longer calls OpenAI (#265).
 
 const createMock = vi.fn();
 vi.mock("@/lib/openai", () => ({
   openai: { chat: { completions: { create: (...args: unknown[]) => createMock(...args) } } },
 }));
 
-const { generateSkeletonCopy } = await import("@/lib/skeletonCopy");
 const { fillMissingCopy } = await import("@/lib/missingCopy");
 const { translatePlaceNames } = await import("@/lib/translatePlaceNames");
 const { buildAttractionHintsPrompt, buildRestaurantHintsPrompt } = await import("@/lib/fetchCityRestaurants");
@@ -26,9 +25,6 @@ const hint = (label: string, lat: number): RestaurantHint => ({
   types: ["tourist_attraction"],
 });
 
-const skeletonStop = (id: string, lat: number, startMinute: number): SkeletonStop =>
-  ({ id, lat, lng: 139.79, time_of_day: "morning", estimatedDurationMinutes: 60, startMinute, endMinute: startMinute + 60 }) as SkeletonStop;
-
 beforeEach(() => {
   createMock.mockReset();
   createMock.mockResolvedValue({ choices: [{ message: { content: "{}" } }] });
@@ -38,17 +34,6 @@ describe("LLM input carries no Google Maps content (ADR-0008)", () => {
   it("the marker check catches a Google name", () => {
     expect(() => expectNoGoogleContent([{ role: "user", content: googleName("淺草寺") }])).toThrow();
     expect(() => expectNoGoogleContent([{ role: "user", content: "東京，上午，停留約 60 分鐘" }])).not.toThrow();
-  });
-
-  // #265
-  it.fails("skeleton copy for a rule-engine day", async () => {
-    const hints = new Map([
-      ["p1", hint("淺草寺", 35.71)],
-      ["p2", hint("東京晴空塔", 35.71)],
-    ]);
-    await generateSkeletonCopy([skeletonStop("p1", 35.71, 540), skeletonStop("p2", 35.71, 660)], hints, { pace: "moderate", interestBoost: [], avoid: [] } as never, "test-model", "東京");
-    expect(createMock).toHaveBeenCalled();
-    expectNoGoogleContent(...capturedMessages(createMock));
   });
 
   // #266

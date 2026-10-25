@@ -7,7 +7,7 @@ import {
 } from "@/lib/mockAi";
 import { openai } from "@/lib/openai";
 import { getCityCenter, sightAreasFor } from "@/lib/placesTextSearch";
-import { fetchNearbyPlaceCandidates, fetchLodgingCandidates, fetchLuxuryRestaurants, getMealPlaceTypes, searchTextCandidates, type RestaurantHint, type BudgetLevel, type PlaceCandidate, type FieldTier, type TypeMatch } from "@/lib/fetchCityRestaurants";
+import { fetchNearbyPlaceCandidates, fetchLodgingCandidates, fetchLuxuryRestaurants, getMealPlaceTypes, searchTextCandidates, type BudgetLevel, type PlaceCandidate, type FieldTier, type TypeMatch } from "@/lib/fetchCityRestaurants";
 import {
   applyAccommodationPick,
   applyMealPicks,
@@ -24,7 +24,7 @@ import { distributeStopsPerDay, fillShortDays, partitionCandidatesWithSeeds } fr
 import { buildDaySkeleton, type SkeletonStop } from "@/lib/scheduler/buildDaySkeleton";
 import { computeDepartureDayBudget } from "@/lib/scheduler/departureDayBudget";
 import { estimateStopCapacity } from "@/lib/scheduler/stopCapacity";
-import { generateSkeletonCopy } from "@/lib/skeletonCopy";
+import { buildStopCopy, type StopCopy } from "@/lib/skeletonCopy";
 import { NEUTRAL_PREFERENCE_INTENT, type PreferenceIntent } from "@/lib/schemas";
 import { getDistancesForStopPairs, pickModeForDistance, describeTransport, modePickerFor } from "@/lib/distanceMatrix";
 import { forSoloTraveler, nearStationFirst } from "@/lib/soloTravel";
@@ -327,7 +327,7 @@ async function planTransitDay(
  * Rule-engine path for generateTransitDayStops (plan/hybrid-rule-engine-scheduling.md
  * Phase 4): keeps the LLM's distance/transport-mode judgment (planTransitDay,
  * above) but replaces its invented arrival-city attractions with a real
- * candidate pool run through the same buildDaySkeleton/generateSkeletonCopy
+ * candidate pool run through the same buildDaySkeleton/buildStopCopy
  * pipeline as generateDayStopsViaScheduler. Returns null on any failure (LLM
  * parse failure, no city center, no candidates) so the caller falls back to
  * the full pure-LLM implementation for this transit day.
@@ -397,11 +397,6 @@ async function generateTransitDayStopsViaScheduler(
     const { candidates, candidateById } = placeCandidatesToStopCandidates(pool);
     if (candidates.length === 0) return null;
 
-    const hintById = new Map<string, RestaurantHint>();
-    for (const [id, place] of candidateById) {
-      hintById.set(id, { name: place.name, rating: place.rating, lat: place.lat, lng: place.lng, types: place.types });
-    }
-
     const shelter = shelterFor(preferenceIntent, candidateById);
     const interestWeights = shelter.weights(interestWeightsOf(preferenceIntent.interestBoost));
     const count = capacityFor(candidates.map((c) => c.type));
@@ -427,10 +422,7 @@ async function generateTransitDayStopsViaScheduler(
       );
       if (aroundSeed.length > 0) {
         const extra = placeCandidatesToStopCandidates(aroundSeed);
-        for (const [id, place] of extra.candidateById) {
-          candidateById.set(id, place);
-          hintById.set(id, { name: place.name, rating: place.rating, lat: place.lat, lng: place.lng, types: place.types });
-        }
+        for (const [id, place] of extra.candidateById) candidateById.set(id, place);
         [arrivalGroup] = fillShortDays(
           firstPass.days,
           firstPass.seeds,
@@ -463,7 +455,7 @@ async function generateTransitDayStopsViaScheduler(
     const arrivalStops = await stopsWithFixedEvents(
       skeleton,
       fixed,
-      generateSkeletonCopy(skeleton, hintById, preferenceIntent, model, toCity),
+      buildStopCopy(skeleton),
       candidateById,
       currency,
       shelter.pickMode,
@@ -630,16 +622,10 @@ export async function generateDepartureDayStops(
     const withinCutoff = skeleton.filter((s) => s.endMinute <= cutoffMinute);
     if (withinCutoff.length === 0) return fixedEventStopsOnly(fixed);
 
-    const hintById = new Map<string, RestaurantHint>();
-    for (const [id, place] of candidateById) {
-      hintById.set(id, { name: place.name, rating: place.rating, lat: place.lat, lng: place.lng, types: place.types });
-    }
-
-    const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
     return await stopsWithFixedEvents(
       withinCutoff,
       fixed,
-      generateSkeletonCopy(withinCutoff, hintById, preferenceIntent, model, cityName),
+      buildStopCopy(withinCutoff),
       candidateById,
       currency,
       shelter.pickMode,
@@ -1436,17 +1422,14 @@ function shelterFor(preferenceIntent: PreferenceIntent, candidateById: Map<strin
 function assembleScheduledStops(
   skeleton: SkeletonStop[],
   candidateById: Map<string, PlaceCandidate>,
-  copy: Awaited<ReturnType<typeof generateSkeletonCopy>>,
+  copy: StopCopy,
   distances: Awaited<ReturnType<typeof getDistancesForStopPairs>>,
   currency: string
 ): Array<Record<string, unknown>> {
   return skeleton.map((s, i) => {
     const place = candidateById.get(s.id)!;
     const dist = i > 0 ? distances[i - 1] : null;
-    const stopCopy = copy.stops[s.id];
-    const description = stopCopy
-      ? stopCopy.description + (stopCopy.highlight ? ` ${stopCopy.highlight}` : "")
-      : `前往 ${place.name}。`;
+    const description = copy[s.id] ?? "";
 
     return {
       // A stop's own id, not the place's: the same place can legitimately
@@ -1478,7 +1461,7 @@ function assembleScheduledStops(
 async function stopsWithFixedEvents(
   skeleton: SkeletonStop[],
   events: DayFixedEvents,
-  copy: Promise<Awaited<ReturnType<typeof generateSkeletonCopy>>>,
+  copy: StopCopy,
   candidateById: Map<string, PlaceCandidate>,
   currency: string,
   pickMode: (km: number) => ReturnType<typeof pickModeForDistance>,
@@ -1517,8 +1500,8 @@ async function stopsWithFixedEvents(
         )
       : walkOrRide;
   };
-  const [stopCopy, distances] = await Promise.all([copy, legsAlong(items)]);
-  const scheduled = assembleScheduledStops(skeleton, candidateById, stopCopy, skeleton.map(() => null), currency);
+  const distances = await legsAlong(items);
+  const scheduled = assembleScheduledStops(skeleton, candidateById, copy, skeleton.map(() => null), currency);
   return items.map((item, k) => {
     const dist = k > 0 ? distances[k - 1] : null;
     const base = item.skeletonIndex !== undefined ? scheduled[item.skeletonIndex] : { ...item.stop };
@@ -1737,11 +1720,6 @@ async function generateDayStopsViaScheduler(
       });
     }
 
-    const hintById = new Map<string, RestaurantHint>();
-    for (const [id, place] of candidateById) {
-      hintById.set(id, { name: place.name, rating: place.rating, lat: place.lat, lng: place.lng, types: place.types });
-    }
-
     const skeletonsByDay: SkeletonStop[][] = dayGroups.map((group, dayIdx) =>
       group.length > 0
         ? withinDayEnd(
@@ -1764,13 +1742,18 @@ async function generateDayStopsViaScheduler(
         : []
     );
 
-    const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
+    // A day only claims its theme when it actually got an on-theme stop.
+    const themeByDay = skeletonsByDay.map((skeleton, dayIdx) => {
+      // A seasonal day is titled by its highlights, not the rotation.
+      const theme = seasonalByDay[dayIdx]?.length ? undefined : dayThemes[dayIdx];
+      return theme && skeleton.some(onTheme(theme)) ? theme : undefined;
+    });
     const stopsByDay = await Promise.all(
       skeletonsByDay.map((skeleton, dayIdx) =>
         stopsWithFixedEvents(
           skeleton,
           fixedByDay[dayIdx] ?? [],
-          generateSkeletonCopy(skeleton, hintById, preferenceIntent, model, cityName),
+          buildStopCopy(skeleton, { themeLabel: themeByDay[dayIdx] && THEMES[themeByDay[dayIdx]].label, markLast: true }),
           candidateById,
           currency,
           shelter.pickMode,
@@ -1792,12 +1775,7 @@ async function generateDayStopsViaScheduler(
           })
           .map((c) => c.id);
       }),
-      // A day only claims its theme when it actually got an on-theme stop.
-      themeByDay: skeletonsByDay.map((skeleton, dayIdx) => {
-        // A seasonal day is titled by its highlights, not the rotation.
-        const theme = seasonalByDay[dayIdx]?.length ? undefined : dayThemes[dayIdx];
-        return theme && skeleton.some(onTheme(theme)) ? theme : undefined;
-      }),
+      themeByDay,
     };
   } catch (err) {
     console.warn("[generateDayStopsViaScheduler] falling back to LLM:", err);

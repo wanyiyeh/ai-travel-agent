@@ -13,9 +13,7 @@
  */
 
 import type OpenAI from "openai";
-import type { RestaurantHint } from "@/lib/fetchCityRestaurants";
 import type { MealLodgingPools } from "@/lib/mealLodgingPicks";
-import type { SkeletonStop } from "@/lib/scheduler/buildDaySkeleton";
 import { recordOpenAICall } from "@/lib/usageMeter";
 
 export type MockMode = "error" | "slow" | "fixture" | null;
@@ -225,16 +223,6 @@ export function mockTripPlanReply(input: {
     title: `${input.arrivalCity} ${input.daysToAllocate + 1} 天${MOCK_NOTE}`,
     currency: input.currency,
     cities: names.map((name, i) => ({ name, days: base + (i < extra ? 1 : 0) })),
-  };
-}
-
-/** generateSkeletonCopy: one line per skeleton stop, keyed by its id. */
-export function mockSkeletonCopyReply(skeleton: SkeletonStop[], hintById: Map<string, RestaurantHint>) {
-  return {
-    dayTheme: `模擬主題日${MOCK_NOTE}`,
-    stops: Object.fromEntries(
-      skeleton.map((s) => [s.id, { description: `${hintById.get(s.id)?.name ?? s.id} 的模擬介紹。` }]),
-    ),
   };
 }
 

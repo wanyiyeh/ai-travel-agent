@@ -1,18 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { PlaceCandidate } from "@/lib/fetchCityRestaurants";
 import { NEUTRAL_PREFERENCE_INTENT, type PreferenceIntent } from "@/lib/schemas";
+import { LAST_STOP_NOTE } from "@/lib/skeletonCopy";
 
 // Does the pace choice change how many attractions a sightseeing day gets?
 // Pace is defined by how long each stop lasts (plan/form-preference-wiring.md
 // 1.2), and the stop count follows from what fits before 18:00: roughly
-// 緊湊 5-6 / 適中 2-3 / 悠閒 about 2 on a museum/park pool. Google, distances
-// and the copy LLM are all mocked; only the real scheduler modules run.
+// 緊湊 5-6 / 適中 2-3 / 悠閒 about 2 on a museum/park pool. Google and
+// distances are mocked; only the real scheduler modules run.
 
 const createMock = vi.fn();
 const nearbyMock = vi.fn();
 const textMock = vi.fn();
-type CopyResult = { stops: Record<string, { description: string }> };
-const copyMock = vi.fn<(...args: unknown[]) => Promise<CopyResult>>(async () => ({ stops: {} }));
 const distancesMock = vi.fn<(stops: unknown[], pickMode: (km: number) => string) => Promise<null[]>>(async (stops) =>
   stops.slice(1).map(() => null)
 );
@@ -29,9 +28,6 @@ vi.mock("@/lib/fetchCityRestaurants", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/fetchCityRestaurants")>()),
   fetchNearbyPlaceCandidates: (...args: unknown[]) => nearbyMock(...args),
   searchTextCandidates: (...args: unknown[]) => textMock(...args),
-}));
-vi.mock("@/lib/skeletonCopy", () => ({
-  generateSkeletonCopy: (...args: unknown[]) => copyMock(...args),
 }));
 // Full replacement rather than importOriginal: the real module pulls in
 // @/lib/db. Its geo re-exports come straight from the db-free @/lib/geo.
@@ -74,8 +70,6 @@ beforeEach(() => {
   textMock.mockResolvedValue([]);
   distancesMock.mockClear();
   nearbyMock.mockResolvedValue(POOL);
-  copyMock.mockReset();
-  copyMock.mockImplementation(async () => ({ stops: {} }));
   sightAreasMock.mockReset();
   sightAreasMock.mockReturnValue(undefined);
 });
@@ -951,12 +945,13 @@ describe("generateThemedDayStops — 想買什麼", () => {
 });
 
 describe("a day's legs", () => {
-  it("keeps every stop and works the legs out once", async () => {
+  it("works the legs out once, with the last stop marked", async () => {
     const [day] = await generateDayStops("東京", 1, "JPY", [], undefined, NEUTRAL_PREFERENCE_INTENT);
-    const skeleton = copyMock.mock.calls[0][0] as { id: string }[];
 
-    expect(day).toHaveLength(skeleton.length);
+    expect(day.length).toBeGreaterThan(1);
     expect(distancesMock).toHaveBeenCalledTimes(1);
+    expect(day.at(-1)?.description).toBe(LAST_STOP_NOTE);
+    expect(day.slice(1, -1).every((s) => s.description === "")).toBe(true);
   });
 });
 
