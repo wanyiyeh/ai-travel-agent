@@ -38,7 +38,6 @@ vi.mock("@/lib/itineraryCityGen", async (importOriginal) => ({
 vi.mock("@/lib/preferenceIntent", () => ({
   parsePreferenceIntent: async () => ({ pace: null, startTimePreference: null, interestBoost: [], dietaryRestrictions: [], avoid: [] }),
 }));
-vi.mock("@/lib/missingCopy", () => ({ fillMissingCopy: async () => {} }));
 
 const { POST } = await import("./route");
 

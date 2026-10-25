@@ -226,11 +226,6 @@ export function mockTripPlanReply(input: {
   };
 }
 
-/** fillMissingCopy: one line per numbered target. */
-export function mockMissingCopyReply(names: string[]) {
-  return { copy: Object.fromEntries(names.map((name, i) => [String(i), `${name} 的模擬介紹`])) };
-}
-
 /** translatePlaceNames: the same names back, in order. */
 export function mockTranslatedNamesReply(names: string[]) {
   return { names };

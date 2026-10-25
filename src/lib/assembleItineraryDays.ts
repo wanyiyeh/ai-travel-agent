@@ -23,7 +23,6 @@ import { buildStayDays, conditionsIn, locationOf, stayContextOf } from "@/lib/ci
 import { weatherNote } from "@/lib/dayConditions";
 import { dateOfTripDay } from "@/lib/fixedEvents";
 import { airportTransferMinutes, ARRIVAL_CLEARANCE_MINUTES, CHECK_IN_MINUTES } from "@/lib/airportTransfer";
-import { fillMissingCopy } from "@/lib/missingCopy";
 
 const DEFAULT_ARRIVAL_MINUTE_FALLBACK = 14 * 60;
 
@@ -334,9 +333,6 @@ export async function assembleItineraryDays(
       });
     }
   }
-
-  // Places the program put in itself get their description now, in one call (missingCopy.ts).
-  await fillMissingCopy(days, model);
 
   return {
     title: plan.title,

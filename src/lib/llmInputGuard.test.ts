@@ -6,14 +6,14 @@ import type { RestaurantHint } from "@/lib/fetchCityRestaurants";
 // places' Google content out of the prompt. Call sites that still send it
 // are marked it.fails until their PLAN-002 sub-issue fixes them; switch
 // each back to it() then (vitest reports an it.fails that starts passing).
-// The rule-engine day's stop copy (skeletonCopy.ts) no longer calls OpenAI (#265).
+// Stop copy (skeletonCopy.ts, #265) and the trip-wide missing copy (#266)
+// no longer call OpenAI.
 
 const createMock = vi.fn();
 vi.mock("@/lib/openai", () => ({
   openai: { chat: { completions: { create: (...args: unknown[]) => createMock(...args) } } },
 }));
 
-const { fillMissingCopy } = await import("@/lib/missingCopy");
 const { translatePlaceNames } = await import("@/lib/translatePlaceNames");
 const { buildAttractionHintsPrompt, buildRestaurantHintsPrompt } = await import("@/lib/fetchCityRestaurants");
 
@@ -34,20 +34,6 @@ describe("LLM input carries no Google Maps content (ADR-0008)", () => {
   it("the marker check catches a Google name", () => {
     expect(() => expectNoGoogleContent([{ role: "user", content: googleName("淺草寺") }])).toThrow();
     expect(() => expectNoGoogleContent([{ role: "user", content: "東京，上午，停留約 60 分鐘" }])).not.toThrow();
-  });
-
-  // #266
-  it.fails("missing copy for places the program put in", async () => {
-    const days = [
-      {
-        waypointCity: "東京",
-        stops: [{ name: googleName("鶴岡八幡宮"), placeId: "p1", copyPending: true }],
-        meals: { snack: { name: googleName("Bear Pond Espresso"), placeId: "m1" } },
-      },
-    ];
-    await fillMissingCopy(days, "test-model");
-    expect(createMock).toHaveBeenCalled();
-    expectNoGoogleContent(...capturedMessages(createMock));
   });
 
   // #268: the function goes away; its input is Google names by definition.

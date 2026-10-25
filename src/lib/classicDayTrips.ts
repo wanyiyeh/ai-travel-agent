@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { COPY_PENDING } from "@/lib/copyPending";
 import { getMockMode } from "@/lib/mockAi";
 import { openai } from "@/lib/openai";
 import { prisma } from "@/lib/db";
@@ -208,7 +207,6 @@ export function classicTripEvents(
         placeId: place.placeId,
         name: place.name,
         description: notes.join("。"),
-        [COPY_PENDING]: true,
         duration_minutes: SIGHT_MINUTES,
         time_of_day: minuteOfDay < 12 * 60 ? "morning" : "afternoon",
         lat: place.lat,

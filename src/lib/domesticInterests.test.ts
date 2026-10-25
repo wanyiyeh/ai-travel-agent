@@ -68,7 +68,7 @@ describe("findNightMarkets", () => {
 describe("nightMarketDinner", () => {
   it("is dinner with a note to check its days, and a line still to write", () => {
     const dinner = nightMarketDinner(place("大東夜市", 22.985, 120.222));
-    expect(dinner).toMatchObject({ name: "大東夜市", placeId: "大東夜市", copyPending: true });
+    expect(dinner).toMatchObject({ name: "大東夜市", placeId: "大東夜市" });
     expect(dinner.description).toContain("出發前確認");
   });
 });

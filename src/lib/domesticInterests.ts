@@ -1,6 +1,5 @@
 import { fetchNearbyPlaceCandidates, searchTextCandidates, type PlaceCandidate } from "@/lib/fetchCityRestaurants";
 import { haversineKm } from "@/lib/geo";
-import { COPY_PENDING } from "@/lib/copyPending";
 import type { DayFixedEvents } from "@/lib/fixedEvents";
 
 // 國內 interests (plan/form-preference-wiring.md 1.10, phase 5b): 夜市, 溫泉,
@@ -44,8 +43,6 @@ export function nightMarketDinner(place: PlaceCandidate): Record<string, unknown
   return {
     name: place.name,
     description: "晚上逛夜市吃小吃當晚餐。夜市各有固定營業日，出發前確認",
-    // missingCopy.ts writes a line about the market in front of the note.
-    [COPY_PENDING]: true,
     placeId: place.placeId,
     lat: place.lat,
     lng: place.lng,
@@ -103,7 +100,6 @@ export function hotSpringSoakEvent(place: PlaceCandidate): DayFixedEvents[number
       placeId: place.placeId,
       name: place.name,
       description: "傍晚泡湯",
-      [COPY_PENDING]: true,
       duration_minutes: SOAK_MINUTES,
       time_of_day: "evening",
       lat: place.lat,

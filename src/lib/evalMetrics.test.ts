@@ -186,18 +186,6 @@ describe("measureItinerary", () => {
     expect(measureItinerary(withMarket, ctx).notDaytimeStops).toEqual(["大東夜市"]);
   });
 
-  it("lists places with no description, bookings aside", () => {
-    // the fixture's meals have no descriptions; its stops neither
-    const described = days.map((d) => ({
-      ...d,
-      stops: d.stops.map((s) => ({ ...s, description: "寫好了" })),
-      meals: Object.fromEntries(Object.entries(d.meals).map(([k, m]) => [k, { ...m, description: "寫好了" }])),
-    }));
-    expect(measureItinerary(described, ctx).missingDescriptions).toEqual([]);
-    const oneBlank = described.map((d, i) => (i === 0 ? { ...d, meals: { ...d.meals, snack: { name: "Cafe", placeId: "c" } } } : d));
-    expect(measureItinerary(oneBlank, ctx).missingDescriptions).toEqual(["Cafe"]);
-  });
-
   it("lists the film days with their stops", () => {
     const withFilm = days.map((d, i) => (i === 1 ? { ...d, theme: "東京 影劇朝聖：《你的名字》", stops: [{ name: "須賀神社" }] } : d));
     expect(measureItinerary(withFilm, ctx).filmDays).toEqual([{ day: 2, title: "東京 影劇朝聖：《你的名字》", stops: ["須賀神社"] }]);

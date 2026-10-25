@@ -10,7 +10,6 @@ import {
   type MealPreferences,
 } from "@/lib/itineraryCityGen";
 import { buildStayDays, stayContextOf, type StayContext } from "@/lib/cityStayDays";
-import { fillMissingCopy } from "@/lib/missingCopy";
 import { blockStartDays } from "@/lib/restructureLayout";
 import { parsePreferenceIntent } from "@/lib/preferenceIntent";
 import { mergePreferenceIntent } from "@/lib/mergePreferenceIntent";
@@ -521,8 +520,6 @@ export async function POST(
     const discardedDays = days.filter(
       (d) => !finalIds.has(d.id as string) && (!keptIds.has(d.id as string) || d.isTransitDay !== true)
     );
-    // Places the program put in itself (a night market dinner, a soak) get their description (missingCopy.ts).
-    await fillMissingCopy(finalDays, model);
 
     const deletedDayRows = discardedDays.map((d) => ({
       itineraryId,
