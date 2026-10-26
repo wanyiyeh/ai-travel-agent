@@ -16,6 +16,13 @@ paths:
 - 座標附 `coordsFetchedAt`：寫入時沒有時間的座標會蓋上現在的時間，所以**不可以**把舊座標去掉時間再寫回去。`src/lib/coordsPurge.ts` 刪除超過 30 天的座標（ADR-0006）。
 - **不新增任何儲存 Google 內容的快取或欄位**；要省錢就合併同一請求內的重複查詢（`src/lib/requestMemo.ts`）、改用較低的計費等級，或只在需要時才查。
 
+## LLM 的輸入（ADR-0008）
+
+- **Google 回傳的任何欄位（名稱、地址、評分、類型、評論、路線時間）都不放進 OpenAI 的輸入**，包括當成排除清單或候選清單。要排除重複，在 LLM 回應後用 place ID 或名稱在程式裡過濾。
+- Google 地點的文案用模板（`src/lib/skeletonCopy.ts`），三餐與住宿用規則挑（`src/lib/mealLodgingPicks.ts`），不交給 LLM 寫或選。
+- 使用者自己輸入的文字、我們自己的資料（城市、偏好、時段）可以放。
+- 新增會接觸 Google 地點的 OpenAI 呼叫點時，在 `src/lib/llmInputGuard.test.ts` 加一個案例（假名稱用 `tests/contracts/googleContent.ts` 的 `googleName`）。
+
 ## 出處標示
 
 - 沒有搭配 Google 地圖、卻顯示 Google 地點內容（名稱、地址）的畫面，要放 `src/components/GoogleMapsAttribution.tsx`（官方 Google Maps 標誌，放在內容上方或下方、同一個容器裡）。目前放在行程列表（含列印）、生成預覽、三種候選清單、整天編輯、垃圾桶、重新規劃的必去景點。**新增這類畫面時要一起加**。
@@ -36,7 +43,7 @@ paths:
   - **`resolvePlace`**：只是要「找到地點」時用這個（補資料、城市中心）。Text Search 只取 `places.id`（Essentials IDs Only，免費），再用 Place Details 取 `location,types,formattedAddress`（Essentials）。已知 place ID、只缺座標時直接用 `fetchPlaceEssentials`。
   - **`searchPlaceText`**：要把名稱顯示給使用者時才用（「加景點」的搜尋框），Pro 等級。
   - 欄位計費等級以官方表為準：developers.google.com/maps/documentation/places/web-service/data-fields。兩者都會合併同時間相同的請求。
-- `fetchCityRestaurants.ts`：Nearby Search 與 Text Search，批次取候選，注入 prompt 或給候選池、`stop-suggestions` 用。實際的查詢在 `PlaceSource` 介面後面（目前只有 `googlePlaceSource`），換資料來源時只換這一處。
+- `fetchCityRestaurants.ts`：Nearby Search 與 Text Search，批次取候選，給候選池、`stop-suggestions` 用。實際的查詢在 `PlaceSource` 介面後面（目前只有 `googlePlaceSource`），換資料來源時只換這一處。
 - `placeDisplay.ts`：Place Details，依 place ID 取回名稱、地址與座標（Pro 等級；座標是 Essentials 欄位，不多付錢），給「只存 place ID」的資料補回顯示用的欄位，並補回被清掉的座標；只合併同一次呼叫內的重複，不跨請求保存（ADR-0004、ADR-0006）。
 - `placeCache.ts`：`Place`/`PlaceQuery` 快取的唯一入口。只存 place ID（`PlaceQuery`，永久）與座標（附 `coordsFetchedAt`，超過 `COORDS_MAX_AGE_MS` 視為沒有）。**查詢字串（快取的 key）必須是我們自己的文字**（LLM 寫的名稱、使用者輸入），不可用 Google 回傳的名稱當 key。
 
