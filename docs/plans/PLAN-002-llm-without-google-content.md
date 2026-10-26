@@ -1,5 +1,5 @@
 ---
-status: in-progress      # draft | approved | in-progress | done
+status: done             # draft | approved | in-progress | done
 branch: plan-002-llm-without-google-content
 issue: 262
 created: 2026-10-25
