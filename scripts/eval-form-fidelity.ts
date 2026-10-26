@@ -852,17 +852,6 @@ const CHECKS: Check[] = [
     },
   },
   {
-    title: "介紹：對照組每個景點和餐點都有介紹（包括一日遊和程式換上的店）",
-    pass: (r) => {
-      const m = r.get("tokyo-baseline");
-      return m ? m.missingDescriptions.length === 0 : null;
-    },
-    detail: (r) => {
-      const missing = r.get("tokyo-baseline")?.missingDescriptions;
-      return missing ? (missing.length ? `沒有介紹：${missing.join("、")}` : "全部都有") : "—";
-    },
-  },
-  {
     title: "日落：11 月的札幌，每個觀光日都有日落時間，天黑得早的日子戶外景點都排在室內景點之前",
     pass: (r) => {
       const m = r.get("sapporo-loop");

@@ -29,7 +29,6 @@ const COMMON_FIELDS = [
   "estimated_cost",
   "enrichFailure",
   "fixedEvent",
-  "copyPending",
   "suspicious",
   "suspiciousReason",
 ] as const;

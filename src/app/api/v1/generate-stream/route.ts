@@ -8,7 +8,6 @@ import {
 import { validateItinerary } from "@/lib/validateItinerary";
 import { validateGeography } from "@/lib/validateGeography";
 import { iataToCity } from "@/lib/iataCity";
-import { fetchCityRestaurants, fetchCityBreakfastPlaces, fetchCitySnackPlaces, buildRestaurantHintsPrompt, fetchCityAttractions, buildAttractionHintsPrompt, type BudgetLevel } from "@/lib/fetchCityRestaurants";
 import { prisma, j } from "@/lib/db";
 import {
   buildSystemPrompt,
@@ -221,8 +220,6 @@ export async function POST(request: Request) {
           const arrivalCityName = iataToCity(flightInfo.arrivalCity);
           const returnCityName = iataToCity(flightInfo.returnDepartureCity);
 
-          const budget = preferences?.budget as BudgetLevel | undefined;
-
           // Try the rule-engine path first (plan/hybrid-rule-engine-scheduling.md
           // Phase 5(c)): planTrip() + per-city generation instead of one giant
           // free-form completion. Emits "plan"/"day" events as pieces become
@@ -334,25 +331,9 @@ export async function POST(request: Request) {
             send(retryData);
           }
 
-          const googleApiKey = process.env.GOOGLE_PLACES_API_KEY;
-          let hintsPrompt = "";
-          if (googleApiKey) {
-            const iataCodes = [...new Set([flightInfo.arrivalCity, flightInfo.returnDepartureCity])];
-            const cityEntries = await Promise.all(
-              iataCodes.map(async (code) => {
-                const [breakfastPlaces, mainMealPlaces, snackPlaces, attractions] = await Promise.all([
-                  fetchCityBreakfastPlaces(code, googleApiKey),
-                  fetchCityRestaurants(code, googleApiKey, budget),
-                  fetchCitySnackPlaces(code, googleApiKey),
-                  fetchCityAttractions(code, googleApiKey),
-                ]);
-                return { cityNameZh: iataToCity(code), iataCode: code, breakfastPlaces, mainMealPlaces, snackPlaces, attractions };
-              })
-            );
-            hintsPrompt = buildAttractionHintsPrompt(cityEntries) + buildRestaurantHintsPrompt(cityEntries, budget);
-          }
-
-          const systemPrompt = buildSystemPrompt(flightInfo, preferences, days, hintsPrompt);
+          // No Google hint lists: the old flow's model picks places of its
+          // own, which enrich-all-stops then looks up (ADR-0008).
+          const systemPrompt = buildSystemPrompt(flightInfo, preferences, days);
 
           const destinationDesc = isMultiCity
             ? `${flightInfo.arrivalCity} → ${flightInfo.returnDepartureCity}`

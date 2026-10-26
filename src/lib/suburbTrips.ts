@@ -1,5 +1,4 @@
 import { fetchNearbyPlaceCandidates, type PlaceCandidate } from "@/lib/fetchCityRestaurants";
-import { COPY_PENDING } from "@/lib/copyPending";
 import { haversineKm } from "@/lib/geo";
 import type { DayFixedEvents } from "@/lib/fixedEvents";
 import type { SuburbKind } from "@/lib/suburbKind";
@@ -128,7 +127,6 @@ export function suburbTripEvent(
       placeId: place.placeId,
       name: place.name,
       description: notes.join("。"),
-      [COPY_PENDING]: true,
       duration_minutes: minutes,
       time_of_day: "morning",
       lat: place.lat,

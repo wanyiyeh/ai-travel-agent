@@ -4,7 +4,6 @@ import { lookupByQuery, upsertPlace } from "@/lib/placeCache";
 import { resolvePlace, getCityCenter, buildStopQuery, buildMealQuery } from "@/lib/placesTextSearch";
 import { haversineKm, centroid, SUSPICIOUS_DISTANCE_KM as SUSPICIOUS_KM } from "@/lib/distanceMatrix";
 import { estimateMealCost } from "@/lib/priceLevelCost";
-import { translatePlaceNames } from "@/lib/translatePlaceNames";
 import { getCityHintForDay } from "@/lib/itineraryDays";
 import { isRecentEnrichFailure, enrichFailureMarker } from "@/lib/enrichFailure";
 import { internalErrorResponse } from "@/lib/apiError";
@@ -29,7 +28,6 @@ export async function POST(
 
     const config = itinerary.config as { currency?: string };
     const currency = config.currency;
-    const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
 
     const days = itinerary.days as Record<string, unknown>[];
     let enrichedCount = 0;
@@ -40,11 +38,6 @@ export async function POST(
 
     // Cache city-center lookups across the whole itinerary so repeat cities
     // (most days) only resolve once instead of once per stop/meal.
-    // Kana (hiragana/katakana) is a reliable signal that a name is still
-    // untranslated Japanese — kanji-only names are left alone since they may
-    // already be valid, readable Chinese.
-    const hasKana = (s: string) => /[぀-ヿ]/.test(s);
-
     const cityBiasCache = new Map<string, { lat: number; lng: number } | null>();
     async function biasFor(city: string, key: string): Promise<{ lat: number; lng: number } | null> {
       if (!city) return null;
@@ -59,41 +52,6 @@ export async function POST(
       const cityBias = await biasFor(cityHint, apiKey);
 
       const meals = day.meals as Record<string, Record<string, unknown>> | undefined;
-      const stopsForNames = day.stops as Record<string, unknown>[] | undefined;
-
-      // The AI-generated name is copied verbatim from Google's Nearby Search
-      // hints (see generate-stream/route.ts), which are only in Chinese when
-      // Google happens to have a zh-TW listing for that specific place —
-      // otherwise it's whatever local-script name Google returned. Translate
-      // once per day, up front, for display only: the enrichment queries
-      // below still search on the original name so place-matching isn't
-      // affected by translation quality.
-      // Items skipped below for a recent failed lookup are left out too — they
-      // won't be enriched this run, so translating them would just re-pay for
-      // an OpenAI call on every page open.
-      const namesNeedingTranslation = [
-        ...(meals
-          ? MEAL_TYPES.map((k) => meals[k])
-              .filter((m) => m && (!m.placeId || hasKana(String(m.name))))
-              .filter((m) => !isRecentEnrichFailure(m, buildMealQuery(String(m!.name), cityHint)))
-              .map((m) => String(m!.name))
-          : []),
-        ...(stopsForNames ?? [])
-          // One filter, not two: i must be the stop's real index for getCityHintForDay.
-          .filter(
-            (s, i) =>
-              (!(s.placeId && s.lat && s.lng) || hasKana(String(s.name))) &&
-              !isRecentEnrichFailure(
-                s,
-                buildStopQuery(String(s.name), typeof s.district === "string" ? s.district : "", getCityHintForDay(day, i)),
-              ),
-          )
-          .map((s) => String(s.name)),
-      ];
-      const nameTranslations = await translatePlaceNames(
-        [...new Set(namesNeedingTranslation)],
-        model,
-      );
 
       if (meals) {
         for (const mealKey of MEAL_TYPES) {
@@ -101,15 +59,9 @@ export async function POST(
           if (!meal) continue;
 
           const originalName = String(meal.name);
-          const displayName = nameTranslations.get(originalName) ?? originalName;
 
-          // Already geocoded — only backfill the display name (no re-search).
-          if (meal.placeId) {
-            if (displayName !== originalName) {
-              meals[mealKey] = { ...meal, name: displayName };
-            }
-            continue;
-          }
+          // Already geocoded: nothing to do.
+          if (meal.placeId) continue;
 
           const query = buildMealQuery(originalName, cityHint);
 
@@ -130,7 +82,7 @@ export async function POST(
             skippedCount++;
             if (meal.enrichFailure && (meal.enrichFailure as { reason?: string }).reason === "too_far") {
               suspiciousStops.push({
-                name: displayName,
+                name: originalName,
                 day: typeof day.day === "number" ? day.day : 0,
                 reason: `距 ${cityHint || "行程城市"} 過遠，未套用`,
               });
@@ -145,7 +97,7 @@ export async function POST(
                 failedCount++;
                 meals[mealKey] = { ...meal, enrichFailure: enrichFailureMarker(query, "too_far") };
                 suspiciousStops.push({
-                  name: displayName,
+                  name: originalName,
                   day: typeof day.day === "number" ? day.day : 0,
                   reason: `快取地點距 ${cityHint || "行程城市"} 過遠，未套用`,
                 });
@@ -153,7 +105,7 @@ export async function POST(
               }
               meals[mealKey] = {
                 ...meal,
-                name: displayName,
+                name: originalName,
                 placeId: cached.placeId,
                 lat: cached.lat,
                 lng: cached.lng,
@@ -171,7 +123,7 @@ export async function POST(
                 failedCount++;
                 meals[mealKey] = { ...meal, enrichFailure: enrichFailureMarker(query, "too_far") };
                 suspiciousStops.push({
-                  name: displayName,
+                  name: originalName,
                   day: typeof day.day === "number" ? day.day : 0,
                   reason: `距 ${cityHint || "行程城市"} 約 ${Math.round(
                     haversineKm(place.lat, place.lng, cityBias!.lat, cityBias!.lng),
@@ -183,7 +135,7 @@ export async function POST(
               const estimatedCost = estimateMealCost(currency, mealKey, priceLevel);
               meals[mealKey] = {
                 ...meal,
-                name: displayName,
+                name: originalName,
                 placeId: place.placeId,
                 lat: place.lat,
                 lng: place.lng,
@@ -208,13 +160,8 @@ export async function POST(
       for (let i = 0; i < stops.length; i++) {
         const stop = stops[i];
 
-        // Already fully enriched — only backfill the display name (no re-search).
+        // Already fully enriched: nothing to do.
         if (stop.placeId && stop.lat && stop.lng) {
-          const originalStopName = String(stop.name);
-          const fixedName = nameTranslations.get(originalStopName) ?? originalStopName;
-          if (fixedName !== originalStopName) {
-            stops[i] = { ...stop, name: fixedName };
-          }
           skippedCount++;
           continue;
         }
@@ -230,7 +177,6 @@ export async function POST(
         // isn't granular enough for cities like Tokyo or Kyoto.
         const district = typeof stop.district === "string" ? stop.district : "";
         const originalName = String(stop.name);
-        const displayName = nameTranslations.get(originalName) ?? originalName;
         const query = buildStopQuery(originalName, district, stopCityHint);
         if (isRecentEnrichFailure(stop, query)) {
           skippedCount++;
@@ -249,7 +195,7 @@ export async function POST(
             enrichedLat = cached.lat;
             enrichedLng = cached.lng;
             baseFields = {
-              name: displayName,
+              name: originalName,
               placeId: cached.placeId,
               lat: cached.lat,
               lng: cached.lng,
@@ -265,7 +211,7 @@ export async function POST(
             enrichedLat = place.lat;
             enrichedLng = place.lng;
             baseFields = {
-              name: displayName,
+              name: originalName,
               placeId: place.placeId,
               lat: enrichedLat,
               lng: enrichedLng,
@@ -289,7 +235,7 @@ export async function POST(
                 suspicious = true;
                 suspiciousReason = `距同天其他景點約 ${Math.round(km)} km，地點可能搜尋有誤`;
                 suspiciousStops.push({
-                  name: displayName,
+                  name: originalName,
                   day: typeof day.day === "number" ? day.day : 0,
                   reason: suspiciousReason,
                 });

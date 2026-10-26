@@ -3,12 +3,6 @@ import { signInAs } from "@tests/setup/mockAuth";
 import { prisma, j } from "@/lib/db";
 import type { DayWithId } from "@/types/itinerary";
 
-// enrich-all-stops -> translatePlaceNames -> openai.ts throws at import time
-// without a key; translation is display-only, so stub it as identity.
-vi.mock("@/lib/translatePlaceNames", () => ({
-  translatePlaceNames: async (names: string[]) => new Map(names.map((n) => [n, n])),
-}));
-
 const { POST: enrichAllStops } = await import("./route");
 
 // Story: an itinerary has a stop and a meal Google can't resolve. The page's

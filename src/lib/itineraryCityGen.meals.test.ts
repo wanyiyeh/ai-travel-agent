@@ -24,7 +24,8 @@ vi.mock("@/lib/fetchCityRestaurants", async (importOriginal) => ({
   searchTextCandidates: (...args: unknown[]) => textMock(...args),
 }));
 
-const { generateMealsAndAccommodation } = await import("./itineraryCityGen");
+const { generateMealsAndAccommodation, fetchMealLodgingPools } = await import("./itineraryCityGen");
+type Pools = NonNullable<Awaited<ReturnType<typeof fetchMealLodgingPools>>>;
 
 function place(name: string): PlaceCandidate {
   return { name, placeId: `pid-${name}`, lat: 35, lng: 135.7, address: "addr", rating: 4.1, priceLevel: 2 };
@@ -34,8 +35,25 @@ function mockLlm(json: unknown) {
   createMock.mockResolvedValueOnce({ choices: [{ message: { content: JSON.stringify(json) } }] });
 }
 
-function systemPrompt(): string {
-  return createMock.mock.calls[0][0].messages[0].content;
+// The pools as numbered lists, one per slot, in pick order: 「M2: Sushi Y」 is
+// the second lunch/dinner candidate.
+function lists(pools: Pools | null): string {
+  if (!pools) return "";
+  const section = (title: string, prefix: string, pool: PlaceCandidate[]) =>
+    `${title}：\n${pool.map((c, i) => `${prefix}${i + 1}: ${c.name}`).join("\n")}`;
+  return [
+    section("住宿候選", "H", pools.lodging),
+    section("早餐候選", "B", pools.breakfast),
+    section("午餐／晚餐候選", "M", pools.main),
+    section("點心候選", "S", pools.snack),
+    ...(pools.nightcap.length > 0 ? [section("小酌候選", "N", pools.nightcap)] : []),
+  ].join("\n\n");
+}
+
+type MealPrefs = NonNullable<Parameters<typeof generateMealsAndAccommodation>[4]>;
+/** The candidate lists generateMealsAndAccommodation picks from, for the same arguments. */
+async function candidateLists(city: string, stayDays: number, currency: string, budget?: "budget" | "moderate" | "luxury", prefs: MealPrefs = {}) {
+  return lists(await fetchMealLodgingPools(city, budget, currency, stayDays, prefs));
 }
 
 beforeEach(() => {
@@ -57,27 +75,23 @@ afterEach(() => {
 });
 
 describe("generateMealsAndAccommodation", () => {
-  it("offers real candidates to the model and carries the picked place data through", async () => {
+  it("picks real candidates by rule, without asking the model (ADR-0008)", async () => {
     // café pool (shared by breakfast and snack), then main; lodging has its own fetch
     nearbyMock
       .mockResolvedValueOnce([place("Cafe A"), place("Gelato Q")])
       .mockResolvedValueOnce([place("Ramen X"), place("Sushi Y")]);
     lodgingMock.mockResolvedValueOnce([place("Hotel H")]);
-    mockLlm({
-      accommodation: { id: "H1", name: "Hotel H", area: "Gion" },
-      meals: [{ breakfast: { id: "B1" }, lunch: { id: "M1" }, dinner: { id: "M2" }, snack: { id: "S1" } }],
-    });
 
     const result = await generateMealsAndAccommodation("京都", 1, "JPY", "moderate");
 
+    expect(createMock).not.toHaveBeenCalled();
     expect(nearbyMock).toHaveBeenCalledTimes(2);
     expect(lodgingMock).toHaveBeenCalledTimes(1);
-    expect(systemPrompt()).toContain("M2: Sushi Y");
-    // the shared café pool is split, no store offered for both meals
-    expect(systemPrompt()).toContain("B1: Cafe A");
-    expect(systemPrompt()).toContain("S1: Gelato Q");
-    expect(result.accommodation.placeId).toBe("pid-Hotel H");
-    expect((result.mealsByDay[0].dinner as Record<string, unknown>).placeId).toBe("pid-Sushi Y");
+    // the shared café pool is split, no store used for both meals
+    const day = result.mealsByDay[0] as Record<string, Record<string, unknown>>;
+    expect([day.breakfast.name, day.lunch.name, day.dinner.name, day.snack.name]).toEqual(["Cafe A", "Ramen X", "Sushi Y", "Gelato Q"]);
+    expect(day.dinner.placeId).toBe("pid-Sushi Y");
+    expect(result.accommodation).toMatchObject({ placeId: "pid-Hotel H", area: "京都" });
   });
 
   it("searches each pool once, and only lunch/dinner on Enterprise fields", async () => {
@@ -103,14 +117,13 @@ describe("generateMealsAndAccommodation", () => {
     nearbyMock
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([priced("Kaiseki", 15000, 30000), priced("Ramen", 900, 1200), priced("Udon", 600, 900)]);
-    mockLlm({ accommodation: {}, meals: [{ lunch: { id: "M1" }, dinner: { id: "M2" } }] });
 
     const result = await generateMealsAndAccommodation("京都", 1, "JPY", "budget");
 
-    expect(systemPrompt()).not.toContain("Kaiseki");
-    expect(systemPrompt()).toContain("M1: Ramen");
+    const day = result.mealsByDay[0] as Record<string, Record<string, unknown>>;
+    expect([day.lunch.name, day.dinner.name]).toEqual(["Ramen", "Udon"]);
     // estimated cost comes from Google's range midpoint, not the priceLevel table
-    expect((result.mealsByDay[0].lunch as Record<string, unknown>).estimated_cost).toBe(1050);
+    expect(day.lunch.estimated_cost).toBe(1050);
   });
 
   it("vegetarian: searches vegetarian restaurants first and drops steak/seafood places", async () => {
@@ -119,43 +132,34 @@ describe("generateMealsAndAccommodation", () => {
       .mockResolvedValueOnce([]) // cafés
       .mockResolvedValueOnce([typed("Steak House", "steak_house"), typed("Noodles", "ramen_restaurant")]) // main
       .mockResolvedValueOnce([typed("Green Table", "vegetarian_restaurant")]); // vegetarian search
-    mockLlm({ accommodation: {}, meals: [] });
 
-    await generateMealsAndAccommodation("京都", 1, "JPY", undefined, { dietaryRestrictions: ["vegetarian"] });
+    const text = await candidateLists("京都", 1, "JPY", undefined, { dietaryRestrictions: ["vegetarian"] });
 
     expect(nearbyMock.mock.calls[2][2]).toEqual(["vegetarian_restaurant", "vegan_restaurant"]);
-    expect(systemPrompt()).toContain("M1: Green Table");
-    expect(systemPrompt()).toContain("M2: Noodles");
-    expect(systemPrompt()).not.toContain("Steak House");
-    expect(systemPrompt()).toContain("旅客飲食限制：素食");
+    expect(text).toContain("M1: Green Table");
+    expect(text).toContain("M2: Noodles");
+    expect(text).not.toContain("Steak House");
   });
 
-  it("late riser: brunch places lead the breakfast list and the prompt says so", async () => {
+  it("late riser: brunch places lead the breakfast list", async () => {
     const typed = (name: string, primary: string): PlaceCandidate => ({ ...place(name), types: [primary] });
     nearbyMock
       .mockResolvedValueOnce([typed("Cafe", "cafe"), typed("Gelato", "ice_cream_shop"), typed("Brunch Spot", "brunch_restaurant")])
       .mockResolvedValueOnce([]);
-    mockLlm({ accommodation: {}, meals: [] });
 
-    await generateMealsAndAccommodation("京都", 1, "JPY", undefined, { startTimePreference: "late" });
-
-    expect(systemPrompt()).toContain("B1: Brunch Spot");
-    expect(systemPrompt()).toContain("早餐請選早午餐");
+    expect(await candidateLists("京都", 1, "JPY", undefined, { startTimePreference: "late" })).toContain("B1: Brunch Spot");
   });
 
-  it("asks for a long stay in chunks, and a failed chunk still gets real meals", async () => {
+  it("gives a long stay real meals every day", async () => {
     const restaurants = Array.from({ length: 20 }, (_, i) => place(`Restaurant ${i}`));
     nearbyMock
       .mockResolvedValueOnce([place("Cafe A"), place("Cafe B")])
       .mockResolvedValueOnce(restaurants);
     lodgingMock.mockResolvedValueOnce([place("Hotel H")]);
-    mockLlm({ accommodation: { id: "H1" }, meals: [] }); // days 1-5
-    createMock.mockRejectedValueOnce(new Error("timeout")); // days 6-7
 
     const result = await generateMealsAndAccommodation("斯德哥爾摩", 7, "SEK", "moderate");
 
-    expect(createMock).toHaveBeenCalledTimes(2);
-    expect(createMock.mock.calls[1][0].messages[0].content).toContain("住宿已經決定");
+    expect(createMock).not.toHaveBeenCalled();
     expect(result.accommodation.placeId).toBe("pid-Hotel H");
     expect(result.mealsByDay).toHaveLength(7);
     for (const day of result.mealsByDay) {
@@ -174,14 +178,13 @@ describe("generateMealsAndAccommodation", () => {
       .mockResolvedValueOnce([]) // cafés
       .mockResolvedValueOnce([priced("Ramen", 1000, 2000), priced("Curry", 1000, 2000)]); // popularity pool
     luxuryMock.mockResolvedValueOnce([priced("Kaiseki", 6000, 9000), priced("Teppanyaki", 7000, 10000)]);
-    mockLlm({ accommodation: {}, meals: [] });
 
-    await generateMealsAndAccommodation("東京", 1, "JPY", "luxury");
+    const text = await candidateLists("東京", 1, "JPY", "luxury");
 
     expect(luxuryMock).toHaveBeenCalledTimes(1);
     // ¥6,000-9,000 at the mocked 0.2 rate = NT$1,200-1,800: inside the luxury range
-    expect(systemPrompt()).toContain("M1: Kaiseki");
-    expect(systemPrompt()).toContain("M2: Teppanyaki");
+    expect(text).toContain("M1: Kaiseki");
+    expect(text).toContain("M2: Teppanyaki");
   });
 
   it("doesn't pay for the luxury search on other budgets", async () => {
@@ -206,13 +209,13 @@ describe("generateMealsAndAccommodation", () => {
     expect(nearbyMock.mock.calls[0][0]).toEqual({ lat: 35.01, lng: 135.77 }); // mocked city center
   });
 
-  it("falls back to the invent-the-names prompt when there are no candidates", async () => {
+  it("lets the model name places itself only when there are no candidates", async () => {
     nearbyMock.mockResolvedValue([]);
     mockLlm({ accommodation: { name: "Some Hotel", area: "X" }, meals: [{ lunch: { name: "Some Place" } }] });
 
     const result = await generateMealsAndAccommodation("小鎮", 1, "JPY");
 
-    expect(systemPrompt()).not.toContain("候選");
+    expect(createMock).toHaveBeenCalledTimes(1);
     expect(result.accommodation).toEqual({ name: "Some Hotel", area: "X" });
     expect(result.mealsByDay[0]).toEqual({ lunch: { name: "Some Place" } });
   });
@@ -264,21 +267,8 @@ describe("generateMealsAndAccommodation — 飲品 (drinks)", () => {
   it("puts coffee places first in a coffee lover's breakfast list", async () => {
     nearbyMock.mockResolvedValue([typed("Bakery B", "bakery")]);
     textMock.mockImplementation(byQuery);
-    mockLlm({ accommodation: {}, meals: [] });
 
-    await generateMealsAndAccommodation("京都", 1, "JPY", undefined, { drinks: ["coffee"] });
-
-    expect(systemPrompt()).toContain("早餐候選：\nB1: Glitch Coffee");
-  });
-
-  it("tells the model which snack candidates each day should come from", async () => {
-    nearbyMock.mockResolvedValue([]);
-    textMock.mockImplementation(byQuery);
-    mockLlm({ accommodation: {}, meals: [] });
-
-    await generateMealsAndAccommodation("京都", 2, "JPY", undefined, { drinks: ["coffee", "tea"] });
-
-    expect(systemPrompt()).toContain("旅客選了飲品，點心照天數從這些候選選：第 1 天：S1、S3；第 2 天：S2、S4");
+    expect(await candidateLists("京都", 1, "JPY", undefined, { drinks: ["coffee"] })).toContain("早餐候選：\nB1: Glitch Coffee");
   });
 
   it("makes no drink search when none was chosen", async () => {
@@ -313,22 +303,18 @@ describe("generateMealsAndAccommodation — 小酌 (nightcap)", () => {
 
   it("doesn't offer an izakaya from the dinner list again as the same evening's 小酌", async () => {
     nearbyMock.mockImplementation(byTypes);
-    mockLlm({ accommodation: {}, meals: [] });
 
-    await generateMealsAndAccommodation("東京", 1, "JPY", undefined, { drinks: ["alcohol"] });
+    const text = await candidateLists("東京", 1, "JPY", undefined, { drinks: ["alcohol"] });
 
-    expect(systemPrompt()).toContain("小酌候選：\nN1: Bar Benfiddich");
-    expect(systemPrompt()).not.toMatch(/N\d: 鳥貴族/);
+    expect(text).toContain("小酌候選：\nN1: Bar Benfiddich");
+    expect(text).not.toMatch(/N\d: 鳥貴族/);
   });
 
-  it("asks for a 小酌 only from a traveler who picked 酒", async () => {
+  it("has a 小酌 only for a traveler who picked 酒", async () => {
     nearbyMock.mockImplementation(byTypes);
-    mockLlm({ accommodation: {}, meals: [] });
 
     const result = await generateMealsAndAccommodation("東京", 1, "JPY");
 
-    expect(systemPrompt()).not.toContain("nightcap");
-    expect(systemPrompt()).not.toContain("小酌候選");
     expect(result.mealsByDay[0].nightcap).toBeUndefined();
   });
 
@@ -346,11 +332,10 @@ describe("generateMealsAndAccommodation — 自駕", () => {
   it("keeps the 小酌 for a self-driver, with a reminder not to drive after it", async () => {
     const bar = { ...place("Bar"), types: ["cocktail_bar"] };
     nearbyMock.mockImplementation(async (_c: unknown, _k: unknown, types: string[]) => (types.includes("bar") ? [bar] : []));
-    mockLlm({ accommodation: {}, meals: [{ nightcap: { id: "N1", description: "很棒的酒吧" } }] });
 
     const result = await generateMealsAndAccommodation("東京", 1, "JPY", undefined, { drinks: ["alcohol"], selfDrive: true });
 
-    expect((result.mealsByDay[0].nightcap as { description: string }).description).toBe("很棒的酒吧。開車的話請不要喝酒，可以把車留在住宿");
+    expect(result.mealsByDay[0].nightcap).toMatchObject({ name: "Bar", description: "開車的話請不要喝酒，可以把車留在住宿" });
   });
 });
 
@@ -358,15 +343,13 @@ describe("generateMealsAndAccommodation — 自駕", () => {
 describe("generateMealsAndAccommodation — with children", () => {
   const kidsPlace = (name: string): PlaceCandidate => ({ ...place(name), goodForChildren: true });
 
-  it("asks whether lunch/dinner places suit children, and offers those first", async () => {
+  it("asks whether lunch/dinner places suit children, and puts those first", async () => {
     nearbyMock.mockResolvedValueOnce([]).mockResolvedValueOnce([place("Izakaya"), kidsPlace("Family Diner")]);
-    mockLlm({ accommodation: {}, meals: [] });
 
-    await generateMealsAndAccommodation("東京", 1, "JPY", undefined, { kids: true });
+    const text = await candidateLists("東京", 1, "JPY", undefined, { kids: true });
 
     expect(nearbyMock.mock.calls.map((c) => c[5])).toEqual(["pro", "kids"]);
-    expect(systemPrompt()).toContain("M1: Family Diner");
-    expect(systemPrompt()).toContain("有小孩同行");
+    expect(text).toContain("M1: Family Diner");
   });
 
   it("leaves hostels out of the lodging", async () => {
@@ -375,12 +358,11 @@ describe("generateMealsAndAccommodation — with children", () => {
       { ...place("Dorm Hostel"), types: ["hostel", "lodging"] },
       { ...place("Family Inn"), types: ["guest_house", "lodging"] },
     ]);
-    mockLlm({ accommodation: {}, meals: [] });
 
-    await generateMealsAndAccommodation("東京", 1, "JPY", "budget", { kids: true });
+    const text = await candidateLists("東京", 1, "JPY", "budget", { kids: true });
 
-    expect(systemPrompt()).toContain("Family Inn");
-    expect(systemPrompt()).not.toContain("Dorm Hostel");
+    expect(text).toContain("Family Inn");
+    expect(text).not.toContain("Dorm Hostel");
   });
 });
 
@@ -391,12 +373,11 @@ describe("generateMealsAndAccommodation — with older relatives", () => {
       { ...place("Dorm Hostel"), types: ["hostel", "lodging"] },
       { ...place("Quiet Inn"), types: ["japanese_inn", "lodging"] },
     ]);
-    mockLlm({ accommodation: {}, meals: [] });
 
-    await generateMealsAndAccommodation("東京", 1, "JPY", "budget", { seniors: true });
+    const text = await candidateLists("東京", 1, "JPY", "budget", { seniors: true });
 
-    expect(systemPrompt()).toContain("Quiet Inn");
-    expect(systemPrompt()).not.toContain("Dorm Hostel");
+    expect(text).toContain("Quiet Inn");
+    expect(text).not.toContain("Dorm Hostel");
   });
 });
 
@@ -404,18 +385,14 @@ describe("generateMealsAndAccommodation — with older relatives", () => {
 describe("generateMealsAndAccommodation — traveling alone", () => {
   const typed = (name: string, types: string[], lat = 35, lng = 135.7): PlaceCandidate => ({ ...place(name), types, lat, lng });
 
-  it("offers places easy to eat at alone first, and says so in the prompt", async () => {
+  it("puts places easy to eat at alone first", async () => {
     nearbyMock.mockImplementation(async (_c: unknown, _k: unknown, types: string[]) =>
       types.includes("ramen_restaurant") || types.includes("restaurant")
         ? [typed("Hot Pot House", ["hot_pot_restaurant"]), typed("Ramen Bar", ["ramen_restaurant"])]
         : []
     );
-    mockLlm({ accommodation: {}, meals: [] });
 
-    await generateMealsAndAccommodation("東京", 1, "JPY", undefined, { solo: true });
-
-    expect(systemPrompt()).toContain("M1: Ramen Bar");
-    expect(systemPrompt()).toContain("一個人旅行");
+    expect(await candidateLists("東京", 1, "JPY", undefined, { solo: true })).toContain("M1: Ramen Bar");
   });
 
   it("searches stations once and puts lodging near one first", async () => {
@@ -426,12 +403,11 @@ describe("generateMealsAndAccommodation — traveling alone", () => {
       typed("Far Hotel", ["hotel"], 35.02, 135.7), // ~2.2km from the station
       typed("Station Hotel", ["hotel"], 35.002, 135.7), // ~220m
     ]);
-    mockLlm({ accommodation: {}, meals: [] });
 
-    await generateMealsAndAccommodation("東京", 1, "JPY", undefined, { solo: true });
+    const text = await candidateLists("東京", 1, "JPY", undefined, { solo: true });
 
     expect(nearbyMock.mock.calls.filter((c) => (c[2] as string[]).includes("train_station"))).toHaveLength(1);
-    expect(systemPrompt().indexOf("Station Hotel")).toBeLessThan(systemPrompt().indexOf("Far Hotel"));
+    expect(text.indexOf("Station Hotel")).toBeLessThan(text.indexOf("Far Hotel"));
   });
 
   it("looks for no station on other trips", async () => {
@@ -458,15 +434,14 @@ describe("generateMealsAndAccommodation — too few restaurants", () => {
           ? [mall, typed("Sushi", ["sushi_restaurant"])]
           : []
     );
-    mockLlm({ accommodation: {}, meals: [] });
 
-    await generateMealsAndAccommodation("東京", 2, "JPY", undefined, {});
+    const text = await candidateLists("東京", 2, "JPY", undefined, {});
 
     const extra = nearbyMock.mock.calls.find((c) => c[6] === "primary");
     expect(extra?.[2]).toContain("ramen_restaurant");
     expect(extra?.[2]).not.toContain("restaurant");
-    expect(systemPrompt()).toContain("Ramen 0");
-    expect(systemPrompt()).not.toContain("Mall");
+    expect(text).toContain("Ramen 0");
+    expect(text).not.toContain("Mall");
   });
 
   it("doesn't search again when there are enough", async () => {
@@ -489,7 +464,7 @@ describe("generateMealsAndAccommodation — ramen with children", () => {
     ...extra,
   });
 
-  it("offers chicken and tonkotsu ramen first, even when Google says no, and drops spicy ones", async () => {
+  it("puts chicken and tonkotsu ramen first, even when Google says no, and drops spicy ones", async () => {
     nearbyMock.mockImplementation(async (_c: unknown, _k: unknown, types: string[]) =>
       types.includes("ramen_restaurant") || types.includes("restaurant")
         ? [
@@ -500,16 +475,13 @@ describe("generateMealsAndAccommodation — ramen with children", () => {
           ]
         : []
     );
-    mockLlm({ accommodation: {}, meals: [] });
 
-    await generateMealsAndAccommodation("東京", 1, "JPY", undefined, { kids: true });
+    const text = await candidateLists("東京", 1, "JPY", undefined, { kids: true });
 
-    const prompt = systemPrompt();
-    expect(prompt).toContain("M1: 鶏白湯ラーメン 鳥の");
-    expect(prompt).toContain("M2: 一蘭 上野店");
-    expect(prompt).not.toContain("鬼金");
-    expect(prompt).not.toContain("Kamo to Negi");
-    expect(prompt).toContain("雞湯系或豚骨");
+    expect(text).toContain("M1: 鶏白湯ラーメン 鳥の");
+    expect(text).toContain("M2: 一蘭 上野店");
+    expect(text).not.toContain("鬼金");
+    expect(text).not.toContain("Kamo to Negi");
   });
 });
 
@@ -517,7 +489,7 @@ describe("generateMealsAndAccommodation — ramen with children", () => {
 describe("generateMealsAndAccommodation — snacks with children", () => {
   const typed = (name: string, types: string[]): PlaceCandidate => ({ ...place(name), types });
 
-  it("leaves maid cafés out and offers sweets first", async () => {
+  it("leaves maid cafés out and puts sweets first", async () => {
     nearbyMock.mockImplementation(async (_c: unknown, _k: unknown, types: string[]) =>
       types.includes("cafe")
         ? [
@@ -528,42 +500,34 @@ describe("generateMealsAndAccommodation — snacks with children", () => {
           ]
         : []
     );
-    mockLlm({ accommodation: {}, meals: [] });
 
-    await generateMealsAndAccommodation("東京", 2, "JPY", undefined, { kids: true });
+    const text = await candidateLists("東京", 2, "JPY", undefined, { kids: true });
 
-    const prompt = systemPrompt();
-    expect(prompt).not.toContain("at-home cafe");
-    expect(prompt).toContain("S1: 壽壽喜園 淺草本店");
+    expect(text).not.toContain("at-home cafe");
+    expect(text).toContain("S1: 壽壽喜園 淺草本店");
   });
 
   it("keeps maid cafés for everyone else", async () => {
     nearbyMock.mockImplementation(async (_c: unknown, _k: unknown, types: string[]) =>
       types.includes("cafe") ? [typed("Morning Cafe", ["cafe"]), typed("at-home cafe 秋葉原本店", ["cafe", "food"])] : []
     );
-    mockLlm({ accommodation: {}, meals: [] });
 
-    await generateMealsAndAccommodation("東京", 1, "JPY", undefined, {});
-
-    expect(systemPrompt()).toContain("at-home cafe");
+    expect(await candidateLists("東京", 1, "JPY", undefined, {})).toContain("at-home cafe");
   });
 });
 
 // 溫泉 (國內, domesticInterests.ts).
 describe("generateMealsAndAccommodation — hot springs", () => {
-  it("offers hot-spring hotels first", async () => {
+  it("puts hot-spring hotels first", async () => {
     nearbyMock.mockResolvedValue([]);
     textMock.mockImplementation(async (query: string) =>
       query === "溫泉飯店" ? [{ ...place("北投老爺酒店"), lat: 35, lng: 135.7, types: ["hotel", "lodging"] }] : []
     );
     lodgingMock.mockResolvedValueOnce([{ ...place("City Hotel"), types: ["hotel", "lodging"] }]);
-    mockLlm({ accommodation: {}, meals: [] });
 
-    await generateMealsAndAccommodation("台北", 1, "TWD", undefined, { hotSpring: true });
+    const text = await candidateLists("台北", 1, "TWD", undefined, { hotSpring: true });
 
-    const prompt = systemPrompt();
-    expect(prompt.indexOf("北投老爺酒店")).toBeLessThan(prompt.indexOf("City Hotel"));
-    expect(prompt).toContain("想泡溫泉");
+    expect(text.indexOf("北投老爺酒店")).toBeLessThan(text.indexOf("City Hotel"));
   });
 });
 
@@ -571,7 +535,7 @@ describe("generateMealsAndAccommodation — hot springs", () => {
 describe("generateMealsAndAccommodation — with a dog", () => {
   const nearCenter = (name: string, types: string[]) => ({ ...place(name), lat: 35.01, lng: 135.77, types });
 
-  it("offers only lodging that takes dogs, and pet-friendly restaurants first", async () => {
+  it("keeps only lodging that takes dogs, and puts pet-friendly restaurants first", async () => {
     nearbyMock.mockImplementation(async (_c: unknown, _k: unknown, types: string[]) =>
       types.includes("cafe") ? [] : [nearCenter("Plain Diner", ["restaurant"])]
     );
@@ -582,22 +546,19 @@ describe("generateMealsAndAccommodation — with a dog", () => {
           ? [nearCenter("汪汪食堂", ["restaurant"])]
           : []
     );
-    lodgingMock.mockResolvedValueOnce([{ ...place("City Hotel"), types: ["hotel", "lodging"] }]);
-    mockLlm({ accommodation: { id: "H1" }, meals: [] });
+    lodgingMock.mockResolvedValue([{ ...place("City Hotel"), types: ["hotel", "lodging"] }]);
 
+    const text = await candidateLists("宜蘭", 1, "TWD", undefined, { pets: true });
     const { accommodation } = await generateMealsAndAccommodation("宜蘭", 1, "TWD", undefined, { pets: true });
 
-    const prompt = systemPrompt();
-    expect(prompt).not.toContain("City Hotel");
-    expect(prompt.indexOf("汪汪食堂")).toBeLessThan(prompt.indexOf("Plain Diner"));
-    expect(prompt).toContain("帶狗同行");
+    expect(text).not.toContain("City Hotel");
+    expect(text.indexOf("汪汪食堂")).toBeLessThan(text.indexOf("Plain Diner"));
     expect(accommodation.name).toBe("毛孩民宿");
   });
 
   it("suggests no stay when none nearby takes dogs", async () => {
     nearbyMock.mockResolvedValue([nearCenter("Plain Diner", ["restaurant"])]);
     lodgingMock.mockResolvedValueOnce([{ ...place("City Hotel"), types: ["hotel", "lodging"] }]);
-    mockLlm({ accommodation: { id: null, name: "Some Hotel" }, meals: [] });
 
     const { accommodation } = await generateMealsAndAccommodation("宜蘭", 1, "TWD", undefined, { pets: true });
 
@@ -618,9 +579,8 @@ describe("generateMealsAndAccommodation — a solo traveler's 小酌", () => {
     lodgingMock.mockResolvedValueOnce([{ ...place("Hotel H"), types: ["hotel", "lodging"] }]);
   };
 
-  it("takes a bar near the lodging over the one the model picked further off", async () => {
+  it("takes a bar near the lodging over one further off, even ranked first", async () => {
     setup([far, near]);
-    mockLlm({ accommodation: { id: "H1" }, meals: [{ nightcap: { id: "N1" } }] }); // N1 is the far one
 
     const result = await generateMealsAndAccommodation("京都", 1, "JPY", undefined, { drinks: ["alcohol"], solo: true });
 
@@ -629,7 +589,6 @@ describe("generateMealsAndAccommodation — a solo traveler's 小酌", () => {
 
   it("has no 小酌 when none is within a walk", async () => {
     setup([far]);
-    mockLlm({ accommodation: { id: "H1" }, meals: [{ nightcap: { id: "N1" } }] });
 
     const result = await generateMealsAndAccommodation("京都", 1, "JPY", undefined, { drinks: ["alcohol"], solo: true });
 
@@ -638,7 +597,6 @@ describe("generateMealsAndAccommodation — a solo traveler's 小酌", () => {
 
   it("leaves a traveler with company their bar further off", async () => {
     setup([far]);
-    mockLlm({ accommodation: { id: "H1" }, meals: [{ nightcap: { id: "N1" } }] });
 
     const result = await generateMealsAndAccommodation("京都", 1, "JPY", undefined, { drinks: ["alcohol"] });
 

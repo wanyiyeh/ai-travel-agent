@@ -172,28 +172,6 @@ export const NEUTRAL_PREFERENCE_INTENT: PreferenceIntent = {
   avoid: [],
 };
 
-// LLM copy-fill response for a rule-engine skeleton — see generateSkeletonCopy()
-// and plan/hybrid-rule-engine-scheduling.md section 4b. Deliberately keyed by
-// the skeleton's own stop ids (not name-matched, not an array the model could
-// reorder/drop from) and carries no time/order/location fields at all, so
-// there is no field here the model could use to override the skeleton even by
-// accident — only text.
-export const SkeletonCopySchema = z.object({
-  dayTheme: z.string().optional(),
-  stops: z.record(
-    z.string(),
-    z.object({
-      description: z.string(),
-      highlight: z.string().optional(),
-      // The id of another stop this one is the same place as, or a part of
-      // (a shrine's torii, a waterfall's observatory) — see generateSkeletonCopy.
-      partOf: z.string().optional(),
-    })
-  ),
-});
-
-export type SkeletonCopy = z.infer<typeof SkeletonCopySchema>;
-
 export const AccommodationSchema = z.object({
   // Generation prompt (itineraryGen.ts rule 7) deliberately only asks the AI
   // for an area + reason, not a specific hotel name (to avoid hallucinated

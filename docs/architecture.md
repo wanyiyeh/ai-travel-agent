@@ -30,9 +30,9 @@ flowchart TD
   A[表單：航班、日期、偏好] --> B["parsePreferenceIntent()<br/>自由文字 → PreferenceIntent"]
   B --> C["planTrip()<br/>LLM 決定城市順序與天數"]
   C --> D[逐城市產生每天內容]
-  D --> D1[候選池：fetchCityRestaurants 等<br/>Nearby Search，同一請求內共用]
+  D --> D1[候選池：fetchNearbyPlaceCandidates 等<br/>Nearby Search，同一請求內共用]
   D1 --> D2["規則引擎：partitionCandidatesByDay<br/>→ selectAndOrderStops → assignTimeSlots"]
-  D2 --> D3[LLM 寫文案、三餐、住宿]
+  D2 --> D3[規則挑三餐、住宿<br/>文案用模板]
   D3 --> E["assembleItineraryDays()<br/>組成完整 days，含移動日、回程日"]
   E --> F["validateItinerary() / validateGeography()"]
   F -->|通過| G[(存入 Itinerary)]
@@ -41,8 +41,8 @@ flowchart TD
 ```
 
 - 新路徑由 `src/lib/assembleItineraryDays.ts` 串起來，逐城市的生成在 `src/lib/itineraryCityGen.ts`（`generateDayStops`、`generateTransitDayStops`、`generateMealsAndAccommodation` 等）。
-- 規則引擎（`src/lib/scheduler/`）全是純函式：決定每天放哪些景點、順序、時段；LLM 只負責文案與偏好解析。
-- 舊流程寫在 `generate-stream/route.ts` 裡，prompt 由 `src/lib/itineraryGen.ts` 組成（步調、預算、命名規則等），加上模型沒照規則時的事後修補。它仍是新路徑失敗時的 fallback，不是死程式碼。
+- 規則引擎（`src/lib/scheduler/`）全是純函式：決定每天放哪些景點、順序、時段；三餐與住宿由 `src/lib/mealLodgingPicks.ts` 依規則從候選池挑選；地點文案是模板（`src/lib/skeletonCopy.ts`）。LLM 只負責偏好解析、城市順序與天數、移動日的交通，以及季節亮點、經典一日遊、影劇取景這類自己提出名稱的建議；它的輸入不放任何 Google 內容（ADR-0008）。
+- 舊流程寫在 `generate-stream/route.ts` 裡，prompt 由 `src/lib/itineraryGen.ts` 組成（步調、預算、命名規則等），加上模型沒照規則時的事後修補。模型自己提出地點名稱，之後由 `enrich-all-stops` 查 Google。它仍是新路徑失敗時的 fallback，不是死程式碼。
 
 ## 其他生成入口
 

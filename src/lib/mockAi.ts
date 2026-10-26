@@ -13,9 +13,6 @@
  */
 
 import type OpenAI from "openai";
-import type { RestaurantHint } from "@/lib/fetchCityRestaurants";
-import type { MealLodgingPools } from "@/lib/mealLodgingPicks";
-import type { SkeletonStop } from "@/lib/scheduler/buildDaySkeleton";
 import { recordOpenAICall } from "@/lib/usageMeter";
 
 export type MockMode = "error" | "slow" | "fixture" | null;
@@ -228,26 +225,6 @@ export function mockTripPlanReply(input: {
   };
 }
 
-/** generateSkeletonCopy: one line per skeleton stop, keyed by its id. */
-export function mockSkeletonCopyReply(skeleton: SkeletonStop[], hintById: Map<string, RestaurantHint>) {
-  return {
-    dayTheme: `模擬主題日${MOCK_NOTE}`,
-    stops: Object.fromEntries(
-      skeleton.map((s) => [s.id, { description: `${hintById.get(s.id)?.name ?? s.id} 的模擬介紹。` }]),
-    ),
-  };
-}
-
-/** fillMissingCopy: one line per numbered target. */
-export function mockMissingCopyReply(names: string[]) {
-  return { copy: Object.fromEntries(names.map((name, i) => [String(i), `${name} 的模擬介紹`])) };
-}
-
-/** translatePlaceNames: the same names back, in order. */
-export function mockTranslatedNamesReply(names: string[]) {
-  return { names };
-}
-
 const mockStop = (name: string, time_of_day: "morning" | "afternoon" | "evening", duration_minutes = 60) => ({
   name,
   description: `${name}${MOCK_NOTE}`,
@@ -287,29 +264,16 @@ export function mockDayStopsReply(cityName: string, stayDays: number) {
   };
 }
 
-/**
- * askMealsAndLodging: picks candidates by id in list order (applyMealPicks
- * swaps out any repeat), or invents names when there are no pools.
- */
-export function mockMealsAndLodgingReply(cityName: string, stayDays: number, pools: MealLodgingPools | null, askLodging: boolean) {
-  const pick = (prefix: string, list: unknown[] | undefined, day: number, offset = 0) =>
-    list && list.length > 0 ? `${prefix}${((day + offset) % list.length) + 1}` : null;
-  const meal = (label: string, id: string | null) => ({
-    ...(pools ? { id } : {}),
-    name: `${cityName} 模擬${label}`,
-    description: `模擬${label}${MOCK_NOTE}`,
-    estimated_cost: 0,
-  });
+/** askMealsAndLodging: invented names, as for a city with no candidates. */
+export function mockMealsAndLodgingReply(cityName: string, stayDays: number) {
+  const meal = (label: string) => ({ name: `${cityName} 模擬${label}`, description: `模擬${label}${MOCK_NOTE}`, estimated_cost: 0 });
   return {
-    accommodation: askLodging
-      ? { ...(pools ? { id: pick("H", pools.lodging, 0) } : {}), name: `${cityName} 模擬住宿`, area: `${cityName} 市中心` }
-      : {},
-    meals: Array.from({ length: stayDays }, (_, d) => ({
-      breakfast: meal("早餐", pick("B", pools?.breakfast, d)),
-      lunch: meal("午餐", pick("M", pools?.main, d * 2)),
-      dinner: meal("晚餐", pick("M", pools?.main, d * 2, 1)),
-      snack: meal("點心", pick("S", pools?.snack, d)),
-      ...(pools && pools.nightcap.length > 0 ? { nightcap: meal("小酌", pick("N", pools.nightcap, d)) } : {}),
+    accommodation: { name: `${cityName} 模擬住宿`, area: `${cityName} 市中心` },
+    meals: Array.from({ length: stayDays }, () => ({
+      breakfast: meal("早餐"),
+      lunch: meal("午餐"),
+      dinner: meal("晚餐"),
+      snack: meal("點心"),
     })),
   };
 }

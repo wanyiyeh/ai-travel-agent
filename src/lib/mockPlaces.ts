@@ -108,6 +108,9 @@ function fakePlace(seed: string, name: string, at: LatLng, extra: Record<string,
   };
 }
 
+// About 150m north: well within the scheduler's PART_OF_MAX_KM.
+const MOCK_PART_OFFSET_DEG = 0.0013;
+
 type Circle = { center: { latitude: number; longitude: number }; radius?: number };
 
 function mockTextSearch(body: {
@@ -139,15 +142,24 @@ function mockNearbySearch(body: {
   const count = Math.min(body.maxResultCount ?? 10, 20);
   const maxKm = Math.min((circle.radius ?? 3000) / 1000, 3);
   const key = `${types.join(",")}@${center.lat.toFixed(3)},${center.lng.toFixed(3)}`;
-  return {
-    places: Array.from({ length: count }, (_, i) => {
-      const seed = `${key}#${i}`;
-      return fakePlace(seed, `Mock ${types[0]} ${i + 1}`, offsetFrom(center, seed, maxKm), {
-        types: [types[0]],
-        priceLevel: MOCK_PRICE_LEVELS[hash(seed + ":p") % MOCK_PRICE_LEVELS.length],
-      });
-    }),
-  };
+  const places = Array.from({ length: count }, (_, i) => {
+    const seed = `${key}#${i}`;
+    return fakePlace(seed, `Mock ${types[0]} ${i + 1}`, offsetFrom(center, seed, maxKm), {
+      types: [types[0]],
+      priceLevel: MOCK_PRICE_LEVELS[hash(seed + ":p") % MOCK_PRICE_LEVELS.length],
+    });
+  });
+  // One sight lies within the first, like a shrine's torii, so the pool's
+  // containingPlaces check runs in mock mode too.
+  if (types[0] === "tourist_attraction" && places.length >= 3) {
+    const whole = places[0];
+    const at = { lat: whole.location.latitude + MOCK_PART_OFFSET_DEG, lng: whole.location.longitude };
+    places[places.length - 1] = fakePlace(`${key}#part`, `Mock gate of ${types[0]} 1`, at, {
+      types: [types[0]],
+      containingPlaces: [{ id: whole.id }],
+    });
+  }
+  return { places };
 }
 
 type Waypoint = { waypoint: { address?: string; location?: { latLng: { latitude: number; longitude: number } } } };

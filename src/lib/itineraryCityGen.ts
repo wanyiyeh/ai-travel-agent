@@ -7,15 +7,11 @@ import {
 } from "@/lib/mockAi";
 import { openai } from "@/lib/openai";
 import { getCityCenter, sightAreasFor } from "@/lib/placesTextSearch";
-import { fetchNearbyPlaceCandidates, fetchLodgingCandidates, fetchLuxuryRestaurants, getMealPlaceTypes, searchTextCandidates, type RestaurantHint, type BudgetLevel, type PlaceCandidate, type FieldTier, type TypeMatch } from "@/lib/fetchCityRestaurants";
+import { fetchNearbyPlaceCandidates, fetchLodgingCandidates, fetchLuxuryRestaurants, getMealPlaceTypes, searchTextCandidates, type BudgetLevel, type PlaceCandidate, type FieldTier, type TypeMatch } from "@/lib/fetchCityRestaurants";
 import {
-  applyAccommodationPick,
-  applyMealPicks,
-  formatCandidateLists,
   hasAnyCandidates,
-  newPickHistory,
-  unusedFirst,
-  snackRotationRule,
+  pickAccommodation,
+  pickMeals,
   type MealLodgingPools,
 } from "@/lib/mealLodgingPicks";
 import { placeCandidatesToStopCandidates } from "@/lib/scheduler/placeCandidatesToStopCandidates";
@@ -24,7 +20,7 @@ import { distributeStopsPerDay, fillShortDays, partitionCandidatesWithSeeds } fr
 import { buildDaySkeleton, type SkeletonStop } from "@/lib/scheduler/buildDaySkeleton";
 import { computeDepartureDayBudget } from "@/lib/scheduler/departureDayBudget";
 import { estimateStopCapacity } from "@/lib/scheduler/stopCapacity";
-import { generateSkeletonCopy } from "@/lib/skeletonCopy";
+import { buildStopCopy, type StopCopy } from "@/lib/skeletonCopy";
 import { NEUTRAL_PREFERENCE_INTENT, type PreferenceIntent } from "@/lib/schemas";
 import { getDistancesForStopPairs, pickModeForDistance, describeTransport, modePickerFor } from "@/lib/distanceMatrix";
 import { forSoloTraveler, nearStationFirst } from "@/lib/soloTravel";
@@ -278,12 +274,7 @@ async function planTransitDay(
 }
 
 規則：
-- prepStops：${fromCity ? `${fromCity} 出發前早晨微行程（車站附近早餐或快速景點，09:30 前完成），可以是空陣列` : `出發準備，可以是空陣列`}${
-            visitedInFromCity.length
-              ? `
-- 旅客前幾天已經在 ${fromCity} 去過：${visitedInFromCity.join("、")}。prepStops 不要再排這些地點（包括「XX 散步」這類換個說法的），沒有別的可排就只排早餐或空陣列`
-              : ""
-          }
+- prepStops：${fromCity ? `${fromCity} 出發前早晨微行程（車站附近早餐或快速景點，09:30 前完成），可以是空陣列` : `出發準備，可以是空陣列`}
 - transitStop：交通本身，須填入真實交通工具、正確車程時數，duration_minutes 必須反映真實車程，transport_from_prev 必須包含預估時間（例如「搭乘新幹線約 1 小時30分」），不可只寫交通方式
 - arrivalTime："HH:MM" 格式的 24 小時制時間，代表抵達 ${toCity} 後可以開始活動的時間
 - time_of_day 只能是 "morning"、"afternoon"、"evening" 之一
@@ -308,6 +299,9 @@ async function planTransitDay(
     if (!parsed.transitStop || typeof parsed.transitStop !== "object") return null;
 
     return {
+      // The places already seen in fromCity are Google's names, so they stay
+      // out of the prompt (ADR-0008) and a morning stop that goes back to
+      // one is dropped here instead.
       prepStops: Array.isArray(parsed.prepStops)
         ? withoutRevisits(
             parsed.prepStops.map((s) => ({ ...(s as Record<string, unknown>), id: crypto.randomUUID() })),
@@ -327,7 +321,7 @@ async function planTransitDay(
  * Rule-engine path for generateTransitDayStops (plan/hybrid-rule-engine-scheduling.md
  * Phase 4): keeps the LLM's distance/transport-mode judgment (planTransitDay,
  * above) but replaces its invented arrival-city attractions with a real
- * candidate pool run through the same buildDaySkeleton/generateSkeletonCopy
+ * candidate pool run through the same buildDaySkeleton/buildStopCopy
  * pipeline as generateDayStopsViaScheduler. Returns null on any failure (LLM
  * parse failure, no city center, no candidates) so the caller falls back to
  * the full pure-LLM implementation for this transit day.
@@ -397,11 +391,6 @@ async function generateTransitDayStopsViaScheduler(
     const { candidates, candidateById } = placeCandidatesToStopCandidates(pool);
     if (candidates.length === 0) return null;
 
-    const hintById = new Map<string, RestaurantHint>();
-    for (const [id, place] of candidateById) {
-      hintById.set(id, { name: place.name, rating: place.rating, lat: place.lat, lng: place.lng, types: place.types });
-    }
-
     const shelter = shelterFor(preferenceIntent, candidateById);
     const interestWeights = shelter.weights(interestWeightsOf(preferenceIntent.interestBoost));
     const count = capacityFor(candidates.map((c) => c.type));
@@ -427,10 +416,7 @@ async function generateTransitDayStopsViaScheduler(
       );
       if (aroundSeed.length > 0) {
         const extra = placeCandidatesToStopCandidates(aroundSeed);
-        for (const [id, place] of extra.candidateById) {
-          candidateById.set(id, place);
-          hintById.set(id, { name: place.name, rating: place.rating, lat: place.lat, lng: place.lng, types: place.types });
-        }
+        for (const [id, place] of extra.candidateById) candidateById.set(id, place);
         [arrivalGroup] = fillShortDays(
           firstPass.days,
           firstPass.seeds,
@@ -463,7 +449,7 @@ async function generateTransitDayStopsViaScheduler(
     const arrivalStops = await stopsWithFixedEvents(
       skeleton,
       fixed,
-      generateSkeletonCopy(skeleton, hintById, preferenceIntent, model, toCity),
+      buildStopCopy(skeleton),
       candidateById,
       currency,
       shelter.pickMode,
@@ -630,16 +616,10 @@ export async function generateDepartureDayStops(
     const withinCutoff = skeleton.filter((s) => s.endMinute <= cutoffMinute);
     if (withinCutoff.length === 0) return fixedEventStopsOnly(fixed);
 
-    const hintById = new Map<string, RestaurantHint>();
-    for (const [id, place] of candidateById) {
-      hintById.set(id, { name: place.name, rating: place.rating, lat: place.lat, lng: place.lng, types: place.types });
-    }
-
-    const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
     return await stopsWithFixedEvents(
       withinCutoff,
       fixed,
-      generateSkeletonCopy(withinCutoff, hintById, preferenceIntent, model, cityName),
+      buildStopCopy(withinCutoff),
       candidateById,
       currency,
       shelter.pickMode,
@@ -778,7 +758,8 @@ function withDrinkDriveNote(meals: Record<string, unknown>): Record<string, unkn
   return { ...meals, nightcap: { ...nightcap, description: `${description}${DRINK_DRIVE_NOTE}` } };
 }
 
-async function fetchMealLodgingPools(
+// Exported for tests: what each meal slot picks from, in order.
+export async function fetchMealLodgingPools(
   cityName: string,
   budget: BudgetLevel | undefined,
   currency: string,
@@ -922,70 +903,42 @@ export async function generateMealsAndAccommodation(
   budget?: BudgetLevel,
   preferences: MealPreferences = {},
 ): Promise<{ accommodation: Record<string, unknown>; mealsByDay: Array<Record<string, unknown>> }> {
-  const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
-
-  // Real candidates first: 4 Nearby Searches per city (cached 30 days per
-  // city center) replace one Text Search per meal/hotel during enrich, and
-  // the LLM can't invent a name that later comes back "not found". Any
-  // failure here just means the old invent-the-names prompt below.
+  // Real candidates, picked by rule (mealLodgingPicks.ts): no Google name
+  // goes to the model (ADR-0008). Only when the city has none at all does
+  // the model name places of its own, which enrich then looks up.
   const pools = await fetchMealLodgingPools(cityName, budget, currency, stayDays, preferences).catch(() => null);
-  const useCandidates = pools !== null && hasAnyCandidates(pools);
-
-  const lateRiserRule =
-    preferences.startTimePreference === "late" ? "\n- 旅客晚起（約 11:00 出門），早餐請選早午餐" : "";
-  const hotSpringRule = preferences.hotSpring ? "\n- 旅客想泡溫泉：住宿優先選排在前面的溫泉飯店" : "";
-  const kidsRule = preferences.kids
-    ? "\n- 有小孩同行：午餐、晚餐優先選適合兒童的店（排在候選前面的），避開居酒屋、酒吧；拉麵可以，優先雞湯系或豚骨，避開辣的"
-    : "";
-  const soloRule = preferences.solo
-    ? "\n- 一個人旅行：午餐、晚餐優先選一個人吃也自在的店（拉麵、壽司、定食、有吧檯座位的店，排在候選前面的），避開雙人套餐、大份量火鍋、燒肉吃到飽；住宿優先選排在前面、離車站近的"
-    : "";
-  const petsRule = preferences.pets ? "\n- 帶狗同行：午餐、晚餐優先選排在前面的寵物友善餐廳" : "";
-  const preferenceRules =
-    dietPromptLine(preferences.dietaryRestrictions ?? []) + lateRiserRule + kidsRule + soloRule + hotSpringRule + petsRule;
-
-  if (!useCandidates) {
-    const parsed = await askMealsAndLodging(model, cityName, stayDays, currency, preferenceRules, null, true);
+  if (pools === null || !hasAnyCandidates(pools)) {
+    const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
+    const parsed = await askMealsAndLodging(model, cityName, stayDays, currency, mealPreferenceRules(preferences));
     return {
       accommodation: parsed.accommodation ?? {},
       mealsByDay: Array.from({ length: stayDays }, (_, i) => parsed.meals?.[i] ?? {}),
     };
   }
 
-  // A long stay is asked for in chunks: one reply covering 14 days came back
-  // truncated, leaving the last days without meals. Each chunk lists unused
-  // candidates first, and applyMealPicks fills anything left empty with a
-  // real candidate, repeating one only after the pool is used up.
-  const history = newPickHistory();
-  let accommodation: Record<string, unknown> = {};
-  const mealsByDay: Array<Record<string, unknown>> = [];
-  for (let start = 0; start < stayDays; start += MEAL_CHUNK_DAYS) {
-    const days = Math.min(MEAL_CHUNK_DAYS, stayDays - start);
-    const isFirst = start === 0;
-    const chunkPools = isFirst ? pools : unusedFirst(pools, history);
-    // A failed chunk still gets meals: every slot is filled from candidates.
-    const chunkRules = preferenceRules + snackRotationRule(chunkPools, start, days);
-    const parsed = await askMealsAndLodging(model, cityName, days, currency, chunkRules, chunkPools, isFirst).catch(
-      (err) => {
-        console.warn(`[generateMealsAndAccommodation] chunk from day ${start} failed, filling from candidates:`, err);
-        return {} as ParsedMealsReply;
-      }
-    );
-    if (isFirst) {
-      // With a dog and no stay that takes one, none is suggested: the LLM
-      // would otherwise name any hotel for an empty list.
-      accommodation =
-        preferences.pets && pools.lodging.length === 0
-          ? noPetLodging(cityName)
-          : applyAccommodationPick(parsed.accommodation, chunkPools, currency);
-    }
-    // 獨旅: the 小酌 only within a walk of the lodging (plan 1.5), once the lodging is known.
-    const mealPools = preferences.solo ? withNightcapNear(chunkPools, accommodation) : chunkPools;
-    const picked = applyMealPicks(parsed.meals, mealPools, days, currency, history, start);
-    // None that close: no 小酌 that night, rather than the model's own pick further off.
-    mealsByDay.push(...(preferences.solo && mealPools.nightcap.length === 0 ? picked.map(withoutNightcapSlot) : picked));
-  }
+  // With a dog and no stay that takes one, none is suggested.
+  const accommodation =
+    preferences.pets && pools.lodging.length === 0 ? noPetLodging(cityName) : pickAccommodation(pools, currency, cityName);
+  // 獨旅: the 小酌 only within a walk of the lodging (plan 1.5), once the lodging is known.
+  const mealPools = preferences.solo ? withNightcapNear(pools, accommodation) : pools;
+  const picked = pickMeals(mealPools, stayDays, currency);
+  // None that close: no 小酌 that night.
+  const mealsByDay = preferences.solo && mealPools.nightcap.length === 0 ? picked.map(withoutNightcapSlot) : picked;
   return { accommodation, mealsByDay: preferences.selfDrive ? mealsByDay.map(withDrinkDriveNote) : mealsByDay };
+}
+
+/** The traveler's preferences as prompt lines, for the model naming places itself. */
+function mealPreferenceRules(preferences: MealPreferences): string {
+  const lateRiser = preferences.startTimePreference === "late" ? "\n- 旅客晚起（約 11:00 出門），早餐請選早午餐" : "";
+  const hotSpring = preferences.hotSpring ? "\n- 旅客想泡溫泉：住宿選溫泉飯店" : "";
+  const kids = preferences.kids
+    ? "\n- 有小孩同行：午餐、晚餐選適合兒童的店，避開居酒屋、酒吧；拉麵可以，優先雞湯系或豚骨，避開辣的"
+    : "";
+  const solo = preferences.solo
+    ? "\n- 一個人旅行：午餐、晚餐選一個人吃也自在的店（拉麵、壽司、定食、有吧檯座位的店），避開雙人套餐、大份量火鍋、燒肉吃到飽；住宿選離車站近的"
+    : "";
+  const pets = preferences.pets ? "\n- 帶狗同行：午餐、晚餐選寵物友善餐廳" : "";
+  return dietPromptLine(preferences.dietaryRestrictions ?? []) + lateRiser + kids + solo + hotSpring + pets;
 }
 
 // A walk back to the lodging after a drink, for someone on their own.
@@ -1003,18 +956,14 @@ function withoutNightcapSlot(meals: Record<string, unknown>): Record<string, unk
   return rest;
 }
 
-// Days of meals asked for per LLM call — see generateMealsAndAccommodation.
-const MEAL_CHUNK_DAYS = 5;
-
 type ParsedMealsReply = {
   accommodation?: Record<string, unknown>;
   meals?: Array<Record<string, unknown>>;
 };
 
 /**
- * One meal (and, for the first chunk, lodging) picking call. With `pools`
- * the LLM picks from real candidates by id; without, it names places itself
- * (the pre-candidate fallback).
+ * Meals and lodging named by the model itself, for a city with no real
+ * candidates at all; enrich looks the names up afterwards.
  */
 async function askMealsAndLodging(
   model: string,
@@ -1022,30 +971,9 @@ async function askMealsAndLodging(
   stayDays: number,
   currency: string,
   preferenceRules: string,
-  pools: MealLodgingPools | null,
-  askLodging: boolean,
 ): Promise<ParsedMealsReply> {
-  const candidateRules = pools
-    ? `
-
-以下是 ${cityName} 真實存在的店家候選（Google 地圖資料）。每個欄位都要從對應清單中選一個，並在 "id" 填入它的編號（例如 "M3"），"name" 照抄清單上的名稱：
-- ${askLodging ? "住宿從「住宿候選」選一個" : "住宿已經決定，accommodation 回傳空物件 {} 即可"}
-- 早餐從「早餐候選」選，午餐和晚餐都從「午餐／晚餐候選」選，點心從「點心候選」選
-- 清單越前面的店越優先；同一家店不要在同一天出現兩次（午餐和晚餐也不能選同一家），也不要在相鄰兩天重複
-- 某個清單完全沒有候選時，才自行推薦真實店家，id 填 null
-
-${formatCandidateLists(pools)}`
-    : "";
-  const idField = pools ? `"id": "候選編號或 null", ` : "";
-  // 小酌 only for a traveler who picked 酒 (its candidates are empty otherwise).
-  const withNightcap = (pools?.nightcap.length ?? 0) > 0;
-  const nightcapField = withNightcap
-    ? `,\n      "nightcap": { ${idField}"name": "酒吧或居酒屋名稱", "description": "一句話簡介", "estimated_cost": 0 }`
-    : "";
-  const nightcapRule = withNightcap ? "\n- 小酌（nightcap）從「小酌候選」選，是晚餐後喝一杯的酒吧或居酒屋，不可與當天晚餐同一家" : "";
-
   const completion =
-    (await mockCompletion(() => mockMealsAndLodgingReply(cityName, stayDays, pools, askLodging))) ??
+    (await mockCompletion(() => mockMealsAndLodgingReply(cityName, stayDays))) ??
     await openai.chat.completions.create({
     model,
     messages: [
@@ -1055,13 +983,13 @@ ${formatCandidateLists(pools)}`
 
 回傳嚴格的 JSON 格式（不要其他文字）：
 {
-  "accommodation": { ${idField}"name": "住宿名稱（使用原文或英文）", "area": "所在區域" },
+  "accommodation": { "name": "住宿名稱（使用原文或英文）", "area": "所在區域" },
   "meals": [
     {
-      "breakfast": { ${idField}"name": "餐廳名稱", "description": "一句話簡介", "estimated_cost": 0 },
-      "lunch": { ${idField}"name": "餐廳名稱", "description": "一句話簡介", "estimated_cost": 0 },
-      "dinner": { ${idField}"name": "餐廳名稱", "description": "一句話簡介", "estimated_cost": 0 },
-      "snack": { ${idField}"name": "咖啡館或甜點店名稱", "description": "一句話簡介", "estimated_cost": 0 }${nightcapField}
+      "breakfast": { "name": "餐廳名稱", "description": "一句話簡介", "estimated_cost": 0 },
+      "lunch": { "name": "餐廳名稱", "description": "一句話簡介", "estimated_cost": 0 },
+      "dinner": { "name": "餐廳名稱", "description": "一句話簡介", "estimated_cost": 0 },
+      "snack": { "name": "咖啡館或甜點店名稱", "description": "一句話簡介", "estimated_cost": 0 }
     }
   ]
 }
@@ -1070,7 +998,7 @@ ${formatCandidateLists(pools)}`
 - accommodation 為整個在 ${cityName} 停留期間的住宿，必須是真實存在且可在 Booking.com 找到的飯店
 - meals 陣列共 ${stayDays} 個元素，每天推薦不同的餐廳
 - 所有餐廳必須是 ${cityName} 真實存在的知名店家；snack 須為咖啡館、甜點店或冰淇淋店，不可填正餐型餐廳
-- estimated_cost 為 ${currency} 整數，代表每人平均消費${preferenceRules}${nightcapRule}${candidateRules}`,
+- estimated_cost 為 ${currency} 整數，代表每人平均消費${preferenceRules}`,
       },
       {
         role: "user",
@@ -1436,17 +1364,14 @@ function shelterFor(preferenceIntent: PreferenceIntent, candidateById: Map<strin
 function assembleScheduledStops(
   skeleton: SkeletonStop[],
   candidateById: Map<string, PlaceCandidate>,
-  copy: Awaited<ReturnType<typeof generateSkeletonCopy>>,
+  copy: StopCopy,
   distances: Awaited<ReturnType<typeof getDistancesForStopPairs>>,
   currency: string
 ): Array<Record<string, unknown>> {
   return skeleton.map((s, i) => {
     const place = candidateById.get(s.id)!;
     const dist = i > 0 ? distances[i - 1] : null;
-    const stopCopy = copy.stops[s.id];
-    const description = stopCopy
-      ? stopCopy.description + (stopCopy.highlight ? ` ${stopCopy.highlight}` : "")
-      : `前往 ${place.name}。`;
+    const description = copy[s.id] ?? "";
 
     return {
       // A stop's own id, not the place's: the same place can legitimately
@@ -1478,7 +1403,7 @@ function assembleScheduledStops(
 async function stopsWithFixedEvents(
   skeleton: SkeletonStop[],
   events: DayFixedEvents,
-  copy: Promise<Awaited<ReturnType<typeof generateSkeletonCopy>>>,
+  copy: StopCopy,
   candidateById: Map<string, PlaceCandidate>,
   currency: string,
   pickMode: (km: number) => ReturnType<typeof pickModeForDistance>,
@@ -1517,16 +1442,9 @@ async function stopsWithFixedEvents(
         )
       : walkOrRide;
   };
-  const [stopCopy, legs] = await Promise.all([copy, legsAlong(items)]);
-  const scheduled = assembleScheduledStops(skeleton, candidateById, stopCopy, skeleton.map(() => null), currency);
-  // A stop the copy found to be part of another (箱根神社 and its
-  // 「Heiwa-no-Torii (Hakone Shrine)」, which no name check can match) goes;
-  // the other's description mentions it. Its legs are worked out again
-  // without it — usually cached, except the one leg that now joins its
-  // neighbours.
-  const kept = items.filter((item) => item.skeletonIndex === undefined || !stopCopy.stops[skeleton[item.skeletonIndex].id]?.partOf);
-  const distances = kept.length === items.length ? legs : await legsAlong(kept);
-  return kept.map((item, k) => {
+  const distances = await legsAlong(items);
+  const scheduled = assembleScheduledStops(skeleton, candidateById, copy, skeleton.map(() => null), currency);
+  return items.map((item, k) => {
     const dist = k > 0 ? distances[k - 1] : null;
     const base = item.skeletonIndex !== undefined ? scheduled[item.skeletonIndex] : { ...item.stop };
     delete base.transport_from_prev;
@@ -1744,11 +1662,6 @@ async function generateDayStopsViaScheduler(
       });
     }
 
-    const hintById = new Map<string, RestaurantHint>();
-    for (const [id, place] of candidateById) {
-      hintById.set(id, { name: place.name, rating: place.rating, lat: place.lat, lng: place.lng, types: place.types });
-    }
-
     const skeletonsByDay: SkeletonStop[][] = dayGroups.map((group, dayIdx) =>
       group.length > 0
         ? withinDayEnd(
@@ -1771,13 +1684,18 @@ async function generateDayStopsViaScheduler(
         : []
     );
 
-    const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
+    // A day only claims its theme when it actually got an on-theme stop.
+    const themeByDay = skeletonsByDay.map((skeleton, dayIdx) => {
+      // A seasonal day is titled by its highlights, not the rotation.
+      const theme = seasonalByDay[dayIdx]?.length ? undefined : dayThemes[dayIdx];
+      return theme && skeleton.some(onTheme(theme)) ? theme : undefined;
+    });
     const stopsByDay = await Promise.all(
       skeletonsByDay.map((skeleton, dayIdx) =>
         stopsWithFixedEvents(
           skeleton,
           fixedByDay[dayIdx] ?? [],
-          generateSkeletonCopy(skeleton, hintById, preferenceIntent, model, cityName),
+          buildStopCopy(skeleton, { themeLabel: themeByDay[dayIdx] && THEMES[themeByDay[dayIdx]].label, markLast: true }),
           candidateById,
           currency,
           shelter.pickMode,
@@ -1799,12 +1717,7 @@ async function generateDayStopsViaScheduler(
           })
           .map((c) => c.id);
       }),
-      // A day only claims its theme when it actually got an on-theme stop.
-      themeByDay: skeletonsByDay.map((skeleton, dayIdx) => {
-        // A seasonal day is titled by its highlights, not the rotation.
-        const theme = seasonalByDay[dayIdx]?.length ? undefined : dayThemes[dayIdx];
-        return theme && skeleton.some(onTheme(theme)) ? theme : undefined;
-      }),
+      themeByDay,
     };
   } catch (err) {
     console.warn("[generateDayStopsViaScheduler] falling back to LLM:", err);

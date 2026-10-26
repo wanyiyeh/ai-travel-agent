@@ -6,9 +6,8 @@ import { findNearestStation } from "@/lib/fetchCityRestaurants";
 import { snapToGrid } from "@/lib/geo";
 import { resolveDayCoords } from "@/lib/itineraryGen";
 import { cityToIata } from "@/lib/iataCity";
-import { getIataCoords } from "@/lib/fetchCityRestaurants";
+import { getIataCoords } from "@/lib/airports";
 import { estimateLodgingCostPerNight, estimateLodgingCostRange } from "@/lib/priceLevelCost";
-import { translatePlaceNames } from "@/lib/translatePlaceNames";
 import { findDayIndex } from "@/lib/itineraryDays";
 import type { AccommodationCandidate } from "@/types/itinerary";
 import { internalErrorResponse } from "@/lib/apiError";
@@ -130,20 +129,13 @@ export async function POST(
       filteredHotels.map((h) => findNearestStation({ lat: h.lat, lng: h.lng }, googleApiKey))
     );
 
-    // Google's zh-TW languageCode only translates names it already has a
-    // Chinese listing for — most independent hotels/guesthouses (especially
-    // in Japan) come back in the local script, so fill the gap for display.
-    const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
-    const nameTranslations = await translatePlaceNames(
-      filteredHotels.map((h) => h.name),
-      model,
-    );
-
+    // Google's name as it comes (zh-TW where Google has one, else the local
+    // script): rewriting it with the model is ruled out (ADR-0008).
     const found: AccommodationCandidate[] = filteredHotels.map((h, i) => {
       const estimatedCost = estimateLodgingCostPerNight(config.currency, h.priceLevel);
       const costRange = estimateLodgingCostRange(config.currency, h.priceLevel);
       return {
-        name: nameTranslations.get(h.name) ?? h.name,
+        name: h.name,
         area: deriveArea(h.address),
         placeId: h.placeId,
         lat: h.lat,
