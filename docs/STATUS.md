@@ -6,7 +6,7 @@
 
 ## 現在在做什麼
 
-[PLAN-002](plans/PLAN-002-llm-without-google-content.md) 已完成（父 issue #262，PR #273）：OpenAI 的輸入不再放任何 Google 內容，避開服務條款 3.2.3(c) 的灰色地帶（[ADR-0008](adr/0008-no-google-content-in-llm-input.md)，取代向 Google 書面詢問的 #207）。Google 地點的文案改用模板、大多數站留白；三餐與住宿改由規則挑選；`partOf` 改用 Google 的 `containingPlaces`。現在怎麼運作見[功能頁](features/place-copy-and-meals.md)。本機與正式資料庫的舊文案都已清除（#270）；Neon 的備份 branch `backup-before-270` 會在 2026-11-02 自動刪除。
+[PLAN-002](plans/PLAN-002-llm-without-google-content.md) 已完成（父 issue #262，PR #273）：OpenAI 的輸入不再放任何 Google 內容，避開服務條款 3.2.3(c) 的灰色地帶（[ADR-0008](adr/0008-no-google-content-in-llm-input.md)，取代向 Google 書面詢問的 #207）。Google 地點的文案改用模板、大多數站留白；三餐與住宿改由規則挑選；`partOf` 改用 Google 的 `containingPlaces`。現在怎麼運作見[功能頁](features/place-copy-and-meals.md)。2026-10-26 使用者以 `dev:free` 生成一次，畫面正常。本機與正式資料庫的舊文案都已清除（#270）；Neon 的備份 branch `backup-before-270` 會在 2026-11-02 自動刪除。
 
 [PLAN-001](plans/PLAN-001-portfolio-launch.md) 作品集上線仍在進行（父 issue #196）。已部署到 Vercel（低調上線期間網址不寫進 repo）、Neon 新加坡；設定見 [deploy.md](deploy.md)。#214 只剩訪客生成一次、生成 2～3 份公開範例。
 
@@ -14,10 +14,9 @@
 
 ## 下一步
 
-1. 用 `npm run dev:free` 生成一次，確認列表留白的站與三餐住宿看起來正常（免費）。
-2. 使用者確認正式網站顯示正常後，可提前刪除 Neon 備份 branch。
-3. 使用者操作：#181（GCP 預算通知、OpenAI 硬上限，p0）、#197（OpenAI 不分享資料給訓練）。
-4. #214 的公開範例（會花錢，先問），之後 #261（隱私權說明頁）、#215 正式公開。
+1. 使用者確認正式網站顯示正常後，可提前刪除 Neon 備份 branch。
+2. 使用者操作：#181（GCP 預算通知、OpenAI 硬上限，p0）、#197（OpenAI 不分享資料給訓練）。
+3. #214 的公開範例（會花錢，先問），之後 #261（隱私權說明頁）、#215 正式公開。
 
 ## 卡點與待決定
 
