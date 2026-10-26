@@ -26,6 +26,8 @@ vi.mock("@/lib/assembleItineraryDays", () => ({
 }));
 
 const { POST } = await import("@/app/api/v1/generate-stream/route");
+const { prisma } = await import("@/lib/db");
+const { hashIp } = await import("@/lib/requestFingerprint");
 
 // Story: the traveler closes the tab while the itinerary is being generated.
 // Writing to the closed stream used to throw, which the route mistook for a
@@ -58,6 +60,10 @@ describe("generate-stream when the browser disconnects mid-generation", () => {
     const reader = res.body!.getReader();
     const first = new TextDecoder().decode((await reader.read()).value);
     expect(first).toContain('"type":"plan"');
+    // The one-at-a-time lock is held under the IP's hash, never the IP (#279).
+    const lockKeys = (await prisma.generationLock.findMany()).map((l) => l.key);
+    expect(lockKeys).toContain(hashIp("198.51.100.91"));
+    expect(lockKeys.join(" ")).not.toContain("198.51.100.91");
 
     await reader.cancel(); // the tab closes
     releaseRuleEngine();

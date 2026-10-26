@@ -29,6 +29,8 @@ export default defineConfig({
       SHARED_STATE: "memory",
       GOOGLE_PLACES_API_KEY: "",
       OPENAI_API_KEY: "unit-tests-never-call-openai",
+      // Signs guest cookies and hashes client IPs (requestFingerprint.ts).
+      AUTH_SECRET: "unit-tests-auth-secret",
       DATABASE_URL: "postgresql://unit-tests-must-not-use-a-database@127.0.0.1:1/none",
     },
   },
