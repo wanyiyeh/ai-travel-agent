@@ -8,7 +8,7 @@ source:
   - src/lib/scheduler/placeCandidatesToStopCandidates.ts
   - src/lib/stopSuggestionFallback.ts
   - src/lib/llmInputGuard.test.ts
-adr: [4, 5, 8]
+adr: [4, 5, 8, 9]
 plan: PLAN-002
 ---
 
@@ -38,6 +38,7 @@ flowchart TD
 | 程式的實用說明 | 照舊保留，例如「一日遊：從東京搭火車約 1.5 小時到箱根」「開場前在東京巨蛋附近用餐」 |
 | 地點本身的介紹 | 不寫。使用者點「照片與詳情」看 Google 自己的內容（ADR-0005） |
 | 三餐 | 依候選池順序挑第一家沒用過的店；同一天、隔天不重複，候選用完才重複，挑來過最少次的；點心照飲料輪替；晚餐盡量避開午餐的料理類型（籠統的 `restaurant` 不算） |
+| 移動日的早餐 | 出發城市多挑一天的餐點，只取那天的早餐（[移動日](transit-days.md)、ADR-0009） |
 | 住宿 | 住宿候選排第一的那家；「區域」填城市名 |
 | 候選池的順序 | 建池時就依預算、飲食限制、親子、獨旅、帶狗、晚起、溫泉排好（`fetchMealLodgingPools`） |
 | 同一處的子地點 | 子地點的 `containingPlaces` 有池中的主地點、相距在距離上限內、名稱開頭不同，且主地點不是公園類、子地點不是獨立目的地，才不進候選池（和平鳥居併入箱根神社，東大寺不併入奈良公園） |

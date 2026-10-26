@@ -14,6 +14,7 @@
 | 0006 | [每個座標附上取得時間，超過 30 天就刪除](0006-coordinate-expiry.md) | Accepted | 2026-10-23 |
 | 0007 | [本機開發與整合測試用 Docker 跑 Postgres，CI 用 Postgres service](0007-local-postgres-docker.md) | Accepted | 2026-10-23 |
 | 0008 | [LLM 的輸入不放任何 Google Maps 內容，Google 地點的文案改用模板](0008-no-google-content-in-llm-input.md) | Accepted | 2026-10-25 |
+| 0009 | [移動日的交通留在 stops 裡、標記成交通站，早餐改由規則挑選](0009-transit-leg-as-pinned-stop.md) | Accepted | 2026-10-26 |
 
 ## 模板
 
