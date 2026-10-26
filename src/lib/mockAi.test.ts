@@ -62,21 +62,12 @@ describe("mockTripPlanReply", () => {
 });
 
 describe("mockMealsAndLodgingReply", () => {
-  it("picks candidates by their list ids, lunch and dinner from different places", () => {
-    const place = (name: string) => ({ name, placeId: name, lat: 0, lng: 0, address: "" });
-    const pools = {
-      breakfast: [place("b1")],
-      main: [place("m1"), place("m2"), place("m3")],
-      snack: [place("s1")],
-      lodging: [place("h1")],
-      nightcap: [],
-    };
-    const reply = mockMealsAndLodgingReply("東京", 2, pools, true);
+  it("names a lodging and four meals a day of its own", () => {
+    const reply = mockMealsAndLodgingReply("東京", 2);
 
-    expect(reply.accommodation).toMatchObject({ id: "H1" });
+    expect(reply.accommodation).toMatchObject({ name: "東京 模擬住宿" });
     expect(reply.meals).toHaveLength(2);
-    expect(reply.meals[0].lunch.id).not.toBe(reply.meals[0].dinner.id);
-    expect(reply.meals[0]).not.toHaveProperty("nightcap");
+    expect(Object.keys(reply.meals[0])).toEqual(["breakfast", "lunch", "dinner", "snack"]);
   });
 });
 
