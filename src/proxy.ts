@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { MAX_REQUEST_BODY_BYTES } from "@/lib/inputLimits";
 import { RATE_LIMITS, classifyApiPath, clientIp } from "@/lib/rateLimit";
-import { hashIp } from "@/lib/requestFingerprint";
+import { DEVICE_COOKIE, DEVICE_COOKIE_MAX_AGE_S, hashIp } from "@/lib/requestFingerprint";
 import { apiRateLimitStore } from "@/lib/sharedState";
 
 const METHODS_WITH_BODY = new Set(["POST", "PUT", "PATCH"]);
@@ -22,7 +22,6 @@ export function isCrossSiteWrite(request: NextRequest): boolean {
   const origin = request.headers.get("origin");
   return origin !== null && origin !== request.nextUrl.origin;
 }
-const DEVICE_COOKIE = "device_id";
 const DEVICE_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 export async function proxy(request: NextRequest) {
@@ -85,7 +84,7 @@ export async function proxy(request: NextRequest) {
       httpOnly: true,
       sameSite: "lax",
       path: "/",
-      maxAge: 365 * 24 * 60 * 60,
+      maxAge: DEVICE_COOKIE_MAX_AGE_S,
       secure: process.env.NODE_ENV === "production",
     });
   }
