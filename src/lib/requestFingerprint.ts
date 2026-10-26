@@ -1,6 +1,10 @@
 import { createHmac } from "node:crypto";
 import { clientIp } from "@/lib/rateLimit";
 
+// The browser's id for the per-device quota, issued by proxy.ts.
+export const DEVICE_COOKIE = "device_id";
+export const DEVICE_COOKIE_MAX_AGE_S = 365 * 24 * 60 * 60;
+
 export interface RequestFingerprint {
   ipHash: string;
   deviceId: string | null;

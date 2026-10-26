@@ -25,9 +25,13 @@ async function claimGuestOnSignIn(userId: string) {
 // JWT sessions: the signed cookie carries our User id, so no Session/Account
 // tables are needed (keeps this independent of the Postgres migration in
 // plan/docker-and-ci.md).
+// How long a sign-in lasts: Auth.js's own default, set here so the privacy
+// page can state it.
+export const SESSION_MAX_AGE_S = 30 * 24 * 60 * 60;
+
 export const { handlers, auth, signIn, signOut } = NextAuth({
   providers: [Google],
-  session: { strategy: "jwt" },
+  session: { strategy: "jwt", maxAge: SESSION_MAX_AGE_S },
   callbacks: {
     // Only accept accounts whose email Google has verified — the email is
     // what identifies the user (and admins) here.

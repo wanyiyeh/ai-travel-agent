@@ -11,10 +11,10 @@ import { purgeExpiredCoords, type PurgeResult } from "@/lib/coordsPurge";
 const DAY_MS = 24 * 60 * 60 * 1000;
 // Only the last 24h of usage are ever counted; 30 days are kept for review
 // (plan/access-control.md §4). Daily call counts are kept as long.
-const USAGE_RETENTION_MS = 30 * DAY_MS;
+export const USAGE_RETENTION_MS = 30 * DAY_MS;
 // The longest rate-limit window is a day (RATE_LIMITS in rateLimit.ts); a
 // window older than two of those can no longer affect a decision.
-const RATE_LIMIT_WINDOW_RETENTION_MS = 2 * DAY_MS;
+export const RATE_LIMIT_WINDOW_RETENTION_MS = 2 * DAY_MS;
 
 export interface ExpiredGuestCleanup {
   itineraries: number;
