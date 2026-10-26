@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { auth, signIn, signOut } from "@/auth";
 
 // Thin bar at the top of every page: sign in with Google, or show who's
@@ -13,6 +14,9 @@ export default async function AccountBar() {
           <span className="truncate max-w-[60vw]" title={email}>
             {email}
           </span>
+          <Link href="/account" className="underline underline-offset-4 hover:text-zinc-900 dark:hover:text-zinc-100">
+            帳號
+          </Link>
           <form
             action={async () => {
               "use server";

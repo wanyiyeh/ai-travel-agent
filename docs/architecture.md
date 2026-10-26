@@ -19,6 +19,7 @@ flowchart LR
 
 - 只有 Google 登入（`src/auth.ts`，JWT session）。未登入的訪客也能生成，由簽章 cookie 識別、行程會過期；登入時認領訪客行程（`src/lib/auth/guest.ts`）。
 - 行程讀寫都檢查擁有權（`src/lib/auth/ownership.ts`）。
+- 登入的使用者可以在 `/account` 自行刪除帳號與所有資料（`src/lib/auth/deleteAccount.ts`，見[功能頁](features/account-deletion.md)）。
 - 花錢的操作受三層保護：`src/proxy.ts` 依 IP 與成本等級限流；`src/lib/quota.ts` 依使用者、IP、裝置計算額度，紀錄在 `UsageEvent`；生成前要通過 Cloudflare Turnstile。管理者（`ADMIN_EMAILS`）不受額度限制。另有全站每日呼叫上限（`src/lib/dailyBudget.ts`）與每個 IP 同時只能一個生成的鎖。限流、每日上限與生成鎖存在 Postgres，多個伺服器實例共用（`src/lib/sharedState.ts`，#209）；單元測試用記憶體版本（`SHARED_STATE=memory`）。
 
 ## 行程生成主流程
