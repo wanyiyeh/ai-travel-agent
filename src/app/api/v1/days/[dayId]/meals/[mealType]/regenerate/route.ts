@@ -22,7 +22,6 @@ import { estimateFromPriceRange, isPriceFloor, rankMainMealsByBudget } from "@/l
 
 // How many fresh candidates the picker shows.
 const PICKER_SIZE = 10;
-import { translatePlaceNames } from "@/lib/translatePlaceNames";
 import { isMealType } from "@/types/itinerary";
 import { findDayIndex } from "@/lib/itineraryDays";
 import type { MealCandidate } from "@/types/itinerary";
@@ -173,15 +172,8 @@ export async function POST(
         (!currentName || normalize(p.name) !== normalize(currentName))
     );
 
-    // Google's zh-TW languageCode only translates names it already has a
-    // Chinese listing for — most independent restaurants/cafés (especially
-    // in Japan) come back in the local script, so fill the gap for display.
-    const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
-    const nameTranslations = await translatePlaceNames(
-      filteredPlaces.map((p) => p.name),
-      model,
-    );
-
+    // Google's name as it comes (zh-TW where Google has one, else the local
+    // script): rewriting it with the model is ruled out (ADR-0008).
     // Places already planned for another meal of this trip are labelled and
     // moved to the end, so swapping out a repeat doesn't just land on another.
     // Labelled rather than dropped: candidates can be scarce, and some
@@ -192,7 +184,7 @@ export async function POST(
       .map((p) => {
         const planned = plannedElsewhere.get(p.placeId);
         return {
-          name: nameTranslations.get(p.name) ?? p.name,
+          name: p.name,
           placeId: p.placeId,
           lat: p.lat,
           lng: p.lng,

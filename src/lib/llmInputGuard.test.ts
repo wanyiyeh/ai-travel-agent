@@ -6,15 +6,14 @@ import type { RestaurantHint } from "@/lib/fetchCityRestaurants";
 // places' Google content out of the prompt. Call sites that still send it
 // are marked it.fails until their PLAN-002 sub-issue fixes them; switch
 // each back to it() then (vitest reports an it.fails that starts passing).
-// Stop copy (skeletonCopy.ts, #265) and the trip-wide missing copy (#266)
-// no longer call OpenAI.
+// Stop copy (skeletonCopy.ts, #265), the trip-wide missing copy (#266) and
+// place name translation (#268) no longer call OpenAI.
 
 const createMock = vi.fn();
 vi.mock("@/lib/openai", () => ({
   openai: { chat: { completions: { create: (...args: unknown[]) => createMock(...args) } } },
 }));
 
-const { translatePlaceNames } = await import("@/lib/translatePlaceNames");
 const { suggestFallbackText } = await import("@/lib/stopSuggestionFallback");
 const { buildAttractionHintsPrompt, buildRestaurantHintsPrompt } = await import("@/lib/fetchCityRestaurants");
 
@@ -48,13 +47,6 @@ describe("LLM input carries no Google Maps content (ADR-0008)", () => {
     const suggestions = await suggestFallbackText("test-model", "東京 5 天", "東京 文化巡禮", [googleName("淺草寺")]);
     expectNoGoogleContent(...capturedMessages(createMock));
     expect(suggestions.map((c) => c.name)).toEqual(["上野公園"]);
-  });
-
-  // #268: the function goes away; its input is Google names by definition.
-  it.fails("place name translation", async () => {
-    await translatePlaceNames([googleName("Bear Pond Espresso")], "test-model");
-    expect(createMock).toHaveBeenCalled();
-    expectNoGoogleContent(...capturedMessages(createMock));
   });
 
   // #269: the old full-LLM fallback's prompt is built from these.

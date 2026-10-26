@@ -226,11 +226,6 @@ export function mockTripPlanReply(input: {
   };
 }
 
-/** translatePlaceNames: the same names back, in order. */
-export function mockTranslatedNamesReply(names: string[]) {
-  return { names };
-}
-
 const mockStop = (name: string, time_of_day: "morning" | "afternoon" | "evening", duration_minutes = 60) => ({
   name,
   description: `${name}${MOCK_NOTE}`,
