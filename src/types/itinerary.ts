@@ -28,6 +28,8 @@ export type Stop = {
   enrichFailure?: EnrichFailure;
   /** Set on a 固定行程 (lib/fixedEvents.ts): pinned, with its booked time, and no 換一個. */
   fixedEvent?: FixedEventInfo;
+  /** A transit day's ride between cities (lib/transitStop.ts): a leg, not a place. */
+  kind?: "transit";
 };
 
 export type Accommodation = {

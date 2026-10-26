@@ -234,10 +234,9 @@ const mockStop = (name: string, time_of_day: "morning" | "afternoon" | "evening"
   estimated_cost: 0,
 });
 
-/** planTransitDay: no prep stops, a two-hour ride, arriving early afternoon. */
+/** planTransitDay: a two-hour ride, arriving early afternoon. */
 export function mockTransitPlanReply(fromCity: string, toCity: string) {
   return {
-    prepStops: [],
     transitStop: { ...mockStop(`從 ${fromCity || "出發地"} 前往 ${toCity}`, "morning", 120), transport_from_prev: "搭乘電車約 2 小時" },
     arrivalTime: "13:00",
   };

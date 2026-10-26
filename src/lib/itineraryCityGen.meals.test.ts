@@ -94,6 +94,27 @@ describe("generateMealsAndAccommodation", () => {
     expect(result.accommodation).toMatchObject({ placeId: "pid-Hotel H", area: "京都" });
   });
 
+  // ADR-0009: the morning before a transit day's ride.
+  it("picks one more breakfast for the morning of leaving, without changing the stay's own days", async () => {
+    const restaurants = Array.from({ length: 6 }, (_, i) => place(`Restaurant ${i}`));
+    const cafes = [place("Cafe A"), place("Cafe B"), place("Cafe C"), place("Cafe D")];
+    const setUp = () => {
+      nearbyMock.mockResolvedValueOnce(cafes).mockResolvedValueOnce(restaurants);
+      lodgingMock.mockResolvedValueOnce([place("Hotel H")]);
+    };
+
+    setUp();
+    const plain = await generateMealsAndAccommodation("京都", 2, "JPY", "moderate");
+    setUp();
+    const leaving = await generateMealsAndAccommodation("京都", 2, "JPY", "moderate", {}, { departureBreakfast: true });
+
+    expect(plain.departureBreakfast).toBeUndefined();
+    expect(leaving.mealsByDay).toEqual(plain.mealsByDay);
+    expect(leaving.departureBreakfast?.placeId).toMatch(/^pid-Cafe/);
+    // no extra search for it
+    expect(nearbyMock).toHaveBeenCalledTimes(4);
+  });
+
   it("searches each pool once, and only lunch/dinner on Enterprise fields", async () => {
     nearbyMock.mockResolvedValue([]);
     mockLlm({ accommodation: {}, meals: [] });

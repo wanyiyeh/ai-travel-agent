@@ -53,6 +53,7 @@ import type { DayFixedEvents } from "@/lib/fixedEvents";
 import { RETURN_CAR_MINUTES } from "@/lib/carRental";
 import { THEMES, dayThemeKeys, interestWeightsOf, isCoreOfTheme, isOnTheme, popularSlots, themesOf, type ThemeKey } from "@/lib/dayThemes";
 import { dietPromptLine, dietRequiredTypes, excludeByDiet } from "@/lib/dietaryFilter";
+import { TRANSIT_STOP_KIND } from "@/lib/transitStop";
 
 // Shared AI-generation helpers for building out a city's worth of itinerary
 // content (transit day, sightseeing days, accommodation + meals). Used by the
@@ -139,8 +140,10 @@ const DOMESTIC_DRIVE_RULE = `
 
 【旅客開自己的車】城市之間開車，transitStop 寫「開車前往○○」，不用租車、取車或還車。`;
 
+// No morning stops before the ride: the model named them itself, so they had
+// no place behind them, and breakfast now comes from the city's own meal
+// picks instead (ADR-0009).
 type TransitPlan = {
-  prepStops: Array<Record<string, unknown>>;
   transitStop: Record<string, unknown>;
   arrivalMinute: number;
 };
@@ -185,9 +188,9 @@ export function islandHopPlan(fromCity: string, toCity: string, dayStartMinute: 
   const to = islandNamed(toCity)?.name ?? toCity;
   const minutes = ISLAND_BOARDING_MINUTES + crossing.minutes;
   return {
-    prepStops: [],
     transitStop: {
       id: crypto.randomUUID(),
+      kind: TRANSIT_STOP_KIND,
       name: `從${from}前往${to}`,
       description: `${crossing.how}約 ${crossing.minutes} 分（估計）。出發前確認船班，會依季節和海象調整${
         crossing.infrequent ? "；船班少，也先確認回程的船" : ""
@@ -230,7 +233,6 @@ async function planTransitDay(
   currency: string,
   model: string,
   selfDrive = false,
-  visitedInFromCity: string[] = [],
   domestic = false
 ): Promise<TransitPlan | null> {
   try {
@@ -241,7 +243,7 @@ async function planTransitDay(
       messages: [
         {
           role: "system",
-          content: `你是專業的旅遊規劃專家。請為旅行者規劃一個從 ${fromCity || "出發地"} 前往 ${toCity} 的移動日行程裡「出發準備」與「交通本身」的部分，並推算抵達時間。
+          content: `你是專業的旅遊規劃專家。請為旅行者規劃一個從 ${fromCity || "出發地"} 前往 ${toCity} 的移動日行程裡「交通本身」的部分，並推算抵達時間。
 
 【重要】請先評估兩城市之間的實際地理距離與交通時間（涵蓋各大洲的城市對，依實際距離判斷，不要只套用單一地區的直覺）：
 - 短程（車程＜90 分鐘，如大阪→京都 30min、東京→橫濱 30min、布拉格→布拉迪斯拉發 1hr）
@@ -252,16 +254,6 @@ async function planTransitDay(
 
 回傳嚴格的 JSON 格式（不要其他文字）：
 {
-  "prepStops": [
-    {
-      "name": "活動名稱（繁體中文）",
-      "description": "描述（繁體中文，1-2 句話）",
-      "duration_minutes": 30,
-      "time_of_day": "morning",
-      "transport_from_prev": "步行約 10 分鐘",
-      "estimated_cost": 0
-    }
-  ],
   "transitStop": {
     "name": "交通方式名稱（例如「搭乘新幹線前往京都」）",
     "description": "描述（繁體中文，1-2 句話）",
@@ -274,7 +266,6 @@ async function planTransitDay(
 }
 
 規則：
-- prepStops：${fromCity ? `${fromCity} 出發前早晨微行程（車站附近早餐或快速景點，09:30 前完成），可以是空陣列` : `出發準備，可以是空陣列`}
 - transitStop：交通本身，須填入真實交通工具、正確車程時數，duration_minutes 必須反映真實車程，transport_from_prev 必須包含預估時間（例如「搭乘新幹線約 1 小時30分」），不可只寫交通方式
 - arrivalTime："HH:MM" 格式的 24 小時制時間，代表抵達 ${toCity} 後可以開始活動的時間
 - time_of_day 只能是 "morning"、"afternoon"、"evening" 之一
@@ -282,7 +273,7 @@ async function planTransitDay(
         },
         {
           role: "user",
-          content: `請規劃從 ${fromCity || "出發地"} 前往 ${toCity} 的移動日「出發準備」與「交通」部分，並推算抵達時間。`,
+          content: `請規劃從 ${fromCity || "出發地"} 前往 ${toCity} 的移動日「交通」部分，並推算抵達時間。`,
         },
       ],
       response_format: { type: "json_object" },
@@ -292,23 +283,13 @@ async function planTransitDay(
     const content = completion.choices[0].message.content;
     if (!content) return null;
     const parsed = JSON.parse(content) as {
-      prepStops?: unknown[];
       transitStop?: Record<string, unknown>;
       arrivalTime?: unknown;
     };
     if (!parsed.transitStop || typeof parsed.transitStop !== "object") return null;
 
     return {
-      // The places already seen in fromCity are Google's names, so they stay
-      // out of the prompt (ADR-0008) and a morning stop that goes back to
-      // one is dropped here instead.
-      prepStops: Array.isArray(parsed.prepStops)
-        ? withoutRevisits(
-            parsed.prepStops.map((s) => ({ ...(s as Record<string, unknown>), id: crypto.randomUUID() })),
-            visitedInFromCity
-          )
-        : [],
-      transitStop: { ...parsed.transitStop, id: crypto.randomUUID() },
+      transitStop: { ...parsed.transitStop, id: crypto.randomUUID(), kind: TRANSIT_STOP_KIND },
       arrivalMinute: parseTimeString(parsed.arrivalTime, DEFAULT_ARRIVAL_MINUTE),
     };
   } catch (err) {
@@ -334,7 +315,6 @@ async function generateTransitDayStopsViaScheduler(
   preferenceIntent: PreferenceIntent,
   lockedPlaceIds: string[],
   fixed: DayFixedEvents,
-  visitedInFromCity: string[],
   conditions?: DayConditions
 ): Promise<Array<Record<string, unknown>> | null> {
   try {
@@ -349,7 +329,6 @@ async function generateTransitDayStopsViaScheduler(
         currency,
         model,
         preferenceIntent.selfDrive,
-        visitedInFromCity,
         preferenceIntent.domestic
       ));
     if (!plan) return null;
@@ -369,7 +348,7 @@ async function generateTransitDayStopsViaScheduler(
         fixedBlocks,
       });
     if (capacityFor([]) === 0) {
-      return [...plan.prepStops, plan.transitStop, ...fixedEventStopsOnly(fixed)];
+      return [plan.transitStop, ...fixedEventStopsOnly(fixed)];
     }
 
     const apiKey = process.env.GOOGLE_PLACES_API_KEY!;
@@ -456,7 +435,7 @@ async function generateTransitDayStopsViaScheduler(
       preferenceIntent.selfDrive,
       isIslandCity(toCity)
     );
-    return [...plan.prepStops, plan.transitStop, ...arrivalStops];
+    return [plan.transitStop, ...arrivalStops];
   } catch (err) {
     console.warn("[generateTransitDayStopsViaScheduler] falling back to LLM:", err);
     return null;
@@ -477,6 +456,7 @@ export async function generateTransitDayStops(
   fixed: DayFixedEvents = [],
   // Names of the places already on the trip in fromCity: the morning before
   // leaving 小樽 went back to 小樽運河 (「小樽運河散步」) after two days there.
+  // Only the pure-LLM fallback still plans that morning.
   visitedInFromCity: string[] = [],
   // The day's sunset, heat and rain in toCity (dayConditions.ts).
   conditions?: DayConditions
@@ -489,7 +469,6 @@ export async function generateTransitDayStops(
     preferenceIntent,
     lockedPlaceIds,
     fixed,
-    visitedInFromCity,
     conditions
   );
   if (scheduled) return scheduled;
@@ -902,7 +881,14 @@ export async function generateMealsAndAccommodation(
   currency: string,
   budget?: BudgetLevel,
   preferences: MealPreferences = {},
-): Promise<{ accommodation: Record<string, unknown>; mealsByDay: Array<Record<string, unknown>> }> {
+  // The morning the traveler leaves for the next city: one more breakfast
+  // here, eaten before the transit day's ride (ADR-0009).
+  { departureBreakfast = false }: { departureBreakfast?: boolean } = {},
+): Promise<{
+  accommodation: Record<string, unknown>;
+  mealsByDay: Array<Record<string, unknown>>;
+  departureBreakfast?: Record<string, unknown>;
+}> {
   // Real candidates, picked by rule (mealLodgingPicks.ts): no Google name
   // goes to the model (ADR-0008). Only when the city has none at all does
   // the model name places of its own, which enrich then looks up.
@@ -921,10 +907,18 @@ export async function generateMealsAndAccommodation(
     preferences.pets && pools.lodging.length === 0 ? noPetLodging(cityName) : pickAccommodation(pools, currency, cityName);
   // 獨旅: the 小酌 only within a walk of the lodging (plan 1.5), once the lodging is known.
   const mealPools = preferences.solo ? withNightcapNear(pools, accommodation) : pools;
-  const picked = pickMeals(mealPools, stayDays, currency);
+  // pickMeals goes day by day, so one extra day leaves the stay's own days
+  // exactly as they'd be without it; only its breakfast is used.
+  const pickedWithExtra = pickMeals(mealPools, stayDays + (departureBreakfast ? 1 : 0), currency);
+  const picked = pickedWithExtra.slice(0, stayDays);
+  const extraBreakfast = departureBreakfast ? pickedWithExtra[stayDays]?.breakfast : undefined;
   // None that close: no 小酌 that night.
   const mealsByDay = preferences.solo && mealPools.nightcap.length === 0 ? picked.map(withoutNightcapSlot) : picked;
-  return { accommodation, mealsByDay: preferences.selfDrive ? mealsByDay.map(withDrinkDriveNote) : mealsByDay };
+  return {
+    accommodation,
+    mealsByDay: preferences.selfDrive ? mealsByDay.map(withDrinkDriveNote) : mealsByDay,
+    ...(extraBreakfast ? { departureBreakfast: extraBreakfast as Record<string, unknown> } : {}),
+  };
 }
 
 /** The traveler's preferences as prompt lines, for the model naming places itself. */

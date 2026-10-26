@@ -13,6 +13,7 @@ const stamp = Date.now();
 const owner = { id: `rt-owner-${stamp}`, email: `rt-owner-${stamp}@example.com` };
 const itineraryId = `rt-trip-${stamp}`;
 const dayId = `rt-day2-${stamp}`;
+const transitDayId = `rt-day3-${stamp}`;
 
 beforeAll(async () => {
   await prisma.user.create({ data: owner });
@@ -26,6 +27,18 @@ beforeAll(async () => {
         { id: `rt-day1-${stamp}`, day: 1, stops: [], accommodation: { name: "Hotel Gracery Shinjuku", area: "新宿" } },
         // No coordinates anywhere, so no distance lookup: the first stop gets the 「從…出發」 line.
         { id: dayId, day: 2, stops: [{ id: "s1", name: "明治神宮", description: "", duration_minutes: 60 }] },
+        // A ride written before `kind` existed, recognised by its shape (ADR-0009).
+        {
+          id: transitDayId,
+          day: 3,
+          isTransitDay: true,
+          transitTo: "京都",
+          stops: [
+            { id: "ride", name: "搭乘新幹線前往京都", description: "", duration_minutes: 140, time_of_day: "morning", transport_from_prev: "搭乘新幹線約 2 小時20分" },
+            { id: "s2", name: "清水寺", description: "", duration_minutes: 90 },
+            { id: "s3", name: "八坂神社", description: "", duration_minutes: 60 },
+          ],
+        },
       ]),
     },
   });
@@ -44,5 +57,19 @@ describe("recalculate-transport", () => {
     const text = (saved.days as { stops: { transport_from_prev?: string }[] }[])[1].stops[0].transport_from_prev;
     expect(text).toBe("從新宿的住宿出發");
     expect(text).not.toContain("Gracery");
+  });
+
+  it("keeps a transit day's ride as written and starts the next stop from the arrival", async () => {
+    const res = await POST(new Request("http://test", { method: "POST", body: JSON.stringify({ itineraryId }) }), {
+      params: Promise.resolve({ dayId: transitDayId }),
+    });
+    expect(res.status).toBe(200);
+
+    const saved = await prisma.itinerary.findUniqueOrThrow({ where: { id: itineraryId } });
+    const stops = (saved.days as { stops: { transport_from_prev?: string; time_of_day?: string }[] }[])[2].stops;
+    expect(stops[0]).toMatchObject({ transport_from_prev: "搭乘新幹線約 2 小時20分", time_of_day: "morning" });
+    expect(stops[1].transport_from_prev).toBe("抵達京都後出發");
+    // no coordinates between the two sights either: that one is still unknown
+    expect(stops[2].transport_from_prev).toBe("交通方式未知（缺少座標）");
   });
 });
