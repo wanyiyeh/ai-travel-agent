@@ -1,8 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { proxy } from "@/proxy";
 import { MAX_REQUEST_BODY_BYTES } from "@/lib/inputLimits";
 import { RATE_LIMITS } from "@/lib/rateLimit";
+import { hashIp } from "@/lib/requestFingerprint";
+import { apiRateLimitStore } from "@/lib/sharedState";
 
 function request(method: string, headers: Record<string, string> = {}) {
   return new NextRequest("http://test/api/v1/anything", { method, headers });
@@ -66,6 +68,16 @@ describe("proxy rate limit", () => {
     expect(passesThrough(await proxy(fromIp(ip, "/api/v1/itinerary/i1", "GET")))).toBe(true);
     // Different client, same route: unaffected.
     expect(passesThrough(await proxy(fromIp("203.0.113.12", "/api/v1/generate-stream")))).toBe(true);
+  });
+
+  // The store is a database table: the raw IP may not be kept there (#279).
+  it("keys the count by the IP's hash, never the IP itself", async () => {
+    const hit = vi.spyOn(apiRateLimitStore, "hit");
+    await proxy(fromIp("203.0.113.13", "/api/v1/generate-stream"));
+    const key = hit.mock.calls[0][0];
+    expect(key).not.toContain("203.0.113.13");
+    expect(key).toBe(`generate:${hashIp("203.0.113.13")}`);
+    hit.mockRestore();
   });
 });
 
