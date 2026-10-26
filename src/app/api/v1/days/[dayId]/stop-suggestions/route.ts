@@ -2,8 +2,9 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { MAX_NAME_LENGTH, MAX_NAME_LIST_LENGTH, MAX_TEXT_LENGTH } from "@/lib/inputLimits";
 import { prisma, j } from "@/lib/db";
-import { openai } from "@/lib/openai";
-import { StopDescriptionFillSchema } from "@/lib/schemas";
+import { suggestFallbackText } from "@/lib/stopSuggestionFallback";
+import { typicalStopMinutes } from "@/lib/scheduler/assignTimeSlots";
+import { mapPlaceTypeToCategory } from "@/lib/scheduler/mapPlaceTypeToCategory";
 import type { StopCandidate } from "@/types/itinerary";
 import { getMockMode, mockDelay, MOCK_FIXTURES } from "@/lib/mockAi";
 import { fetchNearbyPlaceCandidates, type PlaceCandidate } from "@/lib/fetchCityRestaurants";
@@ -11,13 +12,12 @@ import { haversineKm, centroid, SUSPICIOUS_DISTANCE_KM as SUSPICIOUS_KM } from "
 import { snapToGrid } from "@/lib/geo";
 import { findDayIndex } from "@/lib/itineraryDays";
 import { internalErrorResponse } from "@/lib/apiError";
-import { UNTRUSTED_INPUT_RULE, wrapUntrusted, wrapUntrustedList } from "@/lib/untrustedInput";
 import { authorizeItinerary } from "@/lib/auth/ownership";
 import { chargePaidEdit } from "@/lib/quota";
 
 const RequestSchema = z.object({
   itineraryId: z.string().min(1),
-  // Both are spliced into the OpenAI prompt.
+  // context goes into the OpenAI prompt; excludeNames only filters.
   context: z.string().max(MAX_TEXT_LENGTH).optional(),
   excludeNames: z.array(z.string().max(MAX_NAME_LENGTH)).max(MAX_NAME_LIST_LENGTH).optional(),
   // Only set when called from the single-stop "換一個" picker — a specific
@@ -25,44 +25,6 @@ const RequestSchema = z.object({
   // has no single stop to scope a candidate history log to.
   stopId: z.string().min(1).optional(),
 });
-
-async function suggestFallbackText(
-  model: string,
-  tripContext: string,
-  dayTheme: string,
-  excludeNames: string[],
-): Promise<StopCandidate[]> {
-  const completion = await openai.chat.completions.create({
-    model,
-    messages: [
-      {
-        role: "system",
-        content: `你是專業的旅遊規劃專家。Always respond in Traditional Chinese (繁體中文).
-Output strictly valid JSON matching this schema:
-{ "candidates": [{ "name": string, "description": string, "duration_minutes": number }] }
-Suggest 8 different attractions suitable for this day of the trip.
-IMPORTANT: Do NOT suggest any of the places listed as already used today in the user message.${UNTRUSTED_INPUT_RULE}`,
-      },
-      {
-        // tripContext and excludeNames come from the request body, so they
-        // ride here as tagged data rather than in the system prompt.
-        role: "user",
-        content: `Trip:\n${wrapUntrusted(tripContext)}\nDay theme: ${dayTheme}.\nPlaces already used today (do not suggest these):\n${wrapUntrustedList(excludeNames)}\nSuggest 8 new stops for this day that are not already listed.`,
-      },
-    ],
-    response_format: { type: "json_object" },
-  });
-
-  const aiContent = completion.choices[0].message.content;
-  if (!aiContent) throw new Error("AI returned empty response");
-
-  const parsedAI = StopDescriptionFillSchema.safeParse(JSON.parse(aiContent));
-  if (!parsedAI.success) {
-    throw new Error(`AI response validation failed: ${parsedAI.error.message}`);
-  }
-
-  return parsedAI.data.candidates;
-}
 
 export async function POST(
   request: Request,
@@ -288,7 +250,9 @@ export async function POST(
       // No rating in the text: a description is kept with the stop, and a
       // Google rating may not be stored (ADR-0004). The picker shows it.
       description: "靠近您行程中的景點。",
-      duration_minutes: 60,
+      // The scheduler's own stay table, as for a generated day: no Google
+      // name goes to the model for an estimate (ADR-0008).
+      duration_minutes: typicalStopMinutes(mapPlaceTypeToCategory(c.types ?? []), "moderate"),
       placeId: c.placeId,
       lat: c.lat,
       lng: c.lng,
@@ -296,51 +260,6 @@ export async function POST(
       rating: c.rating ?? null,
       photoName: c.photoName ?? null,
     }));
-
-    try {
-      const names = realCandidates.map((c) => c.name);
-      const completion = await openai.chat.completions.create({
-        model,
-        messages: [
-          {
-            role: "system",
-            content: `你是專業的旅遊規劃專家。Always respond in Traditional Chinese (繁體中文).
-Output strictly valid JSON: { "candidates": [{ "name": string, "description": string, "duration_minutes": number }] }
-The "candidates" array MUST have exactly ${names.length} items, in the SAME ORDER, with the EXACT SAME "name" values as given below. Do not add, remove, reorder, or rename any item — only fill in "description" and "duration_minutes" for each.
-Names in order: ${names.map((n) => `"${n}"`).join(", ")}${UNTRUSTED_INPUT_RULE}`,
-          },
-          {
-            // The names above come from Google; tripContext can come from the
-            // request body, so only it is wrapped as caller data.
-            role: "user",
-            content: `Trip:\n${wrapUntrusted(tripContext)}\nDay theme: ${dayTheme}. Write a short Traditional Chinese description and a suggested visit duration (minutes) for each of the ${names.length} named places above, in the same order.`,
-          },
-        ],
-        response_format: { type: "json_object" },
-      });
-
-      const aiContent = completion.choices[0].message.content;
-      if (aiContent) {
-        const parsedAI = StopDescriptionFillSchema.safeParse(JSON.parse(aiContent));
-        if (parsedAI.success) {
-          const normalize = (s: string) => s.toLowerCase().trim();
-          for (let i = 0; i < candidates.length; i++) {
-            const wantName = normalize(candidates[i].name);
-            const byIndex = parsedAI.data.candidates[i];
-            const match =
-              byIndex && normalize(byIndex.name) === wantName
-                ? byIndex
-                : parsedAI.data.candidates.find((d) => normalize(d.name) === wantName);
-            if (match) {
-              candidates[i].description = match.description;
-              candidates[i].duration_minutes = match.duration_minutes;
-            }
-          }
-        }
-      }
-    } catch {
-      // keep the generic rating-based fallback descriptions already set above
-    }
 
     const siblings = stops
       .filter((s) => typeof s.lat === "number" && typeof s.lng === "number")

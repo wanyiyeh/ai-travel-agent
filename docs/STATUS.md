@@ -14,7 +14,7 @@
 
 ## 下一步
 
-1. PLAN-002：#263 守門測試、#264 `partOf` 改用 `containingPlaces`、#265 生成文案改用模板、#266 移除補文案（`missingCopy`、`copyPending`）已完成；下一個 #267（編輯路由不再為 Google 地點寫 LLM 文案），依序做到 #271。
+1. PLAN-002：#263～#267 已完成（守門測試、`partOf` 改用 `containingPlaces`、生成文案改用模板、移除補文案、編輯路由不再為 Google 地點寫 LLM 文案）；下一個 #268（移除 `translatePlaceNames`），依序做到 #271。
 2. 使用者操作：#181（GCP 預算通知、OpenAI 硬上限，p0）、#197（OpenAI 不分享資料給訓練）。
 3. PLAN-002 完成後再做 #214 的公開範例（現在生成會帶舊文案，要重做），之後 #215 正式公開。
 4. 公開前另需 #261（隱私權說明頁）。

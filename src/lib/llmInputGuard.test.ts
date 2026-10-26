@@ -15,6 +15,7 @@ vi.mock("@/lib/openai", () => ({
 }));
 
 const { translatePlaceNames } = await import("@/lib/translatePlaceNames");
+const { suggestFallbackText } = await import("@/lib/stopSuggestionFallback");
 const { buildAttractionHintsPrompt, buildRestaurantHintsPrompt } = await import("@/lib/fetchCityRestaurants");
 
 const hint = (label: string, lat: number): RestaurantHint => ({
@@ -34,6 +35,19 @@ describe("LLM input carries no Google Maps content (ADR-0008)", () => {
   it("the marker check catches a Google name", () => {
     expect(() => expectNoGoogleContent([{ role: "user", content: googleName("淺草寺") }])).toThrow();
     expect(() => expectNoGoogleContent([{ role: "user", content: "東京，上午，停留約 60 分鐘" }])).not.toThrow();
+  });
+
+  // #267: the day's names (Google's) only filter the model's suggestions.
+  it("stop picker's text fallback", async () => {
+    createMock.mockResolvedValueOnce({
+      choices: [{ message: { content: JSON.stringify({ candidates: [
+        { name: googleName("淺草寺"), description: "d", duration_minutes: 60 },
+        { name: "上野公園", description: "d", duration_minutes: 90 },
+      ] }) } }],
+    });
+    const suggestions = await suggestFallbackText("test-model", "東京 5 天", "東京 文化巡禮", [googleName("淺草寺")]);
+    expectNoGoogleContent(...capturedMessages(createMock));
+    expect(suggestions.map((c) => c.name)).toEqual(["上野公園"]);
   });
 
   // #268: the function goes away; its input is Google names by definition.
