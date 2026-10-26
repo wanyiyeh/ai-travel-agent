@@ -37,6 +37,15 @@ describe("enrich-all-stops remembers failed lookups", () => {
             stops: [{ id: "s1", name: "前往巴塞隆納", description: "", duration_minutes: 60 }],
             meals: { dinner: { name: "晚餐" } },
           },
+          // A transit day's ride: a leg, never looked up (ADR-0009).
+          {
+            id: "enrich-failure-day-2",
+            day: 2,
+            isTransitDay: true,
+            transitTo: "馬德里",
+            waypointCity: cityHint,
+            stops: [{ id: "ride", kind: "transit", name: "搭乘高鐵前往馬德里", description: "", duration_minutes: 150 }],
+          },
         ]),
         config: j({}),
       },
@@ -74,6 +83,7 @@ describe("enrich-all-stops remembers failed lookups", () => {
     expect(res.status).toBe(200);
     expect(textQueries).toContain(`前往巴塞隆納 ${cityHint}`);
     expect(textQueries).toContain(`晚餐 ${cityHint}`);
+    expect(textQueries.some((q) => q.includes("搭乘高鐵前往馬德里"))).toBe(false);
 
     const saved = await prisma.itinerary.findUniqueOrThrow({ where: { id: itineraryId } });
     const day = (saved.days as DayWithId[])[0];

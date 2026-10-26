@@ -169,6 +169,10 @@ export async function assembleItineraryDays(
       ])
     : [undefined, undefined];
 
+  // Breakfast before the next transit day's ride, picked in the city being
+  // left: the ride used to bring its own model-named breakfast (ADR-0009).
+  let breakfastBeforeLeaving: Record<string, unknown> | undefined;
+
   for (let cityIdx = 0; cityIdx < plan.cities.length; cityIdx++) {
     const city = plan.cities[cityIdx];
     const isFirst = cityIdx === 0;
@@ -204,9 +208,9 @@ export async function assembleItineraryDays(
     // assembleItineraryDays, breaking its "never throws except when planTrip
     // fails" contract. restructure/route.ts already wraps every one of its
     // own call sites with this same degrade-to-empty pattern.
-    const mealsAndAccommodationPromise = generateMealsAndAccommodation(city.name, mealDays, plan.currency, budget, mealPreferences).catch(
-      () => emptyMealsAndAccommodation(mealDays)
-    );
+    const mealsAndAccommodationPromise = generateMealsAndAccommodation(city.name, mealDays, plan.currency, budget, mealPreferences, {
+      departureBreakfast: !isLast,
+    }).catch((): Awaited<ReturnType<typeof generateMealsAndAccommodation>> => emptyMealsAndAccommodation(mealDays));
 
     if (!isFirst) {
       const prevCity = plan.cities[cityIdx - 1];
@@ -247,14 +251,19 @@ export async function assembleItineraryDays(
         // The transit day's own night is spent in the destination city —
         // same accommodation as the sightseeing days that follow it.
         accommodation: stayed ?? (hasAccommodation ? mealsAndAccommodation.accommodation : undefined),
-        // Breakfast is still in the city being left — usually the transit
-        // plan's own station breakfast — so only the meals after arriving.
-        meals: { ...withoutBreakfast(mealsAndAccommodation.mealsByDay[0]), ...transitEvents.meals },
+        // Breakfast is still in the city being left, so it comes from there;
+        // the rest are the meals after arriving.
+        meals: {
+          ...(breakfastBeforeLeaving ? { breakfast: breakfastBeforeLeaving } : {}),
+          ...withoutBreakfast(mealsAndAccommodation.mealsByDay[0]),
+          ...transitEvents.meals,
+        },
         ...(weatherNote(transitConditions) ? { weatherNote: weatherNote(transitConditions) } : {}),
       });
     }
 
     const mealsAndAccommodation = await mealsAndAccommodationPromise;
+    breakfastBeforeLeaving = mealsAndAccommodation.departureBreakfast;
     const hasAccommodation = Object.keys(mealsAndAccommodation.accommodation).length > 0;
     const accommodation = stayByCity.get(city.name) ?? (hasAccommodation ? mealsAndAccommodation.accommodation : undefined);
     if (accommodation && !stayByCity.has(city.name)) stayByCity.set(city.name, accommodation);

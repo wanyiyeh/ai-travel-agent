@@ -575,7 +575,6 @@ describe("generateTransitDayStops — fixed events", () => {
         {
           message: {
             content: JSON.stringify({
-              prepStops: [{ name: "退房", description: "d", duration_minutes: 30, time_of_day: "morning" }],
               transitStop: { name: "搭新幹線", description: "d", duration_minutes: 150, time_of_day: "morning" },
               arrivalTime,
             }),
@@ -590,7 +589,7 @@ describe("generateTransitDayStops — fixed events", () => {
 
     const stops = await generateTransitDayStops("東京", "大阪", "JPY", undefined, NEUTRAL_PREFERENCE_INTENT, [], [show]);
 
-    expect(stops.slice(0, 2).map((s) => s.name)).toEqual(["退房", "搭新幹線"]);
+    expect(stops[0]).toMatchObject({ name: "搭新幹線", kind: "transit" });
     expect(stops[stops.length - 1].id).toBe("show");
   });
 
@@ -601,7 +600,7 @@ describe("generateTransitDayStops — fixed events", () => {
 
     const stops = await generateTransitDayStops("東京", "大阪", "JPY", undefined, NEUTRAL_PREFERENCE_INTENT, [], [evening]);
 
-    expect(stops.map((s) => s.name)).toEqual(["退房", "搭新幹線", "大阪城ホール"]);
+    expect(stops.map((s) => s.name)).toEqual(["搭新幹線", "大阪城ホール"]);
   });
 });
 
@@ -624,7 +623,7 @@ describe("generateTransitDayStops — arrival stops kept to one area", () => {
   const aroundSeed = Array.from({ length: 4 }, (_, i) => place(`around${i}`, 35.684 + i * 0.001, 139.762, 4.0));
   const arriveAt = (arrivalTime: string) =>
     createMock.mockResolvedValueOnce({
-      choices: [{ message: { content: JSON.stringify({ prepStops: [], transitStop: { name: "搭浪漫特快", description: "d", duration_minutes: 90 }, arrivalTime }) } }],
+      choices: [{ message: { content: JSON.stringify({ transitStop: { name: "搭浪漫特快", description: "d", duration_minutes: 90 }, arrivalTime }) } }],
     });
 
   it("doesn't cross town for an arrival stop, and tops up near the first one", async () => {
@@ -671,7 +670,7 @@ describe("generateDepartureDayStops — returning the rental car", () => {
 describe("generateTransitDayStops — 自駕", () => {
   it("tells the transit-day planner the traveler drives between cities", async () => {
     createMock.mockResolvedValueOnce({
-      choices: [{ message: { content: JSON.stringify({ prepStops: [], transitStop: { name: "開車前往大阪", description: "d", duration_minutes: 300 }, arrivalTime: "19:00" }) } }],
+      choices: [{ message: { content: JSON.stringify({ transitStop: { name: "開車前往大阪", description: "d", duration_minutes: 300 }, arrivalTime: "19:00" }) } }],
     });
 
     await generateTransitDayStops("東京", "大阪", "JPY", undefined, { ...NEUTRAL_PREFERENCE_INTENT, selfDrive: true });
@@ -681,7 +680,7 @@ describe("generateTransitDayStops — 自駕", () => {
 
   it("says nothing about driving for public transport", async () => {
     createMock.mockResolvedValueOnce({
-      choices: [{ message: { content: JSON.stringify({ prepStops: [], transitStop: { name: "搭新幹線", description: "d", duration_minutes: 150 }, arrivalTime: "19:00" }) } }],
+      choices: [{ message: { content: JSON.stringify({ transitStop: { name: "搭新幹線", description: "d", duration_minutes: 150 }, arrivalTime: "19:00" }) } }],
     });
 
     await generateTransitDayStops("東京", "大阪", "JPY", undefined, NEUTRAL_PREFERENCE_INTENT);
@@ -715,14 +714,15 @@ describe("generateTransitDayStops — places already visited", () => {
     expectNoGoogleContent(...capturedMessages(createMock));
   });
 
-  it("drops a morning stop that goes back to a visited place, under another name too", async () => {
-    plan([{ name: "小樽運河散步" }, { name: "車站附近早餐" }]);
+  // ADR-0009: the morning before the ride is breakfast from the meal picks,
+  // not stops the model names with no place behind them.
+  it("plans no morning stops, even when the model still writes some", async () => {
+    plan([{ name: "車站附近早餐" }]);
 
     const stops = await generateTransitDayStops("小樽", "札幌", "JPY", undefined, NEUTRAL_PREFERENCE_INTENT, [], [], ["小樽運河"]);
 
-    const names = stops.map((s) => s.name);
-    expect(names).not.toContain("小樽運河散步");
-    expect(names).toContain("車站附近早餐");
+    expect(stops[0]).toMatchObject({ name: "搭乘JR快速列車前往札幌", kind: "transit" });
+    expect(stops.map((s) => s.name)).not.toContain("車站附近早餐");
   });
 });
 
@@ -794,7 +794,7 @@ describe("generateThemedDayStops — with older relatives", () => {
 describe("generateTransitDayStops — 國內", () => {
   it("tells the planner about Taiwan's trains and the islands", async () => {
     createMock.mockResolvedValueOnce({
-      choices: [{ message: { content: JSON.stringify({ prepStops: [], transitStop: { name: "搭高鐵前往高雄", description: "d", duration_minutes: 30 }, arrivalTime: "19:00" }) } }],
+      choices: [{ message: { content: JSON.stringify({ transitStop: { name: "搭高鐵前往高雄", description: "d", duration_minutes: 30 }, arrivalTime: "19:00" }) } }],
     });
 
     await generateTransitDayStops("台南", "高雄", "TWD", undefined, { ...NEUTRAL_PREFERENCE_INTENT, domestic: true });
@@ -806,7 +806,7 @@ describe("generateTransitDayStops — 國內", () => {
 
   it("drives the traveler's own car, with no rental", async () => {
     createMock.mockResolvedValueOnce({
-      choices: [{ message: { content: JSON.stringify({ prepStops: [], transitStop: { name: "開車前往高雄", description: "d", duration_minutes: 60 }, arrivalTime: "19:00" }) } }],
+      choices: [{ message: { content: JSON.stringify({ transitStop: { name: "開車前往高雄", description: "d", duration_minutes: 60 }, arrivalTime: "19:00" }) } }],
     });
 
     await generateTransitDayStops("台南", "高雄", "TWD", undefined, { ...NEUTRAL_PREFERENCE_INTENT, domestic: true, selfDrive: true });
@@ -822,7 +822,7 @@ describe("islandHopPlan", () => {
     expect(plan?.transitStop).toMatchObject({ name: "從南竿前往東引", duration_minutes: 150 });
     expect(plan?.transitStop.description).toBe("從南竿福澳港搭船約 120 分（估計）。出發前確認船班，會依季節和海象調整；船班少，也先確認回程的船");
     expect(plan?.arrivalMinute).toBe(9 * 60 + 150);
-    expect(plan?.prepStops).toEqual([]);
+    expect(plan?.transitStop.kind).toBe("transit");
   });
 
   it("is no plan between towns on land", () => {

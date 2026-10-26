@@ -13,6 +13,7 @@
 | 住宿 | `Accommodation` | 當晚住的地方 |
 | 三餐 | `DayMeals` / `Meal` | 早、午、晚餐，加上點心（`snack`）與睡前小酌（`nightcap`） |
 | 移動日 | `isTransitDay` / `transitTo` | 從一個城市移動到下一個城市的那天 |
+| 交通站 | `kind: "transit"` / `isTransitStop` | 移動日裡代表城市之間交通的那一站，不是地點，不能拖拉或替換（ADR-0009） |
 | 中途城市 | `waypointCity` | 去程與回程之間插入的城市 |
 | 回程日 | （沒有欄位，`days` 的最後一天） | 搭回程班機的那一天 |
 | 鎖定 | `isLocked` | 使用者鎖住、重新規劃時不會被改動的天 |

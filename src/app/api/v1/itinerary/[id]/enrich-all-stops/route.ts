@@ -9,6 +9,7 @@ import { isRecentEnrichFailure, enrichFailureMarker } from "@/lib/enrichFailure"
 import { internalErrorResponse } from "@/lib/apiError";
 import { MEAL_TYPES } from "@/types/itinerary";
 import { authorizeItinerary } from "@/lib/auth/ownership";
+import { isTransitStop } from "@/lib/transitStop";
 
 export async function POST(
   _request: Request,
@@ -162,6 +163,13 @@ export async function POST(
 
         // Already fully enriched: nothing to do.
         if (stop.placeId && stop.lat && stop.lng) {
+          skippedCount++;
+          continue;
+        }
+
+        // A transit day's ride is a leg, not a place: searching 「搭乘新幹線
+        // 前往京都」 pays for a lookup that can only pin it somewhere wrong (ADR-0009).
+        if (isTransitStop(stop, day)) {
           skippedCount++;
           continue;
         }

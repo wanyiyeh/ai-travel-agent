@@ -41,6 +41,8 @@ const STOP_FIELDS = new Set<string>([
   "transport_from_prev",
   // The model's own neighbourhood guess, used to pin the search (itineraryGen.ts).
   "district",
+  // A transit day's ride between cities (transitStop.ts).
+  "kind",
 ]);
 
 const MEAL_FIELDS = new Set<string>([...COMMON_FIELDS, "estimated_cost_from"]);

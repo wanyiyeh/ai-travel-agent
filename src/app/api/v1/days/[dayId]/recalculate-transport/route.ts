@@ -9,6 +9,8 @@ import {
 import { TripPreferencesSchema } from "@/lib/schemas";
 import { findDayIndex } from "@/lib/itineraryDays";
 import { assignTimeOfDay } from "@/lib/scheduler/assignTimeSlots";
+import type { TimeOfDay } from "@/lib/dayTimeline";
+import { transitStopIndex } from "@/lib/transitStop";
 import { internalErrorResponse } from "@/lib/apiError";
 import { authorizeItinerary } from "@/lib/auth/ownership";
 
@@ -91,13 +93,28 @@ export async function POST(
     // so stop i's incoming leg is at distanceResults[i] instead of distanceResults[i-1].
     const distanceOffset = originPoint ? 0 : -1;
 
+    // A transit day's ride has no coordinates, so neither leg touching it is
+    // looked up; it keeps the model's own ride time, and the first stop after
+    // it starts from the arrival (ADR-0009).
+    const transitIdx = transitStopIndex(stops, day);
+    const arrivalDesc = typeof day.transitTo === "string" ? day.transitTo : "目的地";
+
     const updatedFields = stops.map((s, i) => {
+      if (i === transitIdx) {
+        return {
+          id: s.id as string,
+          transport_from_prev: s.transport_from_prev as string | undefined,
+          time_of_day: (s.time_of_day as TimeOfDay | undefined) ?? assignTimeOfDay(i, stops.length),
+        };
+      }
       const dist = i > 0 || originPoint ? distanceResults[i + distanceOffset] : null;
       const transport_from_prev = dist
         ? describeTransport(dist.mode, dist.durationSeconds, dist.estimated, selfDrive)
         : i === 0
           ? `從${originDesc}出發`
-          : "交通方式未知（缺少座標）";
+          : transitIdx >= 0 && i === transitIdx + 1
+            ? `抵達${arrivalDesc}後出發`
+            : "交通方式未知（缺少座標）";
 
       return {
         id: s.id as string,

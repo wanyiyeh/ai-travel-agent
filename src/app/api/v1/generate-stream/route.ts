@@ -88,7 +88,7 @@ function addIdsToItinerary(data: ReturnType<typeof ItinerarySchema.parse>) {
 // assembleScheduledStops) that addIdsToItinerary would otherwise clobber with
 // a fresh random one, throwing away real place data this path paid real API
 // calls to resolve. Only backfills an id where one is genuinely missing (the
-// LLM-fallback-generated prepStops/transitStop, or a whole day that fell back
+// LLM-fallback-generated transitStop, or a whole day that fell back
 // to pure-LLM generation).
 function addIdsPreservingExisting(data: AssembledItinerary) {
   return {

@@ -18,6 +18,8 @@ import {
   arrayMove,
 } from "@dnd-kit/sortable";
 import { SortableStop } from "@/components/SortableStop";
+import { TransitLegRow } from "@/components/TransitLegRow";
+import { isTransitStop, transitStopIndex } from "@/lib/transitStop";
 import { InlinePriceEditor } from "@/components/InlinePriceEditor";
 import { StopDragPreview } from "@/components/StopDragPreview";
 import { DayBulkEditPanel } from "@/components/DayBulkEditPanel";
@@ -1462,6 +1464,8 @@ export default function EditableItineraryCard({
                     )
                   : {};
                 const timeline = buildDayTimeline(day.stops, dayMeals, (s) => s.time_of_day, isDinnerBeforeStop);
+                // The ride isn't a place, so it takes no number in the day's list.
+                const transitIdx = transitStopIndex(day.stops, day);
                 const timeHeader = (timeOfDay: string | undefined) => {
                   if (timeOfDay === undefined || timeOfDay === lastTimeOfDay) return null;
                   lastTimeOfDay = timeOfDay;
@@ -1529,9 +1533,12 @@ export default function EditableItineraryCard({
                               </span>
                             </div>
                           )}
+                          {idx === transitIdx ? (
+                            <TransitLegRow stop={stop} currency={itinerary.currency} />
+                          ) : (
                           <SortableStop
                             stop={stop}
-                            index={idx}
+                            index={transitIdx >= 0 && idx > transitIdx ? idx - 1 : idx}
                             showTourLinks={!day.tourKeyword}
                             currency={itinerary.currency}
                             editingStop={editingStop}
@@ -1561,6 +1568,7 @@ export default function EditableItineraryCard({
                                 label: `第 ${d.day} 天${d.theme ? "・" + d.theme : ""}`,
                               }))}
                           />
+                          )}
                           {pickingStopId === stop.id && day.id && stop.id && (
                             <StopPicker
                               itineraryId={data.id}
@@ -1675,6 +1683,8 @@ export default function EditableItineraryCard({
                         .flatMap((d) =>
                           d.stops
                             .filter((s) => {
+                              // The ride belongs to its own day only (ADR-0009).
+                              if (isTransitStop(s, d)) return false;
                               // A transit day's own stops span two cities by definition
                               // (departure + arrival) — the city-match heuristic below
                               // doesn't apply to them, so always offer them for reuse
