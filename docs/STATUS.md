@@ -14,7 +14,7 @@
 
 ## 下一步
 
-1. PLAN-002：#263～#267 已完成（守門測試、`partOf` 改用 `containingPlaces`、生成文案改用模板、移除補文案、編輯路由不再為 Google 地點寫 LLM 文案）；下一個 #268（移除 `translatePlaceNames`），依序做到 #271。
+1. PLAN-002：#263～#269 已完成。盤點時另外發現兩處仍把 Google 內容交給 OpenAI，待使用者決定作法：餐點與住宿由 LLM 從 Google 候選清單挑選並寫簡介（`itineraryCityGen.ts` 的 `askMealsAndLodging`）；移動日規劃把出發城市已去過的地點名稱當排除清單（`planTransitDay` 的 `visitedInFromCity`）。之後是 #270（清除舊文案）、#271（文件）。
 2. 使用者操作：#181（GCP 預算通知、OpenAI 硬上限，p0）、#197（OpenAI 不分享資料給訓練）。
 3. PLAN-002 完成後再做 #214 的公開範例（現在生成會帶舊文案，要重做），之後 #215 正式公開。
 4. 公開前另需 #261（隱私權說明頁）。
