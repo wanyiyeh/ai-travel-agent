@@ -1,13 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { capturedMessages, expectNoGoogleContent, googleName } from "@tests/contracts/googleContent";
-import type { RestaurantHint } from "@/lib/fetchCityRestaurants";
 
-// ADR-0008 guard: every OpenAI call fed by Google places must leave the
-// places' Google content out of the prompt. Call sites that still send it
-// are marked it.fails until their PLAN-002 sub-issue fixes them; switch
-// each back to it() then (vitest reports an it.fails that starts passing).
-// Stop copy (skeletonCopy.ts, #265), the trip-wide missing copy (#266) and
-// place name translation (#268) no longer call OpenAI.
+// ADR-0008 guard: an OpenAI call fed by Google places must leave the
+// places' Google content out of the prompt. Fake Google names carry a
+// marker (tests/contracts/googleContent.ts); a new call site that sees
+// Google places gets a case here. Stop copy, missing copy, name
+// translation and the old flow's hint lists no longer reach OpenAI at all.
 
 const createMock = vi.fn();
 vi.mock("@/lib/openai", () => ({
@@ -15,15 +13,6 @@ vi.mock("@/lib/openai", () => ({
 }));
 
 const { suggestFallbackText } = await import("@/lib/stopSuggestionFallback");
-const { buildAttractionHintsPrompt, buildRestaurantHintsPrompt } = await import("@/lib/fetchCityRestaurants");
-
-const hint = (label: string, lat: number): RestaurantHint => ({
-  name: googleName(label),
-  rating: 4.5,
-  lat,
-  lng: 139.79,
-  types: ["tourist_attraction"],
-});
 
 beforeEach(() => {
   createMock.mockReset();
@@ -47,18 +36,5 @@ describe("LLM input carries no Google Maps content (ADR-0008)", () => {
     const suggestions = await suggestFallbackText("test-model", "東京 5 天", "東京 文化巡禮", [googleName("淺草寺")]);
     expectNoGoogleContent(...capturedMessages(createMock));
     expect(suggestions.map((c) => c.name)).toEqual(["上野公園"]);
-  });
-
-  // #269: the old full-LLM fallback's prompt is built from these.
-  it.fails("old fallback: attraction hints", () => {
-    expectNoGoogleContent(buildAttractionHintsPrompt([{ cityNameZh: "東京", attractions: [hint("淺草寺", 35.71)] }]));
-  });
-
-  it.fails("old fallback: restaurant hints", () => {
-    expectNoGoogleContent(
-      buildRestaurantHintsPrompt([
-        { cityNameZh: "東京", iataCode: "HND", breakfastPlaces: [hint("Bills", 35.67)], mainMealPlaces: [hint("一蘭", 35.69)], snackPlaces: [] },
-      ]),
-    );
   });
 });

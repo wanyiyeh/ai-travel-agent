@@ -2,7 +2,7 @@ import { isDomestic, routeDescription } from "@/lib/domesticTrips";
 import type { FlightInfo, TripPreferences } from "@/lib/schemas";
 import { islandNamed } from "@/lib/islandGroups";
 import { iataToCity, cityToIata } from "@/lib/iataCity";
-import { getIataCoords } from "@/lib/fetchCityRestaurants";
+import { getIataCoords } from "@/lib/airports";
 
 export const paceMap: Record<string, string> = {
   relaxed: "悠閒，每天景點不超過 3 個，留有充足休息時間",
@@ -80,7 +80,6 @@ export function buildSystemPrompt(
   flightInfo: FlightInfo,
   preferences: TripPreferences | undefined,
   days: number,
-  restaurantHintsPrompt = "",
 ): string {
   const arrivalCityName = iataToCity(flightInfo.arrivalCity);
   const returnCityName = iataToCity(flightInfo.returnDepartureCity);
@@ -201,7 +200,7 @@ ${domestic ? "行程資訊" : "航班資訊"}：${routeDesc}。
 17. 移動日（isTransitDay: true）若城際交通的 time_of_day 為 morning，代表旅客下午已抵達目的城市；stops 中必須加入至少 1 個 time_of_day 為 afternoon 或 evening 的輕鬆景點；若交通為 afternoon，則至少加入一個 evening 景點；移動日抵達後的時間不應完全空白；抵達後加入的景點必須位於**抵達城市市區範圍內**（活動類型可參考：市中心街道漫步、鄰近咖啡館、城市廣場、濱海步道等，但實際填入的景點名稱仍須是該城市真實可查詢的具體地點，不可直接使用類型詞本身作為景點名稱），**嚴禁安排需額外長途移動的郊外景點或一日遊**（例如飛抵墨爾本當天不可安排菲利普島、大洋路等需車程 1 小時以上的郊外行程）
 18. 同一行程中，同一景點名稱不得在不同天重複出現；若某景點已在前幾天安排，後續天數必須替換為不同景點，確保整份行程景點多元不重複
 19. waypointCity 為必填欄位，每一天都必須誠實填寫當天景點與住宿實際所在的城市或城鎮名稱（使用與 arrivalCity/returnDepartureCity 一致的城市命名方式）；一般情況下這個值就是 ${arrivalCityName}${isMultiCity ? ` 或 ${returnCityName}` : ""}，只有在【多段移動（沿路漸進路線）】情境下才會出現路線上的其他中途城鎮名稱
-20. district 為每個景點必填欄位，填寫該景點實際所在的行政區、街區或鄰里名稱（例如東京景點填「新宿」「淺草」「澀谷」，京都景點填「祇園」「嵐山」，紐約景點填「Manhattan」「Brooklyn」）；此欄位用於在地圖上精確定位，避免同名景點分布在同一城市不同行政區（或不同城市甚至不同國家）時被誤配對到錯誤地點，因此務必填寫實際、具體的行政區名稱，不可留空或填寫與 waypointCity 重複的城市層級名稱${restaurantHintsPrompt}`;
+20. district 為每個景點必填欄位，填寫該景點實際所在的行政區、街區或鄰里名稱（例如東京景點填「新宿」「淺草」「澀谷」，京都景點填「祇園」「嵐山」，紐約景點填「Manhattan」「Brooklyn」）；此欄位用於在地圖上精確定位，避免同名景點分布在同一城市不同行政區（或不同城市甚至不同國家）時被誤配對到錯誤地點，因此務必填寫實際、具體的行政區名稱，不可留空或填寫與 waypointCity 重複的城市層級名稱`;
 }
 
 /**

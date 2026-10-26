@@ -1,5 +1,4 @@
 import { haversineKm } from "@/lib/distanceMatrix";
-import { getIataCoords } from "@/lib/airports";
 import { googleFetch } from "@/lib/googleFetch";
 import { isBudgetLodging, isLuxuryLodging, rankLodgingByBudget } from "@/lib/lodgingTiers";
 import { onSearchIsland } from "@/lib/islandGroups";
@@ -40,23 +39,9 @@ const maskFor = (tier: FieldTier) =>
       : tier === "enterprise"
         ? ENTERPRISE_FIELD_MASK
         : PRO_FIELD_MASK;
-const HINTS_FIELD_MASK = "places.displayName,places.location,places.types";
 
 /** Which field set a candidate search asks for — see PRO_FIELD_MASK. */
 export type FieldTier = "pro" | "enterprise" | "kids" | "pets";
-
-// Nearby Search results may not be cached across requests (ADR-0004): the
-// city hint lists, candidate pools and nearest stations below are fetched
-// per request, and only repeats within the request are answered once
-// (requestMemo.ts); a failed call isn't kept, so a later one retries.
-function getCachedOrFetchHints(
-  iataCode: string,
-  kind: string,
-  budget: string,
-  fetcher: () => Promise<RestaurantHint[] | undefined>,
-): Promise<RestaurantHint[]> {
-  return memoizeSuccessInRequest(`hints:${iataCode}|${kind}|${budget}`, fetcher).then((hints) => hints ?? []);
-}
 
 export type BudgetLevel = "budget" | "moderate" | "luxury";
 
@@ -69,39 +54,6 @@ export const PRICE_LEVEL_MAP: Record<string, number> = {
   PRICE_LEVEL_EXPENSIVE: 3,
   PRICE_LEVEL_VERY_EXPENSIVE: 4,
 };
-
-export interface RestaurantHint {
-  name: string;
-  rating?: number;
-  // Added for the scheduler rule engine (plan/hybrid-rule-engine-scheduling.md
-  // Phase 3) to consume these hints as StopCandidates — lat/lng is required by
-  // buildDaySkeleton, types feeds mapPlaceTypeToCategory for duration estimates.
-  // Optional: prompt-building code here only ever reads name/rating and
-  // ignores these.
-  lat?: number;
-  lng?: number;
-  types?: string[];
-}
-
-const BUDGET_LABEL: Record<BudgetLevel, string> = {
-  budget:   "平價",
-  moderate: "中等",
-  luxury:   "高級",
-};
-
-// Table A dining subtypes (see docs/google-places-types.md). Most `restaurant`
-// results don't open for breakfast, so breakfast gets its own includedTypes
-// query — using Table A's dedicated breakfast_restaurant/brunch_restaurant
-// types (not just cafe/bakery) so it isn't limited to Western-style breakfast
-// and also surfaces local morning diners (e.g. Japanese teishoku spots).
-const BREAKFAST_TYPES = ["breakfast_restaurant", "brunch_restaurant", "cafe", "bakery"];
-
-// Snack/afternoon-tea slot — dessert-appropriate Table A types (see
-// docs/google-places-types.md). Overlaps with BREAKFAST_TYPES (cafe/bakery),
-// which is fine: the same physical venue can surface in both hint lists, and
-// the generation prompt's anti-repeat rule (not this type set) is what stops
-// the LLM from picking the same store for both meals.
-const SNACK_TYPES = ["cafe", "bakery", "ice_cream_shop"];
 
 // Lunch/dinner still centre on `restaurant`, widened per budget so a
 // "budget" trip also surfaces fast_food_restaurant and a "luxury" trip
@@ -119,8 +71,7 @@ function getMainMealTypes(budget?: BudgetLevel): string[] {
 /**
  * Place Types to search for a given meal slot — breakfast and snack share one
  * café search (CAFE_MEAL_TYPES, split locally by cafeMealSlots.ts), lunch/
- * dinner use the budget-aware main-meal types. BREAKFAST_TYPES/SNACK_TYPES
- * above are only for the old full-LLM flow's prompt hints.
+ * dinner use the budget-aware main-meal types.
  */
 export function getMealPlaceTypes(mealType: MealType, budget?: BudgetLevel): string[] {
   if (mealType === "breakfast" || mealType === "snack") return CAFE_MEAL_TYPES;
@@ -147,151 +98,6 @@ export function getLodgingTypes(budget?: BudgetLevel): string[] {
 }
 
 
-/**
- * Nearby Search restricted to a set of Table A place types, returning just
- * name hints. Shared by the restaurant/breakfast/attraction fetchers below —
- * they differ only in which types and radius they pass. Pro fields only (no
- * rating), so it bills at the Pro tier — see PRO_FIELD_MASK. Returns
- * undefined on any error, which the caller turns into an empty list.
- */
-async function searchNearbyHints(
-  coords: { lat: number; lng: number },
-  apiKey: string,
-  includedTypes: string[],
-  radius: number,
-  maxCount: number,
-): Promise<RestaurantHint[] | undefined> {
-  try {
-    const res = await googleFetch(NEARBY_SEARCH_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Goog-Api-Key": apiKey,
-        "X-Goog-FieldMask": HINTS_FIELD_MASK,
-      },
-      body: JSON.stringify({
-        includedTypes,
-        maxResultCount: maxCount,
-        languageCode: "zh-TW",
-        locationRestriction: {
-          circle: {
-            center: { latitude: coords.lat, longitude: coords.lng },
-            radius,
-          },
-        },
-        rankPreference: "POPULARITY",
-      }),
-    });
-
-    if (!res.ok) {
-      console.warn(`[Places API] ${includedTypes.join(",")} HTTP ${res.status}`);
-      return undefined;
-    }
-
-    const data = await res.json();
-    return (data.places ?? [])
-      .map((p: { displayName?: { text?: string }; rating?: number; location?: { latitude?: number; longitude?: number }; types?: string[] }) => ({
-        name: cleanPlaceName(p.displayName?.text ?? ""),
-        rating: p.rating,
-        lat: p.location?.latitude,
-        lng: p.location?.longitude,
-        types: p.types,
-      }))
-      .filter((r: RestaurantHint) => r.name.length > 0);
-  } catch (err) {
-    console.warn(`[Places API] ${includedTypes.join(",")} fetch failed:`, err);
-    return undefined;
-  }
-}
-
-/**
- * Fetch top lunch/dinner restaurants near a city via Google Places Nearby Search.
- * Returns empty array on any error so callers can gracefully degrade.
- */
-export async function fetchCityRestaurants(
-  iataCode: string,
-  apiKey: string,
-  budget?: BudgetLevel,
-  maxCount = 20,
-): Promise<RestaurantHint[]> {
-  const coords = getIataCoords(iataCode);
-  if (!coords) return [];
-
-  return getCachedOrFetchHints(iataCode, "mainMeal", budget ?? "", () =>
-    searchNearbyHints(coords, apiKey, getMainMealTypes(budget), 8000, maxCount)
-  );
-}
-
-/**
- * Fetch top breakfast-appropriate places (cafés/bakeries) near a city.
- * Kept separate from fetchCityRestaurants because `restaurant` results are
- * mostly lunch/dinner venues that don't serve breakfast.
- */
-export async function fetchCityBreakfastPlaces(
-  iataCode: string,
-  apiKey: string,
-  maxCount = 15,
-): Promise<RestaurantHint[]> {
-  const coords = getIataCoords(iataCode);
-  if (!coords) return [];
-
-  return getCachedOrFetchHints(iataCode, "breakfast", "", () =>
-    searchNearbyHints(coords, apiKey, BREAKFAST_TYPES, 8000, maxCount)
-  );
-}
-
-/**
- * Fetch top snack/afternoon-tea-appropriate places (cafés/bakeries/ice cream
- * shops) near a city. Kept separate from fetchCityRestaurants for the same
- * reason as fetchCityBreakfastPlaces — `restaurant` results aren't dessert
- * venues.
- */
-export async function fetchCitySnackPlaces(
-  iataCode: string,
-  apiKey: string,
-  maxCount = 15,
-): Promise<RestaurantHint[]> {
-  const coords = getIataCoords(iataCode);
-  if (!coords) return [];
-
-  return getCachedOrFetchHints(iataCode, "snack", "", () =>
-    searchNearbyHints(coords, apiKey, SNACK_TYPES, 8000, maxCount)
-  );
-}
-
-// Re-exported for existing importers (itineraryGen.ts, accommodation/regenerate
-// route) — the table itself now lives in src/lib/airports.ts.
-export { getIataCoords };
-
-export async function fetchCityAttractions(
-  iataCode: string,
-  apiKey: string,
-  maxCount = 15,
-): Promise<RestaurantHint[]> {
-  const coords = getIataCoords(iataCode);
-  if (!coords) return [];
-
-  return getCachedOrFetchHints(iataCode, "attraction", "", () =>
-    searchNearbyHints(coords, apiKey, ["tourist_attraction"], 10000, maxCount)
-  );
-}
-
-export function buildAttractionHintsPrompt(
-  cityEntries: Array<{ cityNameZh: string; attractions: RestaurantHint[] }>,
-): string {
-  const nonEmpty = cityEntries.filter((e) => e.attractions.length > 0);
-  if (nonEmpty.length === 0) return "";
-
-  const sections = nonEmpty.map(({ cityNameZh, attractions }) => {
-    const list = attractions
-      .map((a) => `${a.name}${a.rating ? `（${a.rating}★）` : ""}`)
-      .join("、");
-    return `${cityNameZh}：${list}`;
-  });
-
-  return `\n\n【已驗證當地景點清單 — 優先使用】\n景點推薦**必須優先從以下清單中選取**，清單均為 Google Maps 真實存在的景點。每個景點在整份行程中只能使用一次，不可重複。若清單中景點數量不足以填滿所有天數，再適量補充其他知名真實景點。\n\n${sections.join("\n\n")}`;
-}
-
 export interface PlaceCandidate {
   name: string;
   /** Enterprise-tier field — absent on Pro searches. */
@@ -309,9 +115,9 @@ export interface PlaceCandidate {
   address: string;
   photoName?: string | null;
   // Added for the scheduler rule engine (plan/hybrid-rule-engine-scheduling.md
-  // Phase 3) — mapPlaceTypeToCategory feeds this into duration estimates, same
-  // reasoning as RestaurantHint.types. Optional: every other caller here only
-  // ever reads the fields above and ignores this one.
+  // Phase 3) — mapPlaceTypeToCategory feeds this into duration estimates.
+  // Optional: every other caller here only ever reads the fields above and
+  // ignores this one.
   types?: string[];
   /** Kids tier only (KIDS_FIELD_MASK); absent when Google doesn't say. */
   goodForChildren?: boolean;
@@ -775,64 +581,4 @@ async function findNearestStationUncached(
   } catch {
     return undefined;
   }
-}
-
-function formatHintSections(
-  cityEntries: Array<{ cityNameZh: string; places: RestaurantHint[] }>,
-): string {
-  return cityEntries
-    .map(({ cityNameZh, places }) => {
-      const list = places
-        .map((p) => `${p.name}${p.rating ? `（${p.rating}★）` : ""}`)
-        .join("、");
-      return `${cityNameZh}：${list}`;
-    })
-    .join("\n\n");
-}
-
-/**
- * Build the restaurant hints section to inject into the system prompt.
- * breakfastPlaces/snackPlaces come from cafe/bakery/ice-cream Place Types and
- * mainMealPlaces from restaurant-family Place Types (see
- * docs/google-places-types.md), so each meal slot is backed by a list that
- * actually matches what it can recommend.
- */
-export function buildRestaurantHintsPrompt(
-  cityEntries: Array<{
-    cityNameZh: string;
-    iataCode: string;
-    breakfastPlaces: RestaurantHint[];
-    mainMealPlaces: RestaurantHint[];
-    snackPlaces: RestaurantHint[];
-  }>,
-  budget?: BudgetLevel,
-): string {
-  const budgetNote = budget
-    ? `（已依「${BUDGET_LABEL[budget]}」預算篩選）`
-    : "";
-
-  let prompt = "";
-
-  const breakfastEntries = cityEntries
-    .map(({ cityNameZh, breakfastPlaces }) => ({ cityNameZh, places: breakfastPlaces }))
-    .filter((e) => e.places.length > 0);
-  if (breakfastEntries.length > 0) {
-    prompt += `\n\n【已驗證當地早餐地點清單 — 早餐必須優先使用】\n早餐（breakfast）推薦**必須優先從以下清單中選取**，清單均為 Google Maps 真實存在的咖啡館／麵包店。每個地點在整份行程中只能使用一次，不可重複。若清單數量不足以填滿所有天數，再適量補充其他知名真實咖啡館或麵包店（同樣須符合早餐場所限制）。\n\n${formatHintSections(breakfastEntries)}`;
-  }
-
-  const mainMealEntries = cityEntries
-    .map(({ cityNameZh, mainMealPlaces }) => ({ cityNameZh, places: mainMealPlaces }))
-    .filter((e) => e.places.length > 0);
-  if (mainMealEntries.length > 0) {
-    prompt += `\n\n【已驗證當地餐廳清單${budgetNote} — 午、晚餐必須優先使用】\n午餐、晚餐推薦**必須優先從以下清單中選取**，清單均為 Google Maps 真實存在的餐廳。每家餐廳在整份行程中只能使用一次，不可重複。若行程途經克魯格國家公園等偏遠地區且清單無對應餐廳，才可使用園區內的實際營地餐廳（如 Skukuza Camp Restaurant、Cattle Baron），但同一家仍不得重複使用。\n\n${formatHintSections(mainMealEntries)}`;
-  }
-
-  const snackEntries = cityEntries
-    .map(({ cityNameZh, snackPlaces }) => ({ cityNameZh, places: snackPlaces }))
-    .filter((e) => e.places.length > 0);
-  if (snackEntries.length > 0) {
-    prompt += `\n\n【已驗證當地點心地點清單 — 點心必須優先使用】\n點心（snack，下午茶／甜點）推薦**必須優先從以下清單中選取**，清單均為 Google Maps 真實存在的咖啡館、甜點店或冰淇淋店。此清單可能與上方【已驗證當地早餐地點清單】出現同一家店，仍須遵守整份行程「同一餐廳/店名只能使用一次」的規則——即使某店同時出現在早餐與點心清單中，也只能在其中一餐使用一次，不可兩餐都選它。若清單數量不足以填滿所有天數，再適量補充其他知名真實甜點店、咖啡館或冰淇淋店。\n\n${formatHintSections(snackEntries)}`;
-  }
-
-  return prompt;
 }

@@ -36,7 +36,7 @@ import {
   repairTransitDayDepartureCities,
   tagWaypointCities,
 } from "@/lib/itineraryGen";
-import { fetchCityRestaurants, fetchCityBreakfastPlaces, fetchCitySnackPlaces, buildRestaurantHintsPrompt, PRICE_LEVEL_MAP } from "@/lib/fetchCityRestaurants";
+import { PRICE_LEVEL_MAP } from "@/lib/fetchCityRestaurants";
 import { lookupByQuery, upsertPlace } from "@/lib/placeCache";
 import { validateItinerary } from "@/lib/validateItinerary";
 import { validateGeography } from "@/lib/validateGeography";
@@ -325,36 +325,8 @@ async function generateItinerary(scenario: Scenario, retries = 3): Promise<any> 
   const arrivalCityName = iataToCity(flightInfo.arrivalCity);
   const returnCityName = iataToCity(flightInfo.returnDepartureCity);
 
-  // Fetch real restaurants from Google Places to inject into prompt
-  const googleApiKey = process.env.GOOGLE_PLACES_API_KEY;
-  let restaurantHintsPrompt = "";
-  if (googleApiKey) {
-    const iataCodes = [...new Set([flightInfo.arrivalCity, flightInfo.returnDepartureCity])];
-    const cityEntries = await Promise.all(
-      iataCodes.map(async (code) => {
-        const [breakfastPlaces, mainMealPlaces, snackPlaces] = await Promise.all([
-          fetchCityBreakfastPlaces(code, googleApiKey),
-          fetchCityRestaurants(code, googleApiKey),
-          fetchCitySnackPlaces(code, googleApiKey),
-        ]);
-        return { cityNameZh: iataToCity(code), iataCode: code, breakfastPlaces, mainMealPlaces, snackPlaces };
-      })
-    );
-    restaurantHintsPrompt = buildRestaurantHintsPrompt(cityEntries);
-    for (const { cityNameZh, breakfastPlaces, mainMealPlaces, snackPlaces } of cityEntries) {
-      if (breakfastPlaces.length > 0) {
-        console.log(`    📍 ${cityNameZh}：取得 ${breakfastPlaces.length} 家真實早餐地點`);
-      }
-      if (mainMealPlaces.length > 0) {
-        console.log(`    📍 ${cityNameZh}：取得 ${mainMealPlaces.length} 家真實餐廳`);
-      }
-      if (snackPlaces.length > 0) {
-        console.log(`    📍 ${cityNameZh}：取得 ${snackPlaces.length} 家真實點心地點`);
-      }
-    }
-  }
-
-  const systemPrompt = buildSystemPrompt(flightInfo, preferences, days, restaurantHintsPrompt);
+  // No Google hint lists in the prompt (ADR-0008).
+  const systemPrompt = buildSystemPrompt(flightInfo, preferences, days);
   const isMultiCity = arrivalCityName !== returnCityName;
   const destinationDesc = isMultiCity ? `${arrivalCityName} → ${returnCityName}` : arrivalCityName;
   const userContent = prompt
