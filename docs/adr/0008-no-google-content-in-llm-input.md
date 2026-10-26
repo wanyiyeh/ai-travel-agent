@@ -13,7 +13,8 @@ Google Maps Platform 服務條款 3.2.3(c) 禁止「以 Google Maps 內容創作
 - 編輯時的加景點、景點建議、重新生成餐廳與住宿
 - 用 LLM 翻譯 Google 的店名（`src/lib/translatePlaceNames.ts`）
 - 景點建議把當天的 Google 名稱當成排除清單交給 LLM
-- 舊的整段生成 fallback 把 Google 餐廳名稱放進 prompt（`src/lib/itineraryGen.ts` 的 `restaurantHintsPrompt`）
+- 舊的整段生成 fallback 把 Google 景點與餐廳名稱放進 prompt（`src/lib/itineraryGen.ts` 的 `restaurantHintsPrompt`）
+- 實作途中才發現的兩處：餐點與住宿由 LLM 從 Google 候選清單挑選並寫簡介（`src/lib/itineraryCityGen.ts` 的 `askMealsAndLodging`）；移動日規劃把已去過的地點名稱當排除清單（`planTransitDay`）
 
 Google 的回覆時間與結論都無法掌握，作品集公開前需要確定合規。
 

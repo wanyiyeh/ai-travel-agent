@@ -278,12 +278,7 @@ async function planTransitDay(
 }
 
 規則：
-- prepStops：${fromCity ? `${fromCity} 出發前早晨微行程（車站附近早餐或快速景點，09:30 前完成），可以是空陣列` : `出發準備，可以是空陣列`}${
-            visitedInFromCity.length
-              ? `
-- 旅客前幾天已經在 ${fromCity} 去過：${visitedInFromCity.join("、")}。prepStops 不要再排這些地點（包括「XX 散步」這類換個說法的），沒有別的可排就只排早餐或空陣列`
-              : ""
-          }
+- prepStops：${fromCity ? `${fromCity} 出發前早晨微行程（車站附近早餐或快速景點，09:30 前完成），可以是空陣列` : `出發準備，可以是空陣列`}
 - transitStop：交通本身，須填入真實交通工具、正確車程時數，duration_minutes 必須反映真實車程，transport_from_prev 必須包含預估時間（例如「搭乘新幹線約 1 小時30分」），不可只寫交通方式
 - arrivalTime："HH:MM" 格式的 24 小時制時間，代表抵達 ${toCity} 後可以開始活動的時間
 - time_of_day 只能是 "morning"、"afternoon"、"evening" 之一
@@ -308,6 +303,9 @@ async function planTransitDay(
     if (!parsed.transitStop || typeof parsed.transitStop !== "object") return null;
 
     return {
+      // The places already seen in fromCity are Google's names, so they stay
+      // out of the prompt (ADR-0008) and a morning stop that goes back to
+      // one is dropped here instead.
       prepStops: Array.isArray(parsed.prepStops)
         ? withoutRevisits(
             parsed.prepStops.map((s) => ({ ...(s as Record<string, unknown>), id: crypto.randomUUID() })),

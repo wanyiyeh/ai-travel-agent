@@ -66,8 +66,10 @@ created: 2026-10-25
 5. 編輯路由：加景點（`stops`）、景點建議（`stop-suggestions`）不再為 Google 地點寫 LLM 文案，排除清單改用 place ID（#267）
 6. 移除 `translatePlaceNames` 與呼叫點（#268）
 7. 舊的整段生成 fallback：拿掉 `restaurantHintsPrompt`（#269）
-8. 清除既有行程裡用舊作法寫的文案，執行前先列出影響範圍請使用者確認（#270）
-9. 文件：功能頁、`.claude/rules/google-places.md` 加一條「LLM 輸入不放 Google 內容」（#271）
+8. 移動日規劃不把已去過的地點名稱交給 LLM（#276）
+9. 餐點與住宿改由規則挑選，不把 Google 候選交給 LLM；設計先給使用者確認（#277）
+10. 清除既有行程裡用舊作法寫的文案，執行前先列出影響範圍請使用者確認（#270）
+11. 文件：功能頁、`.claude/rules/google-places.md` 加一條「LLM 輸入不放 Google 內容」（#271）
 
 ## 完成後遷移清單
 

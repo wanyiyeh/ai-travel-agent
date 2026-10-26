@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { PlaceCandidate } from "@/lib/fetchCityRestaurants";
 import { NEUTRAL_PREFERENCE_INTENT, type PreferenceIntent } from "@/lib/schemas";
 import { LAST_STOP_NOTE } from "@/lib/skeletonCopy";
+import { capturedMessages, expectNoGoogleContent, googleName } from "@tests/contracts/googleContent";
 
 // Does the pace choice change how many attractions a sightseeing day gets?
 // Pace is defined by how long each stop lasts (plan/form-preference-wiring.md
@@ -706,12 +707,12 @@ describe("generateTransitDayStops — places already visited", () => {
       ],
     });
 
-  it("tells the planner what was already seen in the city being left", async () => {
+  it("keeps the visited places, Google's names, out of the planner's prompt (ADR-0008)", async () => {
     plan([]);
 
-    await generateTransitDayStops("小樽", "札幌", "JPY", undefined, NEUTRAL_PREFERENCE_INTENT, [], [], ["小樽運河", "小樽蒸汽鐘"]);
+    await generateTransitDayStops("小樽", "札幌", "JPY", undefined, NEUTRAL_PREFERENCE_INTENT, [], [], [googleName("小樽運河")]);
 
-    expect(createMock.mock.calls[0][0].messages[0].content).toContain("已經在 小樽 去過：小樽運河、小樽蒸汽鐘");
+    expectNoGoogleContent(...capturedMessages(createMock));
   });
 
   it("drops a morning stop that goes back to a visited place, under another name too", async () => {
@@ -722,14 +723,6 @@ describe("generateTransitDayStops — places already visited", () => {
     const names = stops.map((s) => s.name);
     expect(names).not.toContain("小樽運河散步");
     expect(names).toContain("車站附近早餐");
-  });
-
-  it("says nothing when the city hasn't been visited yet", async () => {
-    plan([]);
-
-    await generateTransitDayStops("東京", "大阪", "JPY", undefined, NEUTRAL_PREFERENCE_INTENT);
-
-    expect(createMock.mock.calls[0][0].messages[0].content).not.toContain("已經在");
   });
 });
 
