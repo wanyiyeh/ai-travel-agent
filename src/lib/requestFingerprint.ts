@@ -18,6 +18,6 @@ export function hashIp(ip: string): string {
 // the first API request, so it's normally present by the time a route runs.
 export function requestFingerprint(request: Request): RequestFingerprint {
   const cookie = request.headers.get("cookie") ?? "";
-  const match = /(?:^|;s*)device_id=([^;]+)/.exec(cookie);
+  const match = /(?:^|;\s*)device_id=([^;]+)/.exec(cookie);
   return { ipHash: hashIp(clientIp(request.headers)), deviceId: match ? decodeURIComponent(match[1]) : null };
 }
