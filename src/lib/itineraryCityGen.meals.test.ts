@@ -95,7 +95,7 @@ describe("generateMealsAndAccommodation", () => {
   });
 
   // ADR-0009: the morning before a transit day's ride.
-  it("picks one more breakfast for the morning of leaving, without changing the stay's own days", async () => {
+  it("picks an extra day after the stay, without changing the stay's own days", async () => {
     const restaurants = Array.from({ length: 6 }, (_, i) => place(`Restaurant ${i}`));
     const cafes = [place("Cafe A"), place("Cafe B"), place("Cafe C"), place("Cafe D")];
     const setUp = () => {
@@ -106,11 +106,11 @@ describe("generateMealsAndAccommodation", () => {
     setUp();
     const plain = await generateMealsAndAccommodation("京都", 2, "JPY", "moderate");
     setUp();
-    const leaving = await generateMealsAndAccommodation("京都", 2, "JPY", "moderate", {}, { departureBreakfast: true });
+    const leaving = await generateMealsAndAccommodation("京都", 2, "JPY", "moderate", {}, { extraDays: 1 });
 
-    expect(plain.departureBreakfast).toBeUndefined();
+    expect(plain.extraMealsByDay).toBeUndefined();
     expect(leaving.mealsByDay).toEqual(plain.mealsByDay);
-    expect(leaving.departureBreakfast?.placeId).toMatch(/^pid-Cafe/);
+    expect((leaving.extraMealsByDay?.[0].breakfast as Record<string, unknown>).placeId).toMatch(/^pid-Cafe/);
     // no extra search for it
     expect(nearbyMock).toHaveBeenCalledTimes(4);
   });

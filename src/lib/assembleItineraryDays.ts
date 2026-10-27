@@ -9,6 +9,7 @@ import {
   parseTimeString,
 } from "@/lib/itineraryCityGen";
 import { parsePreferenceIntent } from "@/lib/preferenceIntent";
+import { transitDayMeals } from "@/lib/transitDayMeals";
 import { mergePreferenceIntent } from "@/lib/mergePreferenceIntent";
 import { computeArrivalDayStartMinute } from "@/lib/scheduler/arrivalDayStart";
 import { planDayEvents, type PlannedDayEvents } from "@/lib/fixedEventVenues";
@@ -44,12 +45,6 @@ function extractPlaceIds(stops: Array<Record<string, unknown>>): string[] {
   return stops
     .map((s) => (typeof s.placeId === "string" ? s.placeId : undefined))
     .filter((id): id is string => !!id);
-}
-
-function withoutBreakfast(meals: Record<string, unknown> | undefined): Record<string, unknown> {
-  const rest = { ...(meals ?? {}) };
-  delete rest.breakfast;
-  return rest;
 }
 
 // The return day ends at the airport, so no 小酌 after dinner.
@@ -209,7 +204,7 @@ export async function assembleItineraryDays(
     // fails" contract. restructure/route.ts already wraps every one of its
     // own call sites with this same degrade-to-empty pattern.
     const mealsAndAccommodationPromise = generateMealsAndAccommodation(city.name, mealDays, plan.currency, budget, mealPreferences, {
-      departureBreakfast: !isLast,
+      extraDays: isLast ? 0 : 1,
     }).catch((): Awaited<ReturnType<typeof generateMealsAndAccommodation>> => emptyMealsAndAccommodation(mealDays));
 
     if (!isFirst) {
@@ -253,17 +248,13 @@ export async function assembleItineraryDays(
         accommodation: stayed ?? (hasAccommodation ? mealsAndAccommodation.accommodation : undefined),
         // Breakfast is still in the city being left, so it comes from there;
         // the rest are the meals after arriving.
-        meals: {
-          ...(breakfastBeforeLeaving ? { breakfast: breakfastBeforeLeaving } : {}),
-          ...withoutBreakfast(mealsAndAccommodation.mealsByDay[0]),
-          ...transitEvents.meals,
-        },
+        meals: { ...transitDayMeals(mealsAndAccommodation.mealsByDay[0], breakfastBeforeLeaving), ...transitEvents.meals },
         ...(weatherNote(transitConditions) ? { weatherNote: weatherNote(transitConditions) } : {}),
       });
     }
 
     const mealsAndAccommodation = await mealsAndAccommodationPromise;
-    breakfastBeforeLeaving = mealsAndAccommodation.departureBreakfast;
+    breakfastBeforeLeaving = mealsAndAccommodation.extraMealsByDay?.[0]?.breakfast as Record<string, unknown> | undefined;
     const hasAccommodation = Object.keys(mealsAndAccommodation.accommodation).length > 0;
     const accommodation = stayByCity.get(city.name) ?? (hasAccommodation ? mealsAndAccommodation.accommodation : undefined);
     if (accommodation && !stayByCity.has(city.name)) stayByCity.set(city.name, accommodation);
