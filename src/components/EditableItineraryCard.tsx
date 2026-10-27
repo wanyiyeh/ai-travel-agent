@@ -1233,6 +1233,12 @@ export default function EditableItineraryCard({
     >
       {/* data-readonly: globals.css hides every control except data-print-show / data-readonly-keep. */}
       <div className="space-y-6" data-readonly={readOnly || undefined}>
+        {/* Which items move and how meals change (#288, ADR-0010). */}
+        {!readOnly && (
+          <p className="text-xs text-zinc-500 dark:text-zinc-400" data-print-hidden>
+            按住圓形圖示拖拉，可以調整景點，以及午餐、點心、晚餐的位置；早餐、小酌的位置固定。餐點可以「換一家」或刪除。
+          </p>
+        )}
         {error && (
           <div className="rounded-lg border border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950 px-4 py-3 text-sm text-red-700 dark:text-red-300">
             {error}
