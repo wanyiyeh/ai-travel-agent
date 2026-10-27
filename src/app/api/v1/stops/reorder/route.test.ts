@@ -16,11 +16,18 @@ describe("POST /stops/reorder validation", () => {
     expect(res.status).toBe(404);
   });
 
+  it("accepts where the traveler dragged the meals (ADR-0010)", async () => {
+    const res = await POST(req({ itineraryId: "i1", days: [{ dayId: "d1", stopIds: ["a"], mealPositions: { lunch: 0, dinner: 1 } }] }));
+    expect(res.status).toBe(404);
+  });
+
   it.each([
     ["days not an array", { itineraryId: "i1", days: "d1" }],
     ["non-string stop id", { itineraryId: "i1", days: [{ dayId: "d1", stopIds: [1] }] }],
     ["missing dayId", { itineraryId: "i1", days: [{ stopIds: ["a"] }] }],
     ["too many stop ids", { itineraryId: "i1", days: [{ dayId: "d1", stopIds: Array(501).fill("a") }] }],
+    ["a meal position that isn't a count", { itineraryId: "i1", days: [{ dayId: "d1", stopIds: [], mealPositions: { lunch: -1 } }] }],
+    ["breakfast, which can't be moved", { itineraryId: "i1", days: [{ dayId: "d1", stopIds: [], mealPositions: { breakfast: 0 } }] }],
   ])("rejects %s with 400", async (_label, body) => {
     findFirst.mockClear();
     expect((await POST(req(body))).status).toBe(400);

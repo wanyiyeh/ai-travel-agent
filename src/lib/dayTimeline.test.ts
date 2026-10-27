@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildDayTimeline, type TimeOfDay } from "./dayTimeline";
+import { buildDayTimeline, mealPositionsOf, mealsInOrder, timeOfDayBetweenMeals, type MealPositions, type TimeOfDay } from "./dayTimeline";
 
 type S = { name: string; tod?: TimeOfDay };
 
@@ -80,5 +80,76 @@ describe("buildDayTimeline — dinner before an evening show", () => {
     const stops: T[] = [{ name: "Museum", tod: "morning" }];
     const items = buildDayTimeline<T, string | null>(stops, allMeals, (s) => s.tod, (s) => Boolean(s.show));
     expect(items[items.length - 1]).toMatchObject({ kind: "meal", mealType: "dinner" });
+  });
+});
+
+// Story (#287): with four stops, lunch always fell between the 2nd and 3rd,
+// and no stop could come after dinner — a sunset viewpoint after eating.
+describe("buildDayTimeline — meals the traveler placed (ADR-0010)", () => {
+  const four: S[] = [
+    { name: "a", tod: "morning" },
+    { name: "b", tod: "morning" },
+    { name: "c", tod: "afternoon" },
+    { name: "d", tod: "evening" },
+  ];
+  const placed = (positions: MealPositions) =>
+    labels(buildDayTimeline<S, string | null>(four, allMeals, (s) => s.tod, undefined, { positions }));
+
+  it("puts each placed meal after that many stops", () => {
+    expect(placed({ lunch: 1, snack: 2, dinner: 3 })).toEqual(["breakfast", "a", "lunch", "b", "snack", "c", "dinner", "d"]);
+  });
+
+  it("falls back to the rule for a meal not placed, without passing a placed one", () => {
+    expect(placed({ dinner: 3 })).toEqual(["breakfast", "a", "b", "lunch", "c", "snack", "dinner", "d"]);
+  });
+
+  it("keeps meals that share a spot in lunch, snack, dinner order", () => {
+    expect(placed({ lunch: 2, snack: 2, dinner: 2 })).toEqual(["breakfast", "a", "b", "lunch", "snack", "dinner", "c", "d"]);
+  });
+
+  it("puts a meal past the last stop at the end, after a stop was deleted", () => {
+    expect(placed({ lunch: 2, snack: 9, dinner: 9 })).toEqual(["breakfast", "a", "b", "lunch", "c", "d", "snack", "dinner"]);
+  });
+
+  it("counts positions over the whole day when given only some stops", () => {
+    // the map leaves out stop b (no coordinates): lunch after 2 stops still sits before c
+    const shown = [four[0], four[2], four[3]];
+    const dayIndex = new Map(four.map((s, i) => [s, i]));
+    const items = buildDayTimeline<S, string | null>(shown, { lunch: "L" }, (s) => s.tod, undefined, {
+      positions: { lunch: 2 },
+      indexOf: (s) => dayIndex.get(s)!,
+    });
+    expect(labels(items)).toEqual(["a", "lunch", "c", "d"]);
+  });
+
+  it("round-trips through mealPositionsOf", () => {
+    const positions = { lunch: 1, snack: 3, dinner: 3 };
+    const items = buildDayTimeline<S, string | null>(four, allMeals, (s) => s.tod, undefined, { positions });
+    expect(mealPositionsOf(items)).toEqual(positions);
+  });
+});
+
+describe("mealsInOrder", () => {
+  const meal = (mealType: "lunch" | "snack" | "dinner" | "breakfast") => ({ kind: "meal" as const, mealType, meal: null });
+  const stop = { kind: "stop" as const, stop: { name: "a" }, stopIndex: 0 };
+
+  it("accepts lunch, snack, dinner with stops anywhere between them", () => {
+    expect(mealsInOrder([meal("breakfast"), meal("lunch"), stop, meal("snack"), meal("dinner")])).toBe(true);
+  });
+
+  it("rejects dinner before lunch", () => {
+    expect(mealsInOrder([meal("dinner"), stop, meal("lunch")])).toBe(false);
+  });
+});
+
+describe("timeOfDayBetweenMeals", () => {
+  it("is morning before lunch, evening from dinner on, afternoon between", () => {
+    const positions = { lunch: 1, dinner: 3 };
+    expect([0, 1, 2, 3].map((i) => timeOfDayBetweenMeals(i, positions))).toEqual(["morning", "afternoon", "afternoon", "evening"]);
+  });
+
+  it("leaves the time to the caller's rule when no meal was placed", () => {
+    expect(timeOfDayBetweenMeals(0, {})).toBeUndefined();
+    expect(timeOfDayBetweenMeals(0, { snack: 1 })).toBeUndefined();
   });
 });

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect, useMemo, useRef, Fragment, type ReactNode } from "react";
+import { useState, useCallback, useEffect, useMemo, useRef, Fragment, type HTMLAttributes, type ReactNode } from "react";
 import {
   DndContext,
   closestCenter,
@@ -36,7 +36,10 @@ import { MEAL_TYPES } from "@/types/itinerary";
 import { tourLinks } from "@/lib/tourLinks";
 import { isDinnerBeforeStop } from "@/lib/fixedEvents";
 import type { Itinerary, Day, Stop, Meal, MealType, Accommodation, StopCandidate } from "@/types/itinerary";
-import { buildDayTimeline, MEAL_TIME_OF_DAY } from "@/lib/dayTimeline";
+import { buildDayTimeline, isMovableMeal, MEAL_TIME_OF_DAY, MOVABLE_MEALS, timeOfDayBetweenMeals } from "@/lib/dayTimeline";
+import { dropInDay, mealDragId, parseMealDragId } from "@/lib/mealDrag";
+import { skipMeal, unskipMeal } from "@/lib/skippedMeals";
+import { SortableMeal } from "@/components/SortableMeal";
 import { findRepeatedMeals, slotKey } from "@/lib/mealRepeats";
 import { daysMissingNames, withPlaceNames, type PlaceNameBook } from "@/lib/placeNamesClient";
 import GoogleMapsAttribution from "@/components/GoogleMapsAttribution";
@@ -97,16 +100,19 @@ function EmptyDayPlaceholder({ id, isTransitDay }: { id: string; isTransitDay: b
 function DayStopsZone({
   dayId,
   stopIds,
+  itemIds,
   isTransitDay,
   children,
 }: {
   dayId: string;
   stopIds: string[];
+  // Stops and the meals that can be dragged, in screen order (ADR-0010).
+  itemIds: string[];
   isTransitDay: boolean;
   children: ReactNode;
 }) {
   const isEmpty = stopIds.length === 0;
-  const items = isEmpty ? [emptyDayDropzoneId(dayId)] : stopIds;
+  const items = isEmpty ? [emptyDayDropzoneId(dayId)] : itemIds;
   return (
     <SortableContext items={items} strategy={verticalListSortingStrategy}>
       {isEmpty ? (
@@ -119,6 +125,33 @@ function DayStopsZone({
 }
 
 const EMPTY_PLACE_NAMES: PlaceNameBook = {};
+
+// A day with no meals object (an old transit day) gets no meal slots;
+// otherwise every meal type gets a slot, empty ones as null — except 小酌,
+// which only a traveler who picked 酒 has, and the meals the traveler
+// deleted (ADR-0010).
+function dayMealSlots(day: Day): Partial<Record<MealType, Meal | null>> {
+  if (!day.meals) return {};
+  const skipped = new Set(day.skippedMeals ?? []);
+  return Object.fromEntries(
+    MEAL_TYPES.filter((t) => (t !== "nightcap" || day.meals?.nightcap) && !skipped.has(t)).map((t) => [t, day.meals?.[t] ?? null])
+  );
+}
+
+function dayTimelineOf(day: Day) {
+  return buildDayTimeline(day.stops, dayMealSlots(day), (s) => s.time_of_day, isDinnerBeforeStop, {
+    positions: day.mealPositions,
+  });
+}
+
+// The day's draggable items in screen order: its stops, plus lunch, snack
+// and dinner (ADR-0010). What a drop is measured against.
+function daySortableIds(day: Day): string[] {
+  return dayTimelineOf(day).flatMap((item) => {
+    if (item.kind === "stop") return item.stop.id ? [item.stop.id] : [];
+    return day.id && isMovableMeal(item.mealType) ? [mealDragId(day.id, item.mealType)] : [];
+  });
+}
 
 interface EditableItineraryCardProps {
   data: {
@@ -231,6 +264,8 @@ export default function EditableItineraryCard({
   const [recalculatingDay, setRecalculatingDay] = useState<string | null>(null);
   const [pickingAccommodationDayId, setPickingAccommodationDayId] = useState<string | null>(null);
   const [pickingMeal, setPickingMeal] = useState<{ dayId: string; mealType: MealType } | null>(null);
+  // Why a meal drag was undone, or a delete failed, shown under that day (ADR-0010).
+  const [mealNotice, setMealNotice] = useState<{ dayId: string; text: string } | null>(null);
   const [pickingStopId, setPickingStopId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [addingToDay, setAddingToDay] = useState<string | null>(null);
@@ -301,7 +336,9 @@ export default function EditableItineraryCard({
   // Same stop/meal order as the day card's timeline. Meals add their address
   // since a restaurant name alone is often ambiguous to Google Maps.
   const buildGoogleMapsUrl = (day: Day, origin?: string) => {
-    const timeline = buildDayTimeline(day.stops, day.meals ?? {}, (s) => s.time_of_day, isDinnerBeforeStop);
+    const timeline = buildDayTimeline(day.stops, day.meals ?? {}, (s) => s.time_of_day, isDinnerBeforeStop, {
+      positions: day.mealPositions,
+    });
     const points = [
       origin,
       ...timeline.map((item) =>
@@ -404,6 +441,18 @@ export default function EditableItineraryCard({
     const { active, over } = event;
     setActiveId(null);
 
+    // A meal only moves within its own day (ADR-0010).
+    const activeMeal = parseMealDragId(active.id as string);
+    if (activeMeal) {
+      const dayIndex = itinerary.days.findIndex((d) => d.id === activeMeal.dayId);
+      if (dayIndex === -1 || !over || active.id === over.id) {
+        setSnapshotBeforeDrag(null);
+        return;
+      }
+      dropWithinDay(dayIndex, active.id as string, over.id as string);
+      return;
+    }
+
     const activeStopId = active.id as string;
     const activeDayIndex = findDayIndexByStopId(activeStopId);
     if (activeDayIndex === -1) {
@@ -497,34 +546,61 @@ export default function EditableItineraryCard({
       return;
     }
 
-    const day = itinerary.days[activeDayIndex];
-    const oldIndex = day.stops.findIndex((s) => s.id === activeStopId);
-    const newIndex = day.stops.findIndex((s) => s.id === over.id);
-    if (oldIndex === -1 || newIndex === -1) {
+    dropWithinDay(activeDayIndex, activeStopId, over.id as string);
+  }
+
+  // A stop or meal dropped within its own day: the order on screen is the
+  // result, meals included (ADR-0010). Meals keep lunch → snack → dinner; a
+  // drop that breaks it is undone with a note on how to get there.
+  function dropWithinDay(dayIndex: number, activeId: string, overId: string) {
+    const day = itinerary.days[dayIndex];
+    const overMeal = parseMealDragId(overId);
+    const result = day.id && (!overMeal || overMeal.dayId === day.id) ? dropInDay(daySortableIds(day), activeId, overId) : null;
+    if (!result) {
       setSnapshotBeforeDrag(null);
       return;
     }
+    if (!result.ok) {
+      const moved = MEAL_META[result.moved].label;
+      const blocking = MEAL_META[result.blocking].label;
+      const side = MOVABLE_MEALS.indexOf(result.moved) > MOVABLE_MEALS.indexOf(result.blocking) ? "後面" : "前面";
+      setMealNotice({ dayId: day.id!, text: `${moved}要排在${blocking}${side}：可以先移動${blocking}，或刪除${blocking}。` });
+      setSnapshotBeforeDrag(null);
+      return;
+    }
+    setMealNotice(null);
+
+    const stopById = new Map(day.stops.map((s) => [s.id, s]));
+    const stopsMoved = result.stopIds.some((id, i) => day.stops[i]?.id !== id);
+    const stops = result.stopIds.flatMap((id) => {
+      const stop = stopById.get(id);
+      return stop ? [stop] : [];
+    });
     const newDays = [...itinerary.days];
-    newDays[activeDayIndex] = {
+    newDays[dayIndex] = {
       ...day,
-      stops: arrayMove(day.stops, oldIndex, newIndex).map((stop) => ({
-        ...stop,
-        transport_from_prev: undefined,
-        time_of_day: undefined,
-      })),
+      mealPositions: result.mealPositions,
+      // New legs come from the recalculation; a meal-only move keeps them and
+      // just re-splits the day around the meals, as the reorder route does.
+      stops: stopsMoved
+        ? stops.map((stop) => ({ ...stop, transport_from_prev: undefined, time_of_day: undefined }))
+        : stops.map((stop, i) =>
+            isTransitStop(stop, day) ? stop : { ...stop, time_of_day: timeOfDayBetweenMeals(i, result.mealPositions) ?? stop.time_of_day }
+          ),
     };
     const newItinerary = { ...itinerary, days: newDays };
     setItinerary(newItinerary);
-    persistReorder(newItinerary, day.id ? [day.id] : undefined);
+    persistReorder(newItinerary, stopsMoved ? [day.id!] : [], day.id!);
   }
 
-  async function persistReorder(target: Itinerary, recalcDayIds?: string[]) {
+  async function persistReorder(target: Itinerary, recalcDayIds?: string[], mealsMovedOn?: string) {
     try {
       const affectedDays = target.days
         .filter((day) => day.id)
         .map((day) => ({
           dayId: day.id!,
           stopIds: day.stops.map((s) => s.id!).filter(Boolean),
+          ...(day.id === mealsMovedOn && day.mealPositions ? { mealPositions: day.mealPositions } : {}),
         }));
 
       const res = await fetch("/api/v1/stops/reorder", {
@@ -924,10 +1000,50 @@ export default function EditableItineraryCard({
     setItinerary((prev) => ({
       ...prev,
       days: prev.days.map((d) =>
-        d.id === dayId ? { ...d, meals: { ...d.meals, [mealType]: meal } } : d
+        // Picking a place brings back a meal that had been deleted (select route).
+        d.id === dayId ? unskipMeal({ ...d, meals: { ...d.meals, [mealType]: meal } }, mealType) : d
       ),
     }));
     onUpdate?.();
+  };
+
+  // Deleting a meal leaves no slot for it; 「加回」 under the day brings the
+  // slot back (ADR-0010). Same rules as the server's skippedMeals.ts.
+  const handleDeleteMeal = async (dayId: string, mealType: MealType) => {
+    try {
+      const res = await fetch(`/api/v1/days/${dayId}/meals/${mealType}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ itineraryId: data.id }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => null))?.error || "刪除失敗");
+      setMealNotice(null);
+      setItinerary((prev) => ({
+        ...prev,
+        days: prev.days.map((d) => (d.id === dayId ? skipMeal(d, mealType) : d)),
+      }));
+      onUpdate?.();
+    } catch (err) {
+      setMealNotice({ dayId, text: err instanceof Error ? err.message : "刪除失敗" });
+    }
+  };
+
+  const handleRestoreMeal = async (dayId: string, mealType: MealType) => {
+    try {
+      const res = await fetch(`/api/v1/days/${dayId}/meals/${mealType}/restore`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ itineraryId: data.id }),
+      });
+      if (!res.ok) throw new Error("加回失敗");
+      setItinerary((prev) => ({
+        ...prev,
+        days: prev.days.map((d) => (d.id === dayId ? unskipMeal(d, mealType) : d)),
+      }));
+      onUpdate?.();
+    } catch (err) {
+      setMealNotice({ dayId, text: err instanceof Error ? err.message : "加回失敗" });
+    }
   };
 
   // Both accommodation and meals only expose a "select" endpoint that
@@ -1099,6 +1215,12 @@ export default function EditableItineraryCard({
   };
 
   const activeStop = activeId ? findStopById(activeId) : undefined;
+  const activeMeal = (() => {
+    const parsed = activeId ? parseMealDragId(activeId) : null;
+    if (!parsed) return undefined;
+    const day = itinerary.days.find((d) => d.id === parsed.dayId);
+    return { mealType: parsed.mealType, name: day?.meals?.[parsed.mealType]?.name };
+  })();
 
   return (
     <DndContext
@@ -1455,15 +1577,9 @@ export default function EditableItineraryCard({
 
               {!isCollapsed && (() => {
                 let lastTimeOfDay: string | undefined = undefined;
-                // A day with no meals object (transit days) gets no meal slots;
-                // otherwise every meal type gets a slot, empty ones as null —
-                // except 小酌, which only a traveler who picked 酒 has.
-                const dayMeals: Partial<Record<MealType, Meal | null>> = day.meals
-                  ? Object.fromEntries(
-                      MEAL_TYPES.filter((t) => t !== "nightcap" || day.meals?.nightcap).map((t) => [t, day.meals?.[t] ?? null])
-                    )
-                  : {};
-                const timeline = buildDayTimeline(day.stops, dayMeals, (s) => s.time_of_day, isDinnerBeforeStop);
+                const timeline = dayTimelineOf(day);
+                const itemIds = daySortableIds(day);
+                const mealsDraggable = !!day.id && bulkEditDayId !== day.id && pickingMeal?.dayId !== day.id;
                 // The ride isn't a place, so it takes no number in the day's list.
                 const transitIdx = transitStopIndex(day.stops, day);
                 const timeHeader = (timeOfDay: string | undefined) => {
@@ -1485,19 +1601,30 @@ export default function EditableItineraryCard({
                         const { mealType, meal } = item;
                         const isPickingThis =
                           day.id != null && pickingMeal?.dayId === day.id && pickingMeal.mealType === mealType;
+                        const row = (dragHandle?: HTMLAttributes<HTMLDivElement>) => (
+                          <MealTimelineRow
+                            mealType={mealType}
+                            meal={meal}
+                            currency={itinerary.currency}
+                            editable={day.id != null}
+                            isPicking={isPickingThis}
+                            onPick={() => setPickingMeal({ dayId: day.id!, mealType })}
+                            onSaveCost={(value) => handleUpdateMealCost(day.id!, mealType, value)}
+                            repeatNote={repeatNoteFor(day.day, mealType)}
+                            dragHandle={dragHandle}
+                            onDelete={bulkEditDayId === day.id ? undefined : () => handleDeleteMeal(day.id!, mealType)}
+                          />
+                        );
                         return (
                           <div key={`meal-${mealType}`} className="py-3">
                             {timeHeader(MEAL_TIME_OF_DAY[mealType])}
-                            <MealTimelineRow
-                              mealType={mealType}
-                              meal={meal}
-                              currency={itinerary.currency}
-                              editable={day.id != null}
-                              isPicking={isPickingThis}
-                              onPick={() => setPickingMeal({ dayId: day.id!, mealType })}
-                              onSaveCost={(value) => handleUpdateMealCost(day.id!, mealType, value)}
-                              repeatNote={repeatNoteFor(day.day, mealType)}
-                            />
+                            {day.id && isMovableMeal(mealType) ? (
+                              <SortableMeal id={mealDragId(day.id, mealType)} disabled={!mealsDraggable}>
+                                {row}
+                              </SortableMeal>
+                            ) : (
+                              row()
+                            )}
                             {isPickingThis && (
                               <MealPicker
                                 itineraryId={data.id}
@@ -1609,13 +1736,31 @@ export default function EditableItineraryCard({
                       </p>
                     )}
                     {day.id ? (
-                      <DayStopsZone dayId={day.id} stopIds={stopIds} isTransitDay={isTransitDay}>
+                      <DayStopsZone dayId={day.id} stopIds={stopIds} itemIds={itemIds} isTransitDay={isTransitDay}>
                         {stopsList}
                       </DayStopsZone>
                     ) : (
                       <SortableContext items={stopIds} strategy={verticalListSortingStrategy}>
                         {stopsList}
                       </SortableContext>
+                    )}
+                    {mealNotice && mealNotice.dayId === day.id && (
+                      <p className="mt-3 rounded-lg bg-amber-50 dark:bg-amber-950/40 px-3 py-2 text-sm text-amber-800 dark:text-amber-200">
+                        {mealNotice.text}
+                      </p>
+                    )}
+                    {day.id && (day.skippedMeals?.length ?? 0) > 0 && (
+                      <p className="mt-3 flex flex-wrap gap-3 text-sm" data-print-hidden>
+                        {day.skippedMeals!.map((mealType) => (
+                          <button
+                            key={mealType}
+                            onClick={() => handleRestoreMeal(day.id!, mealType)}
+                            className="text-blue-600 dark:text-blue-400 hover:underline"
+                          >
+                            ＋ 加回{MEAL_META[mealType].label}
+                          </button>
+                        ))}
+                      </p>
                     )}
                     {/* Free: a Google Maps search around the night's lodging, no Places call. */}
                     {day.accommodation?.lat != null && day.accommodation?.lng != null && (
@@ -1932,7 +2077,17 @@ export default function EditableItineraryCard({
       </div>
 
       <DragOverlay>
-        {activeStop ? <StopDragPreview stop={activeStop} /> : null}
+        {activeStop ? (
+          <StopDragPreview stop={activeStop} />
+        ) : activeMeal ? (
+          <div className="bg-white dark:bg-zinc-800 shadow-xl rounded-xl px-4 py-3 border-2 border-amber-400 w-80 flex items-center gap-3">
+            <span aria-hidden>{MEAL_META[activeMeal.mealType].icon}</span>
+            <div className="min-w-0">
+              <p className="text-xs font-medium text-amber-600 dark:text-amber-400">{MEAL_META[activeMeal.mealType].label}</p>
+              {activeMeal.name && <p className="font-semibold text-zinc-900 dark:text-zinc-50 truncate">{activeMeal.name}</p>}
+            </div>
+          </div>
+        ) : null}
       </DragOverlay>
     </DndContext>
   );

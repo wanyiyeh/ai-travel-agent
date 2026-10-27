@@ -2,6 +2,7 @@
 
 import type { FixedEventInfo } from "@/lib/fixedEvents";
 import type { EnrichFailure } from "@/lib/enrichFailure";
+import type { MealPositions } from "@/lib/dayTimeline";
 
 export type Stop = {
   id?: string;
@@ -162,6 +163,10 @@ export type Day = {
   weatherNote?: string;
   // A day trip's town or a seasonal day's theme, to find tours for (tourLinks.ts).
   tourKeyword?: string;
+  // Where the traveler dragged lunch, snack and dinner: stops before each (dayTimeline.ts, ADR-0010).
+  mealPositions?: MealPositions;
+  // Meals the traveler deleted: no empty slot is shown for them (skippedMeals.ts, ADR-0010).
+  skippedMeals?: MealType[];
 };
 
 export type Itinerary = {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   APIProvider,
   Map,
@@ -10,7 +10,7 @@ import {
 } from "@vis.gl/react-google-maps";
 import { MEAL_TYPES, type Day, type MealType } from "@/types/itinerary";
 import { buildPlaceMapsUrl, buildDirectionsUrl } from "@/lib/googleMapsUrl";
-import { buildDayTimeline } from "@/lib/dayTimeline";
+import { buildDayTimeline, type MealPositions } from "@/lib/dayTimeline";
 import { isDinnerBeforeStop } from "@/lib/fixedEvents";
 
 const DAY_COLORS = [
@@ -95,6 +95,7 @@ function MapContent({
   onMealClick,
   onCloseInfoWindow,
   travelMode,
+  mealPositionsByDay,
 }: {
   visibleStops: MapStop[];
   visibleAccommodations: MapAccommodation[];
@@ -107,6 +108,8 @@ function MapContent({
   onMealClick: (meal: MapMeal) => void;
   onCloseInfoWindow: () => void;
   travelMode: "driving" | "transit";
+  /** Where the traveler dragged each day's meals, by day index (ADR-0010). */
+  mealPositionsByDay: (MealPositions | undefined)[];
 }) {
   const map = useMap();
 
@@ -141,7 +144,12 @@ function MapContent({
       const meals = Object.fromEntries(
         visibleMeals.filter((m) => m.dayIndex === dayIndex).map((m) => [m.mealType, m])
       ) as Partial<Record<MealType, MapMeal>>;
-      const ordered: Array<MapStop | MapMeal> = buildDayTimeline(sorted, meals, (s) => s.timeOfDay, (s) => Boolean(s.dinnerBefore)).map((item) =>
+      // Stops with no coordinates aren't on the map, so positions count by
+      // each stop's index in the whole day, not in this list.
+      const ordered: Array<MapStop | MapMeal> = buildDayTimeline(sorted, meals, (s) => s.timeOfDay, (s) => Boolean(s.dinnerBefore), {
+        positions: mealPositionsByDay[dayIndex],
+        indexOf: (s) => s.stopIndex,
+      }).map((item) =>
         item.kind === "stop" ? item.stop : item.meal
       );
 
@@ -181,7 +189,7 @@ function MapContent({
     return () => {
       polylines.forEach((p) => p.setMap(null));
     };
-  }, [map, visibleStops, visibleMeals, travelMode]);
+  }, [map, visibleStops, visibleMeals, travelMode, mealPositionsByDay]);
 
   return (
     <>
@@ -360,6 +368,8 @@ export default function ItineraryMap({
   const [selectedAccommodation, setSelectedAccommodation] = useState<MapAccommodation | null>(null);
   const [selectedMeal, setSelectedMeal] = useState<MapMeal | null>(null);
   const [selectedDayIndex, setSelectedDayIndex] = useState<number | null>(null);
+  // Stable across renders, so the route lines redraw only when a meal moves.
+  const mealPositionsByDay = useMemo(() => days.map((d) => d.mealPositions), [days]);
 
   useEffect(() => {
     async function run() {
@@ -666,6 +676,7 @@ export default function ItineraryMap({
             >
               <MapContent
                 travelMode={travelMode}
+                mealPositionsByDay={mealPositionsByDay}
                 visibleStops={visibleStops}
                 visibleAccommodations={visibleAccommodations}
                 visibleMeals={visibleMeals}
