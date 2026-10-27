@@ -1,4 +1,4 @@
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma, j } from "@/lib/db";
 
 // Story: whatever route writes an itinerary, a trashed stop or day, or a
@@ -23,7 +23,11 @@ const googleStop = {
 const day = { id: "day-1", day: 1, waypointCity: "東京", stops: [googleStop] };
 
 const GOOGLE_FIELDS = ["淺草寺", "Asakusa", "4.5", "photos/abc"];
-const leaks = (raw: string) => GOOGLE_FIELDS.filter((value) => raw.includes(value));
+// Our own coordinate stamp (ADR-0006) is left out: its digits can spell "4.5".
+const leaks = (raw: string) => {
+  const ours = raw.replace(/"coordsFetchedAt":\s*"[^"]*"/g, "");
+  return GOOGLE_FIELDS.filter((value) => ours.includes(value));
+};
 
 async function rawDays(id: string): Promise<string> {
   const rows = await prisma.$queryRaw<{ days: string }[]>`SELECT days FROM "Itinerary" WHERE id = ${id}`;
@@ -37,7 +41,15 @@ beforeAll(async () => {
   userId = user.id;
 });
 
+beforeEach(() => {
+  // The coordinates' stamp is written at this time: "...T14:20:24.512Z"
+  // holds "4.5", the rating, and once failed CI on main by chance.
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-10-27T14:20:24.512Z"));
+});
+
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllEnvs();
 });
 
