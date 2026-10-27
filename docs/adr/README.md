@@ -15,6 +15,7 @@
 | 0007 | [本機開發與整合測試用 Docker 跑 Postgres，CI 用 Postgres service](0007-local-postgres-docker.md) | Accepted | 2026-10-23 |
 | 0008 | [LLM 的輸入不放任何 Google Maps 內容，Google 地點的文案改用模板](0008-no-google-content-in-llm-input.md) | Accepted | 2026-10-25 |
 | 0009 | [移動日的交通留在 stops 裡、標記成交通站，早餐改由規則挑選](0009-transit-leg-as-pinned-stop.md) | Accepted | 2026-10-26 |
+| 0010 | [午餐、點心、晚餐可以在當天拖拉，位置存成「前面有幾站」；餐點可以刪除](0010-draggable-meals.md) | Accepted | 2026-10-27 |
 
 ## 模板
 
