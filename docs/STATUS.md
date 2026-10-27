@@ -6,7 +6,7 @@
 
 ## 現在在做什麼
 
-修正朋友測試正式網站時回報的編輯問題（開普敦 → 赫曼努斯行程）。#286 已完成（PR #291）：移動日的交通改成交通站、早餐改由規則挑選（[ADR-0009](adr/0009-transit-leg-as-pinned-stop.md)）。#287、#292 已完成（PR #293）：午餐、點心、晚餐可在當天拖拉，餐點可以刪除與加回（[ADR-0010](adr/0010-draggable-meals.md)、[功能頁](features/meal-positions.md)）。#288 已完成：行程上方加一行說明哪些可以拖。
+修正朋友測試正式網站時回報的編輯問題（開普敦 → 赫曼努斯行程）。#286 已完成（PR #291）：移動日的交通改成交通站、早餐改由規則挑選（[ADR-0009](adr/0009-transit-leg-as-pinned-stop.md)）。#287、#292 已完成（PR #293）：午餐、點心、晚餐可在當天拖拉，餐點可以刪除與加回（[ADR-0010](adr/0010-draggable-meals.md)、[功能頁](features/meal-positions.md)）。#288 已完成：行程上方加一行說明哪些可以拖。#290 已完成：重新規劃產生的移動日也有餐點（只用這次本來就查的候選，缺的留空位）。
 
 [PLAN-002](plans/PLAN-002-llm-without-google-content.md) 已完成（父 issue #262，PR #273）：OpenAI 的輸入不再放任何 Google 內容，避開服務條款 3.2.3(c) 的灰色地帶（[ADR-0008](adr/0008-no-google-content-in-llm-input.md)，取代向 Google 書面詢問的 #207）。Google 地點的文案改用模板、大多數站留白；三餐與住宿改由規則挑選；`partOf` 改用 Google 的 `containingPlaces`。現在怎麼運作見[功能頁](features/place-copy-and-meals.md)。2026-10-26 使用者以 `dev:free` 生成一次，畫面正常。本機與正式資料庫的舊文案都已清除（#270）；Neon 的備份 branch `backup-before-270` 會在 2026-11-02 自動刪除。
 
@@ -29,4 +29,4 @@
 - 開發前要先開 Docker Desktop 並 `npm run db:up`。
 - 手動測試 `dev:free`：`TURNSTILE_SECRET_KEY="" npm run dev:free` 略過人機驗證；訪客每人 1 次、同一 IP 每天 2 次。
 - Dependabot PR #170、#47 還開著。
-- 重新規劃產生的移動日沒有餐點（#290）。
+- 重新規劃產生的移動日，早餐與部分餐點是空位（#295，known-limitation）。
