@@ -1,5 +1,6 @@
 "use client";
 
+import type { HTMLAttributes } from "react";
 import type { Meal, MealType } from "@/types/itinerary";
 import { InlinePriceEditor } from "@/components/InlinePriceEditor";
 import { PlacePhotoThumb } from "@/components/PlacePhotoThumb";
@@ -25,12 +26,16 @@ interface MealTimelineRowProps {
   onSaveCost: (value: number | undefined) => Promise<void>;
   /** Shown when this place already came earlier in the trip, e.g. "第 2 次・上次在第 3 天". */
   repeatNote?: string;
+  /** Lunch, snack and dinner can be dragged within the day (ADR-0010): the icon is the handle. */
+  dragHandle?: HTMLAttributes<HTMLDivElement>;
+  /** Deletes the meal: no slot is left for it (ADR-0010). */
+  onDelete?: () => void;
 }
 
 /**
  * A meal shown inline in a day's stop timeline (see lib/dayTimeline.ts for
- * where it's placed). Not draggable — meals are positioned by type, not by
- * the user — but can be swapped and repriced like the old meal grid.
+ * where it's placed). Lunch, snack and dinner can be dragged by their icon;
+ * breakfast and the 小酌 stay put. Any meal can be swapped, repriced or deleted.
  */
 export function MealTimelineRow({
   mealType,
@@ -41,12 +46,30 @@ export function MealTimelineRow({
   onPick,
   onSaveCost,
   repeatNote,
+  dragHandle,
+  onDelete,
 }: MealTimelineRowProps) {
   const { label, icon } = MEAL_META[mealType];
+  const deleteButton = editable && !isPicking && onDelete && !meal?.fixedEvent && (
+    <button
+      onClick={onDelete}
+      className="shrink-0 text-xs text-zinc-400 hover:text-red-600 dark:hover:text-red-400 transition-colors"
+      title={`刪除${label}`}
+    >
+      刪除
+    </button>
+  );
 
   return (
     <div className="flex gap-4">
-      <div className="shrink-0 w-9 h-9 rounded-full bg-amber-50 dark:bg-amber-950/40 flex items-center justify-center text-base">
+      <div
+        className={`shrink-0 w-9 h-9 rounded-full bg-amber-50 dark:bg-amber-950/40 flex items-center justify-center text-base${
+          dragHandle ? " cursor-grab active:cursor-grabbing" : ""
+        }`}
+        title={dragHandle ? `拖拉調整${label}的位置` : undefined}
+        data-print-hidden={dragHandle ? true : undefined}
+        {...dragHandle}
+      >
         <span aria-hidden>{icon}</span>
       </div>
 
@@ -70,14 +93,17 @@ export function MealTimelineRow({
                 </p>
               </div>
               {/* A reservation the traveler made isn't swapped for another place. */}
-              {editable && !isPicking && !meal.fixedEvent && (
-                <button
-                  onClick={onPick}
-                  className="shrink-0 text-xs text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 transition-colors"
-                >
-                  換一家
-                </button>
-              )}
+              <div className="shrink-0 flex items-center gap-3">
+                {editable && !isPicking && !meal.fixedEvent && (
+                  <button
+                    onClick={onPick}
+                    className="text-xs text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 transition-colors"
+                  >
+                    換一家
+                  </button>
+                )}
+                {deleteButton}
+              </div>
             </div>
             {meal.description && (
               <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1 leading-snug">{meal.description}</p>
@@ -114,14 +140,17 @@ export function MealTimelineRow({
       ) : (
         <div className="flex-1 min-w-0 rounded-lg border border-dashed border-zinc-200 dark:border-zinc-700 px-3 py-2 flex items-center justify-between gap-2">
           <p className="text-xs font-medium text-zinc-400 dark:text-zinc-500">{label}</p>
-          {editable && !isPicking && (
-            <button
-              onClick={onPick}
-              className="text-xs text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 transition-colors"
-            >
-              選擇{label}
-            </button>
-          )}
+          <div className="flex items-center gap-3">
+            {editable && !isPicking && (
+              <button
+                onClick={onPick}
+                className="text-xs text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 transition-colors"
+              >
+                選擇{label}
+              </button>
+            )}
+            {deleteButton}
+          </div>
         </div>
       )}
     </div>

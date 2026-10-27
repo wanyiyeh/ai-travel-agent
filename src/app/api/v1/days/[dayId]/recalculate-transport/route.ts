@@ -9,7 +9,7 @@ import {
 import { TripPreferencesSchema } from "@/lib/schemas";
 import { findDayIndex } from "@/lib/itineraryDays";
 import { assignTimeOfDay } from "@/lib/scheduler/assignTimeSlots";
-import type { TimeOfDay } from "@/lib/dayTimeline";
+import { timeOfDayBetweenMeals, type MealPositions, type TimeOfDay } from "@/lib/dayTimeline";
 import { transitStopIndex } from "@/lib/transitStop";
 import { internalErrorResponse } from "@/lib/apiError";
 import { authorizeItinerary } from "@/lib/auth/ownership";
@@ -98,13 +98,17 @@ export async function POST(
     // it starts from the arrival (ADR-0009).
     const transitIdx = transitStopIndex(stops, day);
     const arrivalDesc = typeof day.transitTo === "string" ? day.transitTo : "目的地";
+    // Once the traveler has placed the meals, they mark where the day turns
+    // to afternoon and evening (ADR-0010); otherwise it's by position.
+    const mealPositions = (day.mealPositions ?? {}) as MealPositions;
+    const timeOfDayAt = (i: number) => timeOfDayBetweenMeals(i, mealPositions) ?? assignTimeOfDay(i, stops.length);
 
     const updatedFields = stops.map((s, i) => {
       if (i === transitIdx) {
         return {
           id: s.id as string,
           transport_from_prev: s.transport_from_prev as string | undefined,
-          time_of_day: (s.time_of_day as TimeOfDay | undefined) ?? assignTimeOfDay(i, stops.length),
+          time_of_day: (s.time_of_day as TimeOfDay | undefined) ?? timeOfDayAt(i),
         };
       }
       const dist = i > 0 || originPoint ? distanceResults[i + distanceOffset] : null;
@@ -119,7 +123,7 @@ export async function POST(
       return {
         id: s.id as string,
         transport_from_prev,
-        time_of_day: assignTimeOfDay(i, stops.length),
+        time_of_day: timeOfDayAt(i),
       };
     });
 

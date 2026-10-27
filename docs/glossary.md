@@ -12,6 +12,8 @@
 | 時段 | `time_of_day` | `morning`、`afternoon`、`evening` |
 | 住宿 | `Accommodation` | 當晚住的地方 |
 | 三餐 | `DayMeals` / `Meal` | 早、午、晚餐，加上點心（`snack`）與睡前小酌（`nightcap`） |
+| 餐點位置 | `mealPositions` | 使用者拖過的午餐、點心、晚餐前面有幾站（ADR-0010） |
+| 刪除的餐點 | `skippedMeals` | 使用者刪掉的餐，畫面上不留空位（ADR-0010） |
 | 移動日 | `isTransitDay` / `transitTo` | 從一個城市移動到下一個城市的那天 |
 | 交通站 | `kind: "transit"` / `isTransitStop` | 移動日裡代表城市之間交通的那一站，不是地點，不能拖拉或替換（ADR-0009） |
 | 中途城市 | `waypointCity` | 去程與回程之間插入的城市 |

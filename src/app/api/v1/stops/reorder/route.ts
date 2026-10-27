@@ -3,16 +3,31 @@ import { z } from "zod";
 import { prisma, j } from "@/lib/db";
 import { MAX_NAME_LENGTH, MAX_NAME_LIST_LENGTH } from "@/lib/inputLimits";
 import { authorizeItinerary } from "@/lib/auth/ownership";
+import { timeOfDayBetweenMeals } from "@/lib/dayTimeline";
+import { isTransitStop } from "@/lib/transitStop";
 
 const id = z.string().min(1).max(MAX_NAME_LENGTH);
 
 // The client sends every day of the trip, each with its full stop-id order.
 // Day count is checked loosely (older itineraries predate MAX_TRIP_DAYS);
 // the point is a bounded, well-typed shape rather than trusting `as` casts.
+// Stops before each dragged meal (dayTimeline.ts, ADR-0010); a day's list
+// never holds more stops than MAX_NAME_LIST_LENGTH.
+const position = z.number().int().min(0).max(MAX_NAME_LIST_LENGTH);
+const MealPositionsSchema = z
+  .object({ lunch: position.optional(), snack: position.optional(), dinner: position.optional() })
+  .strict();
+
 const RequestSchema = z.object({
   itineraryId: id,
   days: z
-    .array(z.object({ dayId: id, stopIds: z.array(id).max(MAX_NAME_LIST_LENGTH) }))
+    .array(
+      z.object({
+        dayId: id,
+        stopIds: z.array(id).max(MAX_NAME_LIST_LENGTH),
+        mealPositions: MealPositionsSchema.optional(),
+      })
+    )
     .max(MAX_NAME_LIST_LENGTH),
 });
 
@@ -42,7 +57,7 @@ export async function POST(request: Request) {
     }
 
     for (const reorderDay of reorderDays) {
-      const { dayId, stopIds } = reorderDay;
+      const { dayId, stopIds, mealPositions } = reorderDay;
       const day = days.find((d) => d.id === dayId);
       if (!day) continue;
 
@@ -50,6 +65,15 @@ export async function POST(request: Request) {
         .map((id) => globalStopMap.get(id))
         .filter(Boolean)
         .map((s, idx) => ({ ...(s as object), orderIndex: idx }));
+      // Absent means unchanged (a move across days). When the meals moved, the
+      // stops' time of day follows them here, so a meal-only move needs no
+      // transport recalculation and no Routes call (ADR-0010).
+      if (mealPositions) {
+        day.mealPositions = mealPositions;
+        day.stops = (day.stops as Record<string, unknown>[]).map((s, i) =>
+          isTransitStop(s, day) ? s : { ...s, time_of_day: timeOfDayBetweenMeals(i, mealPositions) ?? s.time_of_day }
+        );
+      }
     }
 
     await prisma.itinerary.update({

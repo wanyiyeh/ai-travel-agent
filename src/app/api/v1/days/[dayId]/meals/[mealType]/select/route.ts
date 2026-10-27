@@ -7,6 +7,7 @@ import { isMealType } from "@/types/itinerary";
 import { findDayIndex } from "@/lib/itineraryDays";
 import { internalErrorResponse } from "@/lib/apiError";
 import { authorizeItinerary } from "@/lib/auth/ownership";
+import { unskipMeal } from "@/lib/skippedMeals";
 
 const RequestSchema = z.object({
   itineraryId: z.string().min(1),
@@ -73,7 +74,8 @@ export async function POST(
     // and a business name may not be stored, even as a key (ADR-0004).
 
     const meals = { ...(day.meals as Record<string, unknown> | undefined), [mealType]: saved };
-    days[dayIndex] = { ...day, meals };
+    // Picking a place for a meal the traveler had deleted brings it back (ADR-0010).
+    days[dayIndex] = unskipMeal({ ...day, meals }, mealType);
 
     await prisma.itinerary.update({
       where: { id: itineraryId },
