@@ -881,13 +881,14 @@ export async function generateMealsAndAccommodation(
   currency: string,
   budget?: BudgetLevel,
   preferences: MealPreferences = {},
-  // The morning the traveler leaves for the next city: one more breakfast
-  // here, eaten before the transit day's ride (ADR-0009).
-  { departureBreakfast = false }: { departureBreakfast?: boolean } = {},
+  // Days picked after the stay from the same candidates, with no extra
+  // search: the breakfast before leaving for the next city, or a transit
+  // day's meals on arriving (ADR-0009).
+  { extraDays = 0 }: { extraDays?: number } = {},
 ): Promise<{
   accommodation: Record<string, unknown>;
   mealsByDay: Array<Record<string, unknown>>;
-  departureBreakfast?: Record<string, unknown>;
+  extraMealsByDay?: Array<Record<string, unknown>>;
 }> {
   // Real candidates, picked by rule (mealLodgingPicks.ts): no Google name
   // goes to the model (ADR-0008). Only when the city has none at all does
@@ -907,17 +908,18 @@ export async function generateMealsAndAccommodation(
     preferences.pets && pools.lodging.length === 0 ? noPetLodging(cityName) : pickAccommodation(pools, currency, cityName);
   // 獨旅: the 小酌 only within a walk of the lodging (plan 1.5), once the lodging is known.
   const mealPools = preferences.solo ? withNightcapNear(pools, accommodation) : pools;
-  // pickMeals goes day by day, so one extra day leaves the stay's own days
-  // exactly as they'd be without it; only its breakfast is used.
-  const pickedWithExtra = pickMeals(mealPools, stayDays + (departureBreakfast ? 1 : 0), currency);
-  const picked = pickedWithExtra.slice(0, stayDays);
-  const extraBreakfast = departureBreakfast ? pickedWithExtra[stayDays]?.breakfast : undefined;
+  // pickMeals goes day by day, so extra days leave the stay's own days
+  // exactly as they'd be without them.
+  const picked = pickMeals(mealPools, stayDays + extraDays, currency);
   // None that close: no 小酌 that night.
-  const mealsByDay = preferences.solo && mealPools.nightcap.length === 0 ? picked.map(withoutNightcapSlot) : picked;
+  const finished = (days: Array<Record<string, unknown>>) => {
+    const meals = preferences.solo && mealPools.nightcap.length === 0 ? days.map(withoutNightcapSlot) : days;
+    return preferences.selfDrive ? meals.map(withDrinkDriveNote) : meals;
+  };
   return {
     accommodation,
-    mealsByDay: preferences.selfDrive ? mealsByDay.map(withDrinkDriveNote) : mealsByDay,
-    ...(extraBreakfast ? { departureBreakfast: extraBreakfast as Record<string, unknown> } : {}),
+    mealsByDay: finished(picked.slice(0, stayDays)),
+    ...(extraDays > 0 ? { extraMealsByDay: finished(picked.slice(stayDays)) } : {}),
   };
 }
 

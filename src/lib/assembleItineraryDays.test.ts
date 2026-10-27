@@ -260,10 +260,10 @@ describe("assembleItineraryDays — form field wiring", () => {
   });
 
   it("gives transit days the meals after arriving, and keeps every other day's meals aligned", async () => {
-    mealsMock.mockImplementation(async (city: string, mealDays: number, _c: unknown, _b: unknown, _p: unknown, options?: { departureBreakfast?: boolean }) => ({
+    mealsMock.mockImplementation(async (city: string, mealDays: number, _c: unknown, _b: unknown, _p: unknown, options?: { extraDays?: number }) => ({
       accommodation: { name: `${city} Hotel` },
       mealsByDay: Array.from({ length: mealDays }, (_, i) => ({ breakfast: `${city}-B${i}`, lunch: `${city}-L${i}` })),
-      ...(options?.departureBreakfast ? { departureBreakfast: `${city}-leaving` } : {}),
+      ...(options?.extraDays ? { extraMealsByDay: [{ breakfast: `${city}-leaving`, lunch: `${city}-extra` }] } : {}),
     }));
 
     const result = await run(undefined, undefined);
@@ -271,8 +271,8 @@ describe("assembleItineraryDays — form field wiring", () => {
 
     // 東京: 3 sightseeing days. 大阪 (2 days): transit day + 1 sightseeing day + the return day.
     expect(mealsMock.mock.calls.map((c) => [c[0], c[1], c[5]])).toEqual([
-      ["東京", 3, { departureBreakfast: true }],
-      ["大阪", 3, { departureBreakfast: false }],
+      ["東京", 3, { extraDays: 1 }],
+      ["大阪", 3, { extraDays: 0 }],
     ]);
     expect(days.map((d) => d.meals?.lunch)).toEqual(["東京-L0", "東京-L1", "東京-L2", "大阪-L0", "大阪-L1", "大阪-L2"]);
     const transit = days.find((d) => d.isTransitDay)!;

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma, j } from "@/lib/db";
 import { iataToCity } from "@/lib/iataCity";
 import { estimateAttractionCost } from "@/lib/priceLevelCost";
+import { transitDayMeals } from "@/lib/transitDayMeals";
 import {
   generateTransitDayStops,
   generateMealsAndAccommodation,
@@ -214,7 +215,15 @@ async function buildCityBlock(
       const stops = await generateTransitDayStops(city.name, nextCity.name, currency, budget, preferenceIntent).catch(() => []);
       structuralKept = structuralKept.map((d, i) =>
         i === outboundIdx
-          ? { ...d, stops, transitTo: nextCity.name, theme: `移動日：前往${nextCity.name}` }
+          ? {
+              ...d,
+              stops,
+              transitTo: nextCity.name,
+              theme: `移動日：前往${nextCity.name}`,
+              // Breakfast is still here; the meals after arriving were for the
+              // old destination, so they go back to empty slots (#290).
+              meals: transitDayMeals(undefined, (d.meals as Record<string, unknown> | undefined)?.breakfast as Record<string, unknown> | undefined),
+            }
           : d
       );
     }
@@ -264,11 +273,15 @@ async function buildCityBlock(
     const newDaysNeeded = extraCount + lockedCount;
     const mealsAndAccommodation =
       newDaysNeeded > 0
-        ? await generateMealsAndAccommodation(city.name, newDaysNeeded, currency, budget, mealPreferences).catch(() => ({
+        ? await generateMealsAndAccommodation(city.name, newDaysNeeded, currency, budget, mealPreferences, {
+            // One more day from the same candidates for the leading-in day's
+            // meals after arriving — no extra search (#290).
+            extraDays: leadingInDay ? 1 : 0,
+          }).catch((): Awaited<ReturnType<typeof generateMealsAndAccommodation>> => ({
             accommodation: {} as Record<string, unknown>,
             mealsByDay: Array.from({ length: newDaysNeeded }, () => ({}) as Record<string, unknown>),
           }))
-        : { accommodation: {} as Record<string, unknown>, mealsByDay: [] as Record<string, unknown>[] };
+        : { accommodation: {} as Record<string, unknown>, mealsByDay: [] as Record<string, unknown>[], extraMealsByDay: undefined };
     const hasGeneratedAccommodation = Object.keys(mealsAndAccommodation.accommodation).length > 0;
     const accommodation = (reusableAccommodation ?? (hasGeneratedAccommodation ? mealsAndAccommodation.accommodation : undefined)) as
       | Record<string, unknown>
@@ -289,8 +302,10 @@ async function buildCityBlock(
     // known — the traveler sleeps in `city.name` (this block) that night,
     // not prevCity, so back-fill it now rather than leaving it null (see the
     // matching comment on the new-city branch's own `transitDay` below).
+    // Its meals: from this city's candidates when they were fetched for new
+    // days anyway, otherwise empty slots — no search just for it (#290).
     if (leadingInDay) {
-      leadingInDay = { ...leadingInDay, accommodation };
+      leadingInDay = { ...leadingInDay, accommodation, meals: transitDayMeals(mealsAndAccommodation.extraMealsByDay?.[0]) };
     }
 
     const lockedDays = city.lockedAttractions.map((attraction, i) => ({
@@ -330,7 +345,9 @@ async function buildCityBlock(
       console.error(`[Restructure] generateTransitDayStops failed for ${fromCityName} -> ${city.name}:`, err);
       return [];
     }),
-    generateMealsAndAccommodation(city.name, nights, currency, budget, mealPreferences).catch(() => ({
+    // One more day from the same candidates for the transit day's meals
+    // after arriving (#290).
+    generateMealsAndAccommodation(city.name, nights, currency, budget, mealPreferences, { extraDays: 1 }).catch((): Awaited<ReturnType<typeof generateMealsAndAccommodation>> => ({
       accommodation: {} as Record<string, unknown>,
       mealsByDay: Array.from({ length: nights }, () => ({}) as Record<string, unknown>),
     })),
@@ -364,6 +381,9 @@ async function buildCityBlock(
     // departure city — validateItinerary.ts's ACCOMMODATION_MISSING rule
     // treats a transit day without this as an error.
     accommodation,
+    // The departure city's restaurants aren't searched here, so breakfast is
+    // an empty slot to pick (#290).
+    meals: transitDayMeals(mealsAndAccommodation.extraMealsByDay?.[0]),
   };
 
   const lockedDays = city.lockedAttractions.map((attraction, i) => ({

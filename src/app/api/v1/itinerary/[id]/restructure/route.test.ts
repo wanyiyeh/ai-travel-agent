@@ -30,9 +30,10 @@ vi.mock("@/lib/cityStayDays", async (importOriginal) => ({
 vi.mock("@/lib/itineraryCityGen", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/itineraryCityGen")>()),
   generateTransitDayStops: async () => [],
-  generateMealsAndAccommodation: async (_city: string, nights: number) => ({
+  generateMealsAndAccommodation: async (city: string, nights: number, _c: unknown, _b: unknown, _p: unknown, options?: { extraDays?: number }) => ({
     accommodation: { name: "Hotel" },
     mealsByDay: Array.from({ length: nights }, () => ({})),
+    ...(options?.extraDays ? { extraMealsByDay: [{ breakfast: `${city} breakfast`, lunch: `${city} lunch` }] } : {}),
   }),
 }));
 vi.mock("@/lib/preferenceIntent", () => ({
@@ -207,6 +208,21 @@ describe("restructure with a new city before an existing one", () => {
     ]);
     expect(themes()).toEqual(["東京1", "移動日：前往名古屋", "AI 名古屋", "移動日：前往京都", "京都3", "京都4", "返程日"]);
     expect(trashMock).not.toHaveBeenCalled();
+  });
+
+  // #290: these transit days used to have no meals at all, not even slots to pick.
+  it("gives each new transit day the meals after arriving, and empty slots for the rest", async () => {
+    await restructure([
+      { name: "東京", isNew: false, targetDays: 1, keepDayIds: ["d1", "d2"] },
+      { name: "名古屋", isNew: true, targetDays: 2 },
+      { name: "京都", isNew: false, targetDays: 4, keepDayIds: ["d3", "d4", "d5"] },
+    ]);
+    const days = updateMock.mock.calls[0][0].data.days as { theme: string; meals?: Record<string, unknown> }[];
+    const meals = (theme: string) => days.find((d) => d.theme === theme)?.meals;
+    // 名古屋's candidates were fetched anyway: lunch from them; 東京's weren't, so no breakfast
+    expect(meals("移動日：前往名古屋")).toEqual({ lunch: "名古屋 lunch" });
+    // 京都 needs no new days, so nothing was fetched: empty slots, no search for it
+    expect(meals("移動日：前往京都")).toEqual({});
   });
 
   it("puts a kept day that no longer fits in the trash rather than losing it", async () => {
