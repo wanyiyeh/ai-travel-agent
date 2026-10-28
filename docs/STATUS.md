@@ -8,7 +8,7 @@
 
 修正朋友測試正式網站時回報的編輯問題（開普敦 → 赫曼努斯行程）。#286 已完成（PR #291）：移動日的交通改成交通站、早餐改由規則挑選（[ADR-0009](adr/0009-transit-leg-as-pinned-stop.md)）。#287、#292 已完成（PR #293）：午餐、點心、晚餐可在當天拖拉，餐點可以刪除與加回（[ADR-0010](adr/0010-draggable-meals.md)、[功能頁](features/meal-positions.md)）。#288 已完成：行程上方加一行說明哪些可以拖。#290 已完成：重新規劃產生的移動日也有餐點（只用這次本來就查的候選，缺的留空位）。朋友另外反映找不到冰島的機場：已補上 KEF（雷克雅維克）與 ISK 物價。
 
-[PLAN-003](plans/PLAN-003-any-airport.md)（`in-progress`，父 issue #300，子 issue #301～#305，分支 `plan-003-any-airport`）：機場改用開放資料（OurAirports、Wikidata、世界銀行）產生，涵蓋約 3,200 個中大型機場，人工清單優先（[ADR-0011](adr/0011-airport-data-from-open-sources.md)）。正在做 #301（資料腳本）：資料檔已產生，中文城市名覆蓋 73%。
+[PLAN-003](plans/PLAN-003-any-airport.md)（`in-progress`，父 issue #300，子 issue #301～#305，分支 `plan-003-any-airport`）：機場改用開放資料（OurAirports、Wikidata、世界銀行）產生，涵蓋約 3,200 個中大型機場，人工清單優先（[ADR-0011](adr/0011-airport-data-from-open-sources.md)）。#301（資料腳本，中文城市名覆蓋 73%）、#302（伺服器端的機場查詢模組 `src/lib/airportIndex.ts`）已完成；下一步 #303（交通時間與新貨幣的估價）。人工清單裡的柬埔寨機場已停用（#306）。
 
 [PLAN-002](plans/PLAN-002-llm-without-google-content.md) 已完成（父 issue #262，PR #273）：OpenAI 的輸入不再放任何 Google 內容，避開服務條款 3.2.3(c) 的灰色地帶（[ADR-0008](adr/0008-no-google-content-in-llm-input.md)，取代向 Google 書面詢問的 #207）。Google 地點的文案改用模板、大多數站留白；三餐與住宿改由規則挑選；`partOf` 改用 Google 的 `containingPlaces`。現在怎麼運作見[功能頁](features/place-copy-and-meals.md)。2026-10-26 使用者以 `dev:free` 生成一次，畫面正常。本機與正式資料庫的舊文案都已清除（#270）；Neon 的備份 branch `backup-before-270` 會在 2026-11-02 自動刪除。
 
