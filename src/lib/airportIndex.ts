@@ -47,7 +47,7 @@ export function lookupAirport(iata: string): AirportInfo | undefined {
   return {
     iata,
     cityZh: curated?.cityZh ?? generated!.city,
-    ...(generated ? { cityEn: generated.cityEn } : {}),
+    ...(curated?.cityEn || generated ? { cityEn: curated?.cityEn ?? generated!.cityEn } : {}),
     lat: curated?.lat ?? generated!.lat,
     lng: curated?.lng ?? generated!.lng,
     ...(generated ? { airport: { lat: generated.airportLat, lng: generated.airportLng } } : {}),

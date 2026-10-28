@@ -35,6 +35,13 @@ describe("lookupAirport", () => {
     expect(currencyOf("SAI")).toBe("USD");
   });
 
+  // Searching "reykjavik" missed KEF: the generated name is the town it's in.
+  it("uses the hand-kept English name where the generated one is a region or a town", () => {
+    expect(lookupAirport("KEF")?.cityEn).toBe("Reykjavík");
+    expect(lookupAirport("TPE")?.cityEn).toBe("Taipei");
+    expect(lookupAirport("NRT")?.cityEn).toBe("Tokyo");
+  });
+
   it("knows nothing of a code that isn't an airport", () => {
     expect(lookupAirport("XXX")).toBeUndefined();
     expect(iataToCity("XXX")).toBe("XXX");
