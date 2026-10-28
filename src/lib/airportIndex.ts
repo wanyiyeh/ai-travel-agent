@@ -26,6 +26,8 @@ export type AirportInfo = {
   /** The city's centre (the hand-kept table's, when it has the airport). */
   lat: number;
   lng: number;
+  /** The airport itself, when the generated data has it. */
+  airport?: { lat: number; lng: number };
   /** ISO 3166-1 alpha-2; absent for a place in Taiwan (TW-xxx). */
   country?: string;
   countryZh?: string;
@@ -48,6 +50,7 @@ export function lookupAirport(iata: string): AirportInfo | undefined {
     ...(generated ? { cityEn: generated.cityEn } : {}),
     lat: curated?.lat ?? generated!.lat,
     lng: curated?.lng ?? generated!.lng,
+    ...(generated ? { airport: { lat: generated.airportLat, lng: generated.airportLng } } : {}),
     ...(country ? { country } : {}),
     ...(curated?.domestic ? {} : { countryZh: IATA_COUNTRY_ZH[iata] ?? countryData?.name }),
     ...(countryData?.currency ? { currency: countryData.currency } : {}),
