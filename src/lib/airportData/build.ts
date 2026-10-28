@@ -31,6 +31,8 @@ export type GeneratedCountry = {
   currency?: string;
   /** World Bank price level ratio (PPP conversion factor / exchange rate), USA = 1. */
   priceLevel?: number;
+  /** Units of `currency` per US dollar, the World Bank's yearly average. */
+  perDollar?: number;
 };
 
 export type OurAirport = {
@@ -167,7 +169,9 @@ export function buildAirportData(
   countries: WikidataCountry[],
   priceLevels: Record<string, number>,
   // A country with several currencies on Wikidata: the one travelers pay in.
-  currencyOverrides: Record<string, string> = {}
+  currencyOverrides: Record<string, string> = {},
+  // The World Bank's local currency per US dollar.
+  ratesPerDollar: Record<string, number> = {}
 ): { airports: Record<string, GeneratedAirport>; countries: Record<string, GeneratedCountry>; report: BuildReport } {
   const citiesByIata = new Map<string, WikidataCity[]>();
   for (const c of cities) citiesByIata.set(c.iata, [...(citiesByIata.get(c.iata) ?? []), c]);
@@ -223,6 +227,9 @@ export function buildAirportData(
       name: (c && traditionalName(c.labels)) ?? c?.labels.en ?? iso2,
       ...(currency ? { currency } : {}),
       ...(priceLevels[iso2] !== undefined ? { priceLevel: priceLevels[iso2] } : {}),
+      // The World Bank's rate is in the local currency: a country set to pay
+      // in dollars (Cambodia) has 1, not riel per dollar.
+      ...(currency === "USD" ? { perDollar: 1 } : ratesPerDollar[iso2] !== undefined ? { perDollar: ratesPerDollar[iso2] } : {}),
     };
   }
 

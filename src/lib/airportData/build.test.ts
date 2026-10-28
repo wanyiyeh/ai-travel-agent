@@ -81,6 +81,17 @@ describe("buildAirportData", () => {
     expect(report.severalCurrencies).toEqual([{ country: "PE", currencies: ["PEN", "USD"], picked: "PEN" }]);
   });
 
+  it("keeps the dollar rate in the currency picked, 1 where that's the dollar", () => {
+    const kh = [
+      { iso2: "IS", labels: {}, currencies: ["ISK"] },
+      { iso2: "KH", labels: {}, currencies: ["KHR"] },
+    ];
+    const pnh: OurAirport = { iata: "KTI", type: "large_airport", name: "Techo", municipality: "Phnom Penh", country: "KH", lat: 11.4, lng: 104.9 };
+    const out = buildAirportData([kef, pnh], [], kh, {}, { KH: "USD" }, { IS: 128.4, KH: 4050 }).countries;
+    expect(out.IS.perDollar).toBe(128.4);
+    expect(out.KH).toMatchObject({ currency: "USD", perDollar: 1 });
+  });
+
   it("ignores numeric currency codes", () => {
     const cz = [{ iso2: "IS", labels: {}, currencies: ["352", "ISK"] }];
     expect(buildAirportData([kef], [], cz, {}).countries.IS.currency).toBe("ISK");

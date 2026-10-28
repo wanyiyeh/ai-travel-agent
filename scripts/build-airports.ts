@@ -130,13 +130,13 @@ async function worldBankValues(indicator: string): Promise<Record<string, number
   return Object.fromEntries(body[1].filter((r) => r.value !== null && /^[A-Z]{2}$/.test(r.country.id)).map((r) => [r.country.id, r.value!]));
 }
 
-async function worldBankPriceLevels(): Promise<Record<string, number>> {
-  const [ppp, rate] = await Promise.all([worldBankValues("PA.NUS.PPP"), worldBankValues("PA.NUS.FCRF")]);
-  return priceLevelsFrom(ppp, rate);
+async function worldBankPrices(): Promise<{ priceLevels: Record<string, number>; ratesPerDollar: Record<string, number> }> {
+  const [ppp, ratesPerDollar] = await Promise.all([worldBankValues("PA.NUS.PPP"), worldBankValues("PA.NUS.FCRF")]);
+  return { priceLevels: priceLevelsFrom(ppp, ratesPerDollar), ratesPerDollar };
 }
 
 async function main() {
-  const [csv, priceLevels] = await Promise.all([get(OURAIRPORTS_CSV, "text/csv"), worldBankPriceLevels()]);
+  const [csv, { priceLevels, ratesPerDollar }] = await Promise.all([get(OURAIRPORTS_CSV, "text/csv"), worldBankPrices()]);
   // One Wikidata query at a time: it limits concurrent queries per client.
   const cities = await wikidataCities();
   const countries = await wikidataCountries();
@@ -146,7 +146,8 @@ async function main() {
     cities,
     countries,
     priceLevels,
-    CURRENCY_OVERRIDES
+    CURRENCY_OVERRIDES,
+    ratesPerDollar
   );
   if (report.airports < MIN_AIRPORTS) {
     throw new Error(`Only ${report.airports} airports (expected at least ${MIN_AIRPORTS}); not writing.`);
