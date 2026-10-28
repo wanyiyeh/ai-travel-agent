@@ -88,6 +88,7 @@ export const AIRPORTS: Record<string, Airport> = {
   CPH: { cityZh: "哥本哈根", lat: 55.6761, lng: 12.5683 },
   ARN: { cityZh: "斯德哥爾摩", lat: 59.3293, lng: 18.0686 },
   OSL: { cityZh: "奧斯陸", lat: 59.9139, lng: 10.7522 },
+  KEF: { cityZh: "雷克雅維克", lat: 64.1466, lng: -21.9426 }, // Reykjavík centre; KEF itself is 50 km away in Keflavík
   PRG: { cityZh: "布拉格", lat: 50.0755, lng: 14.4378 },
   BUD: { cityZh: "布達佩斯", lat: 47.4979, lng: 19.0402 },
   BTS: { cityZh: "布拉提斯拉瓦", lat: 48.1486, lng: 17.1077 },

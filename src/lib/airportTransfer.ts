@@ -21,7 +21,7 @@ const TRANSFER_MINUTES: Record<string, number> = {
   // 歐洲
   LHR: 50, LGW: 45, MAN: 25, EDI: 30, DUB: 30, CDG: 50, ORY: 40, LYS: 35, NCE: 20, AMS: 20, FRA: 20, MUC: 45,
   BER: 40, HAM: 25, VIE: 25, FCO: 40, MXP: 55, VCE: 45, NAP: 20, BCN: 30, MAD: 35, LIS: 25, ATH: 45, HEL: 30,
-  CPH: 20, ARN: 40, OSL: 30, PRG: 35, BUD: 40, BTS: 25, LJU: 30, ZAG: 30, DBV: 30, SJJ: 20, BEG: 30, SOF: 25,
+  CPH: 20, ARN: 40, OSL: 30, KEF: 50, PRG: 35, BUD: 40, BTS: 25, LJU: 30, ZAG: 30, DBV: 30, SJJ: 20, BEG: 30, SOF: 25,
   OTP: 40, WAW: 25, KRK: 25, ZRH: 15, GVA: 15, BRU: 25, IST: 60,
   // 中東、非洲
   DXB: 25, AUH: 35, DOH: 25, CAI: 45, CMN: 50, CPT: 25, JNB: 40,
