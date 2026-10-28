@@ -276,9 +276,3 @@ export function mockMealsAndLodgingReply(cityName: string, stayDays: number) {
     })),
   };
 }
-
-/** The destination's currency for a mock plan, from its country. */
-export function mockCurrencyFor(countryZh: string | undefined): string {
-  const byCountry: Record<string, string> = { 日本: "JPY", 台灣: "TWD", 韓國: "KRW", 泰國: "THB", 香港: "HKD", 新加坡: "SGD" };
-  return (countryZh && byCountry[countryZh]) || "USD";
-}

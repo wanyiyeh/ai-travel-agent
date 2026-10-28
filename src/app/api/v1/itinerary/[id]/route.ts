@@ -2,56 +2,13 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { z } from "zod";
 import { authorizeItinerary, authorizeItineraryRead } from "@/lib/auth/ownership";
-
-const IATA_CURRENCY: Record<string, string> = {
-  // Japan
-  NRT: "JPY", HND: "JPY", KIX: "JPY", NGO: "JPY", CTS: "JPY", FUK: "JPY", OKA: "JPY",
-  // Korea
-  ICN: "KRW", GMP: "KRW", PUS: "KRW",
-  // China
-  PEK: "CNY", PKX: "CNY", PVG: "CNY", SHA: "CNY", CAN: "CNY",
-  // Hong Kong
-  HKG: "HKD",
-  // Singapore
-  SIN: "SGD",
-  // Australia
-  SYD: "AUD", MEL: "AUD", BNE: "AUD", PER: "AUD", ADL: "AUD",
-  // New Zealand
-  AKL: "NZD", CHC: "NZD",
-  // Thailand
-  BKK: "THB", DMK: "THB", HKT: "THB", CNX: "THB",
-  // Vietnam
-  SGN: "VND", HAN: "VND", DAD: "VND",
-  // Malaysia
-  KUL: "MYR", JHB: "MYR",
-  // Indonesia
-  DPS: "IDR", CGK: "IDR",
-  // Cambodia
-  REP: "USD", PNH: "USD",
-  // UK
-  LHR: "GBP", LGW: "GBP", MAN: "GBP", EDI: "GBP",
-  // Eurozone
-  CDG: "EUR", ORY: "EUR", AMS: "EUR", FRA: "EUR", MUC: "EUR", BER: "EUR",
-  VIE: "EUR", FCO: "EUR", MXP: "EUR", BCN: "EUR", MAD: "EUR", LIS: "EUR",
-  ATH: "EUR", HEL: "EUR", CPH: "DKK", ARN: "SEK", OSL: "NOK", KEF: "ISK",
-  PRG: "CZK", BUD: "HUF", WAW: "PLN", ZRH: "CHF", GVA: "CHF",
-  // Turkey
-  IST: "TRY", SAW: "TRY",
-  // UAE
-  DXB: "AED", AUH: "AED",
-  // Qatar
-  DOH: "QAR",
-  // USA
-  JFK: "USD", LAX: "USD", SFO: "USD", ORD: "USD", MIA: "USD", SEA: "USD",
-  // Canada
-  YYZ: "CAD", YVR: "CAD", YUL: "CAD",
-};
+import { currencyOf } from "@/lib/airportIndex";
 
 function inferCurrency(flightInfo: unknown): string | undefined {
   if (!flightInfo || typeof flightInfo !== "object") return undefined;
   const fi = flightInfo as Record<string, unknown>;
   const iata = (fi.arrivalCity ?? fi.returnDepartureCity) as string | undefined;
-  return iata ? IATA_CURRENCY[iata] : undefined;
+  return iata ? currencyOf(iata) : undefined;
 }
 
 export async function DELETE(

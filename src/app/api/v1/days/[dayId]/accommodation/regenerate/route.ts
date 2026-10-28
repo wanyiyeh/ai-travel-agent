@@ -6,7 +6,7 @@ import { findNearestStation } from "@/lib/fetchCityRestaurants";
 import { snapToGrid } from "@/lib/geo";
 import { resolveDayCoords } from "@/lib/itineraryGen";
 import { cityToIata } from "@/lib/iataCity";
-import { getIataCoords } from "@/lib/airports";
+import { getIataCoords } from "@/lib/airportIndex";
 import { estimateLodgingCostPerNight, estimateLodgingCostRange } from "@/lib/priceLevelCost";
 import { findDayIndex } from "@/lib/itineraryDays";
 import type { AccommodationCandidate } from "@/types/itinerary";

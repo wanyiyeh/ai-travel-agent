@@ -39,6 +39,7 @@ const CURRENCY_OVERRIDES: Record<string, string> = {
   BA: "BAM", // not the old dinar (BAD)
   FO: "DKK", // Faroe Islands: none on Wikidata
   IM: "GBP", // Isle of Man: none on Wikidata
+  KH: "USD", // Cambodia: prices are in dollars, not riel
   MO: "MOP", // not HKD
   NL: "EUR", // not the Caribbean Netherlands' currencies
   PA: "USD", // the balboa is pegged to it and coins only
