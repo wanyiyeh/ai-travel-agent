@@ -10,7 +10,8 @@ import StreamingPreview from "@/components/StreamingPreview";
 import type { TripPreferences, FlightInfo } from "@/lib/schemas";
 import { MAX_TRIP_DAYS, PROMPT_INPUT_MAX_LENGTH } from "@/lib/inputLimits";
 import { AIRPORTS, iataToCity } from "@/lib/airports";
-import { IATA_COUNTRY_ZH } from "@/lib/iataCountry";
+import { searchAirports, type AirportOption } from "@/lib/airportOptions";
+import { useAirportOptions } from "@/hooks/useAirportOptions";
 
 // Descriptions say what each choice actually changes (plan/form-preference-
 // wiring.md 1.2/1.3) — pace is how long you stay, not a stop count.
@@ -113,12 +114,8 @@ function splitFilmTitles(text: string, maxLength = 60): string[] | undefined {
   return titles.length ? titles : undefined;
 }
 
-const CITY_OPTIONS: { code: string; name: string; country: string }[] = Object.entries(AIRPORTS)
-  .filter(([, airport]) => !airport.domestic)
-  .map(([code, airport]) => ({ code, name: airport.cityZh, country: IATA_COUNTRY_ZH[code] ?? "" }))
-  .sort((a, b) => a.name.localeCompare(b.name, "zh-Hant"));
 // 國內: places in Taiwan, the islands grouped apart (airports.ts TW-xxx).
-const DOMESTIC_OPTIONS: typeof CITY_OPTIONS = Object.entries(AIRPORTS)
+const DOMESTIC_OPTIONS: AirportOption[] = Object.entries(AIRPORTS)
   .filter(([, airport]) => airport.domestic)
   .map(([code, airport]) => ({ code, name: airport.cityZh, country: airport.island ? "離島" : "台灣" }));
 
@@ -238,7 +235,10 @@ function CityCombobox({
   /** 國內: places in Taiwan, and no typing an airport code. */
   domestic?: boolean;
 }) {
-  const options = domestic ? DOMESTIC_OPTIONS : CITY_OPTIONS;
+  // Abroad: the hand-kept airports at once, every other one once the list
+  // is opened (PLAN-003).
+  const airports = useAirportOptions();
+  const options = domestic ? DOMESTIC_OPTIONS : airports.options;
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [manualMode, setManualMode] = useState(false);
@@ -282,16 +282,11 @@ function CityCombobox({
   }
 
   const selected = options.find((c) => c.code === value);
-  const matches = (
-    query
-      ? options.filter(
-          (c) =>
-            c.name.includes(query) ||
-            c.country.includes(query) ||
-            c.code.includes(query.toUpperCase())
-        )
+  const matches = domestic
+    ? query
+      ? options.filter((c) => c.name.includes(query) || c.country.includes(query))
       : options
-  ).slice(0, domestic ? options.length : 8);
+    : searchAirports(options, query, query ? 20 : 8);
 
   // 依國家分組顯示，讓打國家名稱時能一眼看到該國有哪些城市可選
   const groups: { country: string; cities: typeof matches }[] = [];
@@ -311,6 +306,7 @@ function CityCombobox({
         onClick={() => {
           setOpen((o) => !o);
           setQuery("");
+          if (!domestic) airports.load();
         }}
         className="w-full flex items-center justify-between rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-3 py-2.5 text-sm text-left focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-100"
       >
@@ -365,7 +361,12 @@ function CityCombobox({
                     className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-zinc-50 dark:hover:bg-zinc-800"
                   >
                     <span className="text-zinc-300 dark:text-zinc-600">└</span>
-                    <span className="flex-1 text-zinc-900 dark:text-zinc-50">{c.name}</span>
+                    <span className="flex-1 text-zinc-900 dark:text-zinc-50">
+                      {c.name}
+                      {c.nameEn && c.nameEn !== c.name && (
+                        <span className="ml-1.5 text-xs text-zinc-400 dark:text-zinc-500">{c.nameEn}</span>
+                      )}
+                    </span>
                     <span className="text-xs text-zinc-400 font-mono">{c.code}</span>
                   </button>
                 ))}
@@ -378,6 +379,7 @@ function CityCombobox({
               type="button"
               onClick={() => {
                 setManualMode(true);
+                airports.load();
                 setOpen(false);
               }}
               className="w-full text-left px-3 py-2 text-xs text-zinc-500 dark:text-zinc-400 underline underline-offset-4 hover:text-zinc-900 dark:hover:text-zinc-100 border-t border-zinc-100 dark:border-zinc-800"
@@ -483,6 +485,13 @@ export default function Home() {
   const [arrivalCity, setArrivalCity] = useState("");
   const [returnDepartureCity, setReturnDepartureCity] = useState("");
   const [returnArrivalCity, setReturnArrivalCity] = useState("");
+  // A chosen airport beyond the hand-kept list is only known once the full
+  // list is in (PLAN-003): load it then, to validate and name it.
+  const airports = useAirportOptions({
+    eager: [departureCity, arrivalCity, returnDepartureCity, returnArrivalCity].some((code) => code && !AIRPORTS[code]),
+  });
+  const isKnownCode = (code: string) => Boolean(AIRPORTS[code]) || airports.isKnown(code);
+  const placeName = (code: string) => AIRPORTS[code]?.cityZh ?? airports.nameOf(code);
 
   const [departureDate, setDepartureDate] = useState("");
   const [returnDate, setReturnDate] = useState("");
@@ -627,8 +636,8 @@ export default function Home() {
 
   const isStreaming = state === "streaming" || state === "connecting";
   const isFormValid =
-    Boolean(AIRPORTS[departureCity]) &&
-    Boolean(AIRPORTS[arrivalCity]) &&
+    isKnownCode(departureCity) &&
+    isKnownCode(arrivalCity) &&
     departureDate &&
     returnDate &&
     days > 0 &&
@@ -914,14 +923,14 @@ export default function Home() {
                           label={domestic ? "最後離開的地方" : "回程出發城市"}
                           value={returnDepartureCity}
                           onChange={setReturnDepartureCity}
-                          placeholder={AIRPORTS[arrivalCity]?.cityZh || "同抵達城市"}
+                          placeholder={placeName(arrivalCity) || "同抵達城市"}
                           domestic={domestic}
                         />
                         <CityCombobox
                           label={domestic ? "回到哪裡" : "回程抵達城市"}
                           value={returnArrivalCity}
                           onChange={setReturnArrivalCity}
-                          placeholder={AIRPORTS[departureCity]?.cityZh || "同出發城市"}
+                          placeholder={placeName(departureCity) || "同出發城市"}
                           domestic={domestic}
                         />
                       </div>

@@ -8,6 +8,7 @@ import {
 import { validateItinerary } from "@/lib/validateItinerary";
 import { validateGeography } from "@/lib/validateGeography";
 import { iataToCity } from "@/lib/iataCity";
+import { lookupAirport } from "@/lib/airportIndex";
 import { prisma, j } from "@/lib/db";
 import {
   buildSystemPrompt,
@@ -119,6 +120,15 @@ export async function POST(request: Request) {
     }
 
     const { prompt, preferences } = parsed.data;
+    // Three letters isn't enough: a code no airport has would plan around a
+    // city named "XYZ". Any hand-kept or generated airport goes (PLAN-003).
+    const { departureCity, arrivalCity, returnDepartureCity, returnArrivalCity } = parsed.data.flightInfo;
+    const unknown = [departureCity, arrivalCity, returnDepartureCity, returnArrivalCity].filter(
+      (code): code is string => Boolean(code) && !lookupAirport(code!)
+    );
+    if (unknown.length > 0) {
+      return Response.json({ error: `找不到這個機場代號：${unknown.join("、")}` }, { status: 400 });
+    }
     // 國內: arriving and leaving worked out from the times at home (domesticTrips.ts).
     const flightInfo: FlightInfo = withDomesticTimes(parsed.data.flightInfo, preferences?.transport === "drive");
     const days = calcDays(flightInfo.departureDate, flightInfo.returnDate);
