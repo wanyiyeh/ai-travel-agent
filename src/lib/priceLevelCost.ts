@@ -31,6 +31,8 @@ export const MEAL_PRICE_RANGES: Record<string, Record<MealType, Range>> = {
   SEK: { breakfast: [80, 150], lunch: [150, 280], dinner: [350, 800], snack: [50, 100], nightcap: [120, 300] },
   DKK: { breakfast: [60, 120], lunch: [120, 220], dinner: [280, 650], snack: [40, 80], nightcap: [90, 220] },
   NOK: { breakfast: [90, 160], lunch: [160, 280], dinner: [350, 850], snack: [60, 100], nightcap: [130, 320] },
+  // Iceland runs about 1.2x Norway (1 NOK ≈ 12.7 ISK); estimated, not yet checked against real menus.
+  ISK: { breakfast: [1800, 3500], lunch: [3000, 5500], dinner: [6000, 12000], snack: [1200, 2200], nightcap: [1800, 4000] },
   ZAR: { breakfast: [80, 150], lunch: [150, 300], dinner: [300, 700], snack: [50, 100], nightcap: [80, 200] },
 };
 
@@ -56,6 +58,7 @@ const ATTRACTION_PRICE_RANGES: Record<string, Range> = {
   SEK: [100, 250],
   DKK: [80, 200],
   NOK: [120, 280],
+  ISK: [2000, 4500],
   ZAR: [80, 200],
 };
 
@@ -107,6 +110,7 @@ const LODGING_PRICE_TIERS: Record<string, [number, number, number, number]> = {
   SEK: [600, 1100, 2000, 3800],
   DKK: [500, 900, 1700, 3200],
   NOK: [700, 1300, 2400, 4500],
+  ISK: [15000, 30000, 55000, 100000],
   ZAR: [700, 1400, 2600, 5000],
 };
 

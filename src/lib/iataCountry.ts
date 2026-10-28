@@ -31,6 +31,7 @@ export const IATA_COUNTRY_ZH: Record<string, string> = {
   CPH: "丹麥",
   ARN: "瑞典",
   OSL: "挪威",
+  KEF: "冰島",
   PRG: "捷克",
   BUD: "匈牙利",
   WAW: "波蘭", KRK: "波蘭",

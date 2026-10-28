@@ -33,7 +33,7 @@ const IATA_CURRENCY: Record<string, string> = {
   // Eurozone
   CDG: "EUR", ORY: "EUR", AMS: "EUR", FRA: "EUR", MUC: "EUR", BER: "EUR",
   VIE: "EUR", FCO: "EUR", MXP: "EUR", BCN: "EUR", MAD: "EUR", LIS: "EUR",
-  ATH: "EUR", HEL: "EUR", CPH: "DKK", ARN: "SEK", OSL: "NOK",
+  ATH: "EUR", HEL: "EUR", CPH: "DKK", ARN: "SEK", OSL: "NOK", KEF: "ISK",
   PRG: "CZK", BUD: "HUF", WAW: "PLN", ZRH: "CHF", GVA: "CHF",
   // Turkey
   IST: "TRY", SAW: "TRY",

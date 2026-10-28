@@ -111,3 +111,13 @@ describe("estimateSlotCost", () => {
     expect(estimateSlotCost("JPY", "dinner", undefined)).toBeUndefined();
   });
 });
+
+// Story: a friend couldn't plan Iceland — no airport, and no ISK prices, so
+// every meal, sight and night there would have come out with no cost.
+describe("Icelandic krónur (ISK)", () => {
+  it("has a meal, sight and lodging estimate", () => {
+    expect(estimateMealCost("ISK", "dinner", 2)).toBe(9000);
+    expect(estimateAttractionCost("ISK", 2)).toBeGreaterThan(0);
+    expect(estimateLodgingCostPerNight("ISK", 2)).toBeGreaterThan(0);
+  });
+});
