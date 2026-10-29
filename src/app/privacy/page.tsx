@@ -9,13 +9,13 @@ export const metadata: Metadata = { title: "隱私權說明 — AI Travel Agent"
 
 // The periods below are read from the code that enforces them, so this page
 // changes with it (#261).
-const UPDATED = "2026-10-26";
+const UPDATED = "2026-10-29";
 const DAY_MS = 24 * 60 * 60 * 1000;
 const days = (ms: number) => Math.round(ms / DAY_MS);
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({ id, title, children }: { id?: string; title: string; children: React.ReactNode }) {
   return (
-    <section className="mt-10">
+    <section id={id} className="mt-10 scroll-mt-6">
       <h2 className="text-xl font-semibold text-zinc-900 dark:text-zinc-50">{title}</h2>
       <div className="mt-3 space-y-3 text-zinc-700 dark:text-zinc-300 leading-relaxed">{children}</div>
     </section>
@@ -96,6 +96,33 @@ export default function PrivacyPage() {
               <strong>Neon</strong>：資料庫主機（新加坡），存放上面列出的資料。
             </li>
           </ul>
+        </Section>
+
+        {/* World Bank data is CC BY 4.0, which asks for this credit (ADR-0011). */}
+        <Section id="data-sources" title="資料來源">
+          <p>
+            機場清單與城市資料來自公開資料：
+            <a href="https://ourairports.com/data/" className="underline underline-offset-4 mx-1">
+              OurAirports
+            </a>
+            （公有領域）與
+            <a href="https://www.wikidata.org/" className="underline underline-offset-4 mx-1">
+              Wikidata
+            </a>
+            （CC0）。
+          </p>
+          <p>
+            各國物價水準用來粗估餐費、門票與住宿，由世界銀行的購買力平價換算係數（PA.NUS.PPP）與官方匯率（PA.NUS.FCRF）計算：
+            The World Bank,
+            <a href="https://data.worldbank.org/" className="underline underline-offset-4 mx-1">
+              World Development Indicators
+            </a>
+            ，以
+            <a href="https://creativecommons.org/licenses/by/4.0/" className="underline underline-offset-4 mx-1">
+              CC BY 4.0
+            </a>
+            授權。網站只取兩者的比例做估算，世界銀行未審閱或認可這些估算。
+          </p>
         </Section>
 
         <Section title="怎麼刪除">
