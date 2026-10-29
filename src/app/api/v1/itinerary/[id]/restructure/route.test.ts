@@ -27,14 +27,19 @@ vi.mock("@/lib/cityStayDays", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/cityStayDays")>()),
   buildStayDays: (...args: unknown[]) => stayDaysMock(...args),
 }));
+type MealOptions = { extraDays?: number; usedPlaceIds?: Iterable<string> };
+const mealCalls: { city: string; options?: MealOptions }[] = [];
 vi.mock("@/lib/itineraryCityGen", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/itineraryCityGen")>()),
   generateTransitDayStops: async () => [],
-  generateMealsAndAccommodation: async (city: string, nights: number, _c: unknown, _b: unknown, _p: unknown, options?: { extraDays?: number }) => ({
-    accommodation: { name: "Hotel" },
-    mealsByDay: Array.from({ length: nights }, () => ({})),
-    ...(options?.extraDays ? { extraMealsByDay: [{ breakfast: `${city} breakfast`, lunch: `${city} lunch` }] } : {}),
-  }),
+  generateMealsAndAccommodation: async (city: string, nights: number, _c: unknown, _b: unknown, _p: unknown, options?: MealOptions) => {
+    mealCalls.push({ city, options });
+    return {
+      accommodation: { name: "Hotel" },
+      mealsByDay: Array.from({ length: nights }, () => ({})),
+      ...(options?.extraDays ? { extraMealsByDay: [{ breakfast: `${city} breakfast`, lunch: `${city} lunch` }] } : {}),
+    };
+  },
 }));
 vi.mock("@/lib/preferenceIntent", () => ({
   parsePreferenceIntent: async () => ({ pace: null, startTimePreference: null, interestBoost: [], dietaryRestrictions: [], avoid: [] }),
@@ -170,6 +175,33 @@ describe("restructure plans new days like a fresh trip", () => {
     const ctx = stayDaysMock.mock.calls[0][1];
     expect(ctx.eventsOn(2)).toEqual([]); // on kept day 2 already
     expect(ctx.departureDate).toBe("2026-11-11");
+  });
+
+  // #316: the new days started over from the top of the pool, repeating the kept days' restaurants.
+  it("tells the meal picks which restaurants the city's kept days already have, in every block", async () => {
+    findFirst.mockResolvedValue({
+      id: "itin-1",
+      userId: "u1",
+      config: { currency: "JPY", flightInfo: { departureDate: "2026-11-11", returnDate: "2026-11-13", arrivalCity: "NRT" } },
+      days: [
+        { id: "d1", day: 1, waypointCity: "東京", stops: [], meals: { lunch: { name: "A", placeId: "p-lunch" }, dinner: { name: "B", placeId: "p-dinner" } } },
+        { id: "d2", day: 2, waypointCity: "東京", stops: [], meals: { breakfast: { name: "C", placeId: "p-cafe" }, snack: null } },
+        { id: "d3", day: 3, waypointCity: "東京", stops: [] },
+      ],
+    });
+    mealCalls.length = 0;
+
+    await restructure([
+      { name: "東京", isNew: false, targetDays: 3, keepDayIds: ["d1", "d3"] },
+      { name: "大阪", isNew: true, targetDays: 2 },
+      { name: "東京", isNew: true, targetDays: 2 },
+    ]);
+
+    const used = (i: number) => [...(mealCalls.filter((c) => c.city === "東京")[i]?.options?.usedPlaceIds ?? [])];
+    // d2 was dropped, so its café is free to pick again
+    expect(used(0).sort()).toEqual(["p-dinner", "p-lunch"]);
+    expect(used(1).sort()).toEqual(["p-dinner", "p-lunch"]);
+    expect([...(mealCalls.find((c) => c.city === "大阪")?.options?.usedPlaceIds ?? [])]).toEqual([]);
   });
 });
 

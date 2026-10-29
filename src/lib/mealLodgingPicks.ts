@@ -63,6 +63,21 @@ export function newPickHistory(): PickHistory {
 }
 
 /**
+ * A history where `placeIds` were each used once, long enough before the stay
+ * to be fair game again: days already on the trip (kept by restructure, #316)
+ * whose restaurants the new days go past first, repeating only when the pool
+ * runs out.
+ */
+export function pickHistoryAfter(placeIds: Iterable<string>): PickHistory {
+  const history = newPickHistory();
+  for (const placeId of placeIds) {
+    history.lastDay.set(placeId, -MIN_REPEAT_GAP_DAYS);
+    history.visits.set(placeId, 1);
+  }
+  return history;
+}
+
+/**
  * The stay's lodging: the first candidate, the pool being ranked for budget
  * and preferences already. `area` is the city, our own words: Google's
  * address may not be stored (ADR-0004), and it's looked up again for display.

@@ -1,6 +1,6 @@
 ---
 status: stable
-updated: 2026-10-29
+updated: 2026-10-30
 source:
   - src/lib/skeletonCopy.ts
   - src/lib/mealLodgingPicks.ts
@@ -8,6 +8,7 @@ source:
   - src/lib/scheduler/placeCandidatesToStopCandidates.ts
   - src/lib/stopSuggestionFallback.ts
   - src/lib/llmInputGuard.test.ts
+  - src/app/api/v1/itinerary/[id]/restructure/route.ts
 adr: [4, 5, 8, 9]
 plan: PLAN-002
 ---
@@ -37,7 +38,7 @@ flowchart TD
 | 景點文案 | 主題日的第一站「今天的〇〇從這裡開始。」；整天行程的最後一站「今天的最後一站。」，之後還有固定行程（例如晚間點燈的季節景點）時不加；其他站留白。移動日、出發日不加註記 |
 | 程式的實用說明 | 照舊保留，例如「一日遊：從東京搭火車約 1.5 小時到箱根」「開場前在東京巨蛋附近用餐」 |
 | 地點本身的介紹 | 不寫。使用者點「照片與詳情」看 Google 自己的內容（ADR-0005） |
-| 三餐 | 依候選池順序挑第一家沒用過的店；同一天、隔天不重複（以 place ID 判斷，早餐和午餐的搜尋找到同一家也算），候選用完才重複，挑來過最少次的；同一城市住第二段時接著第一段沒用過的店挑，不從頭開始；點心照飲料輪替；晚餐盡量避開午餐的料理類型（籠統的 `restaurant` 不算） |
+| 三餐 | 依候選池順序挑第一家沒用過的店；同一天、隔天不重複（以 place ID 判斷，早餐和午餐的搜尋找到同一家也算），候選用完才重複，挑來過最少次的；同一城市住第二段時接著第一段沒用過的店挑，不從頭開始；重新規劃新增的天先避開同一城市保留下來的天已有的店（`pickHistoryAfter`）；點心照飲料輪替；晚餐盡量避開午餐的料理類型（籠統的 `restaurant` 不算） |
 | 移動日的早餐 | 出發城市多挑一天的餐點，只取那天的早餐（[移動日](transit-days.md)、ADR-0009） |
 | 住宿 | 住宿候選排第一的那家；「區域」填城市名 |
 | 候選池的順序 | 建池時就依預算、飲食限制、親子、獨旅、帶狗、晚起、溫泉排好（`fetchMealLodgingPools`） |
