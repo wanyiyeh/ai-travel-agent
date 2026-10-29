@@ -30,3 +30,15 @@ export function isTransitStop(stop: StopLike, day: DayLike): boolean {
 export function transitStopIndex(stops: readonly StopLike[], day: DayLike): number {
   return stops.findIndex((stop) => isTransitStop(stop, day));
 }
+
+/**
+ * A ride between cities is never free, so a fare of 0 is the model copying
+ * the prompt's example (an Iceland trip had a 5-hour bus at 0 ISK, #313).
+ * Dropped, it reads as not estimated instead of free.
+ */
+export function withoutZeroFare(stop: Record<string, unknown>): Record<string, unknown> {
+  if (typeof stop.estimated_cost === "number" && stop.estimated_cost > 0) return stop;
+  const copy = { ...stop };
+  delete copy.estimated_cost;
+  return copy;
+}

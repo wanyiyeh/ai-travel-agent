@@ -53,7 +53,7 @@ import type { DayFixedEvents } from "@/lib/fixedEvents";
 import { RETURN_CAR_MINUTES } from "@/lib/carRental";
 import { THEMES, dayThemeKeys, interestWeightsOf, isCoreOfTheme, isOnTheme, popularSlots, themesOf, type ThemeKey } from "@/lib/dayThemes";
 import { dietPromptLine, dietRequiredTypes, excludeByDiet } from "@/lib/dietaryFilter";
-import { TRANSIT_STOP_KIND } from "@/lib/transitStop";
+import { TRANSIT_STOP_KIND, withoutZeroFare } from "@/lib/transitStop";
 
 // Shared AI-generation helpers for building out a city's worth of itinerary
 // content (transit day, sightseeing days, accommodation + meals). Used by the
@@ -269,7 +269,7 @@ async function planTransitDay(
 - transitStop：交通本身，須填入真實交通工具、正確車程時數，duration_minutes 必須反映真實車程，transport_from_prev 必須包含預估時間（例如「搭乘新幹線約 1 小時30分」），不可只寫交通方式
 - arrivalTime："HH:MM" 格式的 24 小時制時間，代表抵達 ${toCity} 後可以開始活動的時間
 - time_of_day 只能是 "morning"、"afternoon"、"evening" 之一
-- estimated_cost 為 ${currency} 整數，免費填 0`,
+- estimated_cost 為 ${currency} 整數：每人單程票價，開車則是油錢與過路費；城市之間的交通不會免費，不可以填 0，不確定時依距離估算`,
         },
         {
           role: "user",
@@ -289,7 +289,7 @@ async function planTransitDay(
     if (!parsed.transitStop || typeof parsed.transitStop !== "object") return null;
 
     return {
-      transitStop: { ...parsed.transitStop, id: crypto.randomUUID(), kind: TRANSIT_STOP_KIND },
+      transitStop: withoutZeroFare({ ...parsed.transitStop, id: crypto.randomUUID(), kind: TRANSIT_STOP_KIND }),
       arrivalMinute: parseTimeString(parsed.arrivalTime, DEFAULT_ARRIVAL_MINUTE),
     };
   } catch (err) {
