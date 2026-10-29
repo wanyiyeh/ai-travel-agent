@@ -135,6 +135,9 @@ export async function assembleItineraryDays(
   }
 
   const usedPlaceIdsByCity = new Map<string, Set<string>>();
+  // Meal days already picked in each city, so a loop back to one goes on
+  // to restaurants the first stay didn't use (#312).
+  const mealDaysByCity = new Map<string, number>();
   // Where the traveler stayed in each city: back in it after a loop (南竿 →
   // 北竿 → 南竿), the same lodging rather than a new one.
   const stayByCity = new Map<string, Record<string, unknown>>();
@@ -204,8 +207,12 @@ export async function assembleItineraryDays(
     // assembleItineraryDays, breaking its "never throws except when planTrip
     // fails" contract. restructure/route.ts already wraps every one of its
     // own call sites with this same degrade-to-empty pattern.
+    const extraMealDays = isLast ? 0 : 1;
+    const earlierMealDays = mealDaysByCity.get(city.name) ?? 0;
+    mealDaysByCity.set(city.name, earlierMealDays + mealDays + extraMealDays);
     const mealsAndAccommodationPromise = generateMealsAndAccommodation(city.name, mealDays, plan.currency, budget, mealPreferences, {
-      extraDays: isLast ? 0 : 1,
+      extraDays: extraMealDays,
+      earlierDays: earlierMealDays,
     }).catch((): Awaited<ReturnType<typeof generateMealsAndAccommodation>> => emptyMealsAndAccommodation(mealDays));
 
     if (!isFirst) {

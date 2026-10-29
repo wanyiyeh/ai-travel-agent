@@ -115,6 +115,25 @@ describe("generateMealsAndAccommodation", () => {
     expect(nearbyMock).toHaveBeenCalledTimes(4);
   });
 
+  // #312: a loop back to 雷克雅維克 had day 1's meals again on day 10.
+  it("goes on from an earlier stay in the same city instead of starting over", async () => {
+    const restaurants = Array.from({ length: 8 }, (_, i) => place(`Restaurant ${i}`));
+    const cafes = Array.from({ length: 8 }, (_, i) => place(`Cafe ${i}`));
+    const setUp = () => {
+      nearbyMock.mockResolvedValueOnce(cafes).mockResolvedValueOnce(restaurants);
+      lodgingMock.mockResolvedValueOnce([place("Hotel H")]);
+    };
+    const ids = (days: Array<Record<string, unknown>>) =>
+      days.flatMap((d) => Object.values(d).map((m) => (m as { placeId?: string }).placeId));
+
+    setUp();
+    const first = await generateMealsAndAccommodation("京都", 2, "JPY", "moderate");
+    setUp();
+    const second = await generateMealsAndAccommodation("京都", 2, "JPY", "moderate", {}, { earlierDays: 2 });
+
+    expect(ids(second.mealsByDay).filter((id) => ids(first.mealsByDay).includes(id))).toEqual([]);
+  });
+
   it("searches each pool once, and only lunch/dinner on Enterprise fields", async () => {
     nearbyMock.mockResolvedValue([]);
     mockLlm({ accommodation: {}, meals: [] });

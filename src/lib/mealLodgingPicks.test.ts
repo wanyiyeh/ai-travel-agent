@@ -61,6 +61,14 @@ describe("pickMeals", () => {
     expect([...main[2]].sort()).toEqual(["Ramen X", "Sushi Y"]);
   });
 
+  // #312: 阿克雷里's breakfast and lunch were one place, found by both searches.
+  it("doesn't serve one place twice in a day when two pools both found it", () => {
+    const both = { breakfast: [place("Bistro")], main: [place("Bistro"), place("Ramen X")], snack: [], lodging: [], nightcap: [] };
+    const [day] = pickMeals(both, 1, "JPY") as Day[];
+    expect(day.breakfast?.name).toBe("Bistro");
+    expect(day.lunch?.name).toBe("Ramen X");
+  });
+
   it("carries what's been used across calls through the history", () => {
     const history = newPickHistory();
     pickMeals(pools, 1, "JPY", history, 0);
