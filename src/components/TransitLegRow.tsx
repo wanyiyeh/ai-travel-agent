@@ -30,10 +30,13 @@ export function TransitLegRow({ stop, currency }: { stop: Stop; currency?: strin
         )}
         <p className="mt-1 text-xs text-indigo-600 dark:text-indigo-400 font-medium">
           {stop.duration_minutes > 0 && <>⏱ {formatDuration(stop.duration_minutes)}</>}
-          {stop.estimated_cost !== undefined && stop.estimated_cost > 0 && (
+          {stop.estimated_cost !== undefined && stop.estimated_cost > 0 ? (
             <span className="ml-2 text-emerald-600 dark:text-emerald-400">
               💴 {[currency, stop.estimated_cost.toLocaleString()].filter(Boolean).join(" ")}
             </span>
+          ) : (
+            // No fare (or an old trip's 0): the ride still costs something (#313).
+            <span className="ml-2 text-indigo-500/80 dark:text-indigo-400/70">費用未估算</span>
           )}
         </p>
         <p className="mt-1 text-[11px] text-indigo-500/80 dark:text-indigo-400/70">移動日的交通，位置固定；景點可以拖到它的前面或後面。</p>

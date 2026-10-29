@@ -1,5 +1,22 @@
 import { describe, expect, it } from "vitest";
-import { isTransitStop, transitStopIndex } from "./transitStop";
+import { isTransitStop, transitStopIndex, withoutZeroFare } from "./transitStop";
+
+describe("withoutZeroFare", () => {
+  it("drops a fare of 0 so the ride reads as not estimated (#313)", () => {
+    expect(withoutZeroFare({ name: "搭乘長途巴士前往阿克雷里", estimated_cost: 0 })).toEqual({
+      name: "搭乘長途巴士前往阿克雷里",
+    });
+  });
+
+  it("drops a fare that is not a number", () => {
+    expect(withoutZeroFare({ name: "x", estimated_cost: "免費" })).toEqual({ name: "x" });
+  });
+
+  it("keeps a real fare", () => {
+    const stop = { name: "x", estimated_cost: 12000 };
+    expect(withoutZeroFare(stop)).toBe(stop);
+  });
+});
 
 const transitDay = { isTransitDay: true };
 

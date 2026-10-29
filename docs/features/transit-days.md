@@ -1,6 +1,6 @@
 ---
 status: stable
-updated: 2026-10-27
+updated: 2026-10-30
 source:
   - src/lib/transitStop.ts
   - src/lib/itineraryCityGen.ts
@@ -38,6 +38,7 @@ flowchart TD
 | --- | --- |
 | 交通站 | `stops` 裡的一站，`kind: "transit"`。畫面顯示成虛線框的交通列，不能拖拉、換一個、移到別天或刪除，不佔景點編號 |
 | 其他景點 | 可以拖到交通站前面（出發城市）或後面（抵達城市） |
+| 交通費用 | LLM 估每人單程票價（開車是油錢與過路費）。回傳 0 或不是數字就不存（`withoutZeroFare`），畫面顯示「費用未估算」，舊行程的 0 也一樣 |
 | 早餐 | 出發城市的 `meals.breakfast`，跟其他天一樣由規則挑選 |
 | 午餐、點心、晚餐 | 抵達城市的餐點 |
 | 重新規劃產生的移動日 | 抵達城市這次本來就要查候選時（新城市、或有新增天數的城市），多挑一天給移動日的午餐、點心、晚餐；沒查的話留空位。早餐一律留空位，不為它查出發城市 |
@@ -65,4 +66,4 @@ flowchart TD
 
 ## 相關連結
 
-[ADR-0009](../adr/0009-transit-leg-as-pinned-stop.md)、[ADR-0008](../adr/0008-no-google-content-in-llm-input.md)、[地點文案與三餐住宿的挑選](place-copy-and-meals.md)、#286、#290
+[ADR-0009](../adr/0009-transit-leg-as-pinned-stop.md)、[ADR-0008](../adr/0008-no-google-content-in-llm-input.md)、[地點文案與三餐住宿的挑選](place-copy-and-meals.md)、#286、#290、#313
