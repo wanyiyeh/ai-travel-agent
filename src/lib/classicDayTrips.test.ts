@@ -138,7 +138,7 @@ describe("classicTripEvents", () => {
   const hakone = { town: "箱根", km: 78, sights: ["箱根神社", "大涌谷", "蘆之湖"].map((n) => sight(n, towns["箱根"])) };
 
   it("fills the day with back-to-back blocks, so the city gets no stops", () => {
-    const events = classicTripEvents(hakone, "東京", 9 * 60, 18 * 60, false);
+    const events = classicTripEvents(hakone, "東京", 9 * 60, 18 * 60, "rail");
 
     expect(events[0].block.startMinute).toBe(9 * 60);
     expect(events.at(-1)!.block.endMinute).toBe(18 * 60);
@@ -146,22 +146,27 @@ describe("classicTripEvents", () => {
   });
 
   it("says how to get there and back", () => {
-    const events = classicTripEvents(hakone, "東京", 9 * 60, 18 * 60, false);
+    const events = classicTripEvents(hakone, "東京", 9 * 60, 18 * 60, "rail");
 
     expect(events[0].stop?.description).toContain("從東京搭火車約 1.5 小時到箱根");
     expect(events.at(-1)!.stop?.description).toContain("傍晚搭火車回東京");
-    expect(classicTripEvents(hakone, "東京", 9 * 60, 18 * 60, true)[0].stop?.description).toContain("開車");
+    expect(classicTripEvents(hakone, "東京", 9 * 60, 18 * 60, "drive")[0].stop?.description).toContain("開車");
+    // #310: no trains in Iceland
+    const bus = classicTripEvents({ ...hakone, town: "古佛斯" }, "雷克雅維克", 9 * 60, 18 * 60, "bus");
+    expect(bus[0].stop?.description).toContain("從雷克雅維克搭巴士約");
+    expect(bus.at(-1)!.stop?.description).toContain("傍晚搭巴士回雷克雅維克");
+    expect(bus.map((e) => e.stop?.description).join()).not.toContain("火車");
   });
 
   it("drops a sight that doesn't fit after a long ride out, keeping two", () => {
     const nikko = { ...hakone, town: "日光", km: 140 };
-    expect(classicTripEvents(nikko, "東京", 9 * 60, 18 * 60, false)).toHaveLength(2);
+    expect(classicTripEvents(nikko, "東京", 9 * 60, 18 * 60, "rail")).toHaveLength(2);
   });
 
   it("puts a ride's worth of time before the first sight", () => {
     expect(travelMinutes(30)).toBe(45);
     expect(travelMinutes(78)).toBe(78);
     expect(travelMinutes(200)).toBe(150);
-    expect(classicTripEvents(hakone, "東京", 9 * 60, 18 * 60, false)[0].stop?.time_of_day).toBe("morning");
+    expect(classicTripEvents(hakone, "東京", 9 * 60, 18 * 60, "rail")[0].stop?.time_of_day).toBe("morning");
   });
 });

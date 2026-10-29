@@ -151,6 +151,7 @@ export async function assembleItineraryDays(
     departureDate: flightInfo.departureDate,
     returnDate: flightInfo.returnDate,
     routeCityNames: plan.cities.map((c) => c.name),
+    tripAirports: [flightInfo.arrivalCity, flightInfo.returnDepartureCity],
   });
   // 固定行程 (plan/form-preference-wiring.md 1.11) by the trip day they fall on.
   const { eventsOn, eventMealContext } = stay;

@@ -7,6 +7,7 @@ import { getCityCenter } from "@/lib/placesTextSearch";
 import { haversineKm } from "@/lib/geo";
 import { pickHighlightMatch } from "@/lib/seasonalHighlights";
 import type { DayFixedEvents } from "@/lib/fixedEvents";
+import type { DayTripTravel } from "@/lib/passengerRail";
 
 // 經典一日遊 (plan/form-preference-wiring.md 1.4, phase 3c-3): the day trips
 // a city is known for — 鎌倉, 箱根, 日光 from 東京 — which lie beyond Nearby
@@ -161,6 +162,8 @@ const hoursLabel = (minutes: number) => {
   return `${h % 1 === 0 ? h : h.toFixed(1)} 小時`;
 };
 
+const TRAVEL_VERB: Record<DayTripTravel, string> = { drive: "開車", rail: "搭火車", bus: "搭巴士" };
+
 /**
  * The day as back-to-back blocks from the morning to `dayEndMinute`, one
  * per sight, so the city gets no stops that day: the way out is in the first
@@ -172,19 +175,19 @@ export function classicTripEvents(
   city: string,
   dayStartMinute: number,
   dayEndMinute: number,
-  selfDrive: boolean,
+  travel: DayTripTravel,
   // Another way there than by road or rail — a boat to a neighbouring island
   // (islandDayTrips.ts): how long, and what the first and last sights say.
   way?: { minutes: number; out: string; back: string }
 ): DayFixedEvents {
-  const travel = way?.minutes ?? travelMinutes(trip.km);
+  const rideMinutes = way?.minutes ?? travelMinutes(trip.km);
   const fits = (n: number) =>
-    travel * 2 + n * SIGHT_MINUTES + (n - 1) * BETWEEN_SIGHTS_MINUTES + LUNCH_MINUTES <= dayEndMinute - dayStartMinute;
+    rideMinutes * 2 + n * SIGHT_MINUTES + (n - 1) * BETWEEN_SIGHTS_MINUTES + LUNCH_MINUTES <= dayEndMinute - dayStartMinute;
   let count = trip.sights.length;
   while (count > MIN_SIGHTS && !fits(count)) count--;
   const sights = trip.sights.slice(0, count);
 
-  const by = selfDrive ? "開車" : "搭火車";
+  const by = TRAVEL_VERB[travel];
   let start = dayStartMinute;
   return sights.map((place, i) => {
     const first = i === 0;
@@ -192,12 +195,12 @@ export function classicTripEvents(
     const begin = start;
     // What comes before the sight inside its block: the way out, or lunch
     // and a short hop. No gaps between blocks, or a city stop would slip in.
-    const lead = first ? travel : (i === 1 ? LUNCH_MINUTES : 0) + BETWEEN_SIGHTS_MINUTES;
+    const lead = first ? rideMinutes : (i === 1 ? LUNCH_MINUTES : 0) + BETWEEN_SIGHTS_MINUTES;
     const end = last ? Math.max(dayEndMinute, begin + lead + SIGHT_MINUTES) : begin + lead + SIGHT_MINUTES;
     start = end;
     const notes = [
-      ...(first ? [way?.out ?? `一日遊：從${city}${by}約 ${hoursLabel(travel)}到${trip.town}`] : []),
-      ...(last ? [way?.back ?? `傍晚${by}回${city}，約 ${hoursLabel(travel)}`] : []),
+      ...(first ? [way?.out ?? `一日遊：從${city}${by}約 ${hoursLabel(rideMinutes)}到${trip.town}`] : []),
+      ...(last ? [way?.back ?? `傍晚${by}回${city}，約 ${hoursLabel(rideMinutes)}`] : []),
     ];
     const minuteOfDay = begin + lead;
     return {

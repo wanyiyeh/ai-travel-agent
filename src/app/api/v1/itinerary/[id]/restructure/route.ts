@@ -468,7 +468,7 @@ export async function POST(
     const mealPreferences = mealPreferencesOf(preferenceIntent, preferences?.drinks);
     // New days are planned like a fresh trip's (cityStayDays.ts). Dates come
     // from where each day lands: a block starts after the cities before it.
-    const fi = config.flightInfo as { departureDate?: string; returnDate?: string } | undefined;
+    const fi = config.flightInfo as { departureDate?: string; returnDate?: string; arrivalCity?: string; returnDepartureCity?: string } | undefined;
     const totalAfter = cities.reduce((sum, c) => sum + c.targetDays, 0);
     const stay = stayContextOf({
       preferences,
@@ -480,6 +480,7 @@ export async function POST(
       departureDate: fi?.departureDate ?? "",
       returnDate: fi?.returnDate ? shiftDateString(fi.returnDate, totalAfter - days.length) : "",
       routeCityNames: cities.map((c) => c.name),
+      tripAirports: [fi?.arrivalCity, fi?.returnDepartureCity].filter((c): c is string => Boolean(c)),
       // A booked event already on a kept day isn't placed again on a new one.
       fixedEvents: bookedEvents.filter((e) => !days.some((d) => keptIds.has(d.id as string) && bookedEventOn(d, [e]))),
       campNightPlanned: days.some(

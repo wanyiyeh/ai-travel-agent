@@ -80,7 +80,7 @@ export function islandTripEvents(
   const crossing = ferry.minutes + BOARDING_MINUTES + (ferry.landMinutes ?? 0);
   const reach = ferry.landMinutes ? `開車或搭車約 ${ferry.landMinutes} 分到${ferry.port}，` : `從${ferry.port}`;
   const classic: ClassicDayTrip = { town: trip.island.name, km: 0, sights: trip.sights };
-  return classicTripEvents(classic, homeIsland, dayStartMinute, kind === "day" ? dayEndMinute : HALF_DAY_BACK_MINUTE, false, {
+  return classicTripEvents(classic, homeIsland, dayStartMinute, kind === "day" ? dayEndMinute : HALF_DAY_BACK_MINUTE, "rail", {
     minutes: crossing,
     out: `${kind === "day" ? "坐船一日遊" : "坐船半日遊"}：${reach}搭船約 ${ferry.minutes} 分到${trip.island.name}（估計，出發前確認船班，會依季節和海象調整）`,
     back: `${kind === "day" ? "傍晚" : "中午過後"}搭船回${homeIsland}`,

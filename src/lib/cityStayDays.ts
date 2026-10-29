@@ -8,6 +8,7 @@ import { conditionsOf, weatherNote, type DayConditions } from "@/lib/dayConditio
 import { planDayEvents, restaurantNear, type PlannedDayEvents } from "@/lib/fixedEventVenues";
 import { getCityCenter } from "@/lib/placesTextSearch";
 import { AIRPORTS } from "@/lib/airports";
+import { dayTripTravelFor, type DayTripTravel } from "@/lib/passengerRail";
 import {
   findSuburbPlace,
   isInOtherCity,
@@ -55,6 +56,8 @@ export type StayContext = {
   eventMealContext: { budget: BudgetLevel | undefined; dietaryRestrictions: string[] | undefined; currency: string };
   suburbGroups: ReturnType<typeof suburbGroupsFor>;
   selfDrive: boolean;
+  /** How a day trip out of a city goes: by car, train or, where there are no trains, bus. */
+  dayTripTravel: (cityName: string) => DayTripTravel;
   /** The route's other cities, which a day trip shouldn't land in. */
   otherCityCenters: (cityName: string, apiKey: string) => Promise<{ lat: number; lng: number }[]>;
   /** Every city on the route — an island stayed on isn't a boat day out too. */
@@ -83,6 +86,8 @@ export function stayContextOf(input: {
   returnDate: string;
   /** Every city on the route. */
   routeCityNames: string[];
+  /** The trip's arrival and return airports, for a city with none of its own. */
+  tripAirports?: string[];
   /** Booked events to place; 重新規劃 leaves out those already on a kept day. */
   fixedEvents?: FixedEvent[];
   /** A camping night already on the trip (a kept day). */
@@ -112,6 +117,7 @@ export function stayContextOf(input: {
       Boolean(preferenceIntent.seniors)
     ),
     selfDrive: Boolean(preferenceIntent.selfDrive),
+    dayTripTravel: (cityName) => dayTripTravelFor(cityName, input.tripAirports ?? [], Boolean(preferenceIntent.selfDrive)),
     otherCityCenters: async (cityName, apiKey) => {
       const names = routeCityNames.filter((name) => name !== cityName);
       const centers = await Promise.all(names.map((name) => getCityCenter(name, apiKey).catch(() => null)));
@@ -219,7 +225,7 @@ export async function buildStayDays(
         (place) => isInSeason(place, tripDate)
       );
       if (classic) {
-        const events = classicTripEvents(classic, cityName, dayStart, dayEndFor(preferenceIntent), ctx.selfDrive);
+        const events = classicTripEvents(classic, cityName, dayStart, dayEndFor(preferenceIntent), ctx.dayTripTravel(cityName));
         for (const stop of events.flatMap((e) => (e.stop ? [e.stop] : []))) {
           ctx.usedSuburbIds.add(String(stop.placeId));
           usedPlaceIds.add(String(stop.placeId));
@@ -247,7 +253,7 @@ export async function buildStayDays(
     if (!found) return undefined;
     ctx.usedSuburbIds.add(found.place.placeId);
     usedPlaceIds.add(found.place.placeId);
-    const event = suburbTripEvent(found.place, found.group, kind, dayStart, dayEndFor(preferenceIntent), ctx.selfDrive);
+    const event = suburbTripEvent(found.place, found.group, kind, dayStart, dayEndFor(preferenceIntent), ctx.dayTripTravel(cityName));
     // A day out eats lunch out there, not back downtown.
     const lunch =
       kind === "day"
