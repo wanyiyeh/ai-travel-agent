@@ -7,6 +7,11 @@
 // the LLM hallucinate a wrong-city place). Add new airports only here.
 export interface Airport {
   cityZh: string;
+  /**
+   * For searching by English name, where the generated data's (airportIndex.ts)
+   * names a region rather than the city travelers type: TPE's is Taoyuan.
+   */
+  cityEn?: string;
   lat: number;
   lng: number;
   /**
@@ -23,11 +28,11 @@ export const AIRPORTS: Record<string, Airport> = {
   // 東北亞
   NRT: { cityZh: "東京", lat: 35.6812, lng: 139.7671 }, // Tokyo Station, not the metropolis centroid (see placesTextSearch.ts CITY_CENTER_OVERRIDES)
   HND: { cityZh: "東京", lat: 35.6812, lng: 139.7671 },
-  KIX: { cityZh: "大阪", lat: 34.6937, lng: 135.5023 },
+  KIX: { cityZh: "大阪", cityEn: "Osaka", lat: 34.6937, lng: 135.5023 },
   NGO: { cityZh: "名古屋", lat: 35.1815, lng: 136.9066 },
   CTS: { cityZh: "札幌", lat: 43.0618, lng: 141.3545 },
   FUK: { cityZh: "福岡", lat: 33.5904, lng: 130.4017 },
-  OKA: { cityZh: "沖繩", lat: 26.2124, lng: 127.6809 },
+  OKA: { cityZh: "沖繩", cityEn: "Okinawa", lat: 26.2124, lng: 127.6809 },
   ICN: { cityZh: "首爾", lat: 37.5665, lng: 126.978 },
   GMP: { cityZh: "首爾", lat: 37.5665, lng: 126.978 },
   PUS: { cityZh: "釜山", lat: 35.1796, lng: 129.0756 },
@@ -37,7 +42,7 @@ export const AIRPORTS: Record<string, Airport> = {
   SHA: { cityZh: "上海", lat: 31.2304, lng: 121.4737 },
   CAN: { cityZh: "廣州", lat: 23.1291, lng: 113.2644 },
   HKG: { cityZh: "香港", lat: 22.3193, lng: 114.1694 },
-  TPE: { cityZh: "台北", lat: 25.033, lng: 121.5654 },
+  TPE: { cityZh: "台北", cityEn: "Taipei", lat: 25.033, lng: 121.5654 },
   KHH: { cityZh: "高雄", lat: 22.6273, lng: 120.3014 },
   RMQ: { cityZh: "台中", lat: 24.1477, lng: 120.6736 },
   // 東南亞
@@ -51,7 +56,7 @@ export const AIRPORTS: Record<string, Airport> = {
   HAN: { cityZh: "河內", lat: 21.0285, lng: 105.8542 },
   DAD: { cityZh: "峴港", lat: 16.0544, lng: 108.2022 },
   DPS: { cityZh: "峇里島", lat: -8.6705, lng: 115.2126 },
-  CGK: { cityZh: "雅加達", lat: -6.2088, lng: 106.8456 },
+  CGK: { cityZh: "雅加達", cityEn: "Jakarta", lat: -6.2088, lng: 106.8456 },
   REP: { cityZh: "暹粒", lat: 13.3671, lng: 103.8448 },
   PNH: { cityZh: "金邊", lat: 11.5564, lng: 104.9282 },
   // 大洋洲
@@ -77,7 +82,7 @@ export const AIRPORTS: Record<string, Airport> = {
   HAM: { cityZh: "漢堡", lat: 53.5511, lng: 9.9937 },
   VIE: { cityZh: "維也納", lat: 48.2082, lng: 16.3738 },
   FCO: { cityZh: "羅馬", lat: 41.9028, lng: 12.4964 },
-  MXP: { cityZh: "米蘭", lat: 45.4642, lng: 9.19 },
+  MXP: { cityZh: "米蘭", cityEn: "Milan", lat: 45.4642, lng: 9.19 },
   VCE: { cityZh: "威尼斯", lat: 45.4408, lng: 12.3155 },
   NAP: { cityZh: "那不勒斯", lat: 40.8518, lng: 14.2681 },
   BCN: { cityZh: "巴塞隆納", lat: 41.3874, lng: 2.1686 },
@@ -88,7 +93,7 @@ export const AIRPORTS: Record<string, Airport> = {
   CPH: { cityZh: "哥本哈根", lat: 55.6761, lng: 12.5683 },
   ARN: { cityZh: "斯德哥爾摩", lat: 59.3293, lng: 18.0686 },
   OSL: { cityZh: "奧斯陸", lat: 59.9139, lng: 10.7522 },
-  KEF: { cityZh: "雷克雅維克", lat: 64.1466, lng: -21.9426 }, // Reykjavík centre; KEF itself is 50 km away in Keflavík
+  KEF: { cityZh: "雷克雅維克", cityEn: "Reykjavík", lat: 64.1466, lng: -21.9426 }, // Reykjavík centre; KEF itself is 50 km away in Keflavík
   PRG: { cityZh: "布拉格", lat: 50.0755, lng: 14.4378 },
   BUD: { cityZh: "布達佩斯", lat: 47.4979, lng: 19.0402 },
   BTS: { cityZh: "布拉提斯拉瓦", lat: 48.1486, lng: 17.1077 },
@@ -97,7 +102,7 @@ export const AIRPORTS: Record<string, Airport> = {
   DBV: { cityZh: "杜布羅夫尼克", lat: 42.6507, lng: 18.0944 },
   SJJ: { cityZh: "薩拉熱窩", lat: 43.8563, lng: 18.4131 },
   BEG: { cityZh: "貝爾格勒", lat: 44.7866, lng: 20.4489 },
-  SOF: { cityZh: "索非亞", lat: 42.6977, lng: 23.3219 },
+  SOF: { cityZh: "索非亞", cityEn: "Sofia", lat: 42.6977, lng: 23.3219 },
   OTP: { cityZh: "布加勒斯特", lat: 44.4268, lng: 26.1025 },
   WAW: { cityZh: "華沙", lat: 52.2297, lng: 21.0122 },
   KRK: { cityZh: "克拉科夫", lat: 50.0647, lng: 19.945 },

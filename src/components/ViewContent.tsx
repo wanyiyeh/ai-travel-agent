@@ -13,6 +13,7 @@ import { signIn } from "next-auth/react";
 import { calculateDayTotalCost, hasAnyStopCost } from "@/lib/costCalculations";
 import { collectPlaceNames, daysMissingNames, withPlaceNames, type PlaceNameBook } from "@/lib/placeNamesClient";
 import { AIRPORTS } from "@/lib/airports";
+import { useAirportOptions } from "@/hooks/useAirportOptions";
 
 const DEFAULT_EXCHANGE_RATES: Record<string, number> = {
   JPY: 0.21, KRW: 0.023, CNY: 4.4, HKD: 4.1, SGD: 24,
@@ -34,6 +35,12 @@ export default function ViewContent({ id }: ViewContentProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<"list" | "map">("list");
+  // A trip to an airport beyond the hand-kept list names it once the full list is in (PLAN-003).
+  const tripCodes: string[] = (() => {
+    const fi = data?.config?.flightInfo;
+    return fi ? [fi.departureCity, fi.arrivalCity, fi.returnDepartureCity].filter((c): c is string => Boolean(c)) : [];
+  })();
+  const airports = useAirportOptions({ eager: tripCodes.some((code) => /^[A-Z]{3}$/.test(code) && !AIRPORTS[code]) });
   // Navigation links follow the trip's 交通方式: driving directions for a self-driver.
   const travelMode: "driving" | "transit" = data?.config?.preferences?.transport === "drive" ? "driving" : "transit";
   const withPet = Boolean(data?.config?.preferences?.companions?.includes("pets"));
@@ -324,8 +331,8 @@ export default function ViewContent({ id }: ViewContentProps) {
                     {/* A place in Taiwan (國內) has no airport code worth showing. */}
                     {AIRPORTS[code]?.domestic ? AIRPORTS[code].cityZh : code}
                   </span>
-                  {AIRPORTS[code] && !AIRPORTS[code].domestic && (
-                    <span className="text-xs text-zinc-400 dark:text-zinc-500">{AIRPORTS[code].cityZh}</span>
+                  {!AIRPORTS[code]?.domestic && (AIRPORTS[code]?.cityZh ?? airports.nameOf(code)) && (
+                    <span className="text-xs text-zinc-400 dark:text-zinc-500">{AIRPORTS[code]?.cityZh ?? airports.nameOf(code)}</span>
                   )}
                 </div>
               </div>

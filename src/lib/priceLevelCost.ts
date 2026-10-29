@@ -3,8 +3,47 @@
 // from Google can override the LLM's initial guess instead of it being the
 // only source of truth for the whole trip.
 
+import type { GeneratedCountry } from "@/lib/airportData/build";
+import generatedCountries from "@/data/countries.generated.json";
+
 type MealType = "breakfast" | "lunch" | "dinner" | "snack" | "nightcap";
 type Range = [number, number];
+
+const COUNTRIES = generatedCountries as Record<string, GeneratedCountry>;
+
+/**
+ * For a currency the tables below don't have (ADR-0011): how many of its
+ * units buy what a US dollar's worth costs in the US — its countries' price
+ * level times the dollar rate, the middle one when several countries share
+ * it. Undefined without World Bank data for any of them (North Korea).
+ */
+function factorFromUsd(currency: string): number | undefined {
+  const factors = Object.values(COUNTRIES)
+    .filter((c) => c.currency === currency && c.priceLevel !== undefined && c.perDollar !== undefined)
+    .map((c) => c.priceLevel! * c.perDollar!)
+    .sort((a, b) => a - b);
+  return factors.length ? factors[Math.floor(factors.length / 2)] : undefined;
+}
+
+/** Two significant figures: 2,345.6 → 2,300, so a derived price doesn't look exact. */
+function roughly(n: number): number {
+  if (n <= 0) return 0;
+  const step = 10 ** Math.max(0, Math.floor(Math.log10(n)) - 1);
+  return Math.round(n / step) * step;
+}
+
+const derived = new Map<string, number | undefined>();
+/** The table's entry for a currency, else the USD one scaled by factorFromUsd. */
+function forCurrency<T extends number[] | Record<string, number[]>>(table: Record<string, T>, currency: string | undefined): T | undefined {
+  if (!currency) return undefined;
+  if (table[currency]) return table[currency];
+  if (!derived.has(currency)) derived.set(currency, factorFromUsd(currency));
+  const factor = derived.get(currency);
+  const usd = table.USD;
+  if (factor === undefined || !usd) return undefined;
+  const scale = (values: number[]) => values.map((v) => roughly(v * factor));
+  return (Array.isArray(usd) ? scale(usd) : Object.fromEntries(Object.entries(usd).map(([k, v]) => [k, scale(v)]))) as T;
+}
 
 // Same reference ranges embedded as prose in itineraryGen.ts's system prompt
 // (rule 12) — kept here as structured data so they can double as a real
@@ -69,15 +108,17 @@ const ATTRACTION_PRICE_RANGES: Record<string, Range> = {
  * treated as "no signal". When Google has no priceLevel at all for the place
  * (the common case for attractions, which aren't priced as reliably as
  * restaurants), this falls back to the moderate-tier estimate as a starting
- * guess — always returning a number so a manually-added attraction never
- * ends up with no ticket price at all; the caller/UI can still edit it.
+ * guess, so a manually-added attraction still gets a ticket price; the
+ * caller/UI can still edit it. Undefined only for a currency with no
+ * reference at all (factorFromUsd).
  */
 export function estimateAttractionCost(
   currency: string | undefined,
   priceLevel: number | null | undefined,
-): number {
-  const range = currency ? ATTRACTION_PRICE_RANGES[currency] : undefined;
-  if (!range) return 0;
+): number | undefined {
+  // No reference for the currency: no estimate, not 0, which shows as 免費.
+  const range = forCurrency(ATTRACTION_PRICE_RANGES, currency);
+  if (!range) return undefined;
   if (priceLevel === 0) return 0;
 
   const [low, high] = range;
@@ -127,7 +168,7 @@ export function estimateMealCost(
   priceLevel: number | null | undefined,
 ): number | undefined {
   if (!priceLevel || priceLevel < 1) return undefined;
-  const range = currency ? MEAL_PRICE_RANGES[currency]?.[mealType] : undefined;
+  const range = forCurrency(MEAL_PRICE_RANGES, currency)?.[mealType];
   if (!range) return undefined;
 
   const [low, high] = range;
@@ -164,7 +205,7 @@ export function estimateLodgingCostRange(
   priceLevel: number | null | undefined,
 ): [number, number] | undefined {
   if (!priceLevel || priceLevel < 1) return undefined;
-  const tiers = currency ? LODGING_PRICE_TIERS[currency] : undefined;
+  const tiers = forCurrency(LODGING_PRICE_TIERS, currency);
   if (!tiers) return undefined;
 
   const idx = Math.min(Math.max(Math.round(priceLevel) - 1, 0), 3);

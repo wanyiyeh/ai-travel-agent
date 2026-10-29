@@ -82,9 +82,10 @@ describe("estimateAttractionCost", () => {
     expect(estimateAttractionCost("JPY", undefined)).toBe(1400);
   });
 
-  it("returns 0 for an unsupported currency", () => {
-    expect(estimateAttractionCost("XXX", 2)).toBe(0);
-    expect(estimateAttractionCost(undefined, 2)).toBe(0);
+  // PLAN-003: 0 showed as 免費; a currency with no reference has no estimate.
+  it("has no estimate for a currency with no reference at all", () => {
+    expect(estimateAttractionCost("XXX", 2)).toBeUndefined();
+    expect(estimateAttractionCost(undefined, 2)).toBeUndefined();
   });
 });
 
@@ -119,5 +120,29 @@ describe("Icelandic krónur (ISK)", () => {
     expect(estimateMealCost("ISK", "dinner", 2)).toBe(9000);
     expect(estimateAttractionCost("ISK", 2)).toBeGreaterThan(0);
     expect(estimateLodgingCostPerNight("ISK", 2)).toBeGreaterThan(0);
+  });
+});
+
+// PLAN-003: a currency the tables don't have is priced from the US dollar
+// reference, its country's price level and the dollar rate.
+describe("a currency beyond the tables", () => {
+  it("is priced from its country's price level, in round numbers", () => {
+    // Peru (PEN): price level ~0.5, ~3.6 soles per dollar, so roughly 1.8× the USD figures
+    const dinner = estimateMealCost("PEN", "dinner", 2)!;
+    const usdDinner = estimateMealCost("USD", "dinner", 2)!;
+    expect(dinner / usdDinner).toBeGreaterThan(1.3);
+    expect(dinner / usdDinner).toBeLessThan(2.5);
+    expect(estimateAttractionCost("PEN", 2)).toBeGreaterThan(0);
+    expect(estimateLodgingCostPerNight("PEN", 2)).toBeGreaterThan(0);
+    // two significant figures
+    expect(estimateMealCost("PEN", "breakfast", 1)! % 1).toBe(0);
+  });
+
+  it("leaves a table's own currency as it was", () => {
+    expect(estimateMealCost("JPY", "breakfast", 1)).toBe(500);
+  });
+
+  it("has no estimate where the World Bank has no data (North Korea)", () => {
+    expect(estimateMealCost("KPW", "dinner", 2)).toBeUndefined();
   });
 });

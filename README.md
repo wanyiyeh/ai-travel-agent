@@ -71,6 +71,7 @@
 | `npm run lint` | ESLint 檢查 |
 | `npm run seed` | 灌入測試資料 |
 | `npm run purge-expired-coords` | 刪除超過 30 天的 Google 座標（不呼叫任何 API，見 `docs/runbook.md`） |
+| `npm run build-airports` | 從 OurAirports、Wikidata、世界銀行重新產生 `src/data/` 的機場與國家資料並印出抽查報告（免費，不呼叫 Google 或 OpenAI；每年一次，見 ADR-0011） |
 | `npm run audit-google-content` | 檢查資料庫裡還有沒有不能保存的 Google 內容，有就以狀態碼 1 結束（不改任何資料） |
 | `npm run copy-sqlite-to-postgres` | 把舊的 SQLite 檔（`prisma/dev.db`、`mock.db`）搬進 `DATABASE_URL` 的 Postgres；不加 `-- <檔案> --yes` 只預覽，可重複執行（見 `docs/runbook.md`） |
 | `npm run cleanup-google-content` | 移除舊資料裡的 Google 內容；不加 `-- --yes` 只列出會移除什麼（不可逆，先備份，見 `docs/runbook.md`） |

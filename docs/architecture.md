@@ -20,7 +20,7 @@ flowchart LR
 - 只有 Google 登入（`src/auth.ts`，JWT session）。未登入的訪客也能生成，由簽章 cookie 識別、行程會過期；登入時認領訪客行程（`src/lib/auth/guest.ts`）。
 - 行程讀寫都檢查擁有權（`src/lib/auth/ownership.ts`）。
 - 登入的使用者可以在 `/account` 自行刪除帳號與所有資料（`src/lib/auth/deleteAccount.ts`，見[功能頁](features/account-deletion.md)）。
-- `/privacy` 隱私權說明，全站頁尾連結（`src/components/SiteFooter.tsx`）。頁面上的保存天數直接讀執行它的常數（`GUEST_TTL_MS`、`USAGE_RETENTION_MS`、`RATE_LIMIT_WINDOW_RETENTION_MS`、`DEVICE_COOKIE_MAX_AGE_S`、`SESSION_MAX_AGE_S`），改常數就會跟著變；收集的資料或第三方服務有變動時要一起改這頁。
+- `/privacy` 隱私權說明，全站頁尾連結（`src/components/SiteFooter.tsx`）。頁面上的保存天數直接讀執行它的常數（`GUEST_TTL_MS`、`USAGE_RETENTION_MS`、`RATE_LIMIT_WINDOW_RETENTION_MS`、`DEVICE_COOKIE_MAX_AGE_S`、`SESSION_MAX_AGE_S`），改常數就會跟著變；收集的資料或第三方服務有變動時要一起改這頁。資料來源的出處也標在這頁（`#data-sources`，見 [data-sources.md](data-sources.md)）。
 - 花錢的操作受三層保護：`src/proxy.ts` 依 IP 與成本等級限流；`src/lib/quota.ts` 依使用者、IP、裝置計算額度，紀錄在 `UsageEvent`；生成前要通過 Cloudflare Turnstile。管理者（`ADMIN_EMAILS`）不受額度限制。另有全站每日呼叫上限（`src/lib/dailyBudget.ts`）與每個 IP 同時只能一個生成的鎖。限流、每日上限與生成鎖存在 Postgres，多個伺服器實例共用（`src/lib/sharedState.ts`，#209）；單元測試用記憶體版本（`SHARED_STATE=memory`）。
 
 ## 行程生成主流程
@@ -59,6 +59,7 @@ flowchart TD
 - 每日清理：Vercel Cron（`vercel.json`）每天呼叫 `src/app/api/cron/daily/route.ts`，刪除過期訪客、舊使用紀錄、限流舊資料與超過 30 天的座標（`src/lib/housekeeping.ts`），以 `CRON_SECRET` 保護。
 - `Place`/`PlaceQuery`：查詢字串到地點的快取，唯一入口 `src/lib/placeCache.ts`。
 - 行程、候選紀錄、垃圾桶裡的地點座標都附 `coordsFetchedAt`，超過 30 天由 `src/lib/coordsPurge.ts` 刪除，顯示時重新取得（ADR-0006）。
+- 機場與國家資料不在資料庫：`src/data/*.generated.json` 由 `npm run build-airports` 從開放資料產生並提交進 git，`src/lib/airportIndex.ts`（只在伺服器端）合併人工清單 `src/lib/airports.ts` 後查詢；首頁選單由靜態路由 `/api/v1/airports` 在打開時載入（ADR-0011，見[功能頁](features/airports.md)）。
 - `DeletedStop`/`DeletedDay`：垃圾桶與復原。
 - `*CandidateLog`：每批候選的完整紀錄，供除錯。
 - `*Cache`：AI 結果與我們自己的資料（季節亮點、經典一日遊、城市中心沒找到等）的快取，同城市重複生成時不再付費。只記確定的「找不到」，失敗不記（見 `.claude/rules/google-places.md`）。完整欄位以 `prisma/schema.prisma` 為準。

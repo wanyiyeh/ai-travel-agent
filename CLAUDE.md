@@ -49,6 +49,7 @@
 - `src/lib/`：商業邏輯（生成、Places、快取、驗證、額度）；`src/lib/scheduler/` 是規則引擎（純函式）；`src/lib/auth/` 是使用者、訪客、擁有權
 - `src/auth.ts`：Auth.js 設定；`src/proxy.ts`：API 限流與 body 大小上限
 - `src/components/`、`src/hooks/`：前端；`src/types/`：共用型別
+- `src/data/`：`npm run build-airports` 產生的機場與國家資料（ADR-0011），不手動編輯；人工覆寫放 `src/lib/airports.ts`
 - `prisma/`：schema 與 `migrations/`；舊的 SQLite 檔（`dev.db`、`mock.db`，不進 git）只剩搬資料用
 - `docker-compose.yml`、`docker/`：本機 Postgres（ADR-0007）
 - `scripts/`：一次性或批次腳本（自己建 `PrismaClient`，見 `.claude/rules/coding.md`）

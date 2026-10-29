@@ -3,11 +3,11 @@ import { z } from "zod";
 import { openai } from "@/lib/openai";
 import type { FlightInfo, TripPreferences } from "@/lib/schemas";
 import { iataToCity } from "@/lib/iataCity";
-import { IATA_COUNTRY_ZH } from "@/lib/iataCountry";
-import { mockCompletion, mockCurrencyFor, mockTripPlanReply } from "@/lib/mockAi";
+import { mockCompletion, mockTripPlanReply } from "@/lib/mockAi";
 import { calcDays, buildFlightTimePrompt, buildPreferencePrompt } from "@/lib/itineraryGen";
 import { UNTRUSTED_INPUT_RULE, wrapUntrusted } from "@/lib/untrustedInput";
-import { AIRPORTS, getIataCoords } from "@/lib/airports";
+import { AIRPORTS } from "@/lib/airports";
+import { currencyOf, getIataCoords } from "@/lib/airportIndex";
 import { islandGroupOf } from "@/lib/islandGroups";
 import { getCityCenter } from "@/lib/placesTextSearch";
 import { haversineKm } from "@/lib/geo";
@@ -480,7 +480,7 @@ export async function planTrip(
             returnCity: iataToCity(flightInfo.returnDepartureCity),
             requiredCities: requirements.map((r) => r.city),
             daysToAllocate: totalDays - 1,
-            currency: mockCurrencyFor(IATA_COUNTRY_ZH[flightInfo.arrivalCity]),
+            currency: currencyOf(flightInfo.arrivalCity) ?? "USD",
           })
         )) ??
         await openai.chat.completions.create({

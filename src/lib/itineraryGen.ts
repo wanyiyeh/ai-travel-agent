@@ -2,7 +2,7 @@ import { isDomestic, routeDescription } from "@/lib/domesticTrips";
 import type { FlightInfo, TripPreferences } from "@/lib/schemas";
 import { islandNamed } from "@/lib/islandGroups";
 import { iataToCity, cityToIata } from "@/lib/iataCity";
-import { getIataCoords } from "@/lib/airports";
+import { getIataCoords } from "@/lib/airportIndex";
 
 export const paceMap: Record<string, string> = {
   relaxed: "悠閒，每天景點不超過 3 個，留有充足休息時間",

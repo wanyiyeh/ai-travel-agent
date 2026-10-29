@@ -1,0 +1,1345 @@
+{
+ "AE": {
+  "name": "阿拉伯聯合大公國",
+  "currency": "AED",
+  "priceLevel": 0.634,
+  "perDollar": 3.6725
+ },
+ "AF": {
+  "name": "阿富汗",
+  "currency": "AFN",
+  "priceLevel": 0.172,
+  "perDollar": 76.8135364354897
+ },
+ "AG": {
+  "name": "安地卡及巴布達",
+  "currency": "XCD",
+  "priceLevel": 0.693,
+  "perDollar": 2.7
+ },
+ "AI": {
+  "name": "安吉拉",
+  "currency": "XCD"
+ },
+ "AL": {
+  "name": "阿爾巴尼亞",
+  "currency": "ALL",
+  "priceLevel": 0.461,
+  "perDollar": 86.8033333333333
+ },
+ "AM": {
+  "name": "亞美尼亞",
+  "currency": "AMD",
+  "priceLevel": 0.383,
+  "perDollar": 387.010152166483
+ },
+ "AO": {
+  "name": "安哥拉",
+  "currency": "AOA",
+  "priceLevel": 0.354,
+  "perDollar": 911.99303781631
+ },
+ "AR": {
+  "name": "阿根廷",
+  "currency": "ARS",
+  "priceLevel": 0.457,
+  "perDollar": 1240.85125
+ },
+ "AS": {
+  "name": "美屬薩摩亞",
+  "currency": "USD",
+  "perDollar": 1
+ },
+ "AT": {
+  "name": "奧地利",
+  "currency": "EUR",
+  "priceLevel": 0.82,
+  "perDollar": 0.88496895841236
+ },
+ "AU": {
+  "name": "澳洲",
+  "currency": "AUD",
+  "priceLevel": 0.901,
+  "perDollar": 1.5519978866485
+ },
+ "AW": {
+  "name": "阿魯巴",
+  "currency": "AWG",
+  "priceLevel": 0.746,
+  "perDollar": 1.79
+ },
+ "AZ": {
+  "name": "亞塞拜然",
+  "currency": "AZN",
+  "priceLevel": 0.284,
+  "perDollar": 1.7
+ },
+ "BA": {
+  "name": "波士尼亞與赫塞哥維納",
+  "currency": "BAM",
+  "priceLevel": 0.402,
+  "perDollar": 1.73592901689708
+ },
+ "BB": {
+  "name": "巴貝多",
+  "currency": "BBD",
+  "priceLevel": 1.095,
+  "perDollar": 2
+ },
+ "BD": {
+  "name": "孟加拉",
+  "currency": "BDT",
+  "priceLevel": 0.254,
+  "perDollar": 121.920836605034
+ },
+ "BE": {
+  "name": "比利時",
+  "currency": "EUR",
+  "priceLevel": 0.814,
+  "perDollar": 0.88496895841236
+ },
+ "BF": {
+  "name": "布吉納法索",
+  "currency": "XOF",
+  "priceLevel": 0.374,
+  "perDollar": 581.928481040339
+ },
+ "BG": {
+  "name": "保加利亞",
+  "currency": "EUR",
+  "priceLevel": 0.234,
+  "perDollar": 1.73519166666666
+ },
+ "BH": {
+  "name": "巴林",
+  "currency": "BHD",
+  "priceLevel": 0.431,
+  "perDollar": 0.376
+ },
+ "BI": {
+  "name": "蒲隆地",
+  "currency": "BIF",
+  "priceLevel": 0.34,
+  "perDollar": 2943.1375
+ },
+ "BJ": {
+  "name": "貝南",
+  "currency": "XOF",
+  "priceLevel": 0.344,
+  "perDollar": 581.928481040339
+ },
+ "BL": {
+  "name": "聖巴瑟米",
+  "currency": "EUR"
+ },
+ "BM": {
+  "name": "百慕達",
+  "currency": "BMD",
+  "priceLevel": 1.198,
+  "perDollar": 1
+ },
+ "BN": {
+  "name": "汶萊",
+  "currency": "BND",
+  "priceLevel": 0.349,
+  "perDollar": 1.307595108858
+ },
+ "BO": {
+  "name": "玻利維亞",
+  "currency": "BOB",
+  "priceLevel": 0.4,
+  "perDollar": 6.91
+ },
+ "BQ": {
+  "name": "荷蘭加勒比區",
+  "currency": "USD",
+  "perDollar": 1
+ },
+ "BR": {
+  "name": "巴西",
+  "currency": "BRL",
+  "priceLevel": 0.457,
+  "perDollar": 5.58728623856661
+ },
+ "BS": {
+  "name": "巴哈馬",
+  "currency": "BSD",
+  "priceLevel": 0.956,
+  "perDollar": 1
+ },
+ "BT": {
+  "name": "不丹",
+  "currency": "BTN",
+  "priceLevel": 0.229,
+  "perDollar": 87.1584483507393
+ },
+ "BW": {
+  "name": "波札那",
+  "currency": "BWP",
+  "priceLevel": 0.376,
+  "perDollar": 13.5023833333333
+ },
+ "BY": {
+  "name": "白俄羅斯",
+  "currency": "BYN",
+  "priceLevel": 0.296,
+  "perDollar": 3.069175
+ },
+ "BZ": {
+  "name": "貝里斯",
+  "currency": "BZD",
+  "priceLevel": 0.526,
+  "perDollar": 2
+ },
+ "CA": {
+  "name": "加拿大",
+  "currency": "CAD",
+  "priceLevel": 0.834,
+  "perDollar": 1.39810565893901
+ },
+ "CC": {
+  "name": "科科斯（基林）群島",
+  "currency": "AUD"
+ },
+ "CD": {
+  "name": "剛果民主共和國",
+  "currency": "CDF",
+  "priceLevel": 0.418,
+  "perDollar": 2693.24060103248
+ },
+ "CF": {
+  "name": "中非共和國",
+  "currency": "XAF",
+  "priceLevel": 0.423,
+  "perDollar": 581.928481040339
+ },
+ "CG": {
+  "name": "剛果共和國",
+  "currency": "XAF",
+  "priceLevel": 0.347,
+  "perDollar": 581.928481040339
+ },
+ "CH": {
+  "name": "瑞士",
+  "currency": "CHF",
+  "priceLevel": 1.12,
+  "perDollar": 0.831355833333333
+ },
+ "CI": {
+  "name": "象牙海岸",
+  "currency": "XOF",
+  "priceLevel": 0.372,
+  "perDollar": 581.928481040339
+ },
+ "CK": {
+  "name": "庫克群島",
+  "currency": "NZD"
+ },
+ "CL": {
+  "name": "智利",
+  "currency": "CLP",
+  "priceLevel": 0.476,
+  "perDollar": 951.329454191033
+ },
+ "CM": {
+  "name": "喀麥隆",
+  "currency": "XAF",
+  "priceLevel": 0.341,
+  "perDollar": 581.928481040339
+ },
+ "CN": {
+  "name": "中華人民共和國",
+  "currency": "CNY",
+  "priceLevel": 0.473,
+  "perDollar": 7.18984737402171
+ },
+ "CO": {
+  "name": "哥倫比亞",
+  "currency": "COP",
+  "priceLevel": 0.378,
+  "perDollar": 4053.13583333333
+ },
+ "CR": {
+  "name": "哥斯大黎加",
+  "currency": "CRC",
+  "priceLevel": 0.591,
+  "perDollar": 503.496832373272
+ },
+ "CU": {
+  "name": "古巴",
+  "currency": "CUP",
+  "priceLevel": 0.392,
+  "perDollar": 0.821999999
+ },
+ "CV": {
+  "name": "維德角",
+  "currency": "CVE",
+  "priceLevel": 0.476,
+  "perDollar": 97.8631517010164
+ },
+ "CW": {
+  "name": "古拉索",
+  "currency": "XCG",
+  "priceLevel": 0.697,
+  "perDollar": 1.79
+ },
+ "CX": {
+  "name": "Christmas Island",
+  "currency": "AUD"
+ },
+ "CY": {
+  "name": "賽普勒斯",
+  "currency": "EUR",
+  "priceLevel": 0.647,
+  "perDollar": 0.88496895841236
+ },
+ "CZ": {
+  "name": "捷克",
+  "currency": "CZK",
+  "priceLevel": 0.594,
+  "perDollar": 21.882
+ },
+ "DE": {
+  "name": "德國",
+  "currency": "EUR",
+  "priceLevel": 0.802,
+  "perDollar": 0.88496895841236
+ },
+ "DJ": {
+  "name": "吉布地",
+  "currency": "DJF",
+  "priceLevel": 0.462,
+  "perDollar": 177.721
+ },
+ "DK": {
+  "name": "丹麥",
+  "currency": "DKK",
+  "priceLevel": 0.925,
+  "perDollar": 6.62182508333333
+ },
+ "DM": {
+  "name": "多米尼克",
+  "currency": "XCD",
+  "priceLevel": 0.484,
+  "perDollar": 2.7
+ },
+ "DO": {
+  "name": "多明尼加",
+  "currency": "DOP",
+  "priceLevel": 0.385,
+  "perDollar": 61.9865666666666
+ },
+ "DZ": {
+  "name": "阿爾及利亞",
+  "currency": "DZD",
+  "priceLevel": 0.326,
+  "perDollar": 131.605925
+ },
+ "EC": {
+  "name": "厄瓜多",
+  "currency": "USD",
+  "priceLevel": 0.425,
+  "perDollar": 1
+ },
+ "EE": {
+  "name": "愛沙尼亞",
+  "currency": "EUR",
+  "priceLevel": 0.661,
+  "perDollar": 0.88496895841236
+ },
+ "EG": {
+  "name": "埃及",
+  "currency": "EGP",
+  "priceLevel": 0.154,
+  "perDollar": 49.2277558333333
+ },
+ "EH": {
+  "name": "西撒哈拉",
+  "currency": "MAD"
+ },
+ "ER": {
+  "name": "厄利垂亞",
+  "currency": "ERN",
+  "priceLevel": 0.328,
+  "perDollar": 15.075
+ },
+ "ES": {
+  "name": "西班牙",
+  "currency": "EUR",
+  "priceLevel": 0.645,
+  "perDollar": 0.88496895841236
+ },
+ "ET": {
+  "name": "衣索比亞",
+  "currency": "ETB",
+  "priceLevel": 0.372,
+  "perDollar": 82.6013363504764
+ },
+ "FI": {
+  "name": "芬蘭",
+  "currency": "EUR",
+  "priceLevel": 0.852,
+  "perDollar": 0.88496895841236
+ },
+ "FJ": {
+  "name": "斐濟",
+  "currency": "FJD",
+  "priceLevel": 0.407,
+  "perDollar": 2.29903333333333
+ },
+ "FK": {
+  "name": "福克蘭群島",
+  "currency": "FKP"
+ },
+ "FM": {
+  "name": "密克羅尼西亞聯邦",
+  "currency": "USD",
+  "priceLevel": 0.959,
+  "perDollar": 1
+ },
+ "FO": {
+  "name": "法羅群島",
+  "currency": "DKK",
+  "priceLevel": 0.941,
+  "perDollar": 6.62182508333333
+ },
+ "FR": {
+  "name": "法國",
+  "currency": "EUR",
+  "priceLevel": 0.766,
+  "perDollar": 0.88496895841236
+ },
+ "GA": {
+  "name": "加彭",
+  "currency": "XAF",
+  "priceLevel": 0.372,
+  "perDollar": 581.928481040339
+ },
+ "GB": {
+  "name": "英國",
+  "currency": "GBP",
+  "priceLevel": 0.892,
+  "perDollar": 0.759473957338607
+ },
+ "GD": {
+  "name": "格瑞那達",
+  "currency": "XCD",
+  "priceLevel": 0.567,
+  "perDollar": 2.7
+ },
+ "GE": {
+  "name": "喬治亞",
+  "currency": "GEL",
+  "priceLevel": 0.329,
+  "perDollar": 2.74264166666666
+ },
+ "GF": {
+  "name": "法屬圭亞那",
+  "currency": "EUR"
+ },
+ "GG": {
+  "name": "根西",
+  "currency": "GBP"
+ },
+ "GH": {
+  "name": "迦納",
+  "currency": "GHS",
+  "priceLevel": 0.378,
+  "perDollar": 12.556825
+ },
+ "GI": {
+  "name": "直布羅陀",
+  "currency": "GIP",
+  "perDollar": 0.759473957338607
+ },
+ "GL": {
+  "name": "格陵蘭",
+  "currency": "DKK",
+  "priceLevel": 0.771,
+  "perDollar": 6.62182508333333
+ },
+ "GM": {
+  "name": "甘比亞",
+  "currency": "GMD",
+  "priceLevel": 0.25,
+  "perDollar": 71.2893818242692
+ },
+ "GN": {
+  "name": "幾內亞",
+  "currency": "GNF",
+  "priceLevel": 0.344,
+  "perDollar": 9565.08218343833
+ },
+ "GP": {
+  "name": "瓜地洛普",
+  "currency": "EUR"
+ },
+ "GQ": {
+  "name": "赤道幾內亞",
+  "currency": "XAF",
+  "priceLevel": 0.41,
+  "perDollar": 581.928481040339
+ },
+ "GR": {
+  "name": "希臘",
+  "currency": "EUR",
+  "priceLevel": 0.595,
+  "perDollar": 0.88496895841236
+ },
+ "GT": {
+  "name": "瓜地馬拉",
+  "currency": "GTQ",
+  "priceLevel": 0.434,
+  "perDollar": 7.68012458333333
+ },
+ "GU": {
+  "name": "關島",
+  "currency": "USD",
+  "perDollar": 1
+ },
+ "GW": {
+  "name": "幾內亞比索",
+  "currency": "XOF",
+  "priceLevel": 0.341,
+  "perDollar": 581.928481040339
+ },
+ "GY": {
+  "name": "蓋亞那",
+  "currency": "GYD",
+  "priceLevel": 0.331,
+  "perDollar": 208.5
+ },
+ "HK": {
+  "name": "香港",
+  "currency": "HKD",
+  "priceLevel": 0.709,
+  "perDollar": 7.79708333333333
+ },
+ "HN": {
+  "name": "宏都拉斯",
+  "currency": "HNL",
+  "priceLevel": 0.457,
+  "perDollar": 25.9526748179551
+ },
+ "HR": {
+  "name": "克羅埃西亞",
+  "currency": "EUR",
+  "priceLevel": 0.532,
+  "perDollar": 0.88496895841236
+ },
+ "HT": {
+  "name": "海地",
+  "currency": "HTG",
+  "priceLevel": 0.86,
+  "perDollar": 130.626409210526
+ },
+ "HU": {
+  "name": "匈牙利",
+  "currency": "HUF",
+  "priceLevel": 0.52,
+  "perDollar": 353.14
+ },
+ "ID": {
+  "name": "印度尼西亞",
+  "currency": "IDR",
+  "priceLevel": 0.287,
+  "perDollar": 16477.8651797835
+ },
+ "IE": {
+  "name": "愛爾蘭",
+  "currency": "EUR",
+  "priceLevel": 0.848,
+  "perDollar": 0.88496895841236
+ },
+ "IL": {
+  "name": "以色列",
+  "currency": "ILS",
+  "priceLevel": 1.01,
+  "perDollar": 3.45189166666666
+ },
+ "IM": {
+  "name": "曼島",
+  "currency": "GBP",
+  "perDollar": 0.759473957338607
+ },
+ "IN": {
+  "name": "印度",
+  "currency": "INR",
+  "priceLevel": 0.23,
+  "perDollar": 87.1584483507393
+ },
+ "IQ": {
+  "name": "伊拉克",
+  "currency": "IQD",
+  "priceLevel": 0.379,
+  "perDollar": 1300
+ },
+ "IR": {
+  "name": "伊朗",
+  "currency": "IRR",
+  "priceLevel": 3.522,
+  "perDollar": 42000
+ },
+ "IS": {
+  "name": "冰島",
+  "currency": "ISK",
+  "priceLevel": 1.178,
+  "perDollar": 128.44148705495
+ },
+ "IT": {
+  "name": "義大利",
+  "currency": "EUR",
+  "priceLevel": 0.69,
+  "perDollar": 0.88496895841236
+ },
+ "JE": {
+  "name": "澤西",
+  "currency": "GBP"
+ },
+ "JM": {
+  "name": "牙買加",
+  "currency": "JMD",
+  "priceLevel": 0.602,
+  "perDollar": 159.096428305752
+ },
+ "JO": {
+  "name": "約旦",
+  "currency": "JOD",
+  "priceLevel": 0.423,
+  "perDollar": 0.71
+ },
+ "JP": {
+  "name": "日本",
+  "currency": "JPY",
+  "priceLevel": 0.649,
+  "perDollar": 149.657926890951
+ },
+ "KE": {
+  "name": "肯亞",
+  "currency": "KES",
+  "priceLevel": 0.337,
+  "perDollar": 129.302572099377
+ },
+ "KG": {
+  "name": "吉爾吉斯",
+  "currency": "KGS",
+  "priceLevel": 0.334,
+  "perDollar": 87.3598319399642
+ },
+ "KH": {
+  "name": "柬埔寨",
+  "currency": "USD",
+  "priceLevel": 0.336,
+  "perDollar": 1
+ },
+ "KI": {
+  "name": "吉里巴斯",
+  "currency": "AUD",
+  "priceLevel": 0.65,
+  "perDollar": 1.5519978866485
+ },
+ "KM": {
+  "name": "葛摩",
+  "currency": "KMF",
+  "priceLevel": 0.486,
+  "perDollar": 435.376187289972
+ },
+ "KN": {
+  "name": "聖克里斯多福及尼維斯",
+  "currency": "XCD",
+  "priceLevel": 0.686,
+  "perDollar": 2.7
+ },
+ "KP": {
+  "name": "朝鮮民主主義人民共和國",
+  "currency": "KPW"
+ },
+ "KR": {
+  "name": "大韓民國",
+  "currency": "KRW",
+  "priceLevel": 0.574,
+  "perDollar": 1422.44083333333
+ },
+ "KW": {
+  "name": "科威特",
+  "currency": "KWD",
+  "priceLevel": 0.572,
+  "perDollar": 0.306454776364577
+ },
+ "KY": {
+  "name": "開曼群島",
+  "currency": "KYD",
+  "priceLevel": 1.131,
+  "perDollar": 0.83333
+ },
+ "KZ": {
+  "name": "哈薩克",
+  "currency": "KZT",
+  "priceLevel": 0.332,
+  "perDollar": 521.035
+ },
+ "LA": {
+  "name": "寮國",
+  "currency": "LAK",
+  "priceLevel": 0.224,
+  "perDollar": 20444.1366516587
+ },
+ "LB": {
+  "name": "黎巴嫩",
+  "currency": "LBP",
+  "priceLevel": 0.375,
+  "perDollar": 89500
+ },
+ "LC": {
+  "name": "聖露西亞",
+  "currency": "XCD",
+  "priceLevel": 0.514,
+  "perDollar": 2.7
+ },
+ "LK": {
+  "name": "斯里蘭卡",
+  "currency": "LKR",
+  "priceLevel": 0.293,
+  "perDollar": 300.851958333333
+ },
+ "LR": {
+  "name": "賴比瑞亞",
+  "currency": "LRD",
+  "priceLevel": 0.002,
+  "perDollar": 191.306666666666
+ },
+ "LS": {
+  "name": "賴索托",
+  "currency": "LSL",
+  "priceLevel": 0.342,
+  "perDollar": 17.8887489855833
+ },
+ "LT": {
+  "name": "立陶宛",
+  "currency": "EUR",
+  "priceLevel": 0.58,
+  "perDollar": 0.88496895841236
+ },
+ "LU": {
+  "name": "盧森堡",
+  "currency": "EUR",
+  "priceLevel": 0.941,
+  "perDollar": 0.88496895841236
+ },
+ "LV": {
+  "name": "拉脫維亞",
+  "currency": "EUR",
+  "priceLevel": 0.57,
+  "perDollar": 0.88496895841236
+ },
+ "LY": {
+  "name": "利比亞",
+  "currency": "LYD",
+  "priceLevel": 0.391,
+  "perDollar": 5.30256666666666
+ },
+ "MA": {
+  "name": "摩洛哥",
+  "currency": "MAD",
+  "priceLevel": 0.421,
+  "perDollar": 9.35027697089946
+ },
+ "MD": {
+  "name": "摩爾多瓦",
+  "currency": "MDL",
+  "priceLevel": 0.431,
+  "perDollar": 17.3778474404761
+ },
+ "ME": {
+  "name": "蒙特內哥羅",
+  "currency": "EUR",
+  "priceLevel": 0.417,
+  "perDollar": 0.887144250370587
+ },
+ "MF": {
+  "name": "法屬聖馬丁",
+  "currency": "EUR",
+  "perDollar": 0.88496895841236
+ },
+ "MG": {
+  "name": "馬達加斯加",
+  "currency": "MGA",
+  "priceLevel": 0.307,
+  "perDollar": 4529.75125196404
+ },
+ "MH": {
+  "name": "馬紹爾群島",
+  "currency": "USD",
+  "priceLevel": 0.947,
+  "perDollar": 1
+ },
+ "MK": {
+  "name": "北馬其頓",
+  "currency": "MKD",
+  "priceLevel": 0.374,
+  "perDollar": 54.6549666666666
+ },
+ "ML": {
+  "name": "馬利",
+  "currency": "XOF",
+  "priceLevel": 0.341,
+  "perDollar": 581.928481040339
+ },
+ "MM": {
+  "name": "緬甸",
+  "currency": "MMK",
+  "priceLevel": 0.376,
+  "perDollar": 1381.61916666666
+ },
+ "MN": {
+  "name": "蒙古國",
+  "currency": "MNT",
+  "priceLevel": 0.342,
+  "perDollar": 3545.14356555046
+ },
+ "MO": {
+  "name": "澳門",
+  "currency": "MOP",
+  "priceLevel": 0.554,
+  "perDollar": 8.02981025
+ },
+ "MP": {
+  "name": "北馬里亞納群島",
+  "currency": "USD",
+  "perDollar": 1
+ },
+ "MQ": {
+  "name": "馬丁尼克",
+  "currency": "EUR"
+ },
+ "MR": {
+  "name": "茅利塔尼亞",
+  "currency": "MRU",
+  "priceLevel": 0.312,
+  "perDollar": 36.4891666666666
+ },
+ "MS": {
+  "name": "蒙哲臘",
+  "currency": "XCD"
+ },
+ "MT": {
+  "name": "馬爾他",
+  "currency": "EUR",
+  "priceLevel": 0.663,
+  "perDollar": 0.88496895841236
+ },
+ "MU": {
+  "name": "模里西斯",
+  "currency": "MUR",
+  "priceLevel": 0.386,
+  "perDollar": 45.9969666666666
+ },
+ "MV": {
+  "name": "馬爾地夫",
+  "currency": "MVR",
+  "priceLevel": 0.512,
+  "perDollar": 15.415677547363
+ },
+ "MW": {
+  "name": "馬拉威",
+  "currency": "MWK",
+  "priceLevel": 0.533,
+  "perDollar": 1161.09436666666
+ },
+ "MX": {
+  "name": "墨西哥",
+  "currency": "MXN",
+  "priceLevel": 0.537,
+  "perDollar": 19.2375083333333
+ },
+ "MY": {
+  "name": "馬來西亞",
+  "currency": "MYR",
+  "priceLevel": 0.316,
+  "perDollar": 4.28442415048243
+ },
+ "MZ": {
+  "name": "莫三比克",
+  "currency": "MZN",
+  "priceLevel": 0.37,
+  "perDollar": 63.905
+ },
+ "NA": {
+  "name": "納米比亞",
+  "currency": "NAD",
+  "priceLevel": 0.407,
+  "perDollar": 17.8887333333333
+ },
+ "NC": {
+  "name": "新喀里多尼亞",
+  "currency": "XPF",
+  "perDollar": 105.864431541947
+ },
+ "NE": {
+  "name": "尼日",
+  "currency": "XOF",
+  "priceLevel": 0.356,
+  "perDollar": 581.928481040339
+ },
+ "NF": {
+  "name": "諾福克島",
+  "currency": "AUD"
+ },
+ "NG": {
+  "name": "奈及利亞",
+  "currency": "NGN",
+  "priceLevel": 0.128,
+  "perDollar": 1518.38094813367
+ },
+ "NI": {
+  "name": "尼加拉瓜",
+  "currency": "NIO",
+  "priceLevel": 0.342,
+  "perDollar": 36.6243
+ },
+ "NL": {
+  "name": "荷蘭王國",
+  "currency": "EUR",
+  "priceLevel": 0.844,
+  "perDollar": 0.88496895841236
+ },
+ "NO": {
+  "name": "挪威",
+  "currency": "NOK",
+  "priceLevel": 0.909,
+  "perDollar": 10.3958333333333
+ },
+ "NP": {
+  "name": "尼泊爾",
+  "currency": "NPR",
+  "priceLevel": 0.244,
+  "perDollar": 139.115437592695
+ },
+ "NR": {
+  "name": "諾魯",
+  "currency": "AUD",
+  "priceLevel": 1.026,
+  "perDollar": 1.5519978866485
+ },
+ "NU": {
+  "name": "紐埃",
+  "currency": "NZD"
+ },
+ "NZ": {
+  "name": "紐西蘭",
+  "currency": "NZD",
+  "priceLevel": 0.856,
+  "perDollar": 1.72010833333333
+ },
+ "OM": {
+  "name": "阿曼",
+  "currency": "OMR",
+  "priceLevel": 0.472,
+  "perDollar": 0.3845
+ },
+ "PA": {
+  "name": "巴拿馬",
+  "currency": "USD",
+  "priceLevel": 0.451,
+  "perDollar": 1
+ },
+ "PE": {
+  "name": "秘魯",
+  "currency": "PEN",
+  "priceLevel": 0.515,
+  "perDollar": 3.56706380329909
+ },
+ "PF": {
+  "name": "法屬玻里尼西亞",
+  "currency": "XPF",
+  "perDollar": 105.864431541947
+ },
+ "PG": {
+  "name": "巴布亞紐幾內亞",
+  "currency": "PGK",
+  "priceLevel": 0.579,
+  "perDollar": 4.12272372720281
+ },
+ "PH": {
+  "name": "菲律賓",
+  "currency": "PHP",
+  "priceLevel": 0.332,
+  "perDollar": 57.5050971489714
+ },
+ "PK": {
+  "name": "巴基斯坦",
+  "currency": "PKR",
+  "priceLevel": 0.241,
+  "perDollar": 281.143001173202
+ },
+ "PL": {
+  "name": "波蘭",
+  "currency": "PLN",
+  "priceLevel": 0.524,
+  "perDollar": 3.76054166666666
+ },
+ "PM": {
+  "name": "聖皮埃與密克隆群島",
+  "currency": "EUR"
+ },
+ "PR": {
+  "name": "波多黎各",
+  "currency": "USD",
+  "priceLevel": 0.778,
+  "perDollar": 1
+ },
+ "PT": {
+  "name": "葡萄牙",
+  "currency": "EUR",
+  "priceLevel": 0.604,
+  "perDollar": 0.88496895841236
+ },
+ "PW": {
+  "name": "帛琉",
+  "currency": "USD",
+  "priceLevel": 0.847,
+  "perDollar": 1
+ },
+ "PY": {
+  "name": "巴拉圭",
+  "currency": "PYG",
+  "priceLevel": 0.348,
+  "perDollar": 7545.4467553741
+ },
+ "QA": {
+  "name": "卡達",
+  "currency": "QAR",
+  "priceLevel": 0.563,
+  "perDollar": 3.64
+ },
+ "RE": {
+  "name": "留尼旺",
+  "currency": "EUR"
+ },
+ "RO": {
+  "name": "羅馬尼亞",
+  "currency": "RON",
+  "priceLevel": 0.443,
+  "perDollar": 4.47053333333333
+ },
+ "RS": {
+  "name": "塞爾維亞",
+  "currency": "RSD",
+  "priceLevel": 0.45,
+  "perDollar": 103.9754
+ },
+ "RU": {
+  "name": "俄羅斯",
+  "currency": "RUB",
+  "priceLevel": 0.354,
+  "perDollar": 83.6525
+ },
+ "RW": {
+  "name": "盧安達",
+  "currency": "RWF",
+  "priceLevel": 0.27,
+  "perDollar": 1428.47827558333
+ },
+ "SA": {
+  "name": "沙烏地阿拉伯",
+  "currency": "SAR",
+  "priceLevel": 0.468,
+  "perDollar": 3.75
+ },
+ "SB": {
+  "name": "索羅門群島",
+  "currency": "SBD",
+  "priceLevel": 0.748,
+  "perDollar": 8.32684233252032
+ },
+ "SC": {
+  "name": "塞席爾",
+  "currency": "SCR",
+  "priceLevel": 0.542,
+  "perDollar": 14.7254562696937
+ },
+ "SD": {
+  "name": "蘇丹",
+  "currency": "SDG",
+  "priceLevel": 2.15,
+  "perDollar": 546.75885
+ },
+ "SE": {
+  "name": "瑞典",
+  "currency": "SEK",
+  "priceLevel": 0.87,
+  "perDollar": 9.82070570950185
+ },
+ "SG": {
+  "name": "新加坡",
+  "currency": "SGD",
+  "priceLevel": 0.605,
+  "perDollar": 1.30745
+ },
+ "SH": {
+  "name": "聖赫勒拿、亞森欣與崔斯坦達庫尼亞",
+  "currency": "GBP"
+ },
+ "SI": {
+  "name": "斯洛維尼亞",
+  "currency": "EUR",
+  "priceLevel": 0.631,
+  "perDollar": 0.88496895841236
+ },
+ "SK": {
+  "name": "斯洛伐克",
+  "currency": "EUR",
+  "priceLevel": 0.579,
+  "perDollar": 0.88496895841236
+ },
+ "SL": {
+  "name": "獅子山",
+  "currency": "SLE",
+  "priceLevel": 0.242,
+  "perDollar": 21.3048751103817
+ },
+ "SN": {
+  "name": "塞內加爾",
+  "currency": "XOF",
+  "priceLevel": 0.358,
+  "perDollar": 581.928481040339
+ },
+ "SO": {
+  "name": "索馬利亞",
+  "currency": "SOS",
+  "priceLevel": 0.525,
+  "perDollar": 23097.9873219373
+ },
+ "SR": {
+  "name": "蘇利南",
+  "currency": "SRD",
+  "priceLevel": 0.312,
+  "perDollar": 37.2601791666666
+ },
+ "SS": {
+  "name": "南蘇丹",
+  "currency": "SSP",
+  "priceLevel": 0.059,
+  "perDollar": 2163.10387269883
+ },
+ "ST": {
+  "name": "聖多美普林西比",
+  "currency": "STN",
+  "priceLevel": 0.638,
+  "perDollar": 21.7450517869566
+ },
+ "SV": {
+  "name": "薩爾瓦多",
+  "currency": "USD",
+  "priceLevel": 0.409,
+  "perDollar": 1
+ },
+ "SX": {
+  "name": "荷屬聖馬丁",
+  "currency": "XCG",
+  "priceLevel": 0.761,
+  "perDollar": 1.79
+ },
+ "SY": {
+  "name": "敘利亞",
+  "currency": "SYP",
+  "priceLevel": 0.322,
+  "perDollar": 2505.74691085873
+ },
+ "SZ": {
+  "name": "史瓦帝尼",
+  "currency": "SZL",
+  "priceLevel": 0.328,
+  "perDollar": 17.8889209208377
+ },
+ "TC": {
+  "name": "土克凱可群島",
+  "currency": "USD",
+  "priceLevel": 0.987,
+  "perDollar": 1
+ },
+ "TD": {
+  "name": "查德",
+  "currency": "XAF",
+  "priceLevel": 0.352,
+  "perDollar": 581.928481040339
+ },
+ "TG": {
+  "name": "多哥",
+  "currency": "XOF",
+  "priceLevel": 0.339,
+  "perDollar": 581.928481040339
+ },
+ "TH": {
+  "name": "泰國",
+  "currency": "THB",
+  "priceLevel": 0.307,
+  "perDollar": 32.882809252867
+ },
+ "TJ": {
+  "name": "塔吉克",
+  "currency": "TJS",
+  "priceLevel": 0.276,
+  "perDollar": 10.0177083333333
+ },
+ "TL": {
+  "name": "東帝汶",
+  "currency": "USD",
+  "priceLevel": 0.279,
+  "perDollar": 1
+ },
+ "TM": {
+  "name": "土庫曼",
+  "currency": "TMT",
+  "priceLevel": 0,
+  "perDollar": 5200
+ },
+ "TN": {
+  "name": "突尼西亞",
+  "currency": "TND",
+  "priceLevel": 0.306,
+  "perDollar": 2.99736666666666
+ },
+ "TO": {
+  "name": "東加",
+  "currency": "TOP",
+  "priceLevel": 0.75,
+  "perDollar": 2.41052686435725
+ },
+ "TR": {
+  "name": "土耳其",
+  "currency": "TRY",
+  "priceLevel": 0.411,
+  "perDollar": 39.4548130977982
+ },
+ "TT": {
+  "name": "千里達及托巴哥",
+  "currency": "TTD",
+  "priceLevel": 0.511,
+  "perDollar": 6.74884660621026
+ },
+ "TV": {
+  "name": "吐瓦魯",
+  "currency": "AUD",
+  "priceLevel": 0.894,
+  "perDollar": 1.5519978866485
+ },
+ "TW": {
+  "name": "中華民國",
+  "currency": "TWD"
+ },
+ "TZ": {
+  "name": "坦尚尼亞",
+  "currency": "TZS",
+  "priceLevel": 0.289,
+  "perDollar": 2597.90041666666
+ },
+ "UG": {
+  "name": "烏干達",
+  "currency": "UGX",
+  "priceLevel": 0.353,
+  "perDollar": 3602.98994206813
+ },
+ "UM": {
+  "name": "美國本土外小島嶼",
+  "currency": "USD",
+  "perDollar": 1
+ },
+ "US": {
+  "name": "美國",
+  "currency": "USD",
+  "priceLevel": 1,
+  "perDollar": 1
+ },
+ "UY": {
+  "name": "烏拉圭",
+  "currency": "UYU",
+  "priceLevel": 0.658,
+  "perDollar": 41.1909791666666
+ },
+ "UZ": {
+  "name": "烏茲別克",
+  "currency": "UZS",
+  "priceLevel": 0.292,
+  "perDollar": 12579.3943476702
+ },
+ "VC": {
+  "name": "聖文森及格瑞那丁",
+  "currency": "XCD",
+  "priceLevel": 0.551,
+  "perDollar": 2.7
+ },
+ "VE": {
+  "name": "委內瑞拉",
+  "currency": "VES",
+  "priceLevel": 0,
+  "perDollar": 9.975
+ },
+ "VG": {
+  "name": "英屬維京群島",
+  "currency": "USD",
+  "perDollar": 1
+ },
+ "VI": {
+  "name": "美屬維京群島",
+  "currency": "USD",
+  "priceLevel": 0.89,
+  "perDollar": 1
+ },
+ "VN": {
+  "name": "越南",
+  "currency": "VND",
+  "priceLevel": 0.289,
+  "perDollar": 24164.8858333333
+ },
+ "VU": {
+  "name": "萬那杜",
+  "currency": "VUV",
+  "priceLevel": 0.892,
+  "perDollar": 120.324285714285
+ },
+ "WF": {
+  "name": "瓦利斯和富圖納",
+  "currency": "XPF"
+ },
+ "WS": {
+  "name": "薩摩亞",
+  "currency": "WST",
+  "priceLevel": 0.628,
+  "perDollar": 2.79150381915391
+ },
+ "XK": {
+  "name": "科索沃",
+  "currency": "EUR",
+  "priceLevel": 0.409,
+  "perDollar": 0.887144250370587
+ },
+ "YE": {
+  "name": "葉門",
+  "currency": "YER",
+  "priceLevel": 0.069,
+  "perDollar": 1355.11637864823
+ },
+ "YT": {
+  "name": "馬約特",
+  "currency": "EUR"
+ },
+ "ZA": {
+  "name": "南非",
+  "currency": "ZAR",
+  "priceLevel": 0.415,
+  "perDollar": 17.8887489855833
+ },
+ "ZM": {
+  "name": "尚比亞",
+  "currency": "ZMW",
+  "priceLevel": 0.299,
+  "perDollar": 25.2756892021939
+ },
+ "ZW": {
+  "name": "辛巴威",
+  "currency": "USD",
+  "priceLevel": 0.558,
+  "perDollar": 1
+ }
+}

@@ -13,6 +13,7 @@
 | --- | --- | --- | --- |
 | [PLAN-001](PLAN-001-portfolio-launch.md) | 作品集上線（Vercel + Neon，符合 Google Maps Platform 條款） | in-progress | #196 |
 | [PLAN-002](PLAN-002-llm-without-google-content.md) | LLM 的輸入不放 Google 內容，Google 地點的文案改用模板 | done | #262 |
+| [PLAN-003](PLAN-003-any-airport.md) | 機場不再受固定清單限制 | done | #300 |
 
 ## 模板
 

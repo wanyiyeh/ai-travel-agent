@@ -4,10 +4,12 @@
 // airport: enough for 羽田, not for 成田, over an hour from 東京 by itself.
 //
 // Minutes from each airport to its city's center by the usual airport train,
-// bus or taxi — estimates, not routed. AIRPORTS (airports.ts) holds city
-// centers, not the airports themselves (成田 and 羽田 are both 東京駅), so the
-// distance can't be worked out from it. A trip that lands in one city and
-// starts in another (関西 for 京都) takes longer than this.
+// bus or taxi — estimates, not routed. A trip that lands in one city and
+// starts in another (関西 for 京都) takes longer than this. Airports not in
+// the table get it from their distance to the centre (ADR-0011).
+import { lookupAirport } from "@/lib/airportIndex";
+import { haversineKm } from "@/lib/geo";
+
 const TRANSFER_MINUTES: Record<string, number> = {
   // 日本、韓國
   NRT: 75, HND: 30, KIX: 60, NGO: 45, CTS: 45, FUK: 15, OKA: 20, ICN: 70, GMP: 35, PUS: 30,
@@ -34,7 +36,21 @@ export const ARRIVAL_CLEARANCE_MINUTES = 60;
 /** At the airport this long before the flight: check-in and security. */
 export const CHECK_IN_MINUTES = 120;
 
-/** Minutes between an airport and its city's center; undefined for one not in the table. */
+// Fitted to the table above against each airport's distance from its
+// centre (2026-10, 96 airports): off by about 6 minutes on average, most for
+// cities with bad traffic (Mumbai, Jakarta, New York), which the table has.
+const TRANSFER_BASE_MINUTES = 20;
+const TRANSFER_MINUTES_PER_KM = 0.9;
+
+/**
+ * Minutes between an airport and its city's center: the table's, else from
+ * the distance, to the nearest 5. Undefined for a code we don't know, or a
+ * place in Taiwan, where a domestic trip has no airport transfer.
+ */
 export function airportTransferMinutes(iata: string): number | undefined {
-  return TRANSFER_MINUTES[iata];
+  if (TRANSFER_MINUTES[iata] !== undefined) return TRANSFER_MINUTES[iata];
+  const info = lookupAirport(iata);
+  if (!info?.airport) return undefined;
+  const km = haversineKm(info.airport.lat, info.airport.lng, info.lat, info.lng);
+  return Math.round((TRANSFER_BASE_MINUTES + km * TRANSFER_MINUTES_PER_KM) / 5) * 5;
 }

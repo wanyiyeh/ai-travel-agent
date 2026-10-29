@@ -1,5 +1,5 @@
 import { searchTextCandidates } from "@/lib/fetchCityRestaurants";
-import { getIataCoords } from "@/lib/airports";
+import { getIataCoords } from "@/lib/airportIndex";
 import { isInJapan } from "@/lib/transitEstimate";
 import type { DayFixedEvents, Venue } from "@/lib/fixedEvents";
 

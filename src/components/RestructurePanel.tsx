@@ -15,7 +15,8 @@ import { PlacePhotoThumb } from "@/components/PlacePhotoThumb";
 import TransitRecommendationCard from "@/components/TransitRecommendationCard";
 import type { TransitRecommendation } from "@/types/itinerary";
 import { SUSPICIOUS_DISTANCE_KM as NEAREST_CITY_KM_THRESHOLD, haversineKm } from "@/lib/geo";
-import { iataToCity } from "@/lib/airports";
+import { AIRPORTS, iataToCity } from "@/lib/airports";
+import { useAirportOptions } from "@/hooks/useAirportOptions";
 import { MAX_CITY_DAYS, MAX_TRIP_DAYS } from "@/lib/inputLimits";
 import { useItinerarySensors } from "@/hooks/useItinerarySensors";
 import { dateOfTripDay } from "@/lib/fixedEvents";
@@ -509,6 +510,9 @@ export default function RestructurePanel({
   // recommending these back is redundant since they were never really a "suggestion",
   // so they're dropped entirely rather than shown as an "already added" card. Cities
   // the traveler separately added from a past recommendation still get that card.
+  const airports = useAirportOptions({
+    eager: [originIata, destinationIata].some((iata) => iata && !AIRPORTS[iata]),
+  });
   const baseCityNamesRef = useRef<Set<string>>(
     new Set(
       [originIata, destinationIata]
@@ -516,6 +520,16 @@ export default function RestructurePanel({
         .map((iata) => iataToCity(iata).toLowerCase())
     )
   );
+  // An airport beyond the hand-kept list is named once the full list is in (PLAN-003).
+  const { nameOf } = airports;
+  useEffect(() => {
+    baseCityNamesRef.current = new Set(
+      [originIata, destinationIata]
+        .filter((iata): iata is string => Boolean(iata))
+        .map((iata) => (nameOf(iata) ?? iataToCity(iata)).toLowerCase())
+    );
+  }, [nameOf, originIata, destinationIata]);
+
 
   const daysById = new Map(days.map((d) => [d.id, d]));
   // Where each kept day lands once applied (restructureLayout.ts, as the route does it).

@@ -98,3 +98,20 @@ GCP 的每日配額以請求次數設定，分不出當天用的是不是免費�
 每個 API 的每日配額 ≈ 願意承擔的每日金額 × 該 API 佔的比例 ÷ 該 API 的單價
 
 目前的建議值與最壞情況見 [deploy.md](deploy.md) 第 5 節。依實際花費設上限由 app 計算（#255）。
+
+## 更新機場與國家資料
+
+機場清單、城市名、國家、貨幣與物價水準來自開放資料，產生後提交進 git（[ADR-0011](adr/0011-airport-data-from-open-sources.md)、[資料來源](data-sources.md)）。每年更新一次，世界銀行通常在年中公布前一年的數字。免費，不呼叫 Google 或 OpenAI。
+
+1. 從最新的 `origin/main` 開分支，例如 `chore/refresh-airports-YYYY`。
+2. `npm run build-airports`。Wikidata 回 429 時腳本會依 `Retry-After` 等待重試；任何來源下載失敗或機場數少於 `MIN_AIRPORTS`（`scripts/build-airports.ts`）就停下，不覆寫資料檔。
+3. 讀腳本印出的報告：
+   - 機場數與大型、中型的數量和上次差不多；中文城市名的比例沒有明顯下降。
+   - 「Served city dropped」：服務的城市離機場太遠被捨棄的清單，抽查幾個。
+   - 「Chinese names shared by several countries」：新出現的同名城市；`cityToIata` 遇到同名不猜，通常不用處理。
+   - 「without currency」「Several currencies」：國家沒有貨幣或有多個貨幣時，在 `CURRENCY_OVERRIDES` 指定旅客實際用的貨幣，重跑。
+4. `git diff --stat src/data/` 看變動量，抽查熱門目的地（例如 `LIM`、`KEF`）的城市名、國家與貨幣。
+5. `npm test`（含人工清單不變、每個機場都有交通時間的測試）、`npm run build`。
+6. 走 PR 合併；部署後首頁的機場選單與 `/api/v1/airports` 才會更新。
+
+人工清單（`src/lib/airports.ts`）優先於生成資料，不會被覆寫。生成資料的名稱或座標有錯時，把該機場加進人工清單。
