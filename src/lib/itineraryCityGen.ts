@@ -884,7 +884,10 @@ export async function generateMealsAndAccommodation(
   // Days picked after the stay from the same candidates, with no extra
   // search: the breakfast before leaving for the next city, or a transit
   // day's meals on arriving (ADR-0009).
-  { extraDays = 0 }: { extraDays?: number } = {},
+  // earlierDays: meal days of earlier stays in this city on the trip (a loop
+  // back to it). They're picked again and dropped, so this stay goes on to
+  // places those didn't use instead of repeating them (#312).
+  { extraDays = 0, earlierDays = 0 }: { extraDays?: number; earlierDays?: number } = {},
 ): Promise<{
   accommodation: Record<string, unknown>;
   mealsByDay: Array<Record<string, unknown>>;
@@ -910,7 +913,7 @@ export async function generateMealsAndAccommodation(
   const mealPools = preferences.solo ? withNightcapNear(pools, accommodation) : pools;
   // pickMeals goes day by day, so extra days leave the stay's own days
   // exactly as they'd be without them.
-  const picked = pickMeals(mealPools, stayDays + extraDays, currency);
+  const picked = pickMeals(mealPools, earlierDays + stayDays + extraDays, currency).slice(earlierDays);
   // None that close: no 小酌 that night.
   const finished = (days: Array<Record<string, unknown>>) => {
     const meals = preferences.solo && mealPools.nightcap.length === 0 ? days.map(withoutNightcapSlot) : days;

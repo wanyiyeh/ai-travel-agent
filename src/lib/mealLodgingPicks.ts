@@ -49,13 +49,13 @@ export function hasAnyCandidates(pools: MealLodgingPools): boolean {
 const MIN_REPEAT_GAP_DAYS = 2;
 
 /**
- * Which candidate was last used on which day of the stay (0-based), and how
- * often. Keyed by object: breakfast and snack lists hold the same café
- * objects, so one café can't be both on the same day.
+ * Which place was last used on which day of the stay (0-based), and how
+ * often. Keyed by place ID, not by object: the breakfast and lunch searches
+ * can each find one place, which then served both on one day (#312).
  */
 export type PickHistory = {
-  lastDay: Map<PlaceCandidate, number>;
-  visits: Map<PlaceCandidate, number>;
+  lastDay: Map<string, number>;
+  visits: Map<string, number>;
 };
 
 export function newPickHistory(): PickHistory {
@@ -95,13 +95,13 @@ export function pickAccommodation(pools: MealLodgingPools, currency: string, cit
  * copy day 1's. Undefined when nothing qualifies.
  */
 function pickForSlot(pool: PlaceCandidate[], day: number, slotIndex: number, history: PickHistory): PlaceCandidate | undefined {
-  const unused = pool.find((c) => !history.lastDay.has(c));
+  const unused = pool.find((c) => !history.lastDay.has(c.placeId));
   if (unused) return unused;
-  const spaced = (c: PlaceCandidate) => day - (history.lastDay.get(c) ?? -Infinity) >= MIN_REPEAT_GAP_DAYS;
+  const spaced = (c: PlaceCandidate) => day - (history.lastDay.get(c.placeId) ?? -Infinity) >= MIN_REPEAT_GAP_DAYS;
   const eligible = pool.filter(spaced);
   if (eligible.length === 0) return undefined;
-  const fewest = Math.min(...eligible.map((c) => history.visits.get(c) ?? 0));
-  const leastVisited = eligible.filter((c) => (history.visits.get(c) ?? 0) === fewest);
+  const fewest = Math.min(...eligible.map((c) => history.visits.get(c.placeId) ?? 0));
+  const leastVisited = eligible.filter((c) => (history.visits.get(c.placeId) ?? 0) === fewest);
   return leastVisited[(day * MEAL_KEYS.length + slotIndex) % leastVisited.length];
 }
 
@@ -135,7 +135,7 @@ export function pickMeals(
       const lunchType = mealKey === "dinner" ? specificFoodType(lunchPlace) : undefined;
       // Only an unused place of another kind: a repeat doesn't beat a fresh one.
       const freshOtherKind = lunchType
-        ? pool.find((c) => c.types?.[0] !== lunchType && !history.lastDay.has(c))
+        ? pool.find((c) => c.types?.[0] !== lunchType && !history.lastDay.has(c.placeId))
         : undefined;
       const place =
         (dayPool && pickForSlot(dayPool, dayOfStay, slotIndex, history)) ??
@@ -144,8 +144,8 @@ export function pickMeals(
       if (!place) return;
       if (mealKey === "lunch") lunchPlace = place;
 
-      history.lastDay.set(place, dayOfStay);
-      history.visits.set(place, (history.visits.get(place) ?? 0) + 1);
+      history.lastDay.set(place.placeId, dayOfStay);
+      history.visits.set(place.placeId, (history.visits.get(place.placeId) ?? 0) + 1);
       // Google's real per-person range beats the priceLevel lookup table.
       const estimated =
         estimateFromPriceRange(place.priceRange, currency) ?? estimateSlotCost(currency, mealKey, place.priceLevel);
