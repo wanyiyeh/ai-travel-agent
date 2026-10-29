@@ -20,7 +20,7 @@ import { distributeStopsPerDay, fillShortDays, partitionCandidatesWithSeeds } fr
 import { buildDaySkeleton, type SkeletonStop } from "@/lib/scheduler/buildDaySkeleton";
 import { computeDepartureDayBudget } from "@/lib/scheduler/departureDayBudget";
 import { estimateStopCapacity } from "@/lib/scheduler/stopCapacity";
-import { buildStopCopy, type StopCopy } from "@/lib/skeletonCopy";
+import { LAST_STOP_NOTE, buildStopCopy, type StopCopy } from "@/lib/skeletonCopy";
 import { NEUTRAL_PREFERENCE_INTENT, type PreferenceIntent } from "@/lib/schemas";
 import { getDistancesForStopPairs, pickModeForDistance, describeTransport, modePickerFor } from "@/lib/distanceMatrix";
 import { forSoloTraveler, nearStationFirst } from "@/lib/soloTravel";
@@ -1439,7 +1439,15 @@ async function stopsWithFixedEvents(
       : walkOrRide;
   };
   const distances = await legsAlong(items);
-  const scheduled = assembleScheduledStops(skeleton, candidateById, copy, skeleton.map(() => null), currency);
+  // An event after the last scheduled stop (an evening seasonal sight, #311)
+  // makes that stop no longer the day's last.
+  const lastSkeletonId = skeleton.at(-1)?.id;
+  const endsWithEvent = items.length > 0 && items[items.length - 1].skeletonIndex === undefined;
+  const dayCopy =
+    endsWithEvent && lastSkeletonId && copy[lastSkeletonId] === LAST_STOP_NOTE
+      ? Object.fromEntries(Object.entries(copy).filter(([id]) => id !== lastSkeletonId))
+      : copy;
+  const scheduled = assembleScheduledStops(skeleton, candidateById, dayCopy, skeleton.map(() => null), currency);
   return items.map((item, k) => {
     const dist = k > 0 ? distances[k - 1] : null;
     const base = item.skeletonIndex !== undefined ? scheduled[item.skeletonIndex] : { ...item.stop };

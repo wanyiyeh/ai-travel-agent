@@ -4,7 +4,7 @@
 
 | 功能 | 狀態 | 最後更新 |
 | --- | --- | --- |
-| [地點文案與三餐住宿的挑選](place-copy-and-meals.md) | stable | 2026-10-26 |
+| [地點文案與三餐住宿的挑選](place-copy-and-meals.md) | stable | 2026-10-29 |
 | [刪除帳號](account-deletion.md) | stable | 2026-10-26 |
 | [移動日](transit-days.md) | stable | 2026-10-27 |
 | [餐點的位置與刪除](meal-positions.md) | stable | 2026-10-27 |

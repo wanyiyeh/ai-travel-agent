@@ -540,6 +540,17 @@ describe("generateThemedDayStops — fixed events", () => {
     expect(day.length).toBeGreaterThan(1);
   });
 
+  // #311: an evening seasonal sight came after the stop marked 「今天的最後一站。」
+  it("doesn't call a stop the day's last when the event comes after it", async () => {
+    const evening = { block: { startMinute: 19 * 60, endMinute: 21 * 60 }, stop: { ...concertStop, fixedEvent: { type: "concert", startTime: "19:00", endTime: "21:00" } } };
+    const { stopsByDay } = await generateThemedDayStops("東京", 1, "JPY", [], undefined, moderate, undefined, undefined, 0, [[evening]]);
+
+    const day = stopsByDay[0];
+    expect(day.at(-1)?.id).toBe("concert");
+    expect(day.length).toBeGreaterThan(2);
+    expect(day.filter((s) => String(s.description ?? "").includes(LAST_STOP_NOTE))).toEqual([]);
+  });
+
   it("leaves fewer stops on a day with an event than on a free one", async () => {
     const free = await generateThemedDayStops("東京", 1, "JPY", [], undefined, moderate);
     const withConcert = await generateThemedDayStops("東京", 1, "JPY", [], undefined, moderate, undefined, undefined, 0, [[concert]]);
