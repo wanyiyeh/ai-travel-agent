@@ -2,6 +2,7 @@ import { fetchNearbyPlaceCandidates, type PlaceCandidate } from "@/lib/fetchCity
 import { haversineKm } from "@/lib/geo";
 import type { DayFixedEvents } from "@/lib/fixedEvents";
 import type { SuburbKind } from "@/lib/suburbKind";
+import type { DayTripTravel } from "@/lib/passengerRail";
 
 export { suburbKindFor, type SuburbKind } from "@/lib/suburbKind";
 
@@ -98,6 +99,8 @@ const HALF_DAY_MINUTES = 150;
 // Getting there and back, on top of the visit.
 const TRAVEL_ALLOWANCE_MINUTES = 60;
 
+const SUBURB_TRAVEL_NOTE: Record<DayTripTravel, string> = { drive: "開車前往", rail: "搭火車或巴士當天往返", bus: "搭巴士當天往返" };
+
 /**
  * The trip as a block at the start of the day: a day trip fills it to
  * `dayEndMinute`, so no city stops are added; a half day leaves the
@@ -109,13 +112,13 @@ export function suburbTripEvent(
   kind: SuburbKind,
   dayStartMinute: number,
   dayEndMinute: number,
-  selfDrive: boolean
+  travel: DayTripTravel
 ): DayFixedEvents[number] {
   const minutes = kind === "day" ? DAY_TRIP_MINUTES : HALF_DAY_MINUTES;
   const notes = [
     kind === "day" ? "郊區一日遊，整天待在這一帶" : "半日遊：上午在郊區，下午回市區",
-    selfDrive ? "開車前往" : "搭火車或巴士當天往返",
-    ...(group === "alcohol" && selfDrive ? ["開車的人不能試飲"] : []),
+    SUBURB_TRAVEL_NOTE[travel],
+    ...(group === "alcohol" && travel === "drive" ? ["開車的人不能試飲"] : []),
   ];
   return {
     block: {

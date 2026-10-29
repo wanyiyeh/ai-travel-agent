@@ -119,24 +119,25 @@ describe("isInOtherCity", () => {
 
 describe("suburbTripEvent", () => {
   it("fills a day trip's whole day, so no city stops are added", () => {
-    const { block } = suburbTripEvent(shikotsu, "land", "day", 9 * 60, 18 * 60, true);
+    const { block } = suburbTripEvent(shikotsu, "land", "day", 9 * 60, 18 * 60, "drive");
     expect(block).toEqual({ startMinute: 540, endMinute: 1080 });
   });
 
   it("leaves a half day's afternoon to the city", () => {
-    const { block } = suburbTripEvent(shikotsu, "land", "half", 9 * 60, 18 * 60, false);
+    const { block } = suburbTripEvent(shikotsu, "land", "half", 9 * 60, 18 * 60, "rail");
     expect(block.endMinute).toBe(9 * 60 + 150 + 60);
   });
 
   it("says how to get there", () => {
-    expect(suburbTripEvent(shikotsu, "land", "day", 540, 1080, true).stop?.description).toContain("開車前往");
-    expect(suburbTripEvent(shikotsu, "land", "day", 540, 1080, false).stop?.description).toContain("搭火車或巴士當天往返");
+    expect(suburbTripEvent(shikotsu, "land", "day", 540, 1080, "drive").stop?.description).toContain("開車前往");
+    expect(suburbTripEvent(shikotsu, "land", "day", 540, 1080, "rail").stop?.description).toContain("搭火車或巴士當天往返");
+    expect(suburbTripEvent(shikotsu, "land", "day", 540, 1080, "bus").stop?.description).toContain("搭巴士當天往返");
   });
 
   it("reminds a driver at a winery not to taste", () => {
     const winery = place("Winery", 42.9, 141.5, ["winery"]);
-    expect(suburbTripEvent(winery, "alcohol", "day", 540, 1080, true).stop?.description).toContain("不能試飲");
-    expect(suburbTripEvent(winery, "alcohol", "half", 540, 1080, false).stop?.description).not.toContain("不能試飲");
+    expect(suburbTripEvent(winery, "alcohol", "day", 540, 1080, "drive").stop?.description).toContain("不能試飲");
+    expect(suburbTripEvent(winery, "alcohol", "half", 540, 1080, "rail").stop?.description).not.toContain("不能試飲");
   });
 });
 
