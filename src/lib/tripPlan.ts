@@ -180,6 +180,16 @@ export function rebalanceZeroDayCities(cities: TripPlan["cities"]): TripPlan["ci
   return result;
 }
 
+/**
+ * Every city on the plan is where the traveler sleeps, so it must be a town
+ * with lodging, restaurants and transport. An Iceland loop stayed two nights
+ * in 辛格韋德利, a national park, and rode 5 hours on from there (#309); the
+ * sights themselves come later, as day trips (classicDayTrips.ts).
+ */
+export const OVERNIGHT_RULE = `- 每個城市都是旅客要過夜的地方，必須是有住宿、餐廳和大眾運輸的城鎮。
+  國家公園、瀑布、冰川、溫泉、海灘等自然景點或單一景點不可以當成城市
+  （例如「辛格韋德利」國家公園、「古佛斯」瀑布）——這些地方之後會從附近的城鎮安排成一日遊`;
+
 function buildSystemPrompt(
   flightInfo: FlightInfo,
   preferences: TripPreferences | undefined,
@@ -298,7 +308,8 @@ ${!isMultiCity ? (loopAllowed ? loopRules : singleCityConstraint) : ""}${require
 - 城市數量、天數分配要符合使用者風格描述（若有）與旅遊常理——不要塞進不合理
   數量的城市，也不要讓單一城市停留時間過短（例如只待 1 天卻要深度體驗）或
   過長而顯得單調
-- 城市名稱必須是真實存在、且是航線上地理合理的城市`;
+- 城市名稱必須是真實存在、且是航線上地理合理的城市
+${OVERNIGHT_RULE}`;
 }
 
 /**
