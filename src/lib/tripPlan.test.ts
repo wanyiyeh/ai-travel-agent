@@ -18,6 +18,7 @@ vi.mock("@/lib/placesTextSearch", () => ({
 
 import {
   FixedEventCityError,
+  OVERNIGHT_RULE,
   alignCityDays,
   cityOnDay,
   closeLoop,
@@ -240,6 +241,18 @@ describe("planTrip — round-trip loops", () => {
     mockJson({ title: "t", currency: "JPY", cities: [{ name: "東京", days: 3 }] });
     await planTrip(shortRoundTrip, undefined, undefined, "m");
     expect(systemPromptOf()).toContain("絕對只能有一個城市");
+  });
+
+  // #309: an Iceland loop stayed two nights in 辛格韋德利, a national park.
+  it("asks for towns to stay in, not parks or single sights, on a loop and on a multi-city trip", async () => {
+    mockJson({ title: "t", currency: "JPY", cities: [{ name: "東京", days: 6 }] });
+    await planTrip(roundTrip, undefined, undefined, "m");
+    expect(systemPromptOf()).toContain(OVERNIGHT_RULE);
+
+    createMock.mockReset();
+    mockJson({ title: "t", currency: "JPY", cities: [{ name: "東京", days: 3 }, { name: "大阪", days: 3 }] });
+    await planTrip({ ...roundTrip, returnDepartureCity: "KIX" }, undefined, undefined, "m");
+    expect(systemPromptOf()).toContain(OVERNIGHT_RULE);
   });
 
   const islandTrip = (code: string): FlightInfo => ({
