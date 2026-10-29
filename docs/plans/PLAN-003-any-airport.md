@@ -1,5 +1,5 @@
 ---
-status: in-progress      # draft | approved | in-progress | done
+status: done             # draft | approved | in-progress | done
 branch: plan-003-any-airport
 issue: 300
 created: 2026-10-28
@@ -78,7 +78,7 @@ flowchart LR
 
 ## 完成後遷移清單
 
-- [ ] 功能頁：docs/features/airports.md
-- [ ] ADR：docs/adr/0011-airport-data-from-open-sources.md
-- [ ] docs/data-sources.md、docs/runbook.md
-- [ ] glossary 新詞（機場查詢模組、物價水準）
+- [x] 功能頁：docs/features/airports.md
+- [x] ADR：docs/adr/0011-airport-data-from-open-sources.md
+- [x] docs/data-sources.md、docs/runbook.md
+- [x] glossary 新詞（機場查詢模組、物價水準）

@@ -8,6 +8,7 @@
 | [刪除帳號](account-deletion.md) | stable | 2026-10-26 |
 | [移動日](transit-days.md) | stable | 2026-10-27 |
 | [餐點的位置與刪除](meal-positions.md) | stable | 2026-10-27 |
+| [機場](airports.md) | stable | 2026-10-29 |
 
 ## 功能頁模板
 

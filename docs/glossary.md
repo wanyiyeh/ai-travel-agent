@@ -44,6 +44,9 @@
 | 補資料失敗 | `enrichFailure` | 記在項目上的查詢失敗，一段時間內不重查 |
 | 可疑地點 | `suspicious` | 離預期城市太遠，可能比對到別處的同名地點 |
 | 地點快取 | `Place` / `PlaceQuery` | 查詢字串到 Google 地點的快取 |
+| 機場查詢模組 | `airportIndex`（`lookupAirport`） | 依 IATA 代碼查城市、座標、國家、貨幣；人工清單 `AIRPORTS` 優先，生成資料補上（ADR-0011） |
+| 生成的機場資料 | `airports.generated.json` / `countries.generated.json` | `npm run build-airports` 從開放資料產生的機場與國家資料 |
+| 物價水準 | `priceLevel` | 一國物價相對美國的比例，由世界銀行的購買力平價換算係數除以匯率；用來粗估物價表沒有的貨幣 |
 
 ## 使用者
 

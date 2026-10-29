@@ -12,6 +12,7 @@
 | 某功能的規格與任務 | [計畫](plans/README.md) |
 | 怎麼量測花費、排查 | [Runbook](runbook.md) |
 | 第一次部署到 Vercel + Neon | [部署](deploy.md) |
+| 用了哪些外部資料、條款與出處 | [資料來源](data-sources.md) |
 
 ## 遷移中的舊文件
 
