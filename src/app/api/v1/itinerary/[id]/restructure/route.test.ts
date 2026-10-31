@@ -210,6 +210,46 @@ describe("restructure plans new days like a fresh trip", () => {
     expect(used(1).sort()).toEqual(["p-dinner", "p-lunch"]);
     expect([...(mealCalls.find((c) => c.city === "大阪")?.options?.usedPlaceIds ?? [])]).toEqual([]);
   });
+
+  // #325: the return day moved to 大阪 still had 東京's places and restaurants.
+  it("empties the return day it moves to the new last city, keeping only what the traveler booked", async () => {
+    const booked = { name: "東京巨蛋", fixedEvent: { type: "concert", startTime: "10:00", endTime: "12:00" } };
+    findFirst.mockResolvedValue({
+      id: "itin-1",
+      userId: "u1",
+      config: { currency: "JPY", flightInfo: { departureDate: "2026-11-11", returnDate: "2026-11-12", arrivalCity: "NRT" } },
+      days: [
+        { id: "d1", day: 1, waypointCity: "東京", stops: [] },
+        {
+          id: "d2",
+          day: 2,
+          theme: "返程日",
+          waypointCity: "東京",
+          stops: [{ placeId: "p-museum", lat: 35.7, lng: 139.7 }, booked],
+          meals: { breakfast: { placeId: "p-cafe" }, lunch: { placeId: "p-ramen" } },
+          mealPositions: { lunch: 1 },
+          skippedMeals: ["dinner"],
+          weatherNote: "日落約 16:40",
+        },
+      ],
+    });
+    updateMock.mockReset();
+
+    await restructure([
+      { name: "東京", isNew: false, targetDays: 2, keepDayIds: ["d1", "d2"] },
+      { name: "大阪", isNew: true, targetDays: 2 },
+    ]);
+
+    const saved = updateMock.mock.calls[0][0].data.days as Record<string, unknown>[];
+    expect(saved.at(-1)).toEqual({
+      id: "d2",
+      day: saved.length,
+      theme: "返程日",
+      waypointCity: "大阪",
+      stops: [booked],
+      meals: {},
+    });
+  });
 });
 
 describe("restructure with a new city before an existing one", () => {

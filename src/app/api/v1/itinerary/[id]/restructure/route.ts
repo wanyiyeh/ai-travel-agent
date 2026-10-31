@@ -117,6 +117,25 @@ function placesIn(kept: Record<string, unknown>[], lockedPlaceIds: string[]): Se
   return ids;
 }
 
+// The trip's last day moved to a new last city: its places, restaurants and
+// weather were the old city's, so they go, leaving open slots — how much of
+// the day is spent before the airport is the traveler's call (#325). What
+// they booked stays.
+function returnDayIn(day: Record<string, unknown>, cityName: string): Record<string, unknown> {
+  const booked = (item: unknown) => Boolean((item as Record<string, unknown> | null)?.fixedEvent);
+  const meals = (day.meals ?? {}) as Record<string, unknown>;
+  const moved: Record<string, unknown> = {
+    ...day,
+    waypointCity: cityName,
+    stops: (Array.isArray(day.stops) ? day.stops : []).filter(booked),
+    meals: Object.fromEntries(Object.entries(meals).filter(([, meal]) => booked(meal))),
+  };
+  delete moved.weatherNote;
+  delete moved.mealPositions;
+  delete moved.skippedMeals;
+  return moved;
+}
+
 // Restaurants on the days kept in `cityName`, in any of its blocks (a loop
 // back to it), so its new days pick other ones first (#316).
 function keptMealPlaceIds(cityName: string, cities: CityInput[], daysById: Map<string, Record<string, unknown>>): Set<string> {
@@ -571,7 +590,11 @@ export async function POST(
         rawFinalDays[idx].isTransitDay !== true
       ) {
         const [returnDay] = rawFinalDays.splice(idx, 1);
-        rawFinalDays.push({ ...returnDay, waypointCity: newLastCity.name });
+        rawFinalDays.push(
+          returnDay.waypointCity === newLastCity.name
+            ? returnDay
+            : returnDayIn(returnDay, newLastCity.name)
+        );
       }
     }
 
