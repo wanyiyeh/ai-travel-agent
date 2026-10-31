@@ -32,4 +32,4 @@
 - 開發前要先開 Docker Desktop 並 `npm run db:up`。
 - 手動測試 `dev:free`：`TURNSTILE_SECRET_KEY="" npm run dev:free` 略過人機驗證；訪客每人 1 次、同一 IP 每天 2 次。
 - Dependabot PR #170、#47 還開著。
-- 重新規劃產生的移動日，早餐與部分餐點是空位（#295，known-limitation）。
+- 重新規劃時，原本沒有移動日的地方產生的移動日仍有空的餐點（#295，known-limitation）；插入新城市的情況已用被換掉的移動日補上。

@@ -1,11 +1,12 @@
 ---
 status: stable
-updated: 2026-10-30
+updated: 2026-10-31
 source:
   - src/lib/transitStop.ts
   - src/lib/itineraryCityGen.ts
   - src/lib/assembleItineraryDays.ts
   - src/lib/transitDayMeals.ts
+  - src/lib/restructureTransitMeals.ts
   - src/app/api/v1/itinerary/[id]/restructure/route.ts
   - src/app/api/v1/days/[dayId]/recalculate-transport/route.ts
   - src/app/api/v1/itinerary/[id]/enrich-all-stops/route.ts
@@ -41,7 +42,7 @@ flowchart TD
 | 交通費用 | LLM 估每人單程票價（開車是油錢與過路費）。回傳 0 或不是數字就不存（`withoutZeroFare`），畫面顯示「費用未估算」，舊行程的 0 也一樣 |
 | 早餐 | 出發城市的 `meals.breakfast`，跟其他天一樣由規則挑選 |
 | 午餐、點心、晚餐 | 抵達城市的餐點 |
-| 重新規劃產生的移動日 | 抵達城市這次本來就要查候選時（新城市、或有新增天數的城市），多挑一天給移動日的午餐、點心、晚餐；沒查的話留空位。早餐一律留空位，不為它查出發城市 |
+| 重新規劃產生的移動日 | 依序補空位，不為它多查（`fillTransitMeals`）：<br>1. 抵達城市這次本來就要查候選時（新城市、或有新增天數的城市），多挑一天給午餐、點心、晚餐<br>2. 被換掉的舊移動日的餐點：出發城市相同就沿用它的早餐，抵達城市相同就沿用午餐、點心、晚餐（在兩個城市之間插入新城市時，兩天新移動日都補得到）<br>3. 從新城市出發的移動日，早餐在新城市的候選裡多挑一份<br>補不到的留空位；使用者刪掉的餐不補，已有的餐不換 |
 | 重新計算交通 | 交通站保留 LLM 寫的車程；交通站後面第一站寫「抵達〇〇後出發」 |
 | 補資料 | 跳過交通站，不拿交通的文字查 Google |
 | 舊行程 | 沒有 `kind` 的舊資料，用「移動日、沒有 placeId、不是固定行程、名稱含『前往』」辨認（`isTransitStop`） |
@@ -62,7 +63,7 @@ flowchart TD
 
 - 舊行程靠名稱辨認交通站，名稱沒有「前往」的會被當成一般景點。
 - 規則引擎失敗時的整段 LLM 備援仍會寫早餐站，交通站靠形狀辨認。
-- 重新規劃產生的移動日沒有早餐，抵達城市沒有新增天數時其他餐也是空位，要使用者自己挑（#295；#290 決定不為此多查 Google）。
+- 重新規劃時，原本沒有移動日的地方（例如把新城市加在最後一個城市之後）產生的移動日，早餐和部分餐點仍是空位，要使用者自己挑（#295；#290 決定不為此多查 Google）。
 
 ## 相關連結
 

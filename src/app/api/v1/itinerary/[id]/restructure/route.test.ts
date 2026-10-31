@@ -37,7 +37,14 @@ vi.mock("@/lib/itineraryCityGen", async (importOriginal) => ({
     return {
       accommodation: { name: "Hotel" },
       mealsByDay: Array.from({ length: nights }, () => ({})),
-      ...(options?.extraDays ? { extraMealsByDay: [{ breakfast: `${city} breakfast`, lunch: `${city} lunch` }] } : {}),
+      ...(options?.extraDays
+        ? {
+            extraMealsByDay: Array.from({ length: options.extraDays }, (_, i) => ({
+              breakfast: { name: `${city} breakfast${i || ""}` },
+              lunch: { name: `${city} lunch${i || ""}` },
+            })),
+          }
+        : {}),
     };
   },
 }));
@@ -222,7 +229,16 @@ describe("restructure with a new city before an existing one", () => {
       config: { currency: "JPY", flightInfo: { departureDate: "2026-11-11", returnDate: "2026-11-15", arrivalCity: "NRT" } },
       days: [
         { id: "d1", day: 1, theme: "東京1", waypointCity: "東京", stops: [] },
-        { id: "d2", day: 2, theme: "移動日：前往京都", isTransitDay: true, transitTo: "京都", waypointCity: "東京", stops: [] },
+        {
+          id: "d2",
+          day: 2,
+          theme: "移動日：前往京都",
+          isTransitDay: true,
+          transitTo: "京都",
+          waypointCity: "東京",
+          stops: [],
+          meals: { breakfast: { name: "東京早餐" }, lunch: { name: "京都午餐" }, dinner: { name: "京都晚餐" } },
+        },
         { id: "d3", day: 3, theme: "京都3", waypointCity: "京都", stops: [] },
         { id: "d4", day: 4, theme: "京都4", waypointCity: "京都", stops: [] },
         { id: "d5", day: 5, theme: "返程日", waypointCity: "京都", stops: [] },
@@ -243,7 +259,8 @@ describe("restructure with a new city before an existing one", () => {
   });
 
   // #290: these transit days used to have no meals at all, not even slots to pick.
-  it("gives each new transit day the meals after arriving, and empty slots for the rest", async () => {
+  // #295: then no breakfast, and none at all into 京都; the replaced 東京 → 京都 day had them.
+  it("gives both new transit days their meals, from the day they replace and 名古屋's picks", async () => {
     await restructure([
       { name: "東京", isNew: false, targetDays: 1, keepDayIds: ["d1", "d2"] },
       { name: "名古屋", isNew: true, targetDays: 2 },
@@ -251,10 +268,14 @@ describe("restructure with a new city before an existing one", () => {
     ]);
     const days = updateMock.mock.calls[0][0].data.days as { theme: string; meals?: Record<string, unknown> }[];
     const meals = (theme: string) => days.find((d) => d.theme === theme)?.meals;
-    // 名古屋's candidates were fetched anyway: lunch from them; 東京's weren't, so no breakfast
-    expect(meals("移動日：前往名古屋")).toEqual({ lunch: "名古屋 lunch" });
-    // 京都 needs no new days, so nothing was fetched: empty slots, no search for it
-    expect(meals("移動日：前往京都")).toEqual({});
+    // breakfast still in 東京, from the replaced day; lunch from 名古屋's candidates
+    expect(meals("移動日：前往名古屋")).toEqual({ breakfast: { name: "東京早餐" }, lunch: { name: "名古屋 lunch" } });
+    // breakfast from 名古屋's candidates, searched anyway; the rest in 京都, from the replaced day
+    expect(meals("移動日：前往京都")).toEqual({
+      breakfast: { name: "名古屋 breakfast1" },
+      lunch: { name: "京都午餐" },
+      dinner: { name: "京都晚餐" },
+    });
   });
 
   it("puts a kept day that no longer fits in the trash rather than losing it", async () => {
