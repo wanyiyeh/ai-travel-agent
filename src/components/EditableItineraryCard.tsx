@@ -43,6 +43,7 @@ import { SortableMeal } from "@/components/SortableMeal";
 import { findRepeatedMeals, slotKey } from "@/lib/mealRepeats";
 import { daysMissingNames, withPlaceNames, type PlaceNameBook } from "@/lib/placeNamesClient";
 import GoogleMapsAttribution from "@/components/GoogleMapsAttribution";
+import { OpenMeteoCredit } from "@/components/DataSourceCredits";
 import { PlaceDetailsButton } from "@/components/PlaceDetailsButton";
 
 // A candidate from another day counts as "same city" if it's within this
@@ -2080,6 +2081,7 @@ export default function EditableItineraryCard({
 
         {/* Place names here are Google's, shown without a map (also on the PDF). */}
         <GoogleMapsAttribution />
+        {itinerary.days.some((d) => d.weatherNote) && <OpenMeteoCredit className="px-2.5" />}
       </div>
 
       <DragOverlay>

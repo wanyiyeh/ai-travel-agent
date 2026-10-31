@@ -9,7 +9,7 @@ export const metadata: Metadata = { title: "隱私權說明 — AI Travel Agent"
 
 // The periods below are read from the code that enforces them, so this page
 // changes with it (#261).
-const UPDATED = "2026-10-29";
+const UPDATED = "2026-10-31";
 const DAY_MS = 24 * 60 * 60 * 1000;
 const days = (ms: number) => Math.round(ms / DAY_MS);
 
@@ -122,6 +122,24 @@ export default function PrivacyPage() {
               CC BY 4.0
             </a>
             授權。網站只取兩者的比例做估算，世界銀行未審閱或認可這些估算。
+          </p>
+          <p>
+            每天的天氣提醒（雨天、炎熱、寒冷、日落時間）由去年同月的天氣整理而成：
+            <a href="https://open-meteo.com/" className="underline underline-offset-4 mx-1">
+              Weather data by Open-Meteo.com
+            </a>
+            ，以
+            <a href="https://creativecommons.org/licenses/by/4.0/" className="underline underline-offset-4 mx-1">
+              CC BY 4.0
+            </a>
+            授權，資料來源包含 Copernicus Climate Change Service 的 ERA5 再分析資料。
+          </p>
+          <p>
+            花費預估換算成新台幣用的每日匯率：
+            <a href="https://www.exchangerate-api.com" className="underline underline-offset-4 mx-1">
+              Rates By Exchange Rate API
+            </a>
+            。
           </p>
         </Section>
 
