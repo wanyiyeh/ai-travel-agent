@@ -15,6 +15,7 @@ import { collectPlaceNames, daysMissingNames, withPlaceNames, type PlaceNameBook
 import { AIRPORTS } from "@/lib/airports";
 import { useAirportOptions } from "@/hooks/useAirportOptions";
 import { ExchangeRateCredit } from "@/components/DataSourceCredits";
+import { tripPlaceNames } from "@/lib/tripPlaceNames";
 
 const DEFAULT_EXCHANGE_RATES: Record<string, number> = {
   JPY: 0.21, KRW: 0.023, CNY: 4.4, HKD: 4.1, SGD: 24,
@@ -210,24 +211,10 @@ export default function ViewContent({ id }: ViewContentProps) {
     if (!flightInfo) return null;
     const { arrivalCity, returnDepartureCity } = flightInfo;
     if (!arrivalCity || !returnDepartureCity) return null;
-    const transitStopNames: string[] = (data.data?.days ?? [])
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .filter((d: any) => d.isTransitDay && d.transitTo)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .map((d: any) => d.transitTo as string);
-    // Day-trip attractions (e.g. Wieliczka from Kraków) never get their own
-    // isTransitDay/transitTo — they're just a stop on an existing city's day —
-    // so without this, the recommendation prompt keeps re-suggesting a place
-    // that's already sitting in the itinerary as a stop.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const stopNames: string[] = (data.data?.days ?? []).flatMap((d: any) =>
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (d.stops ?? []).map((s: any) => s.name as string)
-    );
     return {
       originIata: arrivalCity as string,
       destinationIata: returnDepartureCity as string,
-      existingStops: [arrivalCity, ...transitStopNames, returnDepartureCity, ...stopNames] as string[],
+      existingStops: [arrivalCity as string, returnDepartureCity as string, ...tripPlaceNames(data.data?.days ?? [])],
       isSingleCity: arrivalCity === returnDepartureCity,
     };
   }, [data]);
