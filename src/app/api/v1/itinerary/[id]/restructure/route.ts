@@ -4,6 +4,7 @@ import { prisma, j } from "@/lib/db";
 import { iataToCity } from "@/lib/iataCity";
 import { estimateAttractionCost } from "@/lib/priceLevelCost";
 import { transitDayMeals } from "@/lib/transitDayMeals";
+import { fillTransitMeals } from "@/lib/restructureTransitMeals";
 import {
   generateTransitDayStops,
   generateMealsAndAccommodation,
@@ -178,7 +179,7 @@ async function buildCityBlock(
   stay: StayContext,
   // The trip day number this city's block starts on, for each new day's date.
   blockStartDay: number
-): Promise<Record<string, unknown>[]> {
+): Promise<{ days: Record<string, unknown>[]; breakfastBeforeLeaving?: unknown }> {
   const lockedCount = city.lockedAttractions.length;
   // Keeps the rule-engine candidate pool (generateDayStopsViaScheduler) from
   // re-suggesting a place the user already locked in as its own full day.
@@ -340,13 +341,15 @@ async function buildCityBlock(
     // A leading-in day (if generated above) goes first; transit-out/return
     // days are pinned after the sightseeing content so a newly-added day
     // never gets stranded on the far side of a move.
-    return [
-      ...(leadingInDay ? [leadingInDay] : []),
-      ...sightseeingKept,
-      ...extraDays,
-      ...lockedDays,
-      ...structuralKept,
-    ];
+    return {
+      days: [
+        ...(leadingInDay ? [leadingInDay] : []),
+        ...sightseeingKept,
+        ...extraDays,
+        ...lockedDays,
+        ...structuralKept,
+      ],
+    };
   }
 
   // New city: leading transit day + AI sightseeing days + locked days.
@@ -357,6 +360,7 @@ async function buildCityBlock(
   // are available for AI sightseeing + locked attractions.
   const aiDayCount = Math.max(0, city.targetDays - 1 - lockedCount);
   const nights = Math.max(1, city.targetDays - 1);
+  const leavesForAnotherCity = idx < cities.length - 1;
 
   const [transitStops, mealsAndAccommodation] = await Promise.all([
     generateTransitDayStops(fromCityName, city.name, currency, budget, preferenceIntent).catch((err) => {
@@ -364,9 +368,10 @@ async function buildCityBlock(
       return [];
     }),
     // One more day from the same candidates for the transit day's meals
-    // after arriving (#290).
+    // after arriving (#290), and one for the breakfast before leaving for the
+    // next city (#295).
     generateMealsAndAccommodation(city.name, nights, currency, budget, mealPreferences, {
-      extraDays: 1,
+      extraDays: leavesForAnotherCity ? 2 : 1,
       usedPlaceIds: keptMealPlaceIds(city.name, cities, daysById),
     }).catch((): Awaited<ReturnType<typeof generateMealsAndAccommodation>> => ({
       accommodation: {} as Record<string, unknown>,
@@ -418,7 +423,12 @@ async function buildCityBlock(
     meals: mealsAndAccommodation.mealsByDay[aiDayCount + i] ?? {},
   }));
 
-  return [transitDay, ...sightseeingDays, ...lockedDays];
+  return {
+    days: [transitDay, ...sightseeingDays, ...lockedDays],
+    ...(leavesForAnotherCity
+      ? { breakfastBeforeLeaving: (mealsAndAccommodation.extraMealsByDay?.[1] as Record<string, unknown> | undefined)?.breakfast }
+      : {}),
+  };
 }
 
 // Rebuilds the entire itinerary from a user-declared list of cities (each
@@ -529,7 +539,18 @@ export async function POST(
         )
       )
     );
-    const rawFinalDays = blocks.flat();
+    // Transit days' empty meal slots, from the transit days they replaced and
+    // the new cities' own picks — no search for them (#295).
+    const breakfastsBeforeLeaving = new Map(
+      cities.flatMap((city, idx) =>
+        blocks[idx].breakfastBeforeLeaving ? [[city.name, blocks[idx].breakfastBeforeLeaving] as const] : []
+      )
+    );
+    const rawFinalDays = fillTransitMeals(
+      blocks.flatMap((block) => block.days),
+      days,
+      breakfastsBeforeLeaving
+    );
 
     // The trip's original last day (the "回程日" flight-home day, or whatever
     // day used to close out the itinerary) is pinned to the *end of its own
