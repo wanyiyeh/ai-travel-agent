@@ -20,6 +20,12 @@ describe("airportTransferMinutes", () => {
     expect(airportTransferMinutes("LIM")).toBe(30);
   });
 
+  // #306: the old airports were 20–30 minutes out; the new ones are farther.
+  it("times Cambodia's new airports from where they are, not the closed ones", () => {
+    expect(airportTransferMinutes("SAI")).toBeGreaterThan(airportTransferMinutes("REP")!);
+    expect(airportTransferMinutes("KTI")).toBeGreaterThan(airportTransferMinutes("PNH")!);
+  });
+
   it("has a time for every generated airport", () => {
     expect(Object.keys(generatedAirports).filter((code) => airportTransferMinutes(code) === undefined)).toEqual([]);
   });

@@ -33,4 +33,3 @@
 - 手動測試 `dev:free`：`TURNSTILE_SECRET_KEY="" npm run dev:free` 略過人機驗證；訪客每人 1 次、同一 IP 每天 2 次。
 - Dependabot PR #170、#47 還開著。
 - 重新規劃產生的移動日，早餐與部分餐點是空位（#295，known-limitation）。
-- 人工機場清單有已停用的柬埔寨機場（#306）。

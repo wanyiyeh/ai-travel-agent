@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mergeAirportOptions, searchAirports, type AirportOption } from "@/lib/airportOptions";
+import { CURATED_OPTIONS, mergeAirportOptions, searchAirports, type AirportOption } from "@/lib/airportOptions";
 
 const options: AirportOption[] = [
   { code: "NRT", name: "東京", country: "日本" },
@@ -55,5 +55,13 @@ describe("mergeAirportOptions", () => {
       { code: "KEF", name: "雷克雅維克", nameEn: "Keflavík", country: "冰島" },
       { code: "RKV", name: "雷克雅維克", nameEn: "Reykjavík", country: "冰島" },
     ]);
+  });
+});
+
+describe("CURATED_OPTIONS", () => {
+  // #306: an airport with no flights left isn't offered; trips saved with it still read.
+  it("offers Cambodia's new airports, not the closed ones", () => {
+    const cambodia = CURATED_OPTIONS.filter((o) => o.country === "柬埔寨").map((o) => o.code);
+    expect(cambodia.sort()).toEqual(["KTI", "SAI"]);
   });
 });

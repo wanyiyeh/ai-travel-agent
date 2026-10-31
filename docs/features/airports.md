@@ -1,6 +1,6 @@
 ---
 status: stable
-updated: 2026-10-29
+updated: 2026-10-31
 source:
   - scripts/build-airports.ts
   - src/lib/airportData/build.ts
@@ -50,6 +50,7 @@ flowchart LR
 | --- | --- |
 | 涵蓋範圍 | OurAirports 有定期航班、有 IATA 代碼的大型與中型機場（`KEPT_AIRPORT_TYPES`），加上人工清單 |
 | 人工與生成 | 同一代碼兩邊都有時，城市名、座標、國家、交通時間用人工的；英文名人工有填（`cityEn`）就用人工的 |
+| 停用的機場 | 人工清單標了 `replacedBy` 的機場（柬埔寨的 REP、PNH，航班已移到 SAI、KTI）不出現在選單，城市名對應到新機場；保留在清單裡，用舊代碼存的行程照常顯示 |
 | 服務的城市 | Wikidata 的服務城市中，距離在 `MAX_CITY_KM` 內的，同國優先，再取人口最多、再取最近；都沒有就用機場所在地與機場座標 |
 | 座標 | 用城市中心，不用機場（KEF 離雷克雅維克約 50 公里） |
 | 城市名 | 繁中名稱，沒有就英文，再沒有就 OurAirports 的所在地或機場名 |
