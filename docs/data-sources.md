@@ -8,8 +8,8 @@
 | --- | --- | --- | --- | --- |
 | Google Places API (New)、Routes API | 景點、餐廳、住宿、城市中心、路線時間 | 全部經過 `src/lib/googleFetch.ts` | 付費（量測見 [runbook](runbook.md)） | 只能存 place ID 與 30 天內的座標（[ADR-0004](adr/0004-google-maps-content-storage.md)）；不放進 LLM 輸入（[ADR-0008](adr/0008-no-google-content-in-llm-input.md)）；畫面標示見 `.claude/rules/google-places.md` |
 | OpenAI | 規劃城市與天數、寫行程文案 | `src/lib/openai.ts` | 付費 | 不送使用者的 email 或名字（見隱私權頁） |
-| Open-Meteo | 去年同月的天氣，判斷海灘、滑雪是否合適 | `src/lib/climate.ts` | 免費，僅限非商業使用 | CC BY 4.0，出處尚未標示（#307） |
-| ExchangeRate-API（open.er-api.com） | 每日匯率，換算費用估算 | `src/lib/exchangeRate.ts` | 免費 | 免費版要求標示出處，尚未標示（#307） |
+| Open-Meteo | 去年同月的天氣，判斷海灘、滑雪是否合適 | `src/lib/climate.ts` | 免費，僅限非商業使用 | CC BY 4.0：顯示資料的地方旁邊要有連結、附授權、說明有改過。行程有天氣提醒時，行程卡最下面放「Weather data by Open-Meteo.com」（`src/components/DataSourceCredits.tsx`）；隱私權頁的「資料來源」段落另列 ERA5（Copernicus）來源 |
+| ExchangeRate-API（open.er-api.com） | 每日匯率，換算費用估算 | `src/lib/exchangeRate.ts` | 免費 | 免費版（open access）要求在使用匯率的頁面放「Rates By Exchange Rate API」連結，可低調配合版面；不可轉散布資料。放在行程頁的花費預估下方（`src/components/DataSourceCredits.tsx`）與隱私權頁 |
 
 ## 產生資料檔用的來源
 

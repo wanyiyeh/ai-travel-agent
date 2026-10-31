@@ -14,6 +14,7 @@ import { calculateDayTotalCost, hasAnyStopCost } from "@/lib/costCalculations";
 import { collectPlaceNames, daysMissingNames, withPlaceNames, type PlaceNameBook } from "@/lib/placeNamesClient";
 import { AIRPORTS } from "@/lib/airports";
 import { useAirportOptions } from "@/hooks/useAirportOptions";
+import { ExchangeRateCredit } from "@/components/DataSourceCredits";
 
 const DEFAULT_EXCHANGE_RATES: Record<string, number> = {
   JPY: 0.21, KRW: 0.023, CNY: 4.4, HKD: 4.1, SGD: 24,
@@ -396,6 +397,7 @@ export default function ViewContent({ id }: ViewContentProps) {
             </tfoot>
           </table>
           <p className="mt-3 text-xs text-zinc-400 dark:text-zinc-500">* AI 預估值，實際費用可能有差異</p>
+          <ExchangeRateCredit className="mt-1" />
         </div>
       </div>
     );
