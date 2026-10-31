@@ -13,7 +13,7 @@ export const IATA_COUNTRY_ZH: Record<string, string> = {
   BKK: "泰國", DMK: "泰國", HKT: "泰國", CNX: "泰國",
   SGN: "越南", HAN: "越南", DAD: "越南",
   DPS: "印尼", CGK: "印尼",
-  REP: "柬埔寨", PNH: "柬埔寨",
+  SAI: "柬埔寨", KTI: "柬埔寨", REP: "柬埔寨", PNH: "柬埔寨",
   // 大洋洲
   SYD: "澳洲", MEL: "澳洲", BNE: "澳洲", PER: "澳洲",
   AKL: "紐西蘭",

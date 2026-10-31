@@ -30,6 +30,18 @@ describe("lookupAirport", () => {
     expect(lim.lng).toBeGreaterThan(-77.1);
   });
 
+  // #306: REP and PNH lost their flights to SAI and KTI in 2023–25.
+  it("flies to Cambodia's new airports, and still reads trips saved with the old codes", () => {
+    expect(cityToIata("暹粒")).toBe("SAI");
+    expect(cityToIata("金邊")).toBe("KTI");
+    const sai = lookupAirport("SAI")!;
+    expect(sai).toMatchObject({ cityZh: "暹粒", country: "KH", curated: true });
+    // the city, not the airport 40 km out of it
+    expect(sai.lng).toBeLessThan(sai.airport!.lng);
+    expect(lookupAirport("KTI")).toMatchObject({ cityZh: "金邊", cityEn: "Phnom Penh", countryZh: "柬埔寨" });
+    expect(lookupAirport("REP")).toMatchObject({ cityZh: "暹粒", country: "KH" });
+  });
+
   it("pays in dollars in Cambodia, at the old airports and the new", () => {
     expect(currencyOf("REP")).toBe("USD");
     expect(currencyOf("SAI")).toBe("USD");

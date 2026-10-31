@@ -16,7 +16,7 @@ export type AirportOption = {
 };
 
 export const CURATED_OPTIONS: AirportOption[] = Object.entries(AIRPORTS)
-  .filter(([, airport]) => !airport.domestic)
+  .filter(([, airport]) => !airport.domestic && !airport.replacedBy)
   .map(([code, airport]) => ({
     code,
     name: airport.cityZh,

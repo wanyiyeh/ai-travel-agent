@@ -22,6 +22,11 @@ export interface Airport {
   domestic?: true;
   /** An outlying island: reached by plane or boat (domesticTrips.ts ISLAND_ACCESS). */
   island?: true;
+  /**
+   * Closed, its flights moved to this airport: no longer offered, kept so
+   * trips saved with it still read (#306).
+   */
+  replacedBy?: string;
 }
 
 export const AIRPORTS: Record<string, Airport> = {
@@ -57,8 +62,11 @@ export const AIRPORTS: Record<string, Airport> = {
   DAD: { cityZh: "峴港", lat: 16.0544, lng: 108.2022 },
   DPS: { cityZh: "峇里島", lat: -8.6705, lng: 115.2126 },
   CGK: { cityZh: "雅加達", cityEn: "Jakarta", lat: -6.2088, lng: 106.8456 },
-  REP: { cityZh: "暹粒", lat: 13.3671, lng: 103.8448 },
-  PNH: { cityZh: "金邊", lat: 11.5564, lng: 104.9282 },
+  // Before the closed REP and PNH, so 暹粒 and 金邊 map to these.
+  SAI: { cityZh: "暹粒", cityEn: "Siem Reap", lat: 13.3671, lng: 103.8448 },
+  KTI: { cityZh: "金邊", cityEn: "Phnom Penh", lat: 11.5564, lng: 104.9282 },
+  REP: { cityZh: "暹粒", lat: 13.3671, lng: 103.8448, replacedBy: "SAI" },
+  PNH: { cityZh: "金邊", lat: 11.5564, lng: 104.9282, replacedBy: "KTI" },
   // 大洋洲
   PER: { cityZh: "伯斯", lat: -31.9505, lng: 115.8605 },
   MEL: { cityZh: "墨爾本", lat: -37.8136, lng: 144.9631 },
