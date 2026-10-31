@@ -134,6 +134,26 @@ describe("generateMealsAndAccommodation", () => {
     expect(ids(second.mealsByDay).filter((id) => ids(first.mealsByDay).includes(id))).toEqual([]);
   });
 
+  // #316: restructure's new days repeated the kept days' restaurants.
+  it("skips places already on the trip, and repeats them only when the pool runs out", async () => {
+    const restaurants = Array.from({ length: 4 }, (_, i) => place(`Restaurant ${i}`));
+    const cafes = Array.from({ length: 4 }, (_, i) => place(`Cafe ${i}`));
+    const ids = (days: Array<Record<string, unknown>>) =>
+      days.flatMap((d) => Object.values(d).map((m) => (m as { placeId?: string }).placeId));
+    const onTrip = ["pid-Restaurant 0", "pid-Restaurant 1", "pid-Cafe 0", "pid-Cafe 1"];
+
+    nearbyMock.mockResolvedValueOnce(cafes).mockResolvedValueOnce(restaurants);
+    lodgingMock.mockResolvedValueOnce([place("Hotel H")]);
+    const oneDay = await generateMealsAndAccommodation("京都", 1, "JPY", "moderate", {}, { usedPlaceIds: onTrip });
+    expect(ids(oneDay.mealsByDay).filter((id) => onTrip.includes(id!))).toEqual([]);
+
+    // Four days need more places than the pool has left: still every slot filled.
+    nearbyMock.mockResolvedValueOnce(cafes).mockResolvedValueOnce(restaurants);
+    lodgingMock.mockResolvedValueOnce([place("Hotel H")]);
+    const fourDays = await generateMealsAndAccommodation("京都", 4, "JPY", "moderate", {}, { usedPlaceIds: onTrip });
+    expect(fourDays.mealsByDay.every((d) => d.lunch && d.dinner && d.breakfast)).toBe(true);
+  });
+
   it("searches each pool once, and only lunch/dinner on Enterprise fields", async () => {
     nearbyMock.mockResolvedValue([]);
     mockLlm({ accommodation: {}, meals: [] });

@@ -116,6 +116,23 @@ function placesIn(kept: Record<string, unknown>[], lockedPlaceIds: string[]): Se
   return ids;
 }
 
+// Restaurants on the days kept in `cityName`, in any of its blocks (a loop
+// back to it), so its new days pick other ones first (#316).
+function keptMealPlaceIds(cityName: string, cities: CityInput[], daysById: Map<string, Record<string, unknown>>): Set<string> {
+  const ids = new Set<string>();
+  for (const city of cities) {
+    if (city.isNew || city.name !== cityName) continue;
+    for (const dayId of city.keepDayIds) {
+      const meals = daysById.get(dayId)?.meals;
+      for (const meal of meals && typeof meals === "object" ? Object.values(meals) : []) {
+        const placeId = (meal as Record<string, unknown> | null)?.placeId;
+        if (typeof placeId === "string") ids.add(placeId);
+      }
+    }
+  }
+  return ids;
+}
+
 // A city's new sightseeing days, planned like a freshly generated trip's
 // (cityStayDays.ts): themes, day trips, seasonal days, weather, booked events.
 // The theme rotation continues from the trip's days before them.
@@ -277,6 +294,7 @@ async function buildCityBlock(
             // One more day from the same candidates for the leading-in day's
             // meals after arriving — no extra search (#290).
             extraDays: leadingInDay ? 1 : 0,
+            usedPlaceIds: keptMealPlaceIds(city.name, cities, daysById),
           }).catch((): Awaited<ReturnType<typeof generateMealsAndAccommodation>> => ({
             accommodation: {} as Record<string, unknown>,
             mealsByDay: Array.from({ length: newDaysNeeded }, () => ({}) as Record<string, unknown>),
@@ -347,7 +365,10 @@ async function buildCityBlock(
     }),
     // One more day from the same candidates for the transit day's meals
     // after arriving (#290).
-    generateMealsAndAccommodation(city.name, nights, currency, budget, mealPreferences, { extraDays: 1 }).catch((): Awaited<ReturnType<typeof generateMealsAndAccommodation>> => ({
+    generateMealsAndAccommodation(city.name, nights, currency, budget, mealPreferences, {
+      extraDays: 1,
+      usedPlaceIds: keptMealPlaceIds(city.name, cities, daysById),
+    }).catch((): Awaited<ReturnType<typeof generateMealsAndAccommodation>> => ({
       accommodation: {} as Record<string, unknown>,
       mealsByDay: Array.from({ length: nights }, () => ({}) as Record<string, unknown>),
     })),
