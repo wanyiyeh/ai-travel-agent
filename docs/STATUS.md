@@ -6,7 +6,7 @@
 
 ## 現在在做什麼
 
-[PLAN-005](plans/PLAN-005-llm-to-claude-haiku.md)（`in-progress`，父 issue #333，子 issue #334～#340）：LLM 從 OpenAI 換成 Claude Haiku 5.5（[ADR-0012](adr/0012-llm-provider-claude.md) 已 Accepted），分支 `plan-005-llm-to-claude-haiku`。目前只有文件，下一步從 #334 建立 `src/lib/llm.ts` 開始。開發用 key 已放進本機 `.env` 的 `ANTHROPIC_API_KEY`，程式尚未讀取。
+[PLAN-005](plans/PLAN-005-llm-to-claude-haiku.md)（`in-progress`，父 issue #333，子 issue #334～#340）：LLM 從 OpenAI 換成 Claude Haiku 5.5（[ADR-0012](adr/0012-llm-provider-claude.md) 已 Accepted），分支 `plan-005-llm-to-claude-haiku`。#334 已完成：`src/lib/llm.ts` 提供 `generateObject`、`streamObject`，呼叫點還沒改用它。下一步 #335（`mockAi.ts` 與 ADR-0008 守門測試改接新模組）。開發用 key 在本機 `.env` 的 `ANTHROPIC_API_KEY`。本機 Git Bash 跑 `npm test` 會全部失敗（磁碟代號大小寫），改用 PowerShell。
 
 [PLAN-004](plans/PLAN-004-itinerary-chat.md) 行程聊天助理：草稿（`draft`），等 PLAN-005 完成後再確認範圍與兩個待決定事項（地點事實問題怎麼處理、聊天額度）。對話紀錄只存回覆文字、不回送思考區塊（ADR-0012）。本機分支 `plan-004-itinerary-chat` 沒有 commit，可刪除。
 
