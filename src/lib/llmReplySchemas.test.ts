@@ -9,7 +9,8 @@ const { HighlightListSchema } = await import("@/lib/seasonalHighlights");
 const { TripListSchema } = await import("@/lib/classicDayTrips");
 const { WorksSchema } = await import("@/lib/filmLocations");
 const { RawTripPlanSchema } = await import("@/lib/tripPlan");
-const { StopDescriptionFillSchema, TransitRecommendationReplySchema } = await import("@/lib/schemas");
+const { ItinerarySchema, StopDescriptionFillSchema, TransitRecommendationReplySchema } = await import("@/lib/schemas");
+const { LegacyItineraryReplySchema } = await import("@/lib/itineraryGen");
 const { DayStopsReplySchema, MealsAndLodgingReplySchema, TransitDayStopsReplySchema, TransitPlanReplySchema } = await import(
   "@/lib/itineraryCityGen"
 );
@@ -29,6 +30,7 @@ const REPLY_SCHEMAS: Record<string, z.ZodType> = {
   TransitPlanReplySchema,
   DayStopsReplySchema,
   MealsAndLodgingReplySchema,
+  LegacyItineraryReplySchema,
 };
 
 type JsonSchema = { type?: string; properties?: Record<string, JsonSchema>; additionalProperties?: unknown; items?: JsonSchema; anyOf?: JsonSchema[]; $defs?: Record<string, JsonSchema> };
@@ -52,5 +54,21 @@ describe("LLM reply schemas", () => {
     for (const object of objects) {
       expect(object.additionalProperties).toBe(false);
     }
+  });
+});
+
+describe("LegacyItineraryReplySchema", () => {
+  it("gives what generate-stream's ItinerarySchema check expects", () => {
+    const meal = { name: "店", description: "d", estimated_cost: 1000 };
+    const stop = { name: "淺草寺", district: "淺草", description: "d", duration_minutes: 60, time_of_day: "morning", transport_from_prev: "步行約 10 分鐘", estimated_cost: 0 };
+    const reply = LegacyItineraryReplySchema.parse({
+      title: "東京",
+      currency: "JPY",
+      days: [
+        { day: 1, waypointCity: "東京", stops: [stop], accommodation: { area: "淺草", reason: "r" }, meals: { breakfast: meal, lunch: meal, dinner: meal, snack: meal } },
+        { day: 2, waypointCity: "東京", stops: [stop], accommodation: null, meals: { breakfast: meal, lunch: meal, dinner: meal, snack: meal } },
+      ],
+    });
+    expect(ItinerarySchema.safeParse(reply).success).toBe(true);
   });
 });

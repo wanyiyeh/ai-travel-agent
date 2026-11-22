@@ -1,9 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/lib/db";
 
-// The route must never get as far as OpenAI in these tests.
-const createCompletion = vi.fn();
-vi.mock("@/lib/openai", () => ({ openai: { chat: { completions: { create: createCompletion } } } }));
+// The route must never get as far as the model in these tests.
+const streamOldFlow = vi.fn();
+vi.mock("@/lib/llm", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/llm")>()),
+  streamObject: streamOldFlow,
+}));
 
 const { POST } = await import("@/app/api/v1/generate-stream/route");
 
@@ -42,7 +45,7 @@ describe("generate-stream refuses requests that fail the bot check", () => {
     expect((await res.json()).code).toBe("captcha_failed");
     expect(await prisma.user.count({ where: { isGuest: true } })).toBe(guestsBefore);
     expect(await prisma.usageEvent.count()).toBe(usageBefore);
-    expect(createCompletion).not.toHaveBeenCalled();
+    expect(streamOldFlow).not.toHaveBeenCalled();
   });
 
   it("releases the one-at-a-time lock, so the next request isn't told one is in progress", async () => {
