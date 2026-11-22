@@ -22,7 +22,7 @@
 
 ## 下一步
 
-1. 在正式網站生成一次，確認 Claude 正常；確認後移除 Vercel 的 `OPENAI_API_KEY`。`.github/workflows/ci.yml` 裡沒用到的 `OPENAI_API_KEY` 由使用者自己移除（token 不能改 workflow）。#47（升級 `openai`）可關閉。
+1. 正式網站已用 Claude 生成成功（2026-11-22，雪梨 7 天）。剩使用者操作：移除 Vercel 的 `OPENAI_API_KEY`、撤銷 OpenAI 的 key、關閉 #47（升級 `openai`）。`.github/workflows/ci.yml` 裡沒用到的 `OPENAI_API_KEY` 是假字串、不影響 CI，等下次改 CI 設定時由使用者順手刪（token 不能改 workflow）。
 2. #332 把 Next.js 升到 16.4.6，可能解決本機 build 與 dev server 被版本安全檢查擋下的問題；本機開發用的 Anthropic key 在 Claude Console 顯示 2 月 22 日到期，到期後本機生成會失敗。本機分支 `plan-004-itinerary-chat` 沒有 commit，可刪除。
 3. #181 剩三件（使用者操作）：確認「My gmail」通知管道的實際地址、Gmail 搜尋以前的預算警示寄到哪、#214 時實際收到一次通知。預算提醒已連結自己的 email；Maps 的硬上限是每日配額（Google 新的支出上限不支援 Maps）。換成 Claude 後，Anthropic Console 的支出上限與「不用 API 資料訓練」要由使用者確認（`/privacy` 已依商業條款這樣寫）。
 4. PLAN-005 合併後回到 [PLAN-004](plans/PLAN-004-itinerary-chat.md) 聊天助理的確認；#214 的公開範例（會花錢，先問），之後 #215 正式公開。#261：由使用者在 Google Cloud 的 OAuth 同意畫面填上正式網址的 `/privacy`。
