@@ -74,8 +74,10 @@ function dropFlightOnlyDestinations(recommendations: TransitRecommendation[]): T
   );
 }
 
+// The airport code comes from the request, so it rides only in the user
+// message (CodeQL js/system-prompt-injection), not in the system prompt.
 function generateAirportPool(iata: string): Promise<TransitRecommendation[]> {
-  const systemContent = `你是資深的自助旅行專家。旅行者的行程以 ${iata} 為根據地，請推薦 5 至 7 個從該城市出發值得順遊的周邊目的地，可以是城市或整個國家。寧可推薦數量少，也要確保每一個都精準、真實、具代表性——不要為了湊滿數量硬塞普通或不具代表性的地點。
+  const systemContent = `你是資深的自助旅行專家。旅行者的行程以使用者訊息中的「行程根據地」為根據地，請推薦 5 至 7 個從該城市出發值得順遊的周邊目的地，可以是城市或整個國家。寧可推薦數量少，也要確保每一個都精準、真實、具代表性——不要為了湊滿數量硬塞普通或不具代表性的地點。
 
 回傳嚴格的 JSON 格式（不要其他文字）：
 ${JSON_SCHEMA}
