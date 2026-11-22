@@ -1,5 +1,5 @@
 ---
-status: in-progress      # draft | approved | in-progress | done
+status: done             # draft | approved | in-progress | done
 branch: plan-005-llm-to-claude-haiku
 issue: 333               # 父 issue 編號，approved 後填寫
 created: 2026-11-22
