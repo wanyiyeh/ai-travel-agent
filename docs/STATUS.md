@@ -6,7 +6,7 @@
 
 ## 現在在做什麼
 
-[PLAN-005](plans/PLAN-005-llm-to-claude-haiku.md)（`in-progress`，父 issue #333，子 issue #334～#340）：LLM 從 OpenAI 換成 Claude Haiku 5.5（[ADR-0012](adr/0012-llm-provider-claude.md) 已 Accepted），分支 `plan-005-llm-to-claude-haiku`。#334 已完成（`src/lib/llm.ts`）；#335 併入 #336、#337。#336、#337 已完成：所有 LLM 呼叫都經過 `src/lib/llm.ts` 改用 Claude（含 `generate-stream` 舊流程的串流），`src/` 只剩 `openai.ts` 本身與 `mockCompletion()` 待刪；請求帶來的值不進系統提示（R7），`tripPlan.ts` 與舊流程的提示仍有格式已檢查的值，另開 #342。下一步 #338（`UsageMeasurement` 欄位泛化與 Claude 價格），再來 #339（移除 OpenAI、付費腳本與文件）。開發用 key 在本機 `.env` 的 `ANTHROPIC_API_KEY`。本機 Git Bash 跑 `npm test` 會全部失敗（磁碟代號大小寫），改用 PowerShell。
+[PLAN-005](plans/PLAN-005-llm-to-claude-haiku.md)（`in-progress`，父 issue #333，子 issue #334～#340）：LLM 從 OpenAI 換成 Claude Haiku 5.5（[ADR-0012](adr/0012-llm-provider-claude.md) 已 Accepted），分支 `plan-005-llm-to-claude-haiku`。#334 已完成（`src/lib/llm.ts`）；#335 併入 #336、#337。#336、#337 已完成：所有 LLM 呼叫都經過 `src/lib/llm.ts` 改用 Claude（含 `generate-stream` 舊流程的串流），`src/` 只剩 `openai.ts` 本身與 `mockCompletion()` 待刪；請求帶來的值不進系統提示（R7），`tripPlan.ts` 與舊流程的提示仍有格式已檢查的值，另開 #342。#338 已完成：`UsageMeasurement` 的三個欄位改名為 `llm_calls`、`llm_input_tokens`、`llm_output_tokens`（RENAME，舊資料保留）。**合併 PR #341 前要先對 Neon 的 `travel` 與 `travel_mock` 跑 `migrate deploy`（[deploy.md](deploy.md)）**；這次改名不向前相容，兩者之間寫用量紀錄會失敗（只印 warning，不影響請求），所以兩步要接著做。下一步 #339（移除 OpenAI、付費腳本與文件）。開發用 key 在本機 `.env` 的 `ANTHROPIC_API_KEY`。本機 Git Bash 跑 `npm test` 會全部失敗（磁碟代號大小寫），改用 PowerShell。
 
 [PLAN-004](plans/PLAN-004-itinerary-chat.md) 行程聊天助理：草稿（`draft`），等 PLAN-005 完成後再確認範圍與兩個待決定事項（地點事實問題怎麼處理、聊天額度）。對話紀錄只存回覆文字、不回送思考區塊（ADR-0012）。本機分支 `plan-004-itinerary-chat` 沒有 commit，可刪除。
 
