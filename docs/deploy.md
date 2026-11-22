@@ -30,7 +30,7 @@
 | 變數 | Production | Preview |
 | --- | --- | --- |
 | `DATABASE_URL` | `travel` 的 pooled 字串 | `travel_mock` 的 pooled 字串 |
-| `OPENAI_API_KEY` | 真的 key | 不設 |
+| `ANTHROPIC_API_KEY` | 正式用的 key（Claude Console 另建，不用開發用的） | 不設 |
 | `GOOGLE_PLACES_API_KEY` | 真的 key | `mock-not-used`（mock 模式不會送出） |
 | `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` | 瀏覽器 key | 不設（preview 的地圖與地點詳情不載入，避免計費） |
 | `AUTH_SECRET` | 新產生一組 | 另產生一組 |

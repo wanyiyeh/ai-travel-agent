@@ -1,6 +1,6 @@
 ---
 status: stable
-updated: 2026-10-27
+updated: 2026-11-22
 source:
   - src/lib/dayTimeline.ts
   - src/lib/mealDrag.ts
@@ -60,7 +60,7 @@ flowchart TD
 
 ## 成本
 
-- 拖餐點、刪除、加回都不呼叫 Google 或 OpenAI。
+- 拖餐點、刪除、加回都不呼叫 Google 或 Claude。
 - 景點順序改變時，跟以前一樣重新計算交通（Routes）。
 
 ## 已知限制

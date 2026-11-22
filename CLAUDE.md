@@ -1,7 +1,7 @@
 # ai-travel-agent
 
 以機票為核心的 AI 旅遊行程規劃工具。輸入去回程航班與偏好，產生每日景點、住宿、三餐，可再編輯、重新生成或重新規劃城市。作品集專案，尚未部署。
-技術棧：Next.js 16 App Router、React 19、TypeScript、Tailwind CSS、Prisma + PostgreSQL（本機 Docker、正式 Neon）、OpenAI、Google Places / Routes、Auth.js（版本以 `package.json` 為準）。
+技術棧：Next.js 16 App Router、React 19、TypeScript、Tailwind CSS、Prisma + PostgreSQL（本機 Docker、正式 Neon）、Claude API（Anthropic）、Google Places / Routes、Auth.js（版本以 `package.json` 為準）。
 
 ## 1. 工作階段規則
 
@@ -35,7 +35,7 @@
 
 ## 3. 常用指令
 
-- 開發：`npm run dev`（**真實 Google + OpenAI，會花錢，見 R1**）；`npm run dev:mock`（Google 全部假資料、`travel_mock` 資料庫，OpenAI 仍是真的；`-- -p 3001` 換 port）；`npm run dev:free`（Google 與 OpenAI 都是假資料，完全免費）
+- 開發：`npm run dev`（**真實 Google + Claude，會花錢，見 R1**）；`npm run dev:mock`（Google 全部假資料、`travel_mock` 資料庫，Claude 仍是真的；`-- -p 3001` 換 port）；`npm run dev:free`（Google 與 Claude 都是假資料，完全免費）
 - 檢查：`npm run lint`、`npx tsc --noEmit`、`npm run build`
 - 測試：`npm test`（單元，不碰真 DB）；`npx vitest run <檔案>`（單檔）；`npm run test:integration`（真 Postgres `travel_test`、`MOCK_AI=1`，不可平行跑、不可指向開發資料庫）
 - 資料庫：先開 Docker Desktop，`npm run db:up` 啟動本機 Postgres；改 `schema.prisma` 後 `npx prisma migrate dev --name <slug>` 產生 migration
@@ -125,7 +125,7 @@
 **絕對不要**
 
 - 掃描、攻擊、暴力破解或嘗試存取本專案不擁有、或沒有書面授權的系統；只對 localhost、本機 DB 或 mock 測試。
-- 提交、push、記錄或傳給第三方任何秘密：`.env*`、`OPENAI_API_KEY`、`GOOGLE_PLACES_API_KEY`、`NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`、`AUTH_*`、真實使用者資料。
+- 提交、push、記錄或傳給第三方任何秘密：`.env*`、`ANTHROPIC_API_KEY`、`OPENAI_API_KEY`、`GOOGLE_PLACES_API_KEY`、`NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`、`AUTH_*`、真實使用者資料。
 - 用 `git add -A` / `git add .` 一次加入所有檔案；一律指名檔案。
 - 沒有先說明會失去什麼、並取得該次操作的明確同意，就執行不可逆指令：`git reset --hard`、`git clean -f`、`rm -rf`、刪分支（例外：已合併進 `origin/main` 的本機分支可直接用 `git branch -d` 刪除，見 `.claude/rules/git.md`）、清空或刪除資料表。
 - 跳過檢查（`--no-verify`、停用 lint/測試/hook）來硬推 commit。
@@ -136,7 +136,7 @@
 
 **編號規則**（被糾正或踩雷後新增，格式：`R<編號>. 規則（原因，日期）`）
 
-- R1. **付費 API 要先問**：任何會呼叫真實 Google Places/Routes 或 OpenAI 的操作，先說明會呼叫什麼、大約幾次，得到該次執行的同意才跑。包括 `npm run dev`/`next dev`、第 3 節的付費腳本、任何 `tsx scripts/*`、Playwright、對使用者開著的 dev server 發 curl/fetch。免費：`npm test`、`npm run test:integration`、`npm run build`、`npm run dev:free`；`npm run dev:mock` 的 Google 是假的，但 OpenAI 生成仍要先問。驗證優先用 mock fetch 或 `dev:free`（2026-07 Google API 成本暴增後訂定）
+- R1. **付費 API 要先問**：任何會呼叫真實 Google Places/Routes 或 Claude（Anthropic）的操作，先說明會呼叫什麼、大約幾次，得到該次執行的同意才跑。包括 `npm run dev`/`next dev`、第 3 節的付費腳本、任何 `tsx scripts/*`、Playwright、對使用者開著的 dev server 發 curl/fetch。免費：`npm test`、`npm run test:integration`、`npm run build`、`npm run dev:free`；`npm run dev:mock` 的 Google 是假的，但 Claude 生成仍要先問。驗證優先用 mock fetch 或 `dev:free`（2026-07 Google API 成本暴增後訂定）
 - R2. 不用 `git rebase`（含 `-i`）、squash 或 cherry-pick 拆分或整理分支；工作混到同一分支時，之後一個功能一個分支，或手動把相關檔案改動複製到新分支（使用者明確不要，2026-09-06）
 - R3. 開新分支前確認基準是最新的 `origin/main`（`git log --oneline HEAD..origin/main` 為空），分支名不可與本機既有分支重複（重複名稱讓 `git switch -c` 失敗，commit 落到已合併的舊分支，2026-10-11）
 - R4. PR 標題與內容用英文，地名保持原文（從 #86 起，2026-10）
