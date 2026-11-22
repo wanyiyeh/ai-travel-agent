@@ -1,10 +1,14 @@
 # STATUS
 
-更新：2026-10-31
+更新：2026-11-22
 
 > 交接筆記。每次對話結束前**覆蓋**更新，只寫現況，不累加歷史。
 
 ## 現在在做什麼
+
+[PLAN-005](plans/PLAN-005-llm-to-claude-haiku.md)（`in-progress`，父 issue #333，子 issue #334～#340）：LLM 從 OpenAI 換成 Claude Haiku 5.5（[ADR-0012](adr/0012-llm-provider-claude.md) 已 Accepted），分支 `plan-005-llm-to-claude-haiku`。目前只有文件，下一步從 #334 建立 `src/lib/llm.ts` 開始。開發用 key 已放進本機 `.env` 的 `ANTHROPIC_API_KEY`，程式尚未讀取。
+
+[PLAN-004](plans/PLAN-004-itinerary-chat.md) 行程聊天助理：草稿（`draft`），等 PLAN-005 完成後再確認範圍與兩個待決定事項（地點事實問題怎麼處理、聊天額度）。對話紀錄只存回覆文字、不回送思考區塊（ADR-0012）。本機分支 `plan-004-itinerary-chat` 沒有 commit，可刪除。
 
 修正朋友測試正式網站時回報的編輯問題（開普敦 → 赫曼努斯行程）。#286 已完成（PR #291）：移動日的交通改成交通站、早餐改由規則挑選（[ADR-0009](adr/0009-transit-leg-as-pinned-stop.md)）。#287、#292 已完成（PR #293）：午餐、點心、晚餐可在當天拖拉，餐點可以刪除與加回（[ADR-0010](adr/0010-draggable-meals.md)、[功能頁](features/meal-positions.md)）。#288 已完成：行程上方加一行說明哪些可以拖。#290 已完成：重新規劃產生的移動日也有餐點（只用這次本來就查的候選，缺的留空位）。朋友另外反映找不到冰島的機場：已補上 KEF（雷克雅維克）與 ISK 物價。
 
