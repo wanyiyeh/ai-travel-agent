@@ -99,8 +99,8 @@ describe("generate-stream with MOCK_AI and faked Google", () => {
       if (!row) throw new Error("not saved yet");
       return row;
     });
-    expect(measurement).toMatchObject({ mock: true, promptTokens: 0 });
-    expect(measurement!.openaiCalls).toBeGreaterThan(0);
+    expect(measurement).toMatchObject({ mock: true, llmInputTokens: 0 });
+    expect(measurement!.llmCalls).toBeGreaterThan(0);
   });
 
   it("with MOCK_AI=error the fallback is refused too, so the traveler gets an error and nothing is billed", async () => {

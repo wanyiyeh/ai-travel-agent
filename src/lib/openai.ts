@@ -2,7 +2,7 @@ import OpenAI from "openai";
 import { budgetExhaustedResponse } from "@/lib/dailyBudget";
 import { consumeDailyBudget } from "@/lib/sharedState";
 import { getMockMode } from "@/lib/mockAi";
-import { currentTally, recordOpenAICall } from "@/lib/usageMeter";
+import { currentTally, recordLlmCall } from "@/lib/usageMeter";
 
 // MOCK_AI never reaches OpenAI (see the fetch below), so it needs no key.
 if (!process.env.OPENAI_API_KEY && !getMockMode()) {
@@ -34,7 +34,7 @@ export const openai = new OpenAI({
       // carry them by default, so it's counted as a call with 0 tokens.
       const isStream = typeof init?.body === "string" && init.body.includes('"stream":true');
       const usage = !isStream && res.ok ? await res.clone().json().then((b) => b?.usage, () => null) : null;
-      recordOpenAICall(usage);
+      recordLlmCall(usage ? { inputTokens: usage.prompt_tokens ?? 0, outputTokens: usage.completion_tokens ?? 0 } : null);
     }
     return res;
   },

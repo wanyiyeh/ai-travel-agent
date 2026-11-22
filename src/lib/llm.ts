@@ -4,7 +4,7 @@ import type { z } from "zod";
 import { budgetExhaustedResponse } from "@/lib/dailyBudget";
 import { consumeDailyBudget } from "@/lib/sharedState";
 import { getMockMode, mockDelay } from "@/lib/mockAi";
-import { recordOpenAICall } from "@/lib/usageMeter";
+import { recordLlmCall } from "@/lib/usageMeter";
 
 // Every Claude request in the app goes through this module (ADR-0012): one
 // client whose fetch is the choke point for MOCK_AI, the site-wide daily
@@ -101,11 +101,10 @@ function requestParams<S extends z.ZodType>(req: LlmRequest<S>) {
 }
 
 function recordUsage(usage: Anthropic.Usage | null): void {
-  recordOpenAICall(
+  recordLlmCall(
     usage && {
-      prompt_tokens:
-        usage.input_tokens + (usage.cache_creation_input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0),
-      completion_tokens: usage.output_tokens,
+      inputTokens: usage.input_tokens + (usage.cache_creation_input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0),
+      outputTokens: usage.output_tokens,
     },
   );
 }

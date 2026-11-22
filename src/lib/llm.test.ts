@@ -110,7 +110,7 @@ describe("generateObject", () => {
       await generateObject(request);
       return currentTally();
     });
-    expect(tally?.openai).toEqual({ calls: 1, promptTokens: 125, completionTokens: 30 });
+    expect(tally?.llm).toEqual({ calls: 1, inputTokens: 125, outputTokens: 30 });
   });
 
   it("makes no request once the daily budget is spent", async () => {

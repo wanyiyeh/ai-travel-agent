@@ -13,7 +13,7 @@
  */
 
 import type OpenAI from "openai";
-import { recordOpenAICall } from "@/lib/usageMeter";
+import { recordLlmCall } from "@/lib/usageMeter";
 
 export type MockMode = "error" | "slow" | "fixture" | null;
 
@@ -183,7 +183,7 @@ export async function mockCompletion(reply: () => unknown): Promise<OpenAI.Chat.
   if (!mode) return null;
   // Counted like MOCK_PLACES counts Google calls, so a mock run still shows
   // how many calls a real one makes (tokens stay 0).
-  recordOpenAICall(null);
+  recordLlmCall(null);
   if (mode === "slow") await mockDelay();
   if (mode === "error") throw new Error("Mock AI error (MOCK_AI=error)");
   return {
