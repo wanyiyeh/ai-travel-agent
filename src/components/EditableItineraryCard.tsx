@@ -1290,11 +1290,11 @@ export default function EditableItineraryCard({
           </p>
         </div>
 
-        <div data-print-hidden className="sticky top-2 z-20 flex items-center gap-2 overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white/90 dark:bg-zinc-900/90 backdrop-blur px-3 py-2 shadow-sm">
+        <div data-print-hidden className="sticky top-2 z-20 flex items-center gap-2 overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white/90 dark:bg-zinc-900/90 backdrop-blur px-2 sm:px-3 py-1.5 sm:py-2 shadow-sm">
           <button
             data-readonly-keep
             onClick={toggleAll}
-            className="shrink-0 rounded-md bg-zinc-100 dark:bg-zinc-800 px-2.5 py-1 text-xs font-medium text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors"
+            className="shrink-0 rounded-md bg-zinc-100 dark:bg-zinc-800 px-3 py-2.5 sm:px-2.5 sm:py-1 text-xs font-medium text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors"
           >
             {anyCollapsed ? "展開全部" : "折疊全部"}
           </button>
@@ -1304,7 +1304,7 @@ export default function EditableItineraryCard({
               key={day.day}
               data-readonly-keep
               onClick={() => scrollToDay(day.day)}
-              className="shrink-0 rounded-md bg-zinc-100 dark:bg-zinc-800 px-2.5 py-1 text-xs text-zinc-600 dark:text-zinc-400 hover:bg-blue-100 dark:hover:bg-blue-900/40 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+              className="shrink-0 rounded-md bg-zinc-100 dark:bg-zinc-800 px-3 py-2.5 sm:px-2.5 sm:py-1 text-xs text-zinc-600 dark:text-zinc-400 hover:bg-blue-100 dark:hover:bg-blue-900/40 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
             >
               Day {day.day}
             </button>
@@ -1723,7 +1723,7 @@ export default function EditableItineraryCard({
                 );
 
                 return (
-                  <div className="p-5">
+                  <div className="p-4 sm:p-5">
                     {day.tourKeyword && (
                       <p className="mb-3 text-sm text-zinc-500 dark:text-zinc-400">
                         🎫 也可以跟團去：

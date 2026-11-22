@@ -79,7 +79,7 @@ export function SortableStop({
     <div
       ref={setNodeRef}
       style={style}
-      className={`flex gap-4 pb-6 last:pb-0 border-b last:border-b-0 border-zinc-100 dark:border-zinc-800 transition-opacity${
+      className={`flex gap-3 sm:gap-4 pb-6 last:pb-0 border-b last:border-b-0 border-zinc-100 dark:border-zinc-800 transition-opacity${
         isLoading ? " opacity-50" : ""
       }${isDragging ? " opacity-30" : ""}`}
     >

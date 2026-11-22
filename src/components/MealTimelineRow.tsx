@@ -61,7 +61,7 @@ export function MealTimelineRow({
   );
 
   return (
-    <div className="flex gap-4">
+    <div className="flex gap-3 sm:gap-4">
       <div
         className={`shrink-0 w-9 h-9 rounded-full bg-amber-50 dark:bg-amber-950/40 flex items-center justify-center text-base${
           dragHandle ? " cursor-grab active:cursor-grabbing" : ""
