@@ -61,6 +61,8 @@ import { TRANSIT_STOP_KIND, withoutZeroFare } from "@/lib/transitStop";
 // prompt describes the same fields).
 // City names can be typed by the traveler (restructure), so they ride in the
 // user message as tagged data, never in a system prompt (untrustedInput.ts).
+// The day counts, also from the request there, ride in the user message too:
+// a system prompt holds only our own text.
 function transitCities(fromCity: string, toCity: string): string {
   return `出發城市：\n${wrapUntrusted(fromCity || "出發地")}\n目的地城市：\n${wrapUntrusted(toCity)}`;
 }
@@ -970,7 +972,7 @@ async function askMealsAndLodging(
 ): Promise<z.infer<typeof MealsAndLodgingReplySchema>> {
   return generateObject({
     model,
-    system: `你是專業的旅遊規劃專家。請為旅行者在這座城市停留 ${stayDays} 天的行程推薦住宿和每日四餐（早餐、午餐、晚餐、點心）；城市名稱在使用者訊息裡。
+    system: `你是專業的旅遊規劃專家。請為旅行者在這座城市停留期間推薦住宿和每日四餐（早餐、午餐、晚餐、點心）；城市名稱與停留天數在使用者訊息裡。
 
 回傳嚴格的 JSON 格式（不要其他文字）：
 {
@@ -987,7 +989,7 @@ async function askMealsAndLodging(
 
 規則：
 - accommodation 為整個在這座城市停留期間的住宿，必須是真實存在且可在 Booking.com 找到的飯店
-- meals 陣列共 ${stayDays} 個元素，每天推薦不同的餐廳
+- meals 陣列的元素數等於停留天數，每天一個，推薦不同的餐廳
 - 所有餐廳必須是這座城市真實存在的知名店家；snack 須為咖啡館、甜點店或冰淇淋店，不可填正餐型餐廳
 - estimated_cost 為 ${currency} 整數，代表每人平均消費${preferenceRules}${UNTRUSTED_INPUT_RULE}`,
     user: `${cityLine(cityName)}\n請為旅行者在這座城市停留 ${stayDays} 天推薦住宿和每日四餐（早餐、午餐、晚餐、點心）。`,
@@ -1005,7 +1007,7 @@ async function generateDayStopsWithLLM(
   currency: string
 ): Promise<Array<Array<Record<string, unknown>>>> {
   const reply = await generateObject({
-    system: `你是專業的旅遊規劃專家。請為旅行者規劃在這座城市停留 ${stayDays} 天的景點行程；城市名稱在使用者訊息裡。
+    system: `你是專業的旅遊規劃專家。請為旅行者規劃在這座城市停留期間的景點行程；城市名稱與停留天數在使用者訊息裡。
 
 回傳嚴格的 JSON 格式（不要其他文字）：
 {
@@ -1026,7 +1028,7 @@ async function generateDayStopsWithLLM(
 }
 
 規則：
-- 共生成 ${stayDays} 天，每天 3-4 個景點
+- days 陣列的元素數等於停留天數，每天 3-4 個景點
 - time_of_day 只能是 "morning"、"afternoon"、"evening" 之一
 - duration_minutes 為整數（分鐘）
 - estimated_cost 為 ${currency} 貨幣的整數，免費景點填 0

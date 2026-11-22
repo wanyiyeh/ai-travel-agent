@@ -285,6 +285,9 @@ describe("generateMealsAndAccommodation", () => {
     expect(generateObject).toHaveBeenCalledTimes(1);
     // The city can be typed by the traveler (restructure).
     expectOnlyAsUserData(llmRequests(generateObject)[0], "小鎮");
+    // So can the day count; the system prompt holds only our own text.
+    expect(llmRequests(generateObject)[0].system).not.toMatch(/\d+ 天/);
+    expect(llmRequests(generateObject)[0].user).toContain("停留 1 天");
     expect(result.accommodation).toEqual({ name: "Some Hotel", area: "X" });
     expect(result.mealsByDay[0]).toEqual(day);
   });
