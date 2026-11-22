@@ -1,10 +1,12 @@
 # STATUS
 
-更新：2026-11-22
+更新：2026-11-23
 
 > 交接筆記。每次對話結束前**覆蓋**更新，只寫現況，不累加歷史。
 
 ## 現在在做什麼
+
+[PLAN-006](plans/PLAN-006-mobile-layout.md)（`in-progress`，父 issue #344，分支 `plan-006-mobile-layout`）：手機版（響應式網頁），目標是面試官用手機點開公開範例不跑版，一週內完成。#345 截圖盤點已完成，結果在 #344 的留言：所有已截頁面都沒有水平捲軸，問題在外距、觸控大小、標題列擠、首頁城市選單太窄。第一個 PR 包含 #345～#347：共用的 `ResponsiveDialog`（手機從底部滑出）、`MoreMenu`、手機輸入框 16px、頁面外距，以及行程頁的標題列、麵包屑、Day 分頁。截圖用 scratchpad 裡的一次性 Playwright 腳本，對 `dev:free`（port 3005）跑；本機的 Playwright 套件比已安裝的瀏覽器新，腳本用 `executablePath` 指向 `ms-playwright/chromium-1223`。本機 `travel_mock` 把行程 `1f892280…` 設成公開、不會過期，當作公開範例的截圖對象。唯讀頁仍顯示拖拉提示，另開 #353。
 
 [PLAN-005](plans/PLAN-005-llm-to-claude-haiku.md)（`done`，父 issue #333 在 PR #341 合併時關閉）：LLM 從 OpenAI 換成 Claude Haiku 5.5（[ADR-0012](adr/0012-llm-provider-claude.md)）。所有呼叫經過 `src/lib/llm.ts`，`openai` 已移除；請求帶來的值不進系統提示（R7，`tripPlan.ts` 與舊流程另見 #342）。#340 已用真實 Claude 驗收（`dev:mock`）：規則引擎每次生成約 US$0.001～0.002、舊流程約 US$0.005，內容合理，數字在 [runbook](runbook.md)。PR #341 已合併（2026-11-22）；合併前已對 Neon 的 `travel`、`travel_mock` 跑 `migrate deploy`，Vercel Production 已設 `ANTHROPIC_API_KEY`（到期日以 Claude Console 的 API Keys 頁為準）。開發用 key 在本機 `.env` 的 `ANTHROPIC_API_KEY`。本機 Git Bash 跑 `npm test` 會全部失敗（磁碟代號大小寫），改用 PowerShell；用 curl 送中文要寫成 UTF-8 檔案再 `--data-binary @檔案`，直接放在參數裡會變亂碼。
 
@@ -22,11 +24,12 @@
 
 ## 下一步
 
-1. 在正式網站生成一次，確認 Claude 正常；確認後移除 Vercel 的 `OPENAI_API_KEY`。`.github/workflows/ci.yml` 裡沒用到的 `OPENAI_API_KEY` 由使用者自己移除（token 不能改 workflow）。#47（升級 `openai`）可關閉。
-2. #332 把 Next.js 升到 16.4.6，可能解決本機 build 與 dev server 被版本安全檢查擋下的問題；本機開發用的 Anthropic key 在 Claude Console 顯示 2 月 22 日到期，到期後本機生成會失敗。本機分支 `plan-004-itinerary-chat` 沒有 commit，可刪除。
-3. #181 剩三件（使用者操作）：確認「My gmail」通知管道的實際地址、Gmail 搜尋以前的預算警示寄到哪、#214 時實際收到一次通知。預算提醒已連結自己的 email；Maps 的硬上限是每日配額（Google 新的支出上限不支援 Maps）。換成 Claude 後，Anthropic Console 的支出上限與「不用 API 資料訓練」要由使用者確認（`/privacy` 已依商業條款這樣寫）。
-4. PLAN-005 合併後回到 [PLAN-004](plans/PLAN-004-itinerary-chat.md) 聊天助理的確認；#214 的公開範例（會花錢，先問），之後 #215 正式公開。#261：由使用者在 Google Cloud 的 OAuth 同意畫面填上正式網址的 `/privacy`。
-5. 朋友冰島行程的 issue 都已合併；#295 剩下的情況仍是已知限制。
+1. PLAN-006：第一個 PR 合併後，依序做 #348 首頁表單 → #349 行程頁編輯（先截擁有者的行程頁：本機 `travel_mock` 2026-11-23 的訪客生成名額已滿，隔天才能用訪客生成）→ #350 → #351 → #352。地圖模式的手機截圖還沒拍（會用真的 Maps key，要再問使用者）。
+2. 正式網站已用 Claude 生成成功（2026-11-22，雪梨 7 天）。剩使用者操作：移除 Vercel 的 `OPENAI_API_KEY`、撤銷 OpenAI 的 key、關閉 #47（升級 `openai`）。`.github/workflows/ci.yml` 裡沒用到的 `OPENAI_API_KEY` 是假字串、不影響 CI，等下次改 CI 設定時由使用者順手刪（token 不能改 workflow）。
+3. #332 把 Next.js 升到 16.4.6，可能解決本機 build 與 dev server 被版本安全檢查擋下的問題；本機開發用的 Anthropic key 在 Claude Console 顯示 2 月 22 日到期，到期後本機生成會失敗。本機分支 `plan-004-itinerary-chat` 沒有 commit，可刪除。
+4. #181 剩三件（使用者操作）：確認「My gmail」通知管道的實際地址、Gmail 搜尋以前的預算警示寄到哪、#214 時實際收到一次通知。預算提醒已連結自己的 email；Maps 的硬上限是每日配額（Google 新的支出上限不支援 Maps）。換成 Claude 後，Anthropic Console 的支出上限與「不用 API 資料訓練」要由使用者確認（`/privacy` 已依商業條款這樣寫）。
+5. PLAN-005 合併後回到 [PLAN-004](plans/PLAN-004-itinerary-chat.md) 聊天助理的確認；#214 的公開範例（會花錢，先問），之後 #215 正式公開。#261：由使用者在 Google Cloud 的 OAuth 同意畫面填上正式網址的 `/privacy`。
+6. 朋友冰島行程的 issue 都已合併；#295 剩下的情況仍是已知限制。
 
 ## 卡點與待決定
 
