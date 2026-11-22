@@ -645,7 +645,7 @@ export default function Home() {
     fixedEventDrafts.every((d) => !draftProblem(d, departureDate, returnDate));
 
   return (
-    <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 py-16 px-4">
+    <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 py-6 sm:py-16 px-4">
       <div className="max-w-2xl mx-auto">
         {/* Header */}
         <div className="mb-10 flex items-center justify-between">
