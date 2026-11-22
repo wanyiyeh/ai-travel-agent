@@ -231,7 +231,7 @@ export function quotaExceededResponse(decision: Extract<QuotaDecision, { ok: fal
 
 // For the paid-edit routes (plan/access-control.md §2): check the caller's
 // quota and record the edit. Returns a 429 response to send back, or null to
-// carry on. Call it right before the route's first OpenAI/Google call.
+// carry on. Call it right before the route's first LLM/Google call.
 export async function chargePaidEdit(request: Request, actor: Actor, itineraryId: string): Promise<Response | null> {
   const fingerprint = requestFingerprint(request);
   const decision = await checkQuota(actor, "paid_edit", fingerprint, itineraryId);

@@ -10,7 +10,7 @@
  *   npm run cleanup-google-content                                        # dry run, dev database
  *   npm run cleanup-google-content -- --yes                               # dev database
  *   DATABASE_URL="postgresql://travel:travel@localhost:5432/travel_mock" npm run cleanup-google-content -- --yes # travel_mock
- * Safe to run again. Makes no Google/OpenAI calls.
+ * Safe to run again. Makes no Google/LLM calls.
  */
 
 import { PrismaClient } from "@prisma/client";

@@ -15,7 +15,7 @@ labels: feature
 （避免範圍蔓延）
 
 ## 付費 API
-會不會呼叫真實的 Google / OpenAI 驗證？大約幾次？（沒有就寫「無」）
+會不會呼叫真實的 Google / Claude 驗證？大約幾次？（沒有就寫「無」）
 
 ## 相關文件
 PLAN：docs/plans/PLAN-xxx.md ／ ADR：docs/adr/xxxx-xxx.md ／ 功能頁：docs/features/xxx.md

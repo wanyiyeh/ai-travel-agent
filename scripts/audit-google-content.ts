@@ -5,7 +5,7 @@
  *
  *   npm run audit-google-content                                  # dev database (DATABASE_URL in .env)
  *   DATABASE_URL="postgresql://travel:travel@localhost:5432/travel_mock" npm run audit-google-content    # travel_mock
- * Makes no Google/OpenAI calls.
+ * Makes no Google/LLM calls.
  */
 
 import { PrismaClient } from "@prisma/client";

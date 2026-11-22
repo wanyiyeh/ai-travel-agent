@@ -1,7 +1,7 @@
 // Cloudflare Turnstile (CAPTCHA) check before a trip generation, to stop
 // scripted bulk generation (plan/access-control.md §3, layer 5). The browser
 // widget yields a single-use token; the server confirms it with Cloudflare.
-// Siteverify is free and isn't a Google/OpenAI call.
+// Siteverify is free and isn't a Google/LLM call.
 
 const SITEVERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify";
 

@@ -8,7 +8,7 @@
  * Replicates the exact success/fallback decision generate-stream/route.ts
  * makes (assembleItineraryDays -> repairTransitDayDepartureCities/
  * repairMissingAccommodation -> validateItinerary + validateGeography), one
- * scenario at a time, against real OpenAI + Google Places APIs. Does NOT hit
+ * scenario at a time, against real Claude + Google Places APIs. Does NOT hit
  * the HTTP route or write to the DB — calls the same lib functions the route
  * calls, so no dev server needs to be running.
  *
@@ -25,8 +25,6 @@ try {
     if (match && !process.env[match[1]]) process.env[match[1]] = match[2];
   }
 } catch {}
-
-const MODEL = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
 
 type Scenario = {
   label: string;
@@ -102,9 +100,10 @@ type ScenarioResult = {
 };
 
 async function main() {
-  // Dynamic imports: src/lib/openai.ts throws at import time if
-  // OPENAI_API_KEY isn't set yet (see CLAUDE.local.md's "known sharp edges"),
+  // Dynamic imports: src/lib modules read the environment when they load,
   // so these must come after the .env load above.
+  const { llmModel } = await import("../src/lib/llm");
+  const MODEL = llmModel();
   const { assembleItineraryDays } = await import("../src/lib/assembleItineraryDays");
   const { repairMissingAccommodation, repairTransitDayDepartureCities } = await import("../src/lib/itineraryGen");
   const { validateItinerary } = await import("../src/lib/validateItinerary");
@@ -112,7 +111,7 @@ async function main() {
   const { iataToCity } = await import("../src/lib/iataCity");
 
   console.log(`=== Phase 6 scoping: 規則引擎路徑批量真實測試（model=${MODEL}） ===`);
-  console.log(`共 ${SCENARIOS.length} 組情境，會打真實 OpenAI + Google Places API，預期需要數分鐘。\n`);
+  console.log(`共 ${SCENARIOS.length} 組情境，會打真實 Claude + Google Places API，預期需要數分鐘。\n`);
 
   const results: ScenarioResult[] = [];
 

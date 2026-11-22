@@ -28,7 +28,6 @@ export default defineConfig({
       // Tests stub fetch; a missing stub must fail, not bill. Prisma loads
       // .env, which never overrides a variable already set.
       GOOGLE_PLACES_API_KEY: "",
-      OPENAI_API_KEY: "integration-tests-never-call-openai",
       // Open-Meteo has no key to blank (climate.ts).
       CLIMATE_LOOKUPS: "off",
     },

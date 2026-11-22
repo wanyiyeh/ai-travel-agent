@@ -11,7 +11,7 @@ import { isMockPlaces } from "@/lib/mockPlaces";
 // is for non-commercial use only — fine for a portfolio project, a paid plan
 // before this goes commercial. Not a Google service, so it doesn't go through
 // googleFetch: MOCK_PLACES fakes it here, and tests turn it off with
-// CLIMATE_LOOKUPS=off (no key to blank, unlike Google and OpenAI).
+// CLIMATE_LOOKUPS=off (no key to blank, unlike Google and Claude).
 //
 // 3c-4 adds what each day's schedule needs (dayConditions.ts): how often it
 // rains that month and when the sun sets.

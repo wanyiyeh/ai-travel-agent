@@ -9,7 +9,7 @@ const { POST } = await import("@/app/api/v1/generate-stream/route");
 // paying for it. MOCK_AI (set for the whole integration suite) answers every
 // model call from mockAi.ts, and Google is faked the way MOCK_PLACES fakes it
 // — so a full trip comes back through the rule-engine path, saved like any
-// other, with no request ever reaching OpenAI.
+// other, with no request ever reaching Claude.
 
 type StreamEvent = { type: string; [key: string]: unknown };
 
@@ -64,7 +64,7 @@ afterEach(() => {
 });
 
 describe("generate-stream with MOCK_AI and faked Google", () => {
-  it("builds and saves a whole trip through the rule-engine path, never calling OpenAI", async () => {
+  it("builds and saves a whole trip through the rule-engine path, never calling Claude", async () => {
     vi.stubEnv("TURNSTILE_SECRET_KEY", ""); // bot check off; it has its own tests
     vi.stubEnv("GOOGLE_PLACES_API_KEY", "integration-fake-key");
     const urls = fakeNetwork();
@@ -76,7 +76,7 @@ describe("generate-stream with MOCK_AI and faked Google", () => {
     const events = await readEvents(res);
 
     // A "complete" can only come from the rule-engine path here: the old
-    // full-LLM fallback is refused by openai.ts under MOCK_AI.
+    // full-LLM fallback is refused by llm.ts under MOCK_AI.
     expect(events.map((e) => e.type)).toContain("plan");
     expect(events.find((e) => e.type === "error")).toBeUndefined();
     const complete = events.find((e) => e.type === "complete") as { data: { days: unknown[] }; id: string } | undefined;
@@ -86,7 +86,7 @@ describe("generate-stream with MOCK_AI and faked Google", () => {
     const saved = await prisma.itinerary.findUnique({ where: { id: complete!.id } });
     expect(saved).not.toBeNull();
 
-    expect(urls.filter((u) => isHost(u, "openai.com"))).toEqual([]);
+    expect(urls.filter((u) => isHost(u, "anthropic.com"))).toEqual([]);
 
     // The run's call counts outlive the log (usageMeter.ts), marked as mock:
     // mocked model calls are counted like a real run's, with no tokens.
@@ -117,7 +117,7 @@ describe("generate-stream with MOCK_AI and faked Google", () => {
 
     expect(events.find((e) => e.type === "complete")).toBeUndefined();
     expect(events.map((e) => e.type)).toContain("error");
-    expect(urls.filter((u) => isHost(u, "openai.com"))).toEqual([]);
+    expect(urls.filter((u) => isHost(u, "anthropic.com"))).toEqual([]);
   });
 
   // Story: on Vercel the function is cut off at maxDuration. When the
@@ -141,6 +141,6 @@ describe("generate-stream with MOCK_AI and faked Google", () => {
     expect(events.find((e) => e.type === "complete")).toBeUndefined();
     expect(events.find((e) => e.type === "error")).toMatchObject({ code: "timeout", error: "生成時間過長" });
     expect(await prisma.itinerary.count()).toBe(before);
-    expect(urls.filter((u) => isHost(u, "openai.com"))).toEqual([]);
+    expect(urls.filter((u) => isHost(u, "anthropic.com"))).toEqual([]);
   });
 });

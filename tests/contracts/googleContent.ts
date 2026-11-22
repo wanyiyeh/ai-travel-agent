@@ -1,6 +1,6 @@
 import { expect } from "vitest";
 
-// ADR-0008: no Google Maps content may reach an OpenAI prompt. Tests name
+// ADR-0008: no Google Maps content may reach an LLM prompt. Tests name
 // their fake Google places with googleName(), which carries a marker no real
 // text contains, then check every captured prompt for it.
 
@@ -15,9 +15,4 @@ export function expectNoGoogleContent(...inputs: unknown[]) {
     const text = typeof input === "string" ? input : JSON.stringify(input);
     expect(text, "Google Maps content reached an LLM input (ADR-0008)").not.toContain(GOOGLE_CONTENT_MARKER);
   }
-}
-
-/** The `messages` of every call made to a mocked `openai.chat.completions.create`. */
-export function capturedMessages(create: { mock: { calls: unknown[][] } }): unknown[] {
-  return create.mock.calls.map((args) => (args[0] as { messages?: unknown }).messages);
 }

@@ -122,7 +122,7 @@ export async function POST(
     const access = await authorizeItinerary(itineraryId);
     if (!access.ok) return access.response;
     const { itinerary } = access;
-    // Adding a stop by name calls Google + OpenAI (the batch path above
+    // Adding a stop by name calls Google + Claude (the batch path above
     // doesn't), so only this path counts as a paid edit.
     const charged = await chargePaidEdit(request, access.actor, itineraryId);
     if (charged) return charged;

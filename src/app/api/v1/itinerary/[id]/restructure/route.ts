@@ -49,7 +49,7 @@ const CitySchema = z.object({
   lockedAttractions: z.array(LockedAttractionSchema).max(MAX_CITY_DAYS).default([]),
 });
 
-// Every city and day here is generated in parallel (OpenAI + Google per
+// Every city and day here is generated in parallel (Claude + Google per
 // city), so the whole request is held to the same trip-length cap as a
 // fresh generation.
 const RequestSchema = z.object({

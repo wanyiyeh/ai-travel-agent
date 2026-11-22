@@ -13,8 +13,8 @@ afterEach(() => {
 describeDailyBudget("memory", (limits) => createMemoryDailyBudget(limits));
 
 describe("budgetExhaustedResponse", () => {
-  it("tells the OpenAI SDK not to retry the synthetic 429", () => {
-    const res = budgetExhaustedResponse("openai");
+  it("tells the SDK not to retry the synthetic 429", () => {
+    const res = budgetExhaustedResponse("claude");
     expect(res.status).toBe(429);
     expect(res.headers.get("x-should-retry")).toBe("false");
   });

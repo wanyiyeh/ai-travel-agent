@@ -11,7 +11,7 @@
  * live (scripts/lib/livePlaceEssentials.ts), only with --yes; without it the
  * type-based metrics are left out.
  *
- * REAL OpenAI + Google calls — confirm before running (CLAUDE.local.md).
+ * REAL Claude + Google calls — confirm before running (CLAUDE.md R1).
  *
  *   npm run eval-form-fidelity -- --dry-run            list scenarios, no API calls
  *   npm run eval-form-fidelity                         run everything
@@ -24,7 +24,7 @@
 import { withDomesticTimes } from "../src/lib/domesticTrips";
 import { mkdirSync, readFileSync, writeFileSync } from "fs";
 import { resolve } from "path";
-// No import-time side effects (unlike openai.ts), so safe before the .env load.
+// No import-time side effects (unlike modules that read the environment), so safe before the .env load.
 import { NIGHTCAP_TYPES } from "../src/lib/drinkPlaces";
 import { haversineKm } from "../src/lib/geo";
 import { loadPlaceEssentials } from "./lib/livePlaceEssentials";
@@ -36,8 +36,6 @@ try {
     if (match && !process.env[match[1]]) process.env[match[1]] = match[2];
   }
 } catch {}
-
-const MODEL = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
 
 type Preferences = {
   pace?: "relaxed" | "moderate" | "intensive";
@@ -906,16 +904,19 @@ async function main() {
   const only = args.find((a) => a.startsWith("--only="))?.slice("--only=".length).split(",");
   const scenarios = only ? SCENARIOS.filter((s) => only.includes(s.id)) : SCENARIOS;
 
+  // Read after the .env load: llm.ts's imports read the environment when they load.
+  const { llmModel } = await import("../src/lib/llm");
+  const MODEL = llmModel();
   console.log(`=== 表單選項評分（model=${MODEL}）：${scenarios.length} 個情境 ===`);
   for (const s of scenarios) console.log(`  - ${s.id}: ${s.label}`);
   if (dryRun) {
     console.log("\n--dry-run：只列出情境，沒有呼叫任何 API。");
     return;
   }
-  console.log("\n會呼叫真實的 OpenAI + Google Places API。\n");
+  console.log("\n會呼叫真實的 Claude + Google Places API。\n");
 
-  // Dynamic imports: src/lib/openai.ts throws at import time without
-  // OPENAI_API_KEY, so these must come after the .env load above.
+  // Dynamic imports: src/lib modules read the environment when they load,
+  // so these must come after the .env load above.
   const { assembleItineraryDays } = await import("../src/lib/assembleItineraryDays");
   const { repairMissingAccommodation, repairTransitDayDepartureCities } = await import("../src/lib/itineraryGen");
   const { validateItinerary } = await import("../src/lib/validateItinerary");

@@ -24,7 +24,7 @@ create "p1"               "d93f0b" "高"
 create "p2"               "fbca04" "一般"
 # special
 create "plan"             "0e8a16" "對應 docs/plans 的父 issue"
-create "cost"             "f9a825" "影響 Google / OpenAI 花費"
+create "cost"             "f9a825" "影響 Google / Claude 花費"
 create "later"            "ededed" "暫緩，之後再做"
 create "blocked"          "e99695" "被卡住"
 create "needs-decision"   "f9d0c4" "等使用者拍板"

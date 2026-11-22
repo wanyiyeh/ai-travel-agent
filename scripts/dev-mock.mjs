@@ -2,7 +2,7 @@
 // call faked (MOCK_PLACES=1, see src/lib/mockPlaces.ts) against a separate
 // travel_mock database (docker-compose.yml), so clicking through UI flows
 // costs nothing on Google.
-// OpenAI calls are still real. Explicit process env wins over .env / .env.local
+// Claude calls are still real. Explicit process env wins over .env / .env.local
 // for both Prisma and Next.js, so this doesn't touch your normal setup.
 //
 // `npm run dev:free` (--mock-ai) also sets MOCK_AI=1 (src/lib/mockAi.ts), so

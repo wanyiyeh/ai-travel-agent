@@ -30,7 +30,7 @@ export async function proxy(request: NextRequest) {
   }
 
   // Per-client rate limit first, keyed by IP + cost tier, so a client
-  // looping on an OpenAI/Google route gets a 429 before the route runs.
+  // looping on an LLM/Google route gets a 429 before the route runs.
   const tier = classifyApiPath(request.nextUrl.pathname, request.method);
   const rule = RATE_LIMITS[tier];
   // Keyed by the IP's hash: the store is a database table, and a raw IP

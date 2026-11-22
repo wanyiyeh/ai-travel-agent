@@ -18,7 +18,7 @@ import { llmModel } from "@/lib/llm";
 
 const RequestSchema = z.object({
   itineraryId: z.string().min(1),
-  // context goes into the OpenAI prompt; excludeNames only filters.
+  // context goes into the LLM prompt; excludeNames only filters.
   context: z.string().max(MAX_TEXT_LENGTH).optional(),
   excludeNames: z.array(z.string().max(MAX_NAME_LENGTH)).max(MAX_NAME_LIST_LENGTH).optional(),
   // Only set when called from the single-stop "換一個" picker — a specific
