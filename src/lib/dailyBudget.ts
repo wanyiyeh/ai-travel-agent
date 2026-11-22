@@ -1,17 +1,19 @@
 // Site-wide circuit breaker: a hard cap on billable outbound calls per UTC
-// day, counted at the two choke points (googleFetch and the OpenAI client's
-// fetch). Per-IP limits in rateLimit.ts can be dodged by spreading requests
+// day, counted at the choke points (googleFetch, and the OpenAI and Claude
+// clients' fetch in openai.ts and llm.ts). Per-IP limits in rateLimit.ts can be dodged by spreading requests
 // over many IPs; this can't. The count the app uses lives in Postgres
 // (sharedStatePostgres.ts), so every server instance shares it (#209); the
 // GCP daily quotas and the OpenAI project spend limit are the outer caps.
 
-export type BudgetedService = "google" | "openai";
+// "openai" goes away once every call has moved to Claude (PLAN-005).
+export type BudgetedService = "google" | "openai" | "claude";
 
 // Well above a busy day of real use: one trip generation makes on the order
-// of 50–100 Google calls and a dozen or so OpenAI calls.
+// of 50–100 Google calls and a dozen or so LLM calls.
 export const DAILY_CALL_BUDGET: Record<BudgetedService, number> = {
   google: 3000,
   openai: 1000,
+  claude: 1000,
 };
 
 export interface DailyBudgetStore {

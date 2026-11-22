@@ -120,7 +120,7 @@ export function describeDailyBudget(name: string, makeBudget: (limits: Record<Bu
     const nextDay = day + 24 * 60 * 60 * 1000;
 
     it("refuses once the day's budget is used, per service, and starts over the next UTC day", async () => {
-      const budget = makeBudget({ google: 5, openai: 2 });
+      const budget = makeBudget({ google: 5, openai: 2, claude: 2 });
       for (let i = 0; i < 2; i++) expect(await budget.consume("openai", day)).toBe(true);
       expect(await budget.consume("openai", day)).toBe(false);
       expect(await budget.consume("google", day)).toBe(true);
@@ -128,7 +128,7 @@ export function describeDailyBudget(name: string, makeBudget: (limits: Record<Bu
     });
 
     it("lets exactly the budget through when calls arrive at once", async () => {
-      const budget = makeBudget({ google: 5, openai: 5 });
+      const budget = makeBudget({ google: 5, openai: 5, claude: 5 });
       const later = nextDay + 24 * 60 * 60 * 1000;
       const results = await Promise.all(Array.from({ length: 12 }, () => budget.consume("google", later)));
       expect(results.filter(Boolean)).toHaveLength(5);
