@@ -142,3 +142,4 @@
 - R4. PR 標題與內容用英文，地名保持原文（從 #86 起，2026-10）
 - R5. `prisma/dev.db` 不進 git（存的是付費 API 快取，跟著切分支會被倒回舊版、重複計費）；checkout `1374c24` 以前的 commit 會覆蓋或刪除本機 `dev.db`，要先備份
 - R6. 判斷網址屬於哪個網域時（包括測試裡的假網路），用 `new URL(url).hostname` 比對「完全相同」或「以 `.網域` 結尾」，不用 `includes` 或只用 `endsWith("網域")`（CodeQL 兩次標為 Incomplete URL substring sanitization：`evilgoogleapis.com` 也會符合，#216、#228，2026-10-21）
+- R7. LLM 的系統提示只放我們自己的文字：請求帶來的任何值（城市名稱、天數、機場代碼，即使有格式檢查）一律放 user 訊息，文字用 `wrapUntrusted` 包起來，系統提示改說「使用者訊息裡的…」（CodeQL js/system-prompt-injection 會從 `request.json()` 追到 `src/lib/llm.ts` 的 `system`；在這個共用出口 dismiss 會遮住之後真正的注入，PR #341，2026-11-22）

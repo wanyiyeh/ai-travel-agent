@@ -6,7 +6,7 @@
 
 ## 現在在做什麼
 
-[PLAN-005](plans/PLAN-005-llm-to-claude-haiku.md)（`in-progress`，父 issue #333，子 issue #334～#340）：LLM 從 OpenAI 換成 Claude Haiku 5.5（[ADR-0012](adr/0012-llm-provider-claude.md) 已 Accepted），分支 `plan-005-llm-to-claude-haiku`。#334 已完成（`src/lib/llm.ts`）；#335 併入 #336、#337。#336 的程式已 push（除了 `generate-stream` 舊流程的串流呼叫，其餘呼叫點都改用 Claude），`ci` 通過，但 CodeQL 標了一個新警示，待使用者在 GitHub 查看來源後決定怎麼修，#336 尚未關閉。之後是 #337（`generate-stream` 舊流程的串流）。開發用 key 在本機 `.env` 的 `ANTHROPIC_API_KEY`。本機 Git Bash 跑 `npm test` 會全部失敗（磁碟代號大小寫），改用 PowerShell。
+[PLAN-005](plans/PLAN-005-llm-to-claude-haiku.md)（`in-progress`，父 issue #333，子 issue #334～#340）：LLM 從 OpenAI 換成 Claude Haiku 5.5（[ADR-0012](adr/0012-llm-provider-claude.md) 已 Accepted），分支 `plan-005-llm-to-claude-haiku`。#334 已完成（`src/lib/llm.ts`）；#335 併入 #336、#337。#336 已完成：除了 `generate-stream` 舊流程的串流呼叫，其餘呼叫點都改用 Claude；CodeQL 標出請求帶來的值（城市名稱、天數、機場代碼）進了系統提示，已全部移到 user 訊息（R7），`ci` 與 CodeQL 都通過。下一步 #337（`generate-stream` 舊流程的串流）。開發用 key 在本機 `.env` 的 `ANTHROPIC_API_KEY`。本機 Git Bash 跑 `npm test` 會全部失敗（磁碟代號大小寫），改用 PowerShell。
 
 [PLAN-004](plans/PLAN-004-itinerary-chat.md) 行程聊天助理：草稿（`draft`），等 PLAN-005 完成後再確認範圍與兩個待決定事項（地點事實問題怎麼處理、聊天額度）。對話紀錄只存回覆文字、不回送思考區塊（ADR-0012）。本機分支 `plan-004-itinerary-chat` 沒有 commit，可刪除。
 
