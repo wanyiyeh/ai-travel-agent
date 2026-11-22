@@ -6,7 +6,7 @@
 
 ## 現在在做什麼
 
-[PLAN-005](plans/PLAN-005-llm-to-claude-haiku.md)（`in-progress`，父 issue #333，子 issue #334～#340）：LLM 從 OpenAI 換成 Claude Haiku 5.5（[ADR-0012](adr/0012-llm-provider-claude.md) 已 Accepted），分支 `plan-005-llm-to-claude-haiku`。#334 已完成（`src/lib/llm.ts`）；#335 併入 #336、#337。#336、#337 已完成：所有 LLM 呼叫都經過 `src/lib/llm.ts` 改用 Claude（含 `generate-stream` 舊流程的串流），`src/` 只剩 `openai.ts` 本身與 `mockCompletion()` 待刪；請求帶來的值不進系統提示（R7），`tripPlan.ts` 與舊流程的提示仍有格式已檢查的值，另開 #342。#338 已完成：`UsageMeasurement` 的三個欄位改名為 `llm_calls`、`llm_input_tokens`、`llm_output_tokens`（RENAME，舊資料保留）。**合併 PR #341 前要先對 Neon 的 `travel` 與 `travel_mock` 跑 `migrate deploy`（[deploy.md](deploy.md)）**；這次改名不向前相容，兩者之間寫用量紀錄會失敗（只印 warning，不影響請求），所以兩步要接著做。下一步 #339（移除 OpenAI、付費腳本與文件）。開發用 key 在本機 `.env` 的 `ANTHROPIC_API_KEY`。本機 Git Bash 跑 `npm test` 會全部失敗（磁碟代號大小寫），改用 PowerShell。
+[PLAN-005](plans/PLAN-005-llm-to-claude-haiku.md)（`in-progress`，父 issue #333，PR #341）：LLM 從 OpenAI 換成 Claude Haiku 5.5（[ADR-0012](adr/0012-llm-provider-claude.md)）。#334～#339 已完成（#335 併入 #336、#337）：所有 LLM 呼叫經過 `src/lib/llm.ts`，`openai` 套件與 `openai.ts` 已移除，付費腳本、文件與 `/privacy` 都改成 Claude；請求帶來的值不進系統提示（R7），`tripPlan.ts` 與舊流程的提示仍有格式已檢查的值（#342）。只剩 #340：用真實 Claude 驗收並量測費用（會花錢，要先問）。PR 的 `ci`、CodeQL 都通過，還沒用真的 API 跑過。開發用 key 在本機 `.env` 的 `ANTHROPIC_API_KEY`。本機 Git Bash 跑 `npm test` 會全部失敗（磁碟代號大小寫），改用 PowerShell。
 
 [PLAN-004](plans/PLAN-004-itinerary-chat.md) 行程聊天助理：草稿（`draft`），等 PLAN-005 完成後再確認範圍與兩個待決定事項（地點事實問題怎麼處理、聊天額度）。對話紀錄只存回覆文字、不回送思考區塊（ADR-0012）。本機分支 `plan-004-itinerary-chat` 沒有 commit，可刪除。
 
@@ -18,15 +18,15 @@
 
 [PLAN-001](plans/PLAN-001-portfolio-launch.md) 作品集上線仍在進行（父 issue #196）。已部署到 Vercel（低調上線期間網址不寫進 repo）、Neon 新加坡；設定見 [deploy.md](deploy.md)。#214 只剩訪客生成一次、生成 2～3 份公開範例。
 
-量測結果（2026-10-23，PLAN-002 之前）：一次生成 Google 約 US$0.24～0.41，30～50 秒（[runbook](runbook.md)）。PLAN-002 拿掉了每天的文案呼叫與三餐住宿的 LLM 呼叫，OpenAI 費用與生成時間應該下降，尚未重新量測。
+量測結果（2026-10-23，PLAN-002 之前）：一次生成 Google 約 US$0.24～0.41，30～50 秒（[runbook](runbook.md)）。之後 PLAN-002 減少了 LLM 呼叫，PLAN-005 又換成 Claude，LLM 費用與生成時間都還沒重新量測（#340）。
 
 ## 下一步
 
-1. 朋友冰島行程開出的 #309～#313、#316、#307、#306 都已合併；#295 補了插入新城市時的移動日餐點，剩下的情況仍是已知限制。#324（重新規劃的周邊推薦顯示 Invalid request）與 #325（回程日搬到新城市後，景點與餐點還是原本城市的：改成清空讓使用者挑）也已修好。
-2. 使用者確認正式網站顯示正常後，可提前刪除 Neon 備份 branch。
-3. #181 剩三件（使用者操作）：確認「My gmail」通知管道的實際地址、Gmail 搜尋以前的預算警示寄到哪、#214 時實際收到一次通知。預算提醒已連結自己的 email；Maps 的硬上限是每日配額（Google 新的支出上限不支援 Maps）；OpenAI 沒開自動儲值。#197 已確認 OpenAI 不分享資料，已關閉。
-4. #261 隱私權說明頁 `/privacy` 與全站頁尾已完成；部署後由使用者在 Google Cloud 的 OAuth 同意畫面填上正式網址的 `/privacy`。`device_id` cookie 讀不到、每裝置額度沒作用的 #280 已修好，額度現在真的會依裝置計算。
-5. #214 的公開範例（會花錢，先問），之後 #215 正式公開。
+1. #340：用 `dev:mock`（Google 假資料）以真實 Claude 生成 2～3 份行程，加上加景點、交通建議、重新規劃各 1 次，依結果決定各呼叫點的 `effort`，費用與時間寫進 runbook（先問，R1）。
+2. 合併 PR #341 前：在 Vercel Production 設正式用的 `ANTHROPIC_API_KEY`（Console 另建、確認餘額、不開自動儲值）；對 Neon 的 `travel` 與 `travel_mock` 跑 `migrate deploy`（[deploy.md](deploy.md)）後立刻合併，因為 `UsageMeasurement` 改欄位名稱不向前相容（之間寫用量紀錄會失敗，只印 warning）。確認正常後才移除 Vercel 的 `OPENAI_API_KEY`；`.github/workflows/ci.yml` 裡沒用到的 `OPENAI_API_KEY` 要由使用者自己移除（token 不能改 workflow）。
+3. #181 剩三件（使用者操作）：確認「My gmail」通知管道的實際地址、Gmail 搜尋以前的預算警示寄到哪、#214 時實際收到一次通知。預算提醒已連結自己的 email；Maps 的硬上限是每日配額（Google 新的支出上限不支援 Maps）。換成 Claude 後，Anthropic Console 的支出上限與「不用 API 資料訓練」要由使用者確認（`/privacy` 已依商業條款這樣寫）。
+4. PLAN-005 合併後回到 [PLAN-004](plans/PLAN-004-itinerary-chat.md) 聊天助理的確認；#214 的公開範例（會花錢，先問），之後 #215 正式公開。
+5. 朋友冰島行程的 issue 都已合併；#295 剩下的情況仍是已知限制。
 
 ## 卡點與待決定
 
@@ -35,5 +35,5 @@
 - 子地點判斷的公園類、獨立目的地類型清單只以 8 組實測決定（`placeCandidatesToStopCandidates.ts`）；中英文名稱各一筆的重複抓不到（#272）。
 - 開發前要先開 Docker Desktop 並 `npm run db:up`。
 - 手動測試 `dev:free`：`TURNSTILE_SECRET_KEY="" npm run dev:free` 略過人機驗證；訪客每人 1 次、同一 IP 每天 2 次。
-- Dependabot PR #170、#47 還開著。
+- Dependabot PR #170、#47 還開著。本機 `npm run build` 會被 Next.js 版本的安全檢查擋下（編譯與產生頁面都成功，CI 的 build 與 `npm audit` 通過）。
 - 重新規劃時，原本沒有移動日的地方產生的移動日仍有空的餐點（#295，known-limitation）；插入新城市的情況已用被換掉的移動日補上。
