@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { capturedPrompts, llmRequests, replyWith } from "@tests/contracts/llm";
+import { capturedPrompts, expectOnlyAsUserData, llmRequests, replyWith } from "@tests/contracts/llm";
 import type { PlaceCandidate } from "@/lib/fetchCityRestaurants";
 import { NEUTRAL_PREFERENCE_INTENT, type PreferenceIntent } from "@/lib/schemas";
 import { LAST_STOP_NOTE } from "@/lib/skeletonCopy";
@@ -682,6 +682,16 @@ describe("generateTransitDayStops — 自駕", () => {
     await generateTransitDayStops("東京", "大阪", "JPY", undefined, { ...NEUTRAL_PREFERENCE_INTENT, selfDrive: true });
 
     expect(llmRequests(generateObject)[0].system).toContain("【旅客自駕】");
+  });
+
+  it("keeps both cities, which the traveler can type, out of the system prompt", async () => {
+    mockTransitPlan({ name: "搭電車", duration_minutes: 60 }, "12:00");
+
+    await generateTransitDayStops("測試市", "目的市", "JPY", undefined, NEUTRAL_PREFERENCE_INTENT);
+
+    const [req] = llmRequests(generateObject);
+    expectOnlyAsUserData(req, "測試市");
+    expectOnlyAsUserData(req, "目的市");
   });
 
   it("says nothing about driving for public transport", async () => {

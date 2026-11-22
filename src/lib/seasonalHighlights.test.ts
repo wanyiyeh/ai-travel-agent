@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { llmRequests, replyWith } from "@tests/contracts/llm";
+import { expectOnlyAsUserData, llmRequests, replyWith } from "@tests/contracts/llm";
 import type { PlaceCandidate } from "@/lib/fetchCityRestaurants";
 
 const generateObject = vi.fn();
@@ -75,6 +75,12 @@ describe("listSeasonalHighlights", () => {
     const prompt = llmRequests(generateObject)[0].system as string;
     expect(prompt).toContain("不列節慶或活動");
     expect(upsertMock.mock.calls[0][0].where).toEqual({ cacheKey: "京都|11" });
+  });
+
+  it("keeps the city, which the traveler can type, out of the system prompt", async () => {
+    aiReturns(fall);
+    await listSeasonalHighlights("測試市", 11, "m");
+    expectOnlyAsUserData(llmRequests(generateObject)[0], "測試市");
   });
 
   it("caches an empty month too, and serves the cache without asking again", async () => {

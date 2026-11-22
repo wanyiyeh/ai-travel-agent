@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { getMockMode } from "@/lib/mockAi";
 import { generateObject } from "@/lib/llm";
+import { UNTRUSTED_INPUT_RULE, wrapUntrusted } from "@/lib/untrustedInput";
 import { prisma } from "@/lib/db";
 import { searchTextCandidates, type PlaceCandidate } from "@/lib/fetchCityRestaurants";
 import { getCityCenter } from "@/lib/placesTextSearch";
@@ -36,18 +37,18 @@ export type TripList = z.infer<typeof TripListSchema>;
 const MAX_LISTED = 5;
 const MAX_SIGHTS = 3;
 
-function systemPrompt(city: string): string {
-  return `你是旅遊規劃專家。請列出從「${city}」出發、最經典的當天來回一日遊目的地。
+function systemPrompt(): string {
+  return `你是旅遊規劃專家。請列出從使用者訊息裡的城市出發、最經典的當天來回一日遊目的地。
 
 規則：
-- 單程交通（火車或開車）大約 1～2 小時，離 ${city} 市中心約 40～150 km；不要列 ${city} 市區或近郊
+- 單程交通（火車或開車）大約 1～2 小時，離這座城市的市中心約 40～150 km；不要列這座城市的市區或近郊
 - 最多 ${MAX_LISTED} 個，最有名的排前面
 - 每個目的地列 2～${MAX_SIGHTS} 個當地最值得去的景點，寫地圖上搜得到的正式名稱；
   景點要彼此靠近，一天走得完
 - interests 從這幾個選適合的：${TRIP_INTERESTS.join("、")}
 
 回傳嚴格的 JSON（不要其他文字）：
-{ "trips": [{ "town": "目的地", "sights": ["景點", "景點"], "interests": ["culture"] }] }`;
+{ "trips": [{ "town": "目的地", "sights": ["景點", "景點"], "interests": ["culture"] }] }${UNTRUSTED_INPUT_RULE}`;
 }
 
 /**
@@ -62,7 +63,8 @@ export async function listClassicDayTrips(city: string, model: string): Promise<
     const cached = await prisma.classicDayTripCache.findUnique({ where: { city } });
     if (cached) return TripListSchema.parse(JSON.parse(cached.list));
 
-    const reply = await generateObject({ model, system: systemPrompt(city), user: city, schema: TripListSchema });
+    // The city can be typed by the traveler (restructure): tagged data, not instructions.
+    const reply = await generateObject({ model, system: systemPrompt(), user: wrapUntrusted(city), schema: TripListSchema });
     const list = { trips: reply.trips.slice(0, MAX_LISTED).map((t) => ({ ...t, sights: t.sights.slice(0, MAX_SIGHTS) })) };
     await prisma.classicDayTripCache.upsert({
       where: { city },

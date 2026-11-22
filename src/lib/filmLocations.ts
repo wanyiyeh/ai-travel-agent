@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { getMockMode } from "@/lib/mockAi";
 import { generateObject } from "@/lib/llm";
+import { UNTRUSTED_INPUT_RULE, wrapUntrusted } from "@/lib/untrustedInput";
 import { prisma } from "@/lib/db";
 import { searchTextCandidates, type PlaceCandidate } from "@/lib/fetchCityRestaurants";
 import { pickHighlightMatch } from "@/lib/seasonalHighlights";
@@ -44,9 +45,10 @@ export async function listFamousWorks(city: string, model: string): Promise<stri
 
     const reply = await generateObject({
       model,
-      system: `請列出在「${city}」取景、最有名、最多人去朝聖的電影、影集或動畫，最多 ${MAX_TITLES} 部，寫中文作品名稱。
-沒有的話回傳空陣列。回傳嚴格的 JSON（不要其他文字）：{ "works": ["作品名稱"] }`,
-      user: city,
+      system: `請列出在使用者訊息裡的城市取景、最有名、最多人去朝聖的電影、影集或動畫，最多 ${MAX_TITLES} 部，寫中文作品名稱。
+沒有的話回傳空陣列。回傳嚴格的 JSON（不要其他文字）：{ "works": ["作品名稱"] }${UNTRUSTED_INPUT_RULE}`,
+      // The city can be typed by the traveler (restructure): tagged data, not instructions.
+      user: wrapUntrusted(city),
       schema: WorksSchema,
     });
     const works = cleanTitles(reply.works);

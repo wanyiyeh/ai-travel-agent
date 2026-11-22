@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { replyWith } from "@tests/contracts/llm";
+import { expectOnlyAsUserData, llmRequests, replyWith } from "@tests/contracts/llm";
 import type { PlaceCandidate } from "@/lib/fetchCityRestaurants";
 
 const generateObject = vi.fn();
@@ -97,6 +97,12 @@ describe("findFilmDay", () => {
     expect(textSearchMock.mock.calls.map((c) => c[0])).toEqual(["你的名字 聖地巡禮", "言葉之庭 聖地巡禮"]);
     expect(day?.label).toBe("影劇朝聖");
     expect(day?.locations.map((l) => l.work)).toEqual(["你的名字", "言葉之庭", "言葉之庭"]);
+  });
+
+  it("keeps the city, which the traveler can type, out of the system prompt", async () => {
+    aiReturns({ works: [] });
+    await listFamousWorks("測試市", "m");
+    expectOnlyAsUserData(llmRequests(generateObject)[0], "測試市");
   });
 
   it("has no day when nothing is found", async () => {

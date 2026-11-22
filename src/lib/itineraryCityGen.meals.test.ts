@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { replyWith } from "@tests/contracts/llm";
+import { expectOnlyAsUserData, llmRequests, replyWith } from "@tests/contracts/llm";
 import type { PlaceCandidate } from "@/lib/fetchCityRestaurants";
 
 const nearbyMock = vi.fn();
@@ -283,6 +283,8 @@ describe("generateMealsAndAccommodation", () => {
     const result = await generateMealsAndAccommodation("小鎮", 1, "JPY");
 
     expect(generateObject).toHaveBeenCalledTimes(1);
+    // The city can be typed by the traveler (restructure).
+    expectOnlyAsUserData(llmRequests(generateObject)[0], "小鎮");
     expect(result.accommodation).toEqual({ name: "Some Hotel", area: "X" });
     expect(result.mealsByDay[0]).toEqual(day);
   });

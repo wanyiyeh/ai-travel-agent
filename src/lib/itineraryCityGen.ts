@@ -5,6 +5,7 @@ import {
   mockTransitPlanReply,
 } from "@/lib/mockAi";
 import { generateObject, llmModel } from "@/lib/llm";
+import { UNTRUSTED_INPUT_RULE, wrapUntrusted } from "@/lib/untrustedInput";
 import { z } from "zod";
 import { getCityCenter, sightAreasFor } from "@/lib/placesTextSearch";
 import { fetchNearbyPlaceCandidates, fetchLodgingCandidates, fetchLuxuryRestaurants, getMealPlaceTypes, searchTextCandidates, type BudgetLevel, type PlaceCandidate, type FieldTier, type TypeMatch } from "@/lib/fetchCityRestaurants";
@@ -58,6 +59,16 @@ import { TRANSIT_STOP_KIND, withoutZeroFare } from "@/lib/transitStop";
 
 // Reply shapes of the calls where the model names places itself (each
 // prompt describes the same fields).
+// City names can be typed by the traveler (restructure), so they ride in the
+// user message as tagged data, never in a system prompt (untrustedInput.ts).
+function transitCities(fromCity: string, toCity: string): string {
+  return `出發城市：\n${wrapUntrusted(fromCity || "出發地")}\n目的地城市：\n${wrapUntrusted(toCity)}`;
+}
+
+function cityLine(cityName: string): string {
+  return `城市：\n${wrapUntrusted(cityName)}`;
+}
+
 const LlmStopSchema = z.object({
   name: z.string(),
   description: z.string(),
@@ -91,7 +102,7 @@ async function generateTransitDayStopsWithLLM(
   currency: string
 ): Promise<Array<Record<string, unknown>>> {
   const reply = await generateObject({
-    system: `你是專業的旅遊規劃專家。請為旅行者規劃一個從 ${fromCity || "出發地"} 前往 ${toCity} 的移動日行程。
+    system: `你是專業的旅遊規劃專家。請為旅行者規劃一個從出發城市前往目的地城市的移動日行程（兩個城市名稱在使用者訊息裡）。
 
 【重要】請先評估兩城市之間的實際地理距離與交通時間，再規劃行程（涵蓋各大洲的城市對，依實際距離判斷，不要只套用單一地區的直覺）：
 - 短程（車程＜90 分鐘，如大阪→京都 30min、東京→橫濱 30min、布拉格→布拉迪斯拉發 1hr）：抵達後幾乎是一整個白天都空著，務必安排 2-4 個抵達城市的真實熱門景點填滿下午（甚至傍晚），不可只寫「入住/晚餐」帶過
@@ -116,7 +127,7 @@ async function generateTransitDayStopsWithLLM(
 
 規則：
 - 依序為：
-  1. ${fromCity ? `${fromCity} 出發前早晨微行程（車站附近早餐或快速景點，09:30 前完成，time_of_day: "morning"）` : `出發準備（time_of_day: "morning"）`}
+  1. ${fromCity ? `出發城市出發前早晨微行程（車站附近早餐或快速景點，09:30 前完成，time_of_day: "morning"）` : `出發準備（time_of_day: "morning"）`}
   2. 交通本身（須填入真實交通工具、實際出發/抵達時間、正確車程時數，duration_minutes 必須反映真實車程）
   3. 抵達後活動（依上方短/中/長程規則決定要安排幾個真實景點，短程至少 2 個，中程 1-2 個，長程 1 個 check-in/晚餐）
 - 除了短程規則要求的多個景點外，總 stop 數不設死上限，依實際可安排內容決定
@@ -124,8 +135,8 @@ async function generateTransitDayStopsWithLLM(
 - duration_minutes 為整數（分鐘），交通 stop 必須填入真實車程分鐘數
 - transport_from_prev 必須包含預估時間，例如「步行約 10 分鐘」、「搭乘計程車約 15 分鐘」，不可只寫交通方式（如「步行」、「火車」）
 - estimated_cost 為 ${currency} 整數，免費填 0
-- 所有地點必須真實存在`,
-    user: `請規劃從 ${fromCity || "出發地"} 前往 ${toCity} 的移動日行程。`,
+- 所有地點必須真實存在${UNTRUSTED_INPUT_RULE}`,
+    user: `${transitCities(fromCity, toCity)}\n請規劃這段移動日行程。`,
     schema: TransitDayStopsReplySchema,
     mock: () => mockTransitDayStopsReply(fromCity, toCity),
   });
@@ -241,7 +252,7 @@ async function planTransitDay(
   try {
     const reply = await generateObject({
       model,
-      system: `你是專業的旅遊規劃專家。請為旅行者規劃一個從 ${fromCity || "出發地"} 前往 ${toCity} 的移動日行程裡「交通本身」的部分，並推算抵達時間。
+      system: `你是專業的旅遊規劃專家。請為旅行者規劃一個從出發城市前往目的地城市的移動日行程裡「交通本身」的部分，並推算抵達時間（兩個城市名稱在使用者訊息裡）。
 
 【重要】請先評估兩城市之間的實際地理距離與交通時間（涵蓋各大洲的城市對，依實際距離判斷，不要只套用單一地區的直覺）：
 - 短程（車程＜90 分鐘，如大阪→京都 30min、東京→橫濱 30min、布拉格→布拉迪斯拉發 1hr）
@@ -265,10 +276,10 @@ async function planTransitDay(
 
 規則：
 - transitStop：交通本身，須填入真實交通工具、正確車程時數，duration_minutes 必須反映真實車程，transport_from_prev 必須包含預估時間（例如「搭乘新幹線約 1 小時30分」），不可只寫交通方式
-- arrivalTime："HH:MM" 格式的 24 小時制時間，代表抵達 ${toCity} 後可以開始活動的時間
+- arrivalTime："HH:MM" 格式的 24 小時制時間，代表抵達目的地城市後可以開始活動的時間
 - time_of_day 只能是 "morning"、"afternoon"、"evening" 之一
-- estimated_cost 為 ${currency} 整數：每人單程票價，開車則是油錢與過路費；城市之間的交通不會免費，不可以填 0，不確定時依距離估算`,
-      user: `請規劃從 ${fromCity || "出發地"} 前往 ${toCity} 的移動日「交通」部分，並推算抵達時間。`,
+- estimated_cost 為 ${currency} 整數：每人單程票價，開車則是油錢與過路費；城市之間的交通不會免費，不可以填 0，不確定時依距離估算${UNTRUSTED_INPUT_RULE}`,
+      user: `${transitCities(fromCity, toCity)}\n請規劃這段移動日的「交通」部分，並推算抵達時間。`,
       schema: TransitPlanReplySchema,
       mock: () => mockTransitPlanReply(fromCity, toCity),
     });
@@ -959,7 +970,7 @@ async function askMealsAndLodging(
 ): Promise<z.infer<typeof MealsAndLodgingReplySchema>> {
   return generateObject({
     model,
-    system: `你是專業的旅遊規劃專家。請為旅行者在 ${cityName} 停留 ${stayDays} 天的行程推薦住宿和每日四餐（早餐、午餐、晚餐、點心）。
+    system: `你是專業的旅遊規劃專家。請為旅行者在這座城市停留 ${stayDays} 天的行程推薦住宿和每日四餐（早餐、午餐、晚餐、點心）；城市名稱在使用者訊息裡。
 
 回傳嚴格的 JSON 格式（不要其他文字）：
 {
@@ -975,11 +986,11 @@ async function askMealsAndLodging(
 }
 
 規則：
-- accommodation 為整個在 ${cityName} 停留期間的住宿，必須是真實存在且可在 Booking.com 找到的飯店
+- accommodation 為整個在這座城市停留期間的住宿，必須是真實存在且可在 Booking.com 找到的飯店
 - meals 陣列共 ${stayDays} 個元素，每天推薦不同的餐廳
-- 所有餐廳必須是 ${cityName} 真實存在的知名店家；snack 須為咖啡館、甜點店或冰淇淋店，不可填正餐型餐廳
-- estimated_cost 為 ${currency} 整數，代表每人平均消費${preferenceRules}`,
-    user: `請為旅行者在 ${cityName} 停留 ${stayDays} 天推薦住宿和每日四餐（早餐、午餐、晚餐、點心）。`,
+- 所有餐廳必須是這座城市真實存在的知名店家；snack 須為咖啡館、甜點店或冰淇淋店，不可填正餐型餐廳
+- estimated_cost 為 ${currency} 整數，代表每人平均消費${preferenceRules}${UNTRUSTED_INPUT_RULE}`,
+    user: `${cityLine(cityName)}\n請為旅行者在這座城市停留 ${stayDays} 天推薦住宿和每日四餐（早餐、午餐、晚餐、點心）。`,
     schema: MealsAndLodgingReplySchema,
     mock: () => mockMealsAndLodgingReply(cityName, stayDays),
   });
@@ -994,7 +1005,7 @@ async function generateDayStopsWithLLM(
   currency: string
 ): Promise<Array<Array<Record<string, unknown>>>> {
   const reply = await generateObject({
-    system: `你是專業的旅遊規劃專家。請為旅行者規劃在 ${cityName} 停留 ${stayDays} 天的景點行程。
+    system: `你是專業的旅遊規劃專家。請為旅行者規劃在這座城市停留 ${stayDays} 天的景點行程；城市名稱在使用者訊息裡。
 
 回傳嚴格的 JSON 格式（不要其他文字）：
 {
@@ -1020,8 +1031,8 @@ async function generateDayStopsWithLLM(
 - duration_minutes 為整數（分鐘）
 - estimated_cost 為 ${currency} 貨幣的整數，免費景點填 0
 - transport_from_prev 必須包含預估時間，例如「步行約 10 分鐘」、「搭乘地鐵約 15 分鐘」，不可只寫交通方式（如「步行」、「地鐵」）
-- 所有景點必須是 ${cityName} 真實存在的知名地點`,
-    user: `請規劃 ${cityName} 停留 ${stayDays} 天的景點行程。`,
+- 所有景點必須是這座城市真實存在的知名地點${UNTRUSTED_INPUT_RULE}`,
+    user: `${cityLine(cityName)}\n請規劃在這座城市停留 ${stayDays} 天的景點行程。`,
     schema: DayStopsReplySchema,
     mock: () => mockDayStopsReply(cityName, stayDays),
   });

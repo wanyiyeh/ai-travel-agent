@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { llmRequests, replyWith } from "@tests/contracts/llm";
+import { expectOnlyAsUserData, llmRequests, replyWith } from "@tests/contracts/llm";
 import type { PlaceCandidate } from "@/lib/fetchCityRestaurants";
 
 const generateObject = vi.fn();
@@ -74,6 +74,12 @@ describe("listClassicDayTrips", () => {
     expect(result?.trips.map((t) => t.town)).toEqual(["横浜", "箱根", "日光"]);
     expect(llmRequests(generateObject)[0].system).toContain("40～150 km");
     expect(upsertMock.mock.calls[0][0].where).toEqual({ city: "東京" });
+  });
+
+  it("keeps the city, which the traveler can type, out of the system prompt", async () => {
+    aiReturns(list);
+    await listClassicDayTrips("測試市", "m");
+    expectOnlyAsUserData(llmRequests(generateObject)[0], "測試市");
   });
 
   it("serves the cache without asking again, and doesn't cache a failure", async () => {
