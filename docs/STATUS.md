@@ -25,7 +25,7 @@
 1. #340：用 `dev:mock`（Google 假資料）以真實 Claude 生成 2～3 份行程，加上加景點、交通建議、重新規劃各 1 次，依結果決定各呼叫點的 `effort`，費用與時間寫進 runbook（先問，R1）。
 2. 合併 PR #341 前：在 Vercel Production 設正式用的 `ANTHROPIC_API_KEY`（Console 另建、確認餘額、不開自動儲值）；對 Neon 的 `travel` 與 `travel_mock` 跑 `migrate deploy`（[deploy.md](deploy.md)）後立刻合併，因為 `UsageMeasurement` 改欄位名稱不向前相容（之間寫用量紀錄會失敗，只印 warning）。確認正常後才移除 Vercel 的 `OPENAI_API_KEY`；`.github/workflows/ci.yml` 裡沒用到的 `OPENAI_API_KEY` 要由使用者自己移除（token 不能改 workflow）。
 3. #181 剩三件（使用者操作）：確認「My gmail」通知管道的實際地址、Gmail 搜尋以前的預算警示寄到哪、#214 時實際收到一次通知。預算提醒已連結自己的 email；Maps 的硬上限是每日配額（Google 新的支出上限不支援 Maps）。換成 Claude 後，Anthropic Console 的支出上限與「不用 API 資料訓練」要由使用者確認（`/privacy` 已依商業條款這樣寫）。
-4. PLAN-005 合併後回到 [PLAN-004](plans/PLAN-004-itinerary-chat.md) 聊天助理的確認；#214 的公開範例（會花錢，先問），之後 #215 正式公開。
+4. PLAN-005 合併後回到 [PLAN-004](plans/PLAN-004-itinerary-chat.md) 聊天助理的確認；#214 的公開範例（會花錢，先問），之後 #215 正式公開。#261：由使用者在 Google Cloud 的 OAuth 同意畫面填上正式網址的 `/privacy`。
 5. 朋友冰島行程的 issue 都已合併；#295 剩下的情況仍是已知限制。
 
 ## 卡點與待決定
