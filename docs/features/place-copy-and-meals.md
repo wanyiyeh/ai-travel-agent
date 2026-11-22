@@ -1,6 +1,6 @@
 ---
 status: stable
-updated: 2026-10-30
+updated: 2026-11-22
 source:
   - src/lib/skeletonCopy.ts
   - src/lib/mealLodgingPicks.ts
@@ -53,7 +53,7 @@ flowchart TD
 
 ## 成本
 
-- 生成時的文案、補文案、三餐住宿挑選、店名翻譯都不再呼叫 OpenAI。
+- 生成時的文案、補文案、三餐住宿挑選、店名翻譯都不再呼叫 LLM。
 - `containingPlaces` 加在候選查詢的 Pro field mask 裡，不多付錢。
 - 使用者點「照片與詳情」時，Places UI Kit 每打開一次計費一次。
 

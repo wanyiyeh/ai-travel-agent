@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from "vitest";
 import { NEUTRAL_PREFERENCE_INTENT } from "@/lib/schemas";
 
 // stayContextOf only builds the trip's shared state; nothing here calls out.
-vi.mock("@/lib/openai", () => ({ openai: {} }));
 vi.mock("@/lib/db", () => ({ prisma: {}, j: (v: unknown) => v }));
 
 const { stayContextOf } = await import("@/lib/cityStayDays");

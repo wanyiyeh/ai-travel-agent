@@ -259,9 +259,10 @@ model UsageMeasurement {
   label            String   // e.g. "generate-stream"
   google           String   // JSON-encoded { "<endpoint> [<field mask>]": count }
   googleTotal      Int      @map("google_total")
-  openaiCalls      Int      @map("openai_calls")
-  promptTokens     Int      @map("prompt_tokens")
-  completionTokens Int      @map("completion_tokens")
+  // LLM calls and tokens: OpenAI before PLAN-005 (2026-11), Claude after.
+  llmCalls         Int      @map("llm_calls")
+  llmInputTokens   Int      @map("llm_input_tokens")
+  llmOutputTokens  Int      @map("llm_output_tokens")
   // MOCK_PLACES or MOCK_AI was on: the counts are real, nothing was billed.
   mock             Boolean  @default(false)
   createdAt        DateTime @default(now()) @map("created_at")

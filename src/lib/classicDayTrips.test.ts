@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { expectOnlyAsUserData, llmRequests, replyWith } from "@tests/contracts/llm";
 import type { PlaceCandidate } from "@/lib/fetchCityRestaurants";
 
-const createMock = vi.fn();
-vi.mock("@/lib/openai", () => ({
-  openai: { chat: { completions: { create: (...args: unknown[]) => createMock(...args) } } },
+const generateObject = vi.fn();
+vi.mock("@/lib/llm", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/llm")>()),
+  generateObject: (req: unknown) => generateObject(req),
 }));
 const findUniqueMock = vi.fn();
 const upsertMock = vi.fn();
@@ -43,7 +45,7 @@ const sight = (placeId: string, at: { lat: number; lng: number }): PlaceCandidat
 });
 
 const aiReturns = (json: unknown) =>
-  createMock.mockResolvedValueOnce({ choices: [{ message: { content: JSON.stringify(json) } }] });
+  generateObject.mockImplementationOnce(replyWith(json));
 const list = {
   trips: [
     { town: "横浜", sights: ["山下公園", "中華街"], interests: ["food"] },
@@ -53,7 +55,7 @@ const list = {
 };
 
 beforeEach(() => {
-  createMock.mockReset();
+  generateObject.mockReset();
   findUniqueMock.mockReset();
   upsertMock.mockReset();
   textSearchMock.mockReset();
@@ -70,16 +72,22 @@ describe("listClassicDayTrips", () => {
     const result = await listClassicDayTrips("東京", "m");
 
     expect(result?.trips.map((t) => t.town)).toEqual(["横浜", "箱根", "日光"]);
-    expect(createMock.mock.calls[0][0].messages[0].content).toContain("40～150 km");
+    expect(llmRequests(generateObject)[0].system).toContain("40～150 km");
     expect(upsertMock.mock.calls[0][0].where).toEqual({ city: "東京" });
+  });
+
+  it("keeps the city, which the traveler can type, out of the system prompt", async () => {
+    aiReturns(list);
+    await listClassicDayTrips("測試市", "m");
+    expectOnlyAsUserData(llmRequests(generateObject)[0], "測試市");
   });
 
   it("serves the cache without asking again, and doesn't cache a failure", async () => {
     findUniqueMock.mockResolvedValueOnce({ list: JSON.stringify(list) });
     expect((await listClassicDayTrips("東京", "m"))?.trips).toHaveLength(3);
-    expect(createMock).not.toHaveBeenCalled();
+    expect(generateObject).not.toHaveBeenCalled();
 
-    createMock.mockRejectedValueOnce(new Error("timeout"));
+    generateObject.mockRejectedValueOnce(new Error("timeout"));
     expect(await listClassicDayTrips("大阪", "m")).toBeUndefined();
     expect(upsertMock).not.toHaveBeenCalled();
   });

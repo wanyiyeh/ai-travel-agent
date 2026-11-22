@@ -18,10 +18,10 @@ paths:
 
 ## LLM 的輸入（ADR-0008）
 
-- **Google 回傳的任何欄位（名稱、地址、評分、類型、評論、路線時間）都不放進 OpenAI 的輸入**，包括當成排除清單或候選清單。要排除重複，在 LLM 回應後用 place ID 或名稱在程式裡過濾。
+- **Google 回傳的任何欄位（名稱、地址、評分、類型、評論、路線時間）都不放進 LLM 的輸入**，包括當成排除清單或候選清單。要排除重複，在 LLM 回應後用 place ID 或名稱在程式裡過濾。
 - Google 地點的文案用模板（`src/lib/skeletonCopy.ts`），三餐與住宿用規則挑（`src/lib/mealLodgingPicks.ts`），不交給 LLM 寫或選。
 - 使用者自己輸入的文字、我們自己的資料（城市、偏好、時段）可以放。
-- 新增會接觸 Google 地點的 OpenAI 呼叫點時，在 `src/lib/llmInputGuard.test.ts` 加一個案例（假名稱用 `tests/contracts/googleContent.ts` 的 `googleName`）。
+- 新增會接觸 Google 地點的 LLM 呼叫點時，在 `src/lib/llmInputGuard.test.ts` 加一個案例（假名稱用 `tests/contracts/googleContent.ts` 的 `googleName`）。
 
 ## 出處標示
 

@@ -1,5 +1,5 @@
 /**
- * AI-powered seed script — generates real itineraries across 9 regions via OpenAI.
+ * AI-powered seed script — generates real itineraries across 9 regions via Claude.
  * All scenarios use open-jaw routing (different arrival/departure cities).
  * Run: npm run seed
  *
@@ -23,7 +23,6 @@
  */
 
 import { PrismaClient } from "@prisma/client";
-import OpenAI from "openai";
 import { randomUUID } from "crypto";
 import { readFileSync } from "fs";
 import { resolve } from "path";
@@ -35,7 +34,9 @@ import {
   repairMissingAccommodation,
   repairTransitDayDepartureCities,
   tagWaypointCities,
+  LegacyItineraryReplySchema,
 } from "@/lib/itineraryGen";
+import { streamObject } from "@/lib/llm";
 import { PRICE_LEVEL_MAP } from "@/lib/fetchCityRestaurants";
 import { lookupByQuery, upsertPlace } from "@/lib/placeCache";
 import { validateItinerary } from "@/lib/validateItinerary";
@@ -54,7 +55,9 @@ const DEMO_USER_ID = "00000000-0000-0000-0000-000000000001";
 const SEED_MARKER = "[TEST-SEED]";
 
 const prisma = new PrismaClient();
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+// The whole trip in one reply, like generate-stream's old flow
+// (LEGACY_FLOW_MAX_TOKENS there): thinking counts toward the cap.
+const SEED_MAX_TOKENS = 32000;
 
 // ─── 9 region scenarios（all open-jaw: different arrival/departure cities）─────
 
@@ -335,21 +338,11 @@ async function generateItinerary(scenario: Scenario, retries = 3): Promise<any> 
 
   for (let attempt = 1; attempt <= retries + 1; attempt++) {
     try {
-      const response = await openai.chat.completions.create({
-        model: process.env.OPENAI_MODEL ?? "gpt-4o-mini",
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userContent },
-        ],
-        response_format: { type: "json_object" },
-        temperature: 0.7,
-        max_tokens: 16000,
-      });
-
-      const content = response.choices[0]?.message?.content;
-      if (!content) throw new Error("OpenAI 回傳空內容");
-
-      const parsed = JSON.parse(content);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const parsed: any = await streamObject(
+        { system: systemPrompt, user: userContent, schema: LegacyItineraryReplySchema, maxTokens: SEED_MAX_TOKENS },
+        () => {},
+      );
       if (!parsed.days || !Array.isArray(parsed.days) || parsed.days.length === 0) {
         throw new Error(`回傳格式錯誤：days 陣列為空或不存在`);
       }
@@ -633,8 +626,8 @@ async function enrichDaysWithPlaces(days: any[], apiKey: string, currency?: stri
 // ─── main ─────────────────────────────────────────────────────────────────────
 
 async function main() {
-  if (!process.env.OPENAI_API_KEY) {
-    throw new Error("Missing OPENAI_API_KEY — 請確認 .env 已設定");
+  if (!process.env.ANTHROPIC_API_KEY) {
+    throw new Error("Missing ANTHROPIC_API_KEY — 請確認 .env 已設定");
   }
 
   const args = process.argv.slice(2);

@@ -9,7 +9,7 @@ export const metadata: Metadata = { title: "隱私權說明 — AI Travel Agent"
 
 // The periods below are read from the code that enforces them, so this page
 // changes with it (#261).
-const UPDATED = "2026-10-31";
+const UPDATED = "2026-11-22";
 const DAY_MS = 24 * 60 * 60 * 1000;
 const days = (ms: number) => Math.round(ms / DAY_MS);
 
@@ -84,7 +84,7 @@ export default function PrivacyPage() {
               <strong>Google</strong>：登入；地點資料由網站伺服器向 Google 查詢，不會附上你的個人資料。地圖與「照片與詳情」視窗則在你的瀏覽器中直接向 Google 載入，Google 會收到你的 IP 等連線資訊。
             </li>
             <li>
-              <strong>OpenAI</strong>：規劃城市、天數與交通時，會送出你的旅行條件與輸入的文字（不含你的 email 或名字）。網站已設定不分享資料給 OpenAI 訓練模型；OpenAI 依其政策可能保留 API 資料一段時間，用於偵測濫用。
+              <strong>Anthropic（Claude）</strong>：規劃城市、天數與交通時，會送出你的旅行條件與輸入的文字（不含你的 email 或名字）。依 Anthropic 的商業條款，API 資料不會用來訓練模型；Anthropic 依其政策可能保留 API 資料一段時間，用於偵測濫用。
             </li>
             <li>
               <strong>Cloudflare Turnstile</strong>：產生行程前的人機驗證，會收到你的 IP 與瀏覽器資訊。

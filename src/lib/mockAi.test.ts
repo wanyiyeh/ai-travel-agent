@@ -4,7 +4,7 @@ import type { FlightInfo } from "@/lib/schemas";
 // Loop trips look up each town's center; no Google in unit tests.
 vi.mock("@/lib/placesTextSearch", () => ({ getCityCenter: vi.fn(async () => null) }));
 
-import { mockCompletion, mockMealsAndLodgingReply, mockTripPlanReply } from "@/lib/mockAi";
+import { mockMealsAndLodgingReply, mockTripPlanReply } from "@/lib/mockAi";
 import { planTrip } from "@/lib/tripPlan";
 
 afterEach(() => {
@@ -18,24 +18,6 @@ const flight = (arrivalCity: string, returnDepartureCity: string): FlightInfo =>
   returnDepartureCity,
   departureDate: "2026-11-10",
   returnDate: "2026-11-15",
-});
-
-describe("mockCompletion", () => {
-  it("stays out of the way when MOCK_AI is not set", async () => {
-    vi.stubEnv("MOCK_AI", "");
-    expect(await mockCompletion(() => ({ a: 1 }))).toBeNull();
-  });
-
-  it("answers with the reply as JSON content", async () => {
-    vi.stubEnv("MOCK_AI", "1");
-    const completion = await mockCompletion(() => ({ a: 1 }));
-    expect(JSON.parse(completion!.choices[0].message.content!)).toEqual({ a: 1 });
-  });
-
-  it("fails like a request would under MOCK_AI=error", async () => {
-    vi.stubEnv("MOCK_AI", "error");
-    await expect(mockCompletion(() => ({}))).rejects.toThrow("MOCK_AI=error");
-  });
 });
 
 describe("planTrip under MOCK_AI", () => {
@@ -68,20 +50,5 @@ describe("mockMealsAndLodgingReply", () => {
     expect(reply.accommodation).toMatchObject({ name: "東京 模擬住宿" });
     expect(reply.meals).toHaveLength(2);
     expect(Object.keys(reply.meals[0])).toEqual(["breakfast", "lunch", "dinner", "snack"]);
-  });
-});
-
-describe("openai client under MOCK_AI", () => {
-  it("refuses a real request instead of sending it", async () => {
-    vi.stubEnv("MOCK_AI", "1");
-    const fetchSpy = vi.fn();
-    vi.stubGlobal("fetch", fetchSpy);
-    vi.resetModules();
-    const { openai } = await import("@/lib/openai");
-
-    await expect(
-      openai.chat.completions.create({ model: "gpt-4o-mini", messages: [{ role: "user", content: "hi" }] }),
-    ).rejects.toThrow("MOCK_AI is set");
-    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

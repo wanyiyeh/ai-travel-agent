@@ -3,6 +3,38 @@ import type { FlightInfo, TripPreferences } from "@/lib/schemas";
 import { islandNamed } from "@/lib/islandGroups";
 import { iataToCity, cityToIata } from "@/lib/iataCity";
 import { getIataCoords } from "@/lib/airportIndex";
+import { z } from "zod";
+
+// The old flow's reply (buildSystemPrompt's JSON template), sent as the
+// structured output format. Narrower than ItinerarySchema, which also holds
+// the Google fields enrich adds later: the model is never asked for those.
+const LegacyStopSchema = z.object({
+  name: z.string(),
+  district: z.string(),
+  description: z.string(),
+  duration_minutes: z.number(),
+  time_of_day: z.enum(["morning", "afternoon", "evening"]),
+  transport_from_prev: z.string(),
+  estimated_cost: z.number(),
+});
+const LegacyMealSchema = z.object({ name: z.string(), description: z.string(), estimated_cost: z.number() });
+export const LegacyItineraryReplySchema = z.object({
+  title: z.string(),
+  currency: z.string(),
+  days: z.array(
+    z.object({
+      day: z.number(),
+      theme: z.string().optional(),
+      waypointCity: z.string(),
+      isTransitDay: z.boolean().optional(),
+      transitTo: z.string().optional(),
+      stops: z.array(LegacyStopSchema),
+      accommodation: z.object({ area: z.string(), reason: z.string() }).nullable(),
+      meals: z.object({ breakfast: LegacyMealSchema, lunch: LegacyMealSchema, dinner: LegacyMealSchema, snack: LegacyMealSchema }),
+    })
+  ),
+});
+export type LegacyItineraryReply = z.infer<typeof LegacyItineraryReplySchema>;
 
 export const paceMap: Record<string, string> = {
   relaxed: "悠閒，每天景點不超過 3 個，留有充足休息時間",

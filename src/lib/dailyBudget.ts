@@ -1,17 +1,17 @@
 // Site-wide circuit breaker: a hard cap on billable outbound calls per UTC
-// day, counted at the two choke points (googleFetch and the OpenAI client's
-// fetch). Per-IP limits in rateLimit.ts can be dodged by spreading requests
+// day, counted at the two choke points (googleFetch and the Claude client's
+// fetch in llm.ts). Per-IP limits in rateLimit.ts can be dodged by spreading requests
 // over many IPs; this can't. The count the app uses lives in Postgres
 // (sharedStatePostgres.ts), so every server instance shares it (#209); the
-// GCP daily quotas and the OpenAI project spend limit are the outer caps.
+// GCP daily quotas and the Anthropic Console spend limit are the outer caps.
 
-export type BudgetedService = "google" | "openai";
+export type BudgetedService = "google" | "claude";
 
 // Well above a busy day of real use: one trip generation makes on the order
-// of 50–100 Google calls and a dozen or so OpenAI calls.
+// of 50–100 Google calls and a dozen or so LLM calls.
 export const DAILY_CALL_BUDGET: Record<BudgetedService, number> = {
   google: 3000,
-  openai: 1000,
+  claude: 1000,
 };
 
 export interface DailyBudgetStore {
@@ -53,7 +53,7 @@ export function createMemoryDailyBudget(limits: Record<BudgetedService, number> 
 
 // A synthetic 429 in place of the real call. Callers already treat a non-OK
 // response as a transient failure (never cached), so nothing gets pinned.
-// `x-should-retry: false` stops the OpenAI SDK from retrying it.
+// `x-should-retry: false` stops the Anthropic SDK from retrying it.
 export function budgetExhaustedResponse(service: BudgetedService): Response {
   return new Response(JSON.stringify({ error: { message: `Daily ${service} call budget exhausted` } }), {
     status: 429,

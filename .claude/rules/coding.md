@@ -14,7 +14,7 @@ paths:
 ## 技術棧
 
 - **框架**：Next.js 16 App Router + React 19 + TypeScript。Next 16 的 middleware 叫 `src/proxy.ts`（限流、body 上限、device cookie）。
-- **AI**：OpenAI（`src/lib/openai.ts`，模型由 `OPENAI_MODEL` 決定）。
+- **AI**：Claude API（`@anthropic-ai/sdk`）。所有呼叫經過 `src/lib/llm.ts` 的 `generateObject`／`streamObject`：結構化輸出（Zod schema）、拒答與截斷視為失敗、每日上限與用量計量。模型預設 `DEFAULT_LLM_MODEL`，可用 `LLM_MODEL` 覆寫（ADR-0012）。
 - **地點與路線**：Google Places API (New)、Routes API，全部經過 `src/lib/googleFetch.ts`（見 `.claude/rules/google-places.md`）。
 - **登入**：Auth.js（`src/auth.ts`），只有 Google 登入、JWT session；未登入的訪客由簽章 cookie 識別（`src/lib/auth/guest.ts`），登入時認領訪客行程。額度在 `src/lib/quota.ts`、用量在 `UsageEvent`；生成前有 Cloudflare Turnstile（`src/lib/turnstile.ts`）。
 - **驗證**：Zod（`src/lib/schemas.ts`）；**拖拉**：`@dnd-kit`；**地圖**：`@vis.gl/react-google-maps`。
@@ -37,8 +37,7 @@ paths:
 
 ## 已知陷阱
 
-- `src/lib/openai.ts` 在 **import 時**就會因為沒有 `OPENAI_API_KEY` 而拋錯；一個 route 即使不呼叫 OpenAI，只要間接 import 到它，就會在載入時失敗。
-- `MOCK_AI` 有兩層：幾個編輯路由在呼叫模型前就回傳 `MOCK_FIXTURES`；生成流程的每個呼叫點用 `mockCompletion()` 依輸入產生假回應，後面的解析照常執行。其餘沒有 mock 的呼叫會被 `openai.ts` 擋下（回傳錯誤，不計費），包括舊的整段 LLM fallback。**新增 OpenAI 呼叫點時，同時在 `mockAi.ts` 加上它的假回應**。會寫快取的 AI 結果（季節亮點、經典一日遊、影劇作品）在 mock 模式下不讀也不寫快取。
+- `MOCK_AI` 有兩層：幾個編輯路由在呼叫模型前就回傳 `MOCK_FIXTURES`；生成流程的每個呼叫點傳 `mock` 給 `generateObject`，依輸入產生假回應（同樣用 schema 驗證），後面的處理照常執行。其餘沒有 mock 的呼叫會被 `llm.ts` 擋下（回傳錯誤，不計費），包括舊的整段 LLM fallback。**新增 LLM 呼叫點時，同時在 `mockAi.ts` 加上它的假回應，並把 reply schema 加進 `src/lib/llmReplySchemas.test.ts`**。會寫快取的 AI 結果（季節亮點、經典一日遊、影劇作品）在 mock 模式下不讀也不寫快取。
 - 生成主流程是規則引擎（`src/lib/scheduler/`）排骨架、LLM 寫文案（`assembleItineraryDays.ts` → `itineraryCityGen.ts`）；這條路徑失敗時，`generate-stream/route.ts` 會退回舊的「一次串流整份行程」流程（prompt 在 `itineraryGen.ts`），所以舊流程不是死程式碼，不能刪。
 
 ## 程式碼規範

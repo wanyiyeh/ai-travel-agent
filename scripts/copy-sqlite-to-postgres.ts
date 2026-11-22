@@ -12,7 +12,7 @@
  *   npm run copy-sqlite-to-postgres -- prisma/dev.db                    # dry run into DATABASE_URL (.env)
  *   npm run copy-sqlite-to-postgres -- prisma/dev.db --yes
  *   DATABASE_URL="postgresql://travel:travel@localhost:5432/travel_mock" npm run copy-sqlite-to-postgres -- prisma/mock.db --yes
- * Makes no Google/OpenAI calls.
+ * Makes no Google/LLM calls.
  */
 
 import { Prisma, PrismaClient } from "@prisma/client";

@@ -5,7 +5,7 @@ import { purgeExpiredCoords, type PurgeResult } from "@/lib/coordsPurge";
 /**
  * The daily cleanup, run by Vercel Cron (src/app/api/cron/daily/route.ts)
  * and by hand with npm run cleanup-expired-guests. Takes a plain
- * PrismaClient so both can run it; makes no Google/OpenAI calls.
+ * PrismaClient so both can run it; makes no Google/LLM calls.
  */
 
 const DAY_MS = 24 * 60 * 60 * 1000;

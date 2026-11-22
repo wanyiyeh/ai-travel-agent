@@ -1,8 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-// The old full-LLM flow's completion call — must not run in this story.
-const createCompletion = vi.fn();
-vi.mock("@/lib/openai", () => ({ openai: { chat: { completions: { create: createCompletion } } } }));
+// The old full-LLM flow's streamed call — must not run in this story.
+const streamOldFlow = vi.fn();
+vi.mock("@/lib/llm", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/llm")>()),
+  streamObject: streamOldFlow,
+}));
 
 // The rule-engine path, held open until the test has disconnected, then it
 // reports progress (which used to throw on the closed stream) and gives up.
@@ -71,6 +74,6 @@ describe("generate-stream when the browser disconnects mid-generation", () => {
     // let the route's code after the rule-engine call run
     await new Promise((resolve) => setTimeout(resolve, 50));
 
-    expect(createCompletion).not.toHaveBeenCalled();
+    expect(streamOldFlow).not.toHaveBeenCalled();
   });
 });

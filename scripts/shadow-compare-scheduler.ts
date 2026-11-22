@@ -13,7 +13,7 @@
  *
  * Coordinates and place types may not be stored (ADR-0004, ADR-0006), so
  * they're looked up live (scripts/lib/livePlaceEssentials.ts): billed per
- * place, ask first (R1). No OpenAI calls, no writes.
+ * place, ask first (R1). No LLM calls, no writes.
  * Run: npx tsx scripts/shadow-compare-scheduler.ts [pace] [--verbose] [--yes]
  *   pace: relaxed | moderate | intensive (default: moderate)
  *   without --yes: prints the lookup count and cost only

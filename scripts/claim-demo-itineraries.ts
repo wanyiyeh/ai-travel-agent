@@ -7,7 +7,7 @@
  * Run once per database:
  *   npm run claim-demo-itineraries                                  # dev database (DATABASE_URL in .env)
  *   DATABASE_URL="postgresql://travel:travel@localhost:5432/travel_mock" npm run claim-demo-itineraries    # travel_mock
- * Makes no Google/OpenAI calls.
+ * Makes no Google/LLM calls.
  */
 
 import { PrismaClient } from "@prisma/client";

@@ -19,7 +19,8 @@ export default defineConfig({
     // Google key and dev.db (a suburb search billed 6 Nearby requests and
     // wrote to the cache). .env never overrides a variable already set:
     // - no Google key: lookups skip themselves (tests stub one when needed);
-    // - a fake OpenAI key: openai.ts needs one at import, and it can't bill;
+    // - a fake Anthropic key, so a test missing a mock fails instead of
+    //   billing (llm.ts);
     // - a database that doesn't exist: any query fails to connect;
     // - no weather lookups: Open-Meteo has no key to blank (climate.ts);
     // - in-memory rate limits, generation lock and daily budget, instead of
@@ -28,7 +29,7 @@ export default defineConfig({
       CLIMATE_LOOKUPS: "off",
       SHARED_STATE: "memory",
       GOOGLE_PLACES_API_KEY: "",
-      OPENAI_API_KEY: "unit-tests-never-call-openai",
+      ANTHROPIC_API_KEY: "unit-tests-never-call-anthropic",
       // Signs guest cookies and hashes client IPs (requestFingerprint.ts).
       AUTH_SECRET: "unit-tests-auth-secret",
       DATABASE_URL: "postgresql://unit-tests-must-not-use-a-database@127.0.0.1:1/none",

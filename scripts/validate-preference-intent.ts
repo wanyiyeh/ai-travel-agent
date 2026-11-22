@@ -5,8 +5,8 @@
  * Runs parsePreferenceIntent() against a fixed set of representative
  * free-text preference blurbs (single-signal, multi-signal, neutral,
  * contradictory, English, edge cases) and prints input/output side by side
- * for human review. Makes real OpenAI calls (small, cheap — short prompts on
- * the default gpt-4o-mini), no DB access.
+ * for human review. Makes real Claude calls (small, cheap — short prompts on
+ * the default model, llm.ts), no DB access.
  *
  * Run: npx tsx scripts/validate-preference-intent.ts
  */
@@ -19,14 +19,12 @@ try {
   // \r?\n split + trim: this repo's .env has CRLF line endings, which broke
   // the anchored $ in other scripts' copy of this same snippet for quoted
   // values (silently masked there because PrismaClient auto-loads .env on
-  // its own; not masked here since process.env.OPENAI_API_KEY is read directly).
+  // its own; not masked here since llm.ts reads ANTHROPIC_API_KEY directly).
   for (const line of envContent.split(/\r?\n/)) {
     const match = line.trim().match(/^([A-Z_][A-Z0-9_]*)="?([^"]*?)"?$/);
     if (match && !process.env[match[1]]) process.env[match[1]] = match[2];
   }
 } catch {}
-
-const MODEL = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
 
 // 18 samples spanning: single-signal, multi-signal, neutral/no-signal,
 // contradictory, English, and edge cases (very short / very long).
@@ -52,10 +50,11 @@ const SAMPLES: string[] = [
 ];
 
 async function main() {
-  // Dynamic import: static imports are hoisted above the .env loading above,
-  // and src/lib/openai.ts throws at import time if OPENAI_API_KEY isn't set
-  // yet (see CLAUDE.local.md's "known sharp edges" note).
+  // Dynamic imports: static imports are hoisted above the .env loading
+  // above, and src/lib modules read the environment when they load.
   const { parsePreferenceIntent } = await import("../src/lib/preferenceIntent");
+  const { llmModel } = await import("../src/lib/llm");
+  const MODEL = llmModel();
 
   console.log(`=== Phase 1 parsePreferenceIntent 人工抽查（model=${MODEL}） ===\n`);
 

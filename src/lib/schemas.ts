@@ -274,6 +274,29 @@ export const TransitRecommendationSchema = z.object({
 
 export type TransitRecommendation = z.infer<typeof TransitRecommendationSchema>;
 
+// The LLM reply for transit recommendations: TransitRecommendationSchema's
+// fields without its limits (whole days, exactly 3 attractions). The route
+// checks those per item, so one item off the mark is dropped instead of
+// failing the whole list.
+export const TransitRecommendationReplySchema = z.object({
+  recommendations: z.array(
+    z.object({
+      name: z.string(),
+      type: z.enum(["city", "country"]),
+      country: z.string(),
+      iataCode: z.string().optional(),
+      transitTimeHours: z.number(),
+      transitMode: z.string(),
+      suggestedStayDaysMin: z.number(),
+      suggestedStayDaysMax: z.number(),
+      popularity: z.enum(["high", "medium", "low"]),
+      topAttractions: z.array(z.string()),
+      lat: z.number(),
+      lng: z.number(),
+    })
+  ),
+});
+
 export const DaySchema = z.object({
   day: z.number(),
   theme: z.string().optional(),

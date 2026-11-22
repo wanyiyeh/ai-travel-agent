@@ -1,4 +1,4 @@
-import { openai } from "@/lib/openai";
+import { generateObject } from "@/lib/llm";
 import { StopDescriptionFillSchema } from "@/lib/schemas";
 import type { StopCandidate } from "@/types/itinerary";
 import { UNTRUSTED_INPUT_RULE, wrapUntrusted } from "@/lib/untrustedInput";
@@ -21,34 +21,18 @@ export async function suggestFallbackText(
   dayTheme: string,
   excludeNames: string[],
 ): Promise<StopCandidate[]> {
-  const completion = await openai.chat.completions.create({
+  const reply = await generateObject({
     model,
-    messages: [
-      {
-        role: "system",
-        content: `你是專業的旅遊規劃專家。Always respond in Traditional Chinese (繁體中文).
+    system: `你是專業的旅遊規劃專家。Always respond in Traditional Chinese (繁體中文).
 Output strictly valid JSON matching this schema:
 { "candidates": [{ "name": string, "description": string, "duration_minutes": number }] }
 Suggest ${SUGGESTION_COUNT} different attractions suitable for this day of the trip.${UNTRUSTED_INPUT_RULE}`,
-      },
-      {
-        // tripContext can come from the request body, so it rides here as
-        // tagged data rather than in the system prompt.
-        role: "user",
-        content: `Trip:\n${wrapUntrusted(tripContext)}\nDay theme: ${dayTheme}.\nSuggest ${SUGGESTION_COUNT} stops for this day.`,
-      },
-    ],
-    response_format: { type: "json_object" },
+    // tripContext can come from the request body, so it rides here as
+    // tagged data rather than in the system prompt.
+    user: `Trip:\n${wrapUntrusted(tripContext)}\nDay theme: ${dayTheme}.\nSuggest ${SUGGESTION_COUNT} stops for this day.`,
+    schema: StopDescriptionFillSchema,
   });
 
-  const aiContent = completion.choices[0].message.content;
-  if (!aiContent) throw new Error("AI returned empty response");
-
-  const parsedAI = StopDescriptionFillSchema.safeParse(JSON.parse(aiContent));
-  if (!parsedAI.success) {
-    throw new Error(`AI response validation failed: ${parsedAI.error.message}`);
-  }
-
   const excluded = new Set(excludeNames.map(normalize));
-  return parsedAI.data.candidates.filter((c) => !excluded.has(normalize(c.name)));
+  return reply.candidates.filter((c) => !excluded.has(normalize(c.name)));
 }

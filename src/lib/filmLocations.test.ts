@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { expectOnlyAsUserData, llmRequests, replyWith } from "@tests/contracts/llm";
 import type { PlaceCandidate } from "@/lib/fetchCityRestaurants";
 
-const createMock = vi.fn();
-vi.mock("@/lib/openai", () => ({
-  openai: { chat: { completions: { create: (...args: unknown[]) => createMock(...args) } } },
+const generateObject = vi.fn();
+vi.mock("@/lib/llm", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/llm")>()),
+  generateObject: (req: unknown) => generateObject(req),
 }));
 const findUniqueMock = vi.fn();
 const upsertMock = vi.fn();
@@ -45,10 +47,10 @@ const gardenOfWords = [
   place("日本庭園", 35.6829, 139.7076),
 ];
 const aiReturns = (json: unknown) =>
-  createMock.mockResolvedValueOnce({ choices: [{ message: { content: JSON.stringify(json) } }] });
+  generateObject.mockImplementationOnce(replyWith(json));
 
 beforeEach(() => {
-  createMock.mockReset();
+  generateObject.mockReset();
   findUniqueMock.mockReset();
   upsertMock.mockReset();
   textSearchMock.mockReset();
@@ -78,7 +80,7 @@ describe("findFilmDay", () => {
     expect(textSearchMock.mock.calls[0].slice(0, 4)).toEqual(["你的名字 聖地巡禮", tokyo, "key", 30000]);
     expect(day?.label).toBe("《你的名字》");
     expect(day?.locations[0].note).toBe("《你的名字》據說曾在這裡取景，出發前可以查證");
-    expect(createMock).not.toHaveBeenCalled(); // the traveler named it, no need to ask
+    expect(generateObject).not.toHaveBeenCalled(); // the traveler named it, no need to ask
   });
 
   it("is a day even with one location", async () => {
@@ -97,6 +99,12 @@ describe("findFilmDay", () => {
     expect(day?.locations.map((l) => l.work)).toEqual(["你的名字", "言葉之庭", "言葉之庭"]);
   });
 
+  it("keeps the city, which the traveler can type, out of the system prompt", async () => {
+    aiReturns({ works: [] });
+    await listFamousWorks("測試市", "m");
+    expectOnlyAsUserData(llmRequests(generateObject)[0], "測試市");
+  });
+
   it("has no day when nothing is found", async () => {
     textSearchMock.mockResolvedValue([]);
     expect(await findFilmDay("東京", tokyo, "key", ["你的名字"], "m", new Set())).toBeUndefined();
@@ -111,9 +119,9 @@ describe("listFamousWorks", () => {
 
     findUniqueMock.mockResolvedValueOnce({ list: JSON.stringify({ works: ["灌籃高手"] }) });
     expect(await listFamousWorks("鎌倉", "m")).toEqual(["灌籃高手"]);
-    expect(createMock).toHaveBeenCalledTimes(1);
+    expect(generateObject).toHaveBeenCalledTimes(1);
 
-    createMock.mockRejectedValueOnce(new Error("timeout"));
+    generateObject.mockRejectedValueOnce(new Error("timeout"));
     expect(await listFamousWorks("大阪", "m")).toBeUndefined();
     expect(upsertMock).toHaveBeenCalledTimes(1);
   });

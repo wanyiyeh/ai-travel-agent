@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { getMockMode } from "@/lib/mockAi";
-import { openai } from "@/lib/openai";
+import { generateObject } from "@/lib/llm";
+import { UNTRUSTED_INPUT_RULE, wrapUntrusted } from "@/lib/untrustedInput";
 import { prisma } from "@/lib/db";
 import { searchTextCandidates, type PlaceCandidate } from "@/lib/fetchCityRestaurants";
 import { haversineKm } from "@/lib/geo";
@@ -15,7 +16,7 @@ import type { DayFixedEvents } from "@/lib/fixedEvents";
 // each exists near the city, and a snow sight needs last year's snow
 // (climate.ts) — the model would happily send someone to see snow in Tokyo.
 
-const HighlightListSchema = z.object({
+export const HighlightListSchema = z.object({
   /** Short day title, e.g. 「賞楓」. */
   label: z.string().default(""),
   highlights: z
@@ -37,13 +38,13 @@ export type HighlightList = z.infer<typeof HighlightListSchema>;
 
 const MAX_LISTED = 4;
 
-function systemPrompt(city: string, month: number): string {
-  return `你是旅遊規劃專家。請列出「${city}」在 ${month} 月最值得去的季節限定景點：每年這個月固定會有、
+function systemPrompt(month: number): string {
+  return `你是旅遊規劃專家。請列出使用者訊息裡的城市在 ${month} 月最值得去的季節限定景點：每年這個月固定會有、
 其他月份看不到或沒那麼好看的，例如賞楓、賞櫻、花海、雪景、冬季點燈。
 
 規則：
 - 只列「地點」，不列節慶或活動（祭典、煙火大會、市集）：活動日期每年不同
-- 地點要在 ${city} 市區或 30 km 內，寫地圖上搜得到的正式名稱
+- 地點要在這座城市的市區或 30 km 內，寫地圖上搜得到的正式名稱
 - 最多 ${MAX_LISTED} 個；這個月沒有明顯的季節亮點就回傳空陣列，不要硬湊
 - note 寫一句保守的時機說明，例如「通常在 11 月中下旬最美，出發前可以查今年的狀況」，
   不要寫成今年一定會怎樣
@@ -55,7 +56,7 @@ function systemPrompt(city: string, month: number): string {
 {
   "label": "這一天的主題，2～4 個字，例如「賞楓」",
   "highlights": [{ "name": "地點名稱", "night": false, "needsSnow": false, "note": "時機說明" }]
-}`;
+}${UNTRUSTED_INPUT_RULE}`;
 }
 
 /**
@@ -73,23 +74,14 @@ export async function listSeasonalHighlights(city: string, month: number, model:
     const cached = await prisma.seasonalHighlightCache.findUnique({ where: { cacheKey } });
     if (cached) return HighlightListSchema.parse(JSON.parse(cached.list));
 
-    const completion = await openai.chat.completions.create({
+    const reply = await generateObject({
       model,
-      messages: [
-        { role: "system", content: systemPrompt(city, month) },
-        { role: "user", content: `${city}，${month} 月` },
-      ],
-      response_format: { type: "json_object" },
-      temperature: 0.3,
+      system: systemPrompt(month),
+      // The city can be typed by the traveler (restructure): tagged data, not instructions.
+      user: `${wrapUntrusted(city)}\n${month} 月`,
+      schema: HighlightListSchema,
     });
-    const content = completion.choices[0].message.content;
-    if (!content) return undefined;
-    const parsed = HighlightListSchema.safeParse(JSON.parse(content));
-    if (!parsed.success) {
-      console.warn(`[seasonalHighlights] ${cacheKey}: schema mismatch`, content);
-      return undefined;
-    }
-    const list = { ...parsed.data, highlights: parsed.data.highlights.slice(0, MAX_LISTED) };
+    const list = { ...reply, highlights: reply.highlights.slice(0, MAX_LISTED) };
     await prisma.seasonalHighlightCache.upsert({
       where: { cacheKey },
       create: { cacheKey, list: JSON.stringify(list) },

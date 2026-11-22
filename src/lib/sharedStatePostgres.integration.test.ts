@@ -31,10 +31,10 @@ describe("two server instances sharing Postgres", () => {
   });
 
   it("share one daily budget", async () => {
-    const limits = { google: 6, openai: 6 };
+    const limits = { google: 6, claude: 6 };
     const [a, b] = [createPostgresDailyBudget(limits), createPostgresDailyBudget(limits)];
     const day = Date.UTC(1999, 0, 1 + Math.floor(Math.random() * 300), 12);
-    const results = await Promise.all(Array.from({ length: 14 }, (_, i) => (i % 2 ? a : b).consume("openai", day)));
+    const results = await Promise.all(Array.from({ length: 14 }, (_, i) => (i % 2 ? a : b).consume("claude", day)));
     expect(results.filter(Boolean)).toHaveLength(6);
   });
 });

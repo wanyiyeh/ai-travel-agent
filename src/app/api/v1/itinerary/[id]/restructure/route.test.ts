@@ -4,9 +4,7 @@ import { signInAs } from "@tests/setup/mockAuth";
 const findFirst = vi.fn();
 
 // Only the validation paths are exercised here, which return before any
-// OpenAI work or quota charge — the mocks just keep module loading hermetic
-// (openai.ts throws at import time without OPENAI_API_KEY).
-vi.mock("@/lib/openai", () => ({ openai: {} }));
+// LLM work or quota charge.
 const chargeMock = vi.fn();
 vi.mock("@/lib/quota", () => ({ chargePaidEdit: (...args: unknown[]) => chargeMock(...args) }));
 const updateMock = vi.fn();

@@ -6,14 +6,11 @@
  * MOCK_AI=1        → 立即回傳 fixture，不呼叫真實 API（最快測試）
  *
  * Two layers: a few routes return a fixture before reaching the model
- * (MOCK_FIXTURES below), and the generation pipeline's own calls go through
- * mockCompletion(), which hands back a reply built from the call's inputs so
- * the caller's real parsing and repair code still runs. Anything left
- * unmocked is refused by the client in openai.ts instead of billing.
+ * (MOCK_FIXTURES below), and the generation pipeline's own calls pass a
+ * `mock` reply to generateObject (llm.ts), built here from the call's inputs
+ * so the caller's real checks and repair code still run. Anything left
+ * unmocked is refused by llm.ts instead of billing.
  */
-
-import type OpenAI from "openai";
-import { recordOpenAICall } from "@/lib/usageMeter";
 
 export type MockMode = "error" | "slow" | "fixture" | null;
 
@@ -172,35 +169,6 @@ export const MOCK_FIXTURES = {
     },
   ],
 };
-
-/**
- * Stands in for one chat completion while MOCK_AI is set: null otherwise, so
- * a call site reads `(await mockCompletion(...)) ?? (await openai...create(...))`
- * and its parsing below runs on either. "error" throws like a failed request.
- */
-export async function mockCompletion(reply: () => unknown): Promise<OpenAI.Chat.Completions.ChatCompletion | null> {
-  const mode = getMockMode();
-  if (!mode) return null;
-  // Counted like MOCK_PLACES counts Google calls, so a mock run still shows
-  // how many calls a real one makes (tokens stay 0).
-  recordOpenAICall(null);
-  if (mode === "slow") await mockDelay();
-  if (mode === "error") throw new Error("Mock AI error (MOCK_AI=error)");
-  return {
-    id: "mock-completion",
-    object: "chat.completion",
-    created: 0,
-    model: "mock",
-    choices: [
-      {
-        index: 0,
-        finish_reason: "stop",
-        logprobs: null,
-        message: { role: "assistant", content: JSON.stringify(reply()), refusal: null },
-      },
-    ],
-  };
-}
 
 const MOCK_NOTE = "（模擬）";
 

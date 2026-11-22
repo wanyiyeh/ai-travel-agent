@@ -1,6 +1,6 @@
 ---
 status: stable
-updated: 2026-10-31
+updated: 2026-11-22
 source:
   - src/lib/transitStop.ts
   - src/lib/itineraryCityGen.ts
@@ -55,7 +55,7 @@ flowchart TD
 
 ## 成本
 
-- 每個移動日呼叫 OpenAI 一次（`planTransitDay`），離島之間不呼叫。
+- 每個移動日呼叫 Claude 一次（`planTransitDay`），離島之間不呼叫。
 - 出發城市多挑一份早餐用現有的候選池，不多查 Google。
 - 重新規劃只用這次本來就查的候選，不為移動日多查。
 - 補資料跳過交通站，比以前少一次 Text Search。

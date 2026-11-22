@@ -1,6 +1,6 @@
 // Per-client request limits for /api/*, enforced in src/proxy.ts before any
 // route runs. The point is cost: one scripted client looping on a route that
-// calls OpenAI or Google would otherwise bill without limit.
+// calls the LLM or Google would otherwise bill without limit.
 //
 // Serverless instances don't share memory, so the stores the app uses live
 // in Postgres (sharedStatePostgres.ts, picked in sharedState.ts, #209); the
@@ -23,7 +23,7 @@ const DAY_MS = 24 * HOUR_MS;
 export const RATE_LIMITS: Record<RateLimitTier, RateLimitRule> = {
   // A full trip generation: the most expensive single request in the app.
   generate: { limit: 30, windowMs: DAY_MS },
-  // User-triggered OpenAI calls (regenerate, suggestions, restructure, ...).
+  // User-triggered LLM calls (regenerate, suggestions, restructure, ...).
   ai: { limit: 60, windowMs: HOUR_MS },
   // Google Places/Routes lookups, including the page-open auto-enrich burst.
   google: { limit: 120, windowMs: MINUTE_MS },
@@ -49,7 +49,7 @@ const TIER_PATTERNS: [RateLimitTier, RegExp][] = [
 export function classifyApiPath(pathname: string, method: string): RateLimitTier {
   const match = /^\/api\/v1\/(.+?)\/?$/.exec(pathname);
   if (!match) return "default";
-  // Every OpenAI/Google route is a POST except the photo proxy (GET); reads
+  // Every LLM/Google route is a POST except the photo proxy (GET); reads
   // like GET /days/x/stops/.../candidates-history stay in the cheap tier.
   if (method !== "POST" && method !== "GET") return "default";
   for (const [tier, pattern] of TIER_PATTERNS) {
@@ -149,7 +149,7 @@ function retryAfter(entry: WindowEntry, limit: number, windowMs: number, elapsed
 }
 
 // One long-running request per client at a time — a trip generation streams
-// for tens of seconds and fans out into many OpenAI/Google calls, so
+// for tens of seconds and fans out into many LLM/Google calls, so
 // parallel ones multiply cost faster than the per-day count alone would
 // catch. A lease expires after GENERATION_LEASE_MS even if never released
 // (an instance that crashed mid-generation), and releasing needs the lease,

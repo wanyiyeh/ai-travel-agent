@@ -1,11 +1,12 @@
 import {
-  mockCompletion,
   mockDayStopsReply,
   mockMealsAndLodgingReply,
   mockTransitDayStopsReply,
   mockTransitPlanReply,
 } from "@/lib/mockAi";
-import { openai } from "@/lib/openai";
+import { generateObject, llmModel } from "@/lib/llm";
+import { UNTRUSTED_INPUT_RULE, wrapUntrusted } from "@/lib/untrustedInput";
+import { z } from "zod";
 import { getCityCenter, sightAreasFor } from "@/lib/placesTextSearch";
 import { fetchNearbyPlaceCandidates, fetchLodgingCandidates, fetchLuxuryRestaurants, getMealPlaceTypes, searchTextCandidates, type BudgetLevel, type PlaceCandidate, type FieldTier, type TypeMatch } from "@/lib/fetchCityRestaurants";
 import {
@@ -56,6 +57,39 @@ import { THEMES, dayThemeKeys, interestWeightsOf, isCoreOfTheme, isOnTheme, popu
 import { dietPromptLine, dietRequiredTypes, excludeByDiet } from "@/lib/dietaryFilter";
 import { TRANSIT_STOP_KIND, withoutZeroFare } from "@/lib/transitStop";
 
+// Reply shapes of the calls where the model names places itself (each
+// prompt describes the same fields).
+// City names can be typed by the traveler (restructure), so they ride in the
+// user message as tagged data, never in a system prompt (untrustedInput.ts).
+// The day counts, also from the request there, ride in the user message too:
+// a system prompt holds only our own text.
+function transitCities(fromCity: string, toCity: string): string {
+  return `出發城市：\n${wrapUntrusted(fromCity || "出發地")}\n目的地城市：\n${wrapUntrusted(toCity)}`;
+}
+
+function cityLine(cityName: string): string {
+  return `城市：\n${wrapUntrusted(cityName)}`;
+}
+
+const LlmStopSchema = z.object({
+  name: z.string(),
+  description: z.string(),
+  duration_minutes: z.number(),
+  time_of_day: z.enum(["morning", "afternoon", "evening"]),
+  transport_from_prev: z.string(),
+  estimated_cost: z.number(),
+});
+export const TransitDayStopsReplySchema = z.object({ stops: z.array(LlmStopSchema) });
+export const TransitPlanReplySchema = z.object({ transitStop: LlmStopSchema, arrivalTime: z.string() });
+export const DayStopsReplySchema = z.object({ days: z.array(z.object({ stops: z.array(LlmStopSchema) })) });
+const LlmMealSchema = z.object({ name: z.string(), description: z.string(), estimated_cost: z.number() });
+export const MealsAndLodgingReplySchema = z.object({
+  accommodation: z.object({ name: z.string(), area: z.string() }),
+  meals: z.array(
+    z.object({ breakfast: LlmMealSchema, lunch: LlmMealSchema, dinner: LlmMealSchema, snack: LlmMealSchema })
+  ),
+});
+
 // Shared AI-generation helpers for building out a city's worth of itinerary
 // content (transit day, sightseeing days, accommodation + meals). Used by the
 // restructure endpoint to generate new-city content without duplicating
@@ -69,15 +103,8 @@ async function generateTransitDayStopsWithLLM(
   toCity: string,
   currency: string
 ): Promise<Array<Record<string, unknown>>> {
-  const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
-  const completion =
-    (await mockCompletion(() => mockTransitDayStopsReply(fromCity, toCity))) ??
-    await openai.chat.completions.create({
-    model,
-    messages: [
-      {
-        role: "system",
-        content: `你是專業的旅遊規劃專家。請為旅行者規劃一個從 ${fromCity || "出發地"} 前往 ${toCity} 的移動日行程。
+  const reply = await generateObject({
+    system: `你是專業的旅遊規劃專家。請為旅行者規劃一個從出發城市前往目的地城市的移動日行程（兩個城市名稱在使用者訊息裡）。
 
 【重要】請先評估兩城市之間的實際地理距離與交通時間，再規劃行程（涵蓋各大洲的城市對，依實際距離判斷，不要只套用單一地區的直覺）：
 - 短程（車程＜90 分鐘，如大阪→京都 30min、東京→橫濱 30min、布拉格→布拉迪斯拉發 1hr）：抵達後幾乎是一整個白天都空著，務必安排 2-4 個抵達城市的真實熱門景點填滿下午（甚至傍晚），不可只寫「入住/晚餐」帶過
@@ -102,7 +129,7 @@ async function generateTransitDayStopsWithLLM(
 
 規則：
 - 依序為：
-  1. ${fromCity ? `${fromCity} 出發前早晨微行程（車站附近早餐或快速景點，09:30 前完成，time_of_day: "morning"）` : `出發準備（time_of_day: "morning"）`}
+  1. ${fromCity ? `出發城市出發前早晨微行程（車站附近早餐或快速景點，09:30 前完成，time_of_day: "morning"）` : `出發準備（time_of_day: "morning"）`}
   2. 交通本身（須填入真實交通工具、實際出發/抵達時間、正確車程時數，duration_minutes 必須反映真實車程）
   3. 抵達後活動（依上方短/中/長程規則決定要安排幾個真實景點，短程至少 2 個，中程 1-2 個，長程 1 個 check-in/晚餐）
 - 除了短程規則要求的多個景點外，總 stop 數不設死上限，依實際可安排內容決定
@@ -110,25 +137,13 @@ async function generateTransitDayStopsWithLLM(
 - duration_minutes 為整數（分鐘），交通 stop 必須填入真實車程分鐘數
 - transport_from_prev 必須包含預估時間，例如「步行約 10 分鐘」、「搭乘計程車約 15 分鐘」，不可只寫交通方式（如「步行」、「火車」）
 - estimated_cost 為 ${currency} 整數，免費填 0
-- 所有地點必須真實存在`,
-      },
-      {
-        role: "user",
-        content: `請規劃從 ${fromCity || "出發地"} 前往 ${toCity} 的移動日行程。`,
-      },
-    ],
-    response_format: { type: "json_object" },
-    temperature: 0.7,
+- 所有地點必須真實存在${UNTRUSTED_INPUT_RULE}`,
+    user: `${transitCities(fromCity, toCity)}\n請規劃這段移動日行程。`,
+    schema: TransitDayStopsReplySchema,
+    mock: () => mockTransitDayStopsReply(fromCity, toCity),
   });
 
-  const content = completion.choices[0].message.content;
-  if (!content) return [];
-  const parsed = JSON.parse(content) as { stops?: unknown[] };
-  if (!Array.isArray(parsed.stops)) return [];
-  return parsed.stops.map((s) => ({
-    ...(s as Record<string, unknown>),
-    id: crypto.randomUUID(),
-  }));
+  return reply.stops.map((s) => ({ ...s, id: crypto.randomUUID() }));
 }
 
 // 國內 (domesticTrips.ts): Taiwan's own trains and buses, the traveler's own car.
@@ -237,14 +252,9 @@ async function planTransitDay(
   domestic = false
 ): Promise<TransitPlan | null> {
   try {
-    const completion =
-      (await mockCompletion(() => mockTransitPlanReply(fromCity, toCity))) ??
-      await openai.chat.completions.create({
+    const reply = await generateObject({
       model,
-      messages: [
-        {
-          role: "system",
-          content: `你是專業的旅遊規劃專家。請為旅行者規劃一個從 ${fromCity || "出發地"} 前往 ${toCity} 的移動日行程裡「交通本身」的部分，並推算抵達時間。
+      system: `你是專業的旅遊規劃專家。請為旅行者規劃一個從出發城市前往目的地城市的移動日行程裡「交通本身」的部分，並推算抵達時間（兩個城市名稱在使用者訊息裡）。
 
 【重要】請先評估兩城市之間的實際地理距離與交通時間（涵蓋各大洲的城市對，依實際距離判斷，不要只套用單一地區的直覺）：
 - 短程（車程＜90 分鐘，如大阪→京都 30min、東京→橫濱 30min、布拉格→布拉迪斯拉發 1hr）
@@ -268,30 +278,17 @@ async function planTransitDay(
 
 規則：
 - transitStop：交通本身，須填入真實交通工具、正確車程時數，duration_minutes 必須反映真實車程，transport_from_prev 必須包含預估時間（例如「搭乘新幹線約 1 小時30分」），不可只寫交通方式
-- arrivalTime："HH:MM" 格式的 24 小時制時間，代表抵達 ${toCity} 後可以開始活動的時間
+- arrivalTime："HH:MM" 格式的 24 小時制時間，代表抵達目的地城市後可以開始活動的時間
 - time_of_day 只能是 "morning"、"afternoon"、"evening" 之一
-- estimated_cost 為 ${currency} 整數：每人單程票價，開車則是油錢與過路費；城市之間的交通不會免費，不可以填 0，不確定時依距離估算`,
-        },
-        {
-          role: "user",
-          content: `請規劃從 ${fromCity || "出發地"} 前往 ${toCity} 的移動日「交通」部分，並推算抵達時間。`,
-        },
-      ],
-      response_format: { type: "json_object" },
-      temperature: 0.7,
+- estimated_cost 為 ${currency} 整數：每人單程票價，開車則是油錢與過路費；城市之間的交通不會免費，不可以填 0，不確定時依距離估算${UNTRUSTED_INPUT_RULE}`,
+      user: `${transitCities(fromCity, toCity)}\n請規劃這段移動日的「交通」部分，並推算抵達時間。`,
+      schema: TransitPlanReplySchema,
+      mock: () => mockTransitPlanReply(fromCity, toCity),
     });
 
-    const content = completion.choices[0].message.content;
-    if (!content) return null;
-    const parsed = JSON.parse(content) as {
-      transitStop?: Record<string, unknown>;
-      arrivalTime?: unknown;
-    };
-    if (!parsed.transitStop || typeof parsed.transitStop !== "object") return null;
-
     return {
-      transitStop: withoutZeroFare({ ...parsed.transitStop, id: crypto.randomUUID(), kind: TRANSIT_STOP_KIND }),
-      arrivalMinute: parseTimeString(parsed.arrivalTime, DEFAULT_ARRIVAL_MINUTE),
+      transitStop: withoutZeroFare({ ...reply.transitStop, id: crypto.randomUUID(), kind: TRANSIT_STOP_KIND }),
+      arrivalMinute: parseTimeString(reply.arrivalTime, DEFAULT_ARRIVAL_MINUTE),
     };
   } catch (err) {
     console.warn("[planTransitDay] falling back to LLM:", err);
@@ -319,7 +316,6 @@ async function generateTransitDayStopsViaScheduler(
   conditions?: DayConditions
 ): Promise<Array<Record<string, unknown>> | null> {
   try {
-    const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
     // Between two islands of 馬祖 or 澎湖, the boat from the group's data:
     // asked, the LLM wrote 「從福澳港搭渡輪前往南竿」 from 南竿 itself.
     const plan =
@@ -328,7 +324,7 @@ async function generateTransitDayStopsViaScheduler(
         fromCity,
         toCity,
         currency,
-        model,
+        llmModel(),
         preferenceIntent.selfDrive,
         preferenceIntent.domestic
       ));
@@ -905,8 +901,7 @@ export async function generateMealsAndAccommodation(
   // the model name places of its own, which enrich then looks up.
   const pools = await fetchMealLodgingPools(cityName, budget, currency, stayDays, preferences).catch(() => null);
   if (pools === null || !hasAnyCandidates(pools)) {
-    const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
-    const parsed = await askMealsAndLodging(model, cityName, stayDays, currency, mealPreferenceRules(preferences));
+    const parsed = await askMealsAndLodging(llmModel(), cityName, stayDays, currency, mealPreferenceRules(preferences));
     return {
       accommodation: parsed.accommodation ?? {},
       mealsByDay: Array.from({ length: stayDays }, (_, i) => parsed.meals?.[i] ?? {}),
@@ -964,11 +959,6 @@ function withoutNightcapSlot(meals: Record<string, unknown>): Record<string, unk
   return rest;
 }
 
-type ParsedMealsReply = {
-  accommodation?: Record<string, unknown>;
-  meals?: Array<Record<string, unknown>>;
-};
-
 /**
  * Meals and lodging named by the model itself, for a city with no real
  * candidates at all; enrich looks the names up afterwards.
@@ -979,15 +969,10 @@ async function askMealsAndLodging(
   stayDays: number,
   currency: string,
   preferenceRules: string,
-): Promise<ParsedMealsReply> {
-  const completion =
-    (await mockCompletion(() => mockMealsAndLodgingReply(cityName, stayDays))) ??
-    await openai.chat.completions.create({
+): Promise<z.infer<typeof MealsAndLodgingReplySchema>> {
+  return generateObject({
     model,
-    messages: [
-      {
-        role: "system",
-        content: `你是專業的旅遊規劃專家。請為旅行者在 ${cityName} 停留 ${stayDays} 天的行程推薦住宿和每日四餐（早餐、午餐、晚餐、點心）。
+    system: `你是專業的旅遊規劃專家。請為旅行者在這座城市停留期間推薦住宿和每日四餐（早餐、午餐、晚餐、點心）；城市名稱與停留天數在使用者訊息裡。
 
 回傳嚴格的 JSON 格式（不要其他文字）：
 {
@@ -1003,23 +988,14 @@ async function askMealsAndLodging(
 }
 
 規則：
-- accommodation 為整個在 ${cityName} 停留期間的住宿，必須是真實存在且可在 Booking.com 找到的飯店
-- meals 陣列共 ${stayDays} 個元素，每天推薦不同的餐廳
-- 所有餐廳必須是 ${cityName} 真實存在的知名店家；snack 須為咖啡館、甜點店或冰淇淋店，不可填正餐型餐廳
-- estimated_cost 為 ${currency} 整數，代表每人平均消費${preferenceRules}`,
-      },
-      {
-        role: "user",
-        content: `請為旅行者在 ${cityName} 停留 ${stayDays} 天推薦住宿和每日四餐（早餐、午餐、晚餐、點心）。`,
-      },
-    ],
-    response_format: { type: "json_object" },
-    temperature: 0.7,
+- accommodation 為整個在這座城市停留期間的住宿，必須是真實存在且可在 Booking.com 找到的飯店
+- meals 陣列的元素數等於停留天數，每天一個，推薦不同的餐廳
+- 所有餐廳必須是這座城市真實存在的知名店家；snack 須為咖啡館、甜點店或冰淇淋店，不可填正餐型餐廳
+- estimated_cost 為 ${currency} 整數，代表每人平均消費${preferenceRules}${UNTRUSTED_INPUT_RULE}`,
+    user: `${cityLine(cityName)}\n請為旅行者在這座城市停留 ${stayDays} 天推薦住宿和每日四餐（早餐、午餐、晚餐、點心）。`,
+    schema: MealsAndLodgingReplySchema,
+    mock: () => mockMealsAndLodgingReply(cityName, stayDays),
   });
-
-  const content = completion.choices[0].message.content;
-  if (!content) return {};
-  return JSON.parse(content) as ParsedMealsReply;
 }
 
 // Falls back to this pure-LLM implementation whenever the rule-engine path
@@ -1030,16 +1006,8 @@ async function generateDayStopsWithLLM(
   stayDays: number,
   currency: string
 ): Promise<Array<Array<Record<string, unknown>>>> {
-  const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
-
-  const completion =
-    (await mockCompletion(() => mockDayStopsReply(cityName, stayDays))) ??
-    await openai.chat.completions.create({
-    model,
-    messages: [
-      {
-        role: "system",
-        content: `你是專業的旅遊規劃專家。請為旅行者規劃在 ${cityName} 停留 ${stayDays} 天的景點行程。
+  const reply = await generateObject({
+    system: `你是專業的旅遊規劃專家。請為旅行者規劃在這座城市停留期間的景點行程；城市名稱與停留天數在使用者訊息裡。
 
 回傳嚴格的 JSON 格式（不要其他文字）：
 {
@@ -1060,38 +1028,25 @@ async function generateDayStopsWithLLM(
 }
 
 規則：
-- 共生成 ${stayDays} 天，每天 3-4 個景點
+- days 陣列的元素數等於停留天數，每天 3-4 個景點
 - time_of_day 只能是 "morning"、"afternoon"、"evening" 之一
 - duration_minutes 為整數（分鐘）
 - estimated_cost 為 ${currency} 貨幣的整數，免費景點填 0
 - transport_from_prev 必須包含預估時間，例如「步行約 10 分鐘」、「搭乘地鐵約 15 分鐘」，不可只寫交通方式（如「步行」、「地鐵」）
-- 所有景點必須是 ${cityName} 真實存在的知名地點`,
-      },
-      {
-        role: "user",
-        content: `請規劃 ${cityName} 停留 ${stayDays} 天的景點行程。`,
-      },
-    ],
-    response_format: { type: "json_object" },
-    temperature: 0.7,
+- 所有景點必須是這座城市真實存在的知名地點${UNTRUSTED_INPUT_RULE}`,
+    user: `${cityLine(cityName)}\n請規劃在這座城市停留 ${stayDays} 天的景點行程。`,
+    schema: DayStopsReplySchema,
+    mock: () => mockDayStopsReply(cityName, stayDays),
   });
-
-  const content = completion.choices[0].message.content;
-  if (!content) return Array.from({ length: stayDays }, () => []);
-
-  const parsed = JSON.parse(content) as { days?: Array<{ stops?: unknown[] }> };
-  const aiDays = parsed.days ?? [];
+  const aiDays = reply.days;
 
   return Array.from({ length: stayDays }, (_, i) => {
     const stops = aiDays[i]?.stops;
-    if (!Array.isArray(stops) || stops.length === 0) {
+    if (!stops || stops.length === 0) {
       console.warn(`[generateDayStopsWithLLM] ${cityName} day ${i + 1}/${stayDays} came back with no stops`);
       return [];
     }
-    return stops.map((stop) => ({
-      ...(stop as Record<string, unknown>),
-      id: crypto.randomUUID(),
-    }));
+    return stops.map((stop) => ({ ...stop, id: crypto.randomUUID() }));
   });
 }
 

@@ -1,6 +1,6 @@
 ---
 status: stable
-updated: 2026-10-31
+updated: 2026-11-22
 source:
   - scripts/build-airports.ts
   - src/lib/airportData/build.ts
@@ -70,9 +70,9 @@ flowchart LR
 
 ## 成本
 
-- 產生資料：免費，不呼叫 Google 或 OpenAI。
+- 產生資料：免費，不呼叫 Google 或 Claude。
 - 執行時：查詢都在記憶體，不呼叫外部服務；`/api/v1/airports` 是建置時產生的靜態檔，不含座標。
-- 生成到新目的地的 Google 與 OpenAI 用量與其他城市相同。
+- 生成到新目的地的 Google 與 Claude 用量與其他城市相同。
 
 ## 已知限制
 

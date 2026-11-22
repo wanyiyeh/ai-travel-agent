@@ -1,5 +1,4 @@
 import { withDomesticTimes } from "@/lib/domesticTrips";
-import { openai } from "@/lib/openai";
 import {
   ItinerarySchema,
   GenerateRequestSchema,
@@ -30,6 +29,8 @@ import { checkQuota, quotaExceededResponse, recordUsage } from "@/lib/quota";
 import { hashIp, requestFingerprint } from "@/lib/requestFingerprint";
 import { captchaFailedResponse, verifyTurnstileToken } from "@/lib/turnstile";
 import type { Day, Itinerary } from "@/types/itinerary";
+import { LlmOutputError, llmModel, streamObject } from "@/lib/llm";
+import { LegacyItineraryReplySchema, type LegacyItineraryReply } from "@/lib/itineraryGen";
 
 // A handful of validation issues stem from the model misreading the prompt
 // (wrong day count, missing transit day, etc.) rather than a structural gap
@@ -48,9 +49,12 @@ const GENERATION_DEADLINE_MS = 280_000;
 
 // What an old-flow attempt needs before it's started. The longest one
 // measured took 40s (a 10-day trip, docs/runbook.md); doubled for a slow
-// OpenAI. The rule-engine path took up to 50s, so even after it fails there
+// model. The rule-engine path took up to 50s, so even after it fails there
 // is room for a couple of attempts.
 const OLD_FLOW_ATTEMPT_MS = 80_000;
+// The old flow writes the whole trip in one reply, and Haiku 5.5's thinking
+// counts toward max_tokens too; streamed, so a high cap costs no timeout.
+const LEGACY_FLOW_MAX_TOKENS = 32000;
 
 // Told to the traveler when the deadline stops a generation; nothing is saved.
 const TIMEOUT_EVENT = {
@@ -112,7 +116,7 @@ export async function POST(request: Request) {
   const timeLeft = () => deadline - Date.now();
   try {
     const body = await request.json().catch(() => null);
-    // Rejects before any OpenAI/Google call: an over-long trip or prompt is
+    // Rejects before any LLM/Google call: an over-long trip or prompt is
     // the cheapest way to multiply one request's cost.
     const parsed = GenerateRequestSchema.safeParse(body);
     if (!parsed.success) {
@@ -186,7 +190,7 @@ export async function POST(request: Request) {
         setGuestCookie = guestCookieHeader(guest.id);
       }
 
-      // Recorded up front: the OpenAI/Google calls cost the same whether or
+      // Recorded up front: the LLM/Google calls cost the same whether or
       // not the generation ends up succeeding. Admins aren't counted, so
       // they don't use up the site-wide caps.
       if (!actor?.isAdmin) {
@@ -208,7 +212,7 @@ export async function POST(request: Request) {
       cancel: () => {
         clientGone = true;
       },
-      // Metered so each generation logs its Google/OpenAI call counts
+      // Metered so each generation logs its Google/LLM call counts
       // ("[usage] generate-stream ...") — plan/access-control.md §3.
       start: (controller) => runMetered("generate-stream", async () => {
         const send = (data: string) => {
@@ -246,7 +250,7 @@ export async function POST(request: Request) {
               flightInfo,
               prompt,
               preferences,
-              process.env.OPENAI_MODEL ?? "gpt-4o-mini",
+              llmModel(),
               (event) => {
                 newPathEmittedEvents = true;
                 send(JSON.stringify(event));
@@ -381,45 +385,35 @@ export async function POST(request: Request) {
             // Cut off at the deadline rather than by Vercel, so the traveler
             // gets a clear error instead of a dropped connection.
             const attemptSignal = AbortSignal.timeout(Math.max(1, timeLeft()));
-            let accumulatedContent = "";
+            let reply: LegacyItineraryReply | undefined;
+            // A refused, cut-off or off-schema reply is retried like the
+            // parse errors below used to be; any other error ends the request.
+            let unusableReply: LlmOutputError | undefined;
             try {
-              const completion = await openai.chat.completions.create(
+              reply = await streamObject(
                 {
-                  model: process.env.OPENAI_MODEL ?? "gpt-4o-mini",
-                  messages: [
-                    { role: "system", content: systemPrompt + UNTRUSTED_INPUT_RULE },
-                    { role: "user", content: userContent },
-                  ],
-                  response_format: { type: "json_object" },
-                  temperature: 0.7,
-                  max_tokens: 16000,
-                  stream: true,
+                  system: systemPrompt + UNTRUSTED_INPUT_RULE,
+                  user: userContent,
+                  schema: LegacyItineraryReplySchema,
+                  maxTokens: LEGACY_FLOW_MAX_TOKENS,
+                  signal: attemptSignal,
                 },
-                { signal: attemptSignal },
+                (textSoFar) => send(JSON.stringify({ type: "chunk", content: textSoFar })),
               );
-
-              for await (const chunk of completion) {
-                const content = chunk.choices[0]?.delta?.content || "";
-                if (content) {
-                  accumulatedContent += content;
-                  const data = JSON.stringify({
-                    type: "chunk",
-                    content: accumulatedContent,
-                  });
-                  send(data);
-                }
-              }
             } catch (error) {
-              if (!attemptSignal.aborted) throw error;
-              console.warn(`[Stream] deadline reached during attempt ${attempt}; nothing saved`);
-              send(JSON.stringify(TIMEOUT_EVENT));
-              close();
-              return;
+              if (attemptSignal.aborted) {
+                console.warn(`[Stream] deadline reached during attempt ${attempt}; nothing saved`);
+                send(JSON.stringify(TIMEOUT_EVENT));
+                close();
+                return;
+              }
+              if (!(error instanceof LlmOutputError)) throw error;
+              unusableReply = error;
             }
 
             try {
-              const parsedData = JSON.parse(accumulatedContent);
-              const validatedRaw = ItinerarySchema.parse(parsedData);
+              if (!reply) throw unusableReply;
+              const validatedRaw = ItinerarySchema.parse(reply);
 
               // The last day is always the return flight day — strip any AI hallucination of isTransitDay
               const lastIdx = validatedRaw.days.length - 1;

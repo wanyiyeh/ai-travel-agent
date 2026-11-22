@@ -6,14 +6,14 @@
 
 每次 `generate-stream` 的呼叫次數會寫進 `UsageMeasurement` 表（`src/lib/usageMeter.ts`），同時印出 `[usage]` log。Google 依「端點 + 欄位」分開計數，因為欄位決定計費等級。
 
-**完全免費的量測**（Google 與 OpenAI 都是假資料）：
+**完全免費的量測**（Google 與 Claude 都是假資料）：
 
 1. 用一個全新的資料庫，避免讀到舊的 `PlaceQuery`：`docker compose exec db createdb -U travel travel_mock_measure`，再 `DATABASE_URL="postgresql://travel:travel@localhost:5432/travel_mock_measure" npx prisma migrate deploy`（名稱要含 `mock`，`MOCK_PLACES` 才肯用）。
 2. 用同樣的資料庫啟動 `npx next dev -p 3005`，加上 `MOCK_PLACES=1 MOCK_AI=1 TURNSTILE_SECRET_KEY=""`（開發環境略過人機驗證，讓 curl 可以直接呼叫）。同一個資料夾只能有一個 dev server，先停掉其他的。
 3. `curl -N -X POST http://localhost:3005/api/v1/generate-stream`，body 帶 `flightInfo`；每次用不同的 `x-forwarded-for`，避免碰到訪客額度。
 4. 讀 `UsageMeasurement` 表或伺服器的 `[usage]` log。
 
-`MOCK_AI` 的假回應不會寫出真的景點名稱，所以依 LLM 寫的名稱去找地點的 Text Search 會少算。要算準這一項，拿掉 `MOCK_AI=1`，改用真的 OpenAI（先依 `CLAUDE.md` R1 詢問，一次生成約 US$0.003）。
+`MOCK_AI` 的假回應不會寫出真的景點名稱，所以依 LLM 寫的名稱去找地點的 Text Search 會少算。要算準這一項，拿掉 `MOCK_AI=1`，改用真的 Claude（先依 `CLAUDE.md` R1 詢問）。
 
 Route Matrix 每次請求都是 1 個起點 × 1 個終點（`src/lib/distanceMatrix.ts`），所以請求數等於計費的元素數。
 
@@ -32,7 +32,23 @@ Route Matrix 每次請求都是 1 個起點 × 1 個終點（`src/lib/distanceMa
 - 2026-10-20 的數字是「快取全部沒命中」的情況；#203 之後候選池與路線不再跨請求保存，每次生成都接近這個數字，同城市重複生成也一樣。
 - 現在最貴的是 Nearby Search Pro。
 
-OpenAI（`gpt-4o-mini`）每次生成約 US$0.003～0.004。
+OpenAI（`gpt-4o-mini`，2026-11 換成 Claude 之前）每次生成約 US$0.003～0.004。
+
+### Claude Haiku 5.5（2026-11-22）
+
+`dev:mock` 量測（Claude 是真的、Google 是假的），數字取自 `UsageMeasurement`（[ADR-0012](adr/0012-llm-provider-claude.md)、PLAN-005 #340）。費用依 Anthropic 價目（提示 10 萬 token 以內：輸入 US$0.10、輸出 US$0.50／每百萬 token）。思考程度沿用程式碼裡的設定（`src/lib/llm.ts` 的 `DEFAULT_LLM_EFFORT`、`src/lib/tripPlan.ts` 的 `PLAN_TRIP_EFFORT`），四份行程內容都合理，沒有拒答或格式錯誤，所以沒有調整。
+
+| 行程 | 路徑 | Claude 呼叫 | 輸入 token | 輸出 token | 費用 | 時間 |
+| --- | --- | --- | --- | --- | --- | --- |
+| 東京來回 5 天 | 規則引擎 | 4 | 7,412 | 2,072 | US$0.002 | 14 秒 |
+| 福岡進、名古屋出 5 天 | 規則引擎 | 5 | 7,461 | 2,534 | US$0.002 | 18 秒 |
+| 巴黎進、阿姆斯特丹出 4 天 | 規則引擎 | 4 | 6,025 | 820 | US$0.001 | 8 秒 |
+| 首爾進、釜山出 4 天 | 舊流程（一次） | 1 | 8,991 | 8,483 | US$0.005 | 48 秒 |
+
+- 規則引擎的呼叫次數隨行程而變：偏好解析、城市與天數（東京那份因為沒有安排外宿而重試一次）、每個移動日一次，季節亮點、經典一日遊、影劇作品沒有快取時各一次。
+- 舊流程一次寫完整份行程，輸出 token 多，費用約是規則引擎的 2～5 倍，但仍低於 OpenAI 時期的一次生成。
+- 規則引擎的時間比 OpenAI 時期短，但這次 Google 是假的，沒有網路延遲，不能直接比較。
+- 編輯（加景點、交通建議、重新規劃）不經過 `runMetered`，沒有寫進 `UsageMeasurement`；這次各試一次都在 2～13 秒內完成。
 
 ## 生成要跑多久
 

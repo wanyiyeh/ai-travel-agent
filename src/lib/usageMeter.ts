@@ -2,8 +2,8 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { withRequestMemo } from "@/lib/requestMemo";
 
 // Per-request tally of billable outbound calls, so we can see what one
-// request (e.g. a trip generation) actually costs. googleFetch and the OpenAI
-// client's fetch record into whatever tally is active; outside runMetered()
+// request (e.g. a trip generation) actually costs. googleFetch and the LLM
+// calls (llm.ts) record into whatever tally is active; outside runMetered()
 // nothing is recorded. Counts in MOCK_PLACES mode too, so `dev:mock` can
 // measure call counts without paying Google.
 // plan/access-control.md §3 (sizing the site-wide daily caps).
@@ -12,13 +12,13 @@ export interface UsageTally {
   // Keyed by endpoint + field mask: Places bills a request at the highest
   // tier of any field it asks for, so the mask decides the SKU.
   google: Record<string, number>;
-  openai: { calls: number; promptTokens: number; completionTokens: number };
+  llm: { calls: number; inputTokens: number; outputTokens: number };
 }
 
 const storage = new AsyncLocalStorage<UsageTally>();
 
 function newTally(): UsageTally {
-  return { google: {}, openai: { calls: 0, promptTokens: 0, completionTokens: 0 } };
+  return { google: {}, llm: { calls: 0, inputTokens: 0, outputTokens: 0 } };
 }
 
 // A metered run is one request, so it's also where repeated lookups within
@@ -32,7 +32,7 @@ export async function runMetered<T>(label: string, fn: () => Promise<T>): Promis
       const summary = summarize(tally);
       // A run that called nothing (a page view with every name still stored)
       // isn't worth a log line or a row.
-      if (summary.googleTotal > 0 || summary.openai.calls > 0) {
+      if (summary.googleTotal > 0 || summary.llm.calls > 0) {
         console.info(`[usage] ${label} ${JSON.stringify(summary)}`);
         await saveMeasurement(label, summary);
       }
@@ -52,9 +52,9 @@ async function saveMeasurement(label: string, summary: ReturnType<typeof summari
         label,
         google: JSON.stringify(summary.google),
         googleTotal: summary.googleTotal,
-        openaiCalls: summary.openai.calls,
-        promptTokens: summary.openai.promptTokens,
-        completionTokens: summary.openai.completionTokens,
+        llmCalls: summary.llm.calls,
+        llmInputTokens: summary.llm.inputTokens,
+        llmOutputTokens: summary.llm.outputTokens,
         mock: Boolean(process.env.MOCK_PLACES && process.env.MOCK_PLACES !== "0") || Boolean(process.env.MOCK_AI),
       },
     });
@@ -90,15 +90,16 @@ export function recordGoogleCall(url: string, init?: RequestInit) {
   tally.google[key] = (tally.google[key] ?? 0) + 1;
 }
 
-export function recordOpenAICall(usage?: { prompt_tokens?: number; completion_tokens?: number } | null) {
+/** One LLM call; tokens are null for a mock call, which bills nothing. */
+export function recordLlmCall(usage: { inputTokens: number; outputTokens: number } | null) {
   const tally = storage.getStore();
   if (!tally) return;
-  tally.openai.calls += 1;
-  tally.openai.promptTokens += usage?.prompt_tokens ?? 0;
-  tally.openai.completionTokens += usage?.completion_tokens ?? 0;
+  tally.llm.calls += 1;
+  tally.llm.inputTokens += usage?.inputTokens ?? 0;
+  tally.llm.outputTokens += usage?.outputTokens ?? 0;
 }
 
 export function summarize(tally: UsageTally) {
   const googleTotal = Object.values(tally.google).reduce((a, b) => a + b, 0);
-  return { googleTotal, google: tally.google, openai: tally.openai };
+  return { googleTotal, google: tally.google, llm: tally.llm };
 }

@@ -1,9 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/lib/db";
 
-// The route must never get as far as OpenAI in these tests.
-const createCompletion = vi.fn();
-vi.mock("@/lib/openai", () => ({ openai: { chat: { completions: { create: createCompletion } } } }));
+// The route must never get as far as the model in these tests.
+const streamOldFlow = vi.fn();
+vi.mock("@/lib/llm", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/llm")>()),
+  streamObject: streamOldFlow,
+}));
 
 const { POST } = await import("@/app/api/v1/generate-stream/route");
 
@@ -36,7 +39,7 @@ describe("generate-stream and airport codes", () => {
     expect((await res.json()).error).toContain("ZZQ");
     expect(await prisma.user.count({ where: { isGuest: true } })).toBe(guestsBefore);
     expect(await prisma.usageEvent.count()).toBe(usageBefore);
-    expect(createCompletion).not.toHaveBeenCalled();
+    expect(streamOldFlow).not.toHaveBeenCalled();
   });
 
   it("lets an airport beyond the hand-kept list through to the next check", async () => {
@@ -47,6 +50,6 @@ describe("generate-stream and airport codes", () => {
     const res = await post({ departureCity: "TPE", arrivalCity: "LIM", returnDepartureCity: "LIM" });
 
     expect(res.status).toBe(403);
-    expect(createCompletion).not.toHaveBeenCalled();
+    expect(streamOldFlow).not.toHaveBeenCalled();
   });
 });

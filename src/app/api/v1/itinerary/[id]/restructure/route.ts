@@ -22,6 +22,7 @@ import { internalErrorResponse } from "@/lib/apiError";
 import { authorizeItinerary } from "@/lib/auth/ownership";
 import { chargePaidEdit } from "@/lib/quota";
 import { bookedEventLabel, bookedEventOn } from "@/lib/fixedEvents";
+import { llmModel } from "@/lib/llm";
 
 const LockedAttractionSchema = z.object({
   name: z.string().min(1).max(MAX_NAME_LENGTH),
@@ -48,7 +49,7 @@ const CitySchema = z.object({
   lockedAttractions: z.array(LockedAttractionSchema).max(MAX_CITY_DAYS).default([]),
 });
 
-// Every city and day here is generated in parallel (OpenAI + Google per
+// Every city and day here is generated in parallel (Claude + Google per
 // city), so the whole request is held to the same trip-length cap as a
 // fresh generation.
 const RequestSchema = z.object({
@@ -502,7 +503,7 @@ export async function POST(
     const preferences = storedPreferences.success ? storedPreferences.data : undefined;
     const budget = preferences?.budget as BudgetLevel | undefined;
     const freeText = (config.generatedWith as string) ?? "";
-    const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
+    const model = llmModel();
     // 國內 (domesticTrips.ts): rebuilt transit days stay on Taiwan's trains and the traveler's own car.
     const domestic = (config.flightInfo as { tripType?: string } | undefined)?.tripType === "domestic";
     const preferenceIntent = {

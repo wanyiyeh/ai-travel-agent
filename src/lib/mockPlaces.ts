@@ -19,7 +19,7 @@ import { haversineKm } from "@/lib/geo";
  * query string, so a fake place landing in dev.db would keep being served
  * after mock mode is switched off.
  *
- * OpenAI is NOT mocked by this — set MOCK_AI too (`npm run dev:free`).
+ * The LLM is NOT mocked by this — set MOCK_AI too (`npm run dev:free`).
  */
 
 export function isMockPlaces(): boolean {
