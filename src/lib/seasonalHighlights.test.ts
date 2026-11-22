@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { llmRequests, replyWith } from "@tests/contracts/llm";
 import type { PlaceCandidate } from "@/lib/fetchCityRestaurants";
 
-const createMock = vi.fn();
-vi.mock("@/lib/openai", () => ({
-  openai: { chat: { completions: { create: (...args: unknown[]) => createMock(...args) } } },
+const generateObject = vi.fn();
+vi.mock("@/lib/llm", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/llm")>()),
+  generateObject: (req: unknown) => generateObject(req),
 }));
 const findUniqueMock = vi.fn();
 const upsertMock = vi.fn();
@@ -43,7 +45,7 @@ const arashiyama = place("嵐山", 35.0094, 135.6668);
 const eikando = place("永觀堂", 35.0146, 135.7942);
 
 const aiReturns = (json: unknown) =>
-  createMock.mockResolvedValueOnce({ choices: [{ message: { content: JSON.stringify(json) } }] });
+  generateObject.mockImplementationOnce(replyWith(json));
 const fall = {
   label: "賞楓",
   highlights: [
@@ -54,7 +56,7 @@ const fall = {
 };
 
 beforeEach(() => {
-  createMock.mockReset();
+  generateObject.mockReset();
   findUniqueMock.mockReset();
   upsertMock.mockReset();
   textSearchMock.mockReset();
@@ -70,7 +72,7 @@ describe("listSeasonalHighlights", () => {
 
     expect(list?.highlights.map((h) => h.name)).toEqual(["東福寺", "嵐山", "永觀堂"]);
     expect(list?.highlights[0].night).toBe(false); // defaults filled in
-    const prompt = createMock.mock.calls[0][0].messages[0].content as string;
+    const prompt = llmRequests(generateObject)[0].system as string;
     expect(prompt).toContain("不列節慶或活動");
     expect(upsertMock.mock.calls[0][0].where).toEqual({ cacheKey: "京都|11" });
   });
@@ -82,7 +84,7 @@ describe("listSeasonalHighlights", () => {
 
     findUniqueMock.mockResolvedValue({ list: JSON.stringify(fall) });
     expect((await listSeasonalHighlights("京都", 11, "m"))?.label).toBe("賞楓");
-    expect(createMock).toHaveBeenCalledTimes(1);
+    expect(generateObject).toHaveBeenCalledTimes(1);
   });
 
   it("keeps at most 4", async () => {
@@ -91,7 +93,7 @@ describe("listSeasonalHighlights", () => {
   });
 
   it("doesn't cache a failed call", async () => {
-    createMock.mockRejectedValueOnce(new Error("timeout"));
+    generateObject.mockRejectedValueOnce(new Error("timeout"));
     expect(await listSeasonalHighlights("京都", 11, "m")).toBeUndefined();
     expect(upsertMock).not.toHaveBeenCalled();
   });

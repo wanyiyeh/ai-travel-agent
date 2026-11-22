@@ -30,6 +30,7 @@ import { checkQuota, quotaExceededResponse, recordUsage } from "@/lib/quota";
 import { hashIp, requestFingerprint } from "@/lib/requestFingerprint";
 import { captchaFailedResponse, verifyTurnstileToken } from "@/lib/turnstile";
 import type { Day, Itinerary } from "@/types/itinerary";
+import { llmModel } from "@/lib/llm";
 
 // A handful of validation issues stem from the model misreading the prompt
 // (wrong day count, missing transit day, etc.) rather than a structural gap
@@ -246,7 +247,7 @@ export async function POST(request: Request) {
               flightInfo,
               prompt,
               preferences,
-              process.env.OPENAI_MODEL ?? "gpt-4o-mini",
+              llmModel(),
               (event) => {
                 newPathEmittedEvents = true;
                 send(JSON.stringify(event));

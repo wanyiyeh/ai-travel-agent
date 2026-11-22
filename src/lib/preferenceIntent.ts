@@ -1,5 +1,4 @@
-import { mockCompletion } from "@/lib/mockAi";
-import { openai } from "@/lib/openai";
+import { generateObject } from "@/lib/llm";
 import { UNTRUSTED_INPUT_RULE, wrapUntrusted } from "@/lib/untrustedInput";
 import {
   NEUTRAL_PREFERENCE_INTENT,
@@ -7,13 +6,23 @@ import {
   type PreferenceIntent,
 } from "@/lib/schemas";
 
-// The unit tests below mock the OpenAI call, so they only verify the schema/
+// The unit tests below mock the LLM call, so they only verify the schema/
 // fallback plumbing, not real prompt quality — rerun
 // `npx tsx scripts/validate-preference-intent.ts` (real API calls) after
 // editing SYSTEM_PROMPT to catch prompt-quality regressions like the one that
 // motivated the current dietaryRestrictions wording: "不吃辣" used to
 // hallucinate "no_seafood" ~60% of the time because the example list didn't
 // include a spicy-food tag, so the model snapped to the nearest example.
+
+// The fields the free-text parse fills; the rest of PreferenceIntent comes
+// from the form (mergePreferenceIntent).
+export const PreferenceIntentReplySchema = PreferenceIntentSchema.pick({
+  pace: true,
+  startTimePreference: true,
+  interestBoost: true,
+  dietaryRestrictions: true,
+  avoid: true,
+});
 
 const SYSTEM_PROMPT = `你是旅遊行程規劃助手的偏好解析器。使用者會輸入一段關於行程偏好的自由文字（中文或英文皆可），
 你的任務是把它轉換成結構化 JSON，不要生成任何行程內容，只做解析。
@@ -45,7 +54,7 @@ Output strictly valid JSON with exactly these keys:
  * a small, single-purpose LLM call — kept separate from the main itinerary
  * generation prompt so it can be tested and debugged independently
  * (plan/hybrid-rule-engine-scheduling.md, Phase 1). Never throws: any
- * failure (empty input, bad JSON, schema mismatch, API error) falls back to
+ * failure (empty input, an unusable reply, API error) falls back to
  * NEUTRAL_PREFERENCE_INTENT, so a parsing failure never blocks generation.
  */
 export async function parsePreferenceIntent(
@@ -56,20 +65,13 @@ export async function parsePreferenceIntent(
   if (!trimmed) return NEUTRAL_PREFERENCE_INTENT;
 
   try {
-    const completion = (await mockCompletion(() => NEUTRAL_PREFERENCE_INTENT)) ?? await openai.chat.completions.create({
+    return await generateObject({
       model,
-      messages: [
-        { role: "system", content: SYSTEM_PROMPT + UNTRUSTED_INPUT_RULE },
-        { role: "user", content: wrapUntrusted(trimmed) },
-      ],
-      response_format: { type: "json_object" },
+      system: SYSTEM_PROMPT + UNTRUSTED_INPUT_RULE,
+      user: wrapUntrusted(trimmed),
+      schema: PreferenceIntentReplySchema,
+      mock: () => NEUTRAL_PREFERENCE_INTENT,
     });
-
-    const content = completion.choices[0].message.content;
-    if (!content) return NEUTRAL_PREFERENCE_INTENT;
-
-    const parsed = PreferenceIntentSchema.safeParse(JSON.parse(content));
-    return parsed.success ? parsed.data : NEUTRAL_PREFERENCE_INTENT;
   } catch {
     return NEUTRAL_PREFERENCE_INTENT;
   }

@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { capturedPrompts, llmRequests, replyWith } from "@tests/contracts/llm";
 import type { PlaceCandidate } from "@/lib/fetchCityRestaurants";
 import { NEUTRAL_PREFERENCE_INTENT, type PreferenceIntent } from "@/lib/schemas";
 import { LAST_STOP_NOTE } from "@/lib/skeletonCopy";
-import { capturedMessages, expectNoGoogleContent, googleName } from "@tests/contracts/googleContent";
+import { expectNoGoogleContent, googleName } from "@tests/contracts/googleContent";
 
 // Does the pace choice change how many attractions a sightseeing day gets?
 // Pace is defined by how long each stop lasts (plan/form-preference-wiring.md
@@ -10,16 +11,27 @@ import { capturedMessages, expectNoGoogleContent, googleName } from "@tests/cont
 // 緊湊 5-6 / 適中 2-3 / 悠閒 about 2 on a museum/park pool. Google and
 // distances are mocked; only the real scheduler modules run.
 
-const createMock = vi.fn();
 const nearbyMock = vi.fn();
 const textMock = vi.fn();
 const distancesMock = vi.fn<(stops: unknown[], pickMode: (km: number) => string) => Promise<null[]>>(async (stops) =>
   stops.slice(1).map(() => null)
 );
 
-vi.mock("@/lib/openai", () => ({
-  openai: { chat: { completions: { create: (...args: unknown[]) => createMock(...args) } } },
+const generateObject = vi.fn();
+vi.mock("@/lib/llm", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/llm")>()),
+  generateObject: (req: unknown) => generateObject(req),
 }));
+
+// planTransitDay's reply; the stop's other fields as structured output always fills them.
+function mockTransitPlan(transitStop: { name: string; duration_minutes: number }, arrivalTime: string) {
+  generateObject.mockImplementationOnce(
+    replyWith({
+      transitStop: { description: "d", time_of_day: "morning", transport_from_prev: "約 1 小時", estimated_cost: 0, ...transitStop },
+      arrivalTime,
+    })
+  );
+}
 const sightAreasMock = vi.fn<(city: string) => { lat: number; lng: number }[] | undefined>(() => undefined);
 vi.mock("@/lib/placesTextSearch", () => ({
   getCityCenter: async () => ({ lat: 35.68, lng: 139.76 }),
@@ -59,13 +71,13 @@ const POOL: PlaceCandidate[] = Array.from({ length: 20 }, (_, i) => ({
 async function stopsPerDay(pace: PreferenceIntent["pace"]): Promise<number[]> {
   const days = await generateDayStops("東京", 2, "JPY", [], undefined, { ...NEUTRAL_PREFERENCE_INTENT, pace });
   // Guard: a count from the pure-LLM fallback would say nothing about the scheduler.
-  expect(createMock).not.toHaveBeenCalled();
+  expect(generateObject).not.toHaveBeenCalled();
   return days.map((d) => d.length);
 }
 
 beforeEach(() => {
   vi.stubEnv("GOOGLE_PLACES_API_KEY", "key");
-  createMock.mockReset();
+  generateObject.mockReset();
   nearbyMock.mockReset();
   textMock.mockReset();
   textMock.mockResolvedValue([]);
@@ -580,19 +592,7 @@ describe("generateDepartureDayStops — fixed events", () => {
 
 // 2d-2: a show on the day the trip moves to its city.
 describe("generateTransitDayStops — fixed events", () => {
-  const transitPlan = (arrivalTime: string) =>
-    createMock.mockResolvedValueOnce({
-      choices: [
-        {
-          message: {
-            content: JSON.stringify({
-              transitStop: { name: "搭新幹線", description: "d", duration_minutes: 150, time_of_day: "morning" },
-              arrivalTime,
-            }),
-          },
-        },
-      ],
-    });
+  const transitPlan = (arrivalTime: string) => mockTransitPlan({ name: "搭新幹線", duration_minutes: 150 }, arrivalTime);
   const show = { block: { startMinute: 15 * 60, endMinute: 18 * 60 }, stop: { id: "show", name: "大阪城ホール", lat: 34.6939, lng: 135.5338 } };
 
   it("plans the arrival stops around the show and puts it in its place", async () => {
@@ -632,10 +632,7 @@ describe("generateTransitDayStops — arrival stops kept to one area", () => {
   const center = Array.from({ length: 3 }, (_, i) => place(`center${i}`, 35.68 + i * 0.002, 139.76));
   const farOff = place("far-off", 35.68, 139.86); // ~9km east
   const aroundSeed = Array.from({ length: 4 }, (_, i) => place(`around${i}`, 35.684 + i * 0.001, 139.762, 4.0));
-  const arriveAt = (arrivalTime: string) =>
-    createMock.mockResolvedValueOnce({
-      choices: [{ message: { content: JSON.stringify({ transitStop: { name: "搭浪漫特快", description: "d", duration_minutes: 90 }, arrivalTime }) } }],
-    });
+  const arriveAt = (arrivalTime: string) => mockTransitPlan({ name: "搭浪漫特快", duration_minutes: 90 }, arrivalTime);
 
   it("doesn't cross town for an arrival stop, and tops up near the first one", async () => {
     nearbyMock.mockImplementation(async (_c: unknown, _k: unknown, types: string[], radius: number) => {
@@ -680,49 +677,40 @@ describe("generateDepartureDayStops — returning the rental car", () => {
 
 describe("generateTransitDayStops — 自駕", () => {
   it("tells the transit-day planner the traveler drives between cities", async () => {
-    createMock.mockResolvedValueOnce({
-      choices: [{ message: { content: JSON.stringify({ transitStop: { name: "開車前往大阪", description: "d", duration_minutes: 300 }, arrivalTime: "19:00" }) } }],
-    });
+    mockTransitPlan({ name: "開車前往大阪", duration_minutes: 300 }, "19:00");
 
     await generateTransitDayStops("東京", "大阪", "JPY", undefined, { ...NEUTRAL_PREFERENCE_INTENT, selfDrive: true });
 
-    expect(createMock.mock.calls[0][0].messages[0].content).toContain("【旅客自駕】");
+    expect(llmRequests(generateObject)[0].system).toContain("【旅客自駕】");
   });
 
   it("says nothing about driving for public transport", async () => {
-    createMock.mockResolvedValueOnce({
-      choices: [{ message: { content: JSON.stringify({ transitStop: { name: "搭新幹線", description: "d", duration_minutes: 150 }, arrivalTime: "19:00" }) } }],
-    });
+    mockTransitPlan({ name: "搭新幹線", duration_minutes: 150 }, "19:00");
 
     await generateTransitDayStops("東京", "大阪", "JPY", undefined, NEUTRAL_PREFERENCE_INTENT);
 
-    expect(createMock.mock.calls[0][0].messages[0].content).not.toContain("【旅客自駕】");
+    expect(llmRequests(generateObject)[0].system).not.toContain("【旅客自駕】");
   });
 });
 
 // Story: leaving 小樽 after two days there, the morning went back to 小樽運河.
 describe("generateTransitDayStops — places already visited", () => {
+  // prepStops is a field the planner no longer asks for, in case the model writes it anyway.
   const plan = (prepStops: { name: string }[]) =>
-    createMock.mockResolvedValueOnce({
-      choices: [
-        {
-          message: {
-            content: JSON.stringify({
-              prepStops: prepStops.map((s) => ({ ...s, description: "d", duration_minutes: 30, time_of_day: "morning" })),
-              transitStop: { name: "搭乘JR快速列車前往札幌", description: "d", duration_minutes: 40 },
-              arrivalTime: "19:00",
-            }),
-          },
-        },
-      ],
-    });
+    generateObject.mockImplementationOnce(
+      replyWith({
+        prepStops: prepStops.map((s) => ({ ...s, description: "d", duration_minutes: 30, time_of_day: "morning" })),
+        transitStop: { name: "搭乘JR快速列車前往札幌", description: "d", duration_minutes: 40, time_of_day: "morning", transport_from_prev: "約 40 分鐘", estimated_cost: 0 },
+        arrivalTime: "19:00",
+      })
+    );
 
   it("keeps the visited places, Google's names, out of the planner's prompt (ADR-0008)", async () => {
     plan([]);
 
     await generateTransitDayStops("小樽", "札幌", "JPY", undefined, NEUTRAL_PREFERENCE_INTENT, [], [], [googleName("小樽運河")]);
 
-    expectNoGoogleContent(...capturedMessages(createMock));
+    expectNoGoogleContent(...capturedPrompts(generateObject));
   });
 
   // ADR-0009: the morning before the ride is breakfast from the meal picks,
@@ -804,25 +792,21 @@ describe("generateThemedDayStops — with older relatives", () => {
 
 describe("generateTransitDayStops — 國內", () => {
   it("tells the planner about Taiwan's trains and the islands", async () => {
-    createMock.mockResolvedValueOnce({
-      choices: [{ message: { content: JSON.stringify({ transitStop: { name: "搭高鐵前往高雄", description: "d", duration_minutes: 30 }, arrivalTime: "19:00" }) } }],
-    });
+    mockTransitPlan({ name: "搭高鐵前往高雄", duration_minutes: 30 }, "19:00");
 
     await generateTransitDayStops("台南", "高雄", "TWD", undefined, { ...NEUTRAL_PREFERENCE_INTENT, domestic: true });
 
-    const system = createMock.mock.calls[0][0].messages[0].content as string;
+    const system = llmRequests(generateObject)[0].system;
     expect(system).toContain("【台灣國內旅遊】");
     expect(system).not.toContain("【旅客自駕】");
   });
 
   it("drives the traveler's own car, with no rental", async () => {
-    createMock.mockResolvedValueOnce({
-      choices: [{ message: { content: JSON.stringify({ transitStop: { name: "開車前往高雄", description: "d", duration_minutes: 60 }, arrivalTime: "19:00" }) } }],
-    });
+    mockTransitPlan({ name: "開車前往高雄", duration_minutes: 60 }, "19:00");
 
     await generateTransitDayStops("台南", "高雄", "TWD", undefined, { ...NEUTRAL_PREFERENCE_INTENT, domestic: true, selfDrive: true });
 
-    expect(createMock.mock.calls[0][0].messages[0].content).toContain("【旅客開自己的車】");
+    expect(llmRequests(generateObject)[0].system).toContain("【旅客開自己的車】");
   });
 });
 

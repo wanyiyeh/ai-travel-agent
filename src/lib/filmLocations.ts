@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { getMockMode } from "@/lib/mockAi";
-import { openai } from "@/lib/openai";
+import { generateObject } from "@/lib/llm";
 import { prisma } from "@/lib/db";
 import { searchTextCandidates, type PlaceCandidate } from "@/lib/fetchCityRestaurants";
 import { pickHighlightMatch } from "@/lib/seasonalHighlights";
@@ -26,7 +26,7 @@ export function cleanTitles(titles: string[] | undefined): string[] {
   return [...new Set((titles ?? []).map((t) => t.trim()).filter(Boolean))].slice(0, MAX_TITLES);
 }
 
-const WorksSchema = z.object({ works: z.array(z.string().min(1)).default([]) });
+export const WorksSchema = z.object({ works: z.array(z.string().min(1)).default([]) });
 
 /**
  * The city's best-known filmed works, for a traveler who chose 影劇追星
@@ -42,24 +42,14 @@ export async function listFamousWorks(city: string, model: string): Promise<stri
     const cached = await prisma.filmLocationCache.findUnique({ where: { cacheKey } });
     if (cached) return WorksSchema.parse(JSON.parse(cached.list)).works;
 
-    const completion = await openai.chat.completions.create({
+    const reply = await generateObject({
       model,
-      messages: [
-        {
-          role: "system",
-          content: `請列出在「${city}」取景、最有名、最多人去朝聖的電影、影集或動畫，最多 ${MAX_TITLES} 部，寫中文作品名稱。
+      system: `請列出在「${city}」取景、最有名、最多人去朝聖的電影、影集或動畫，最多 ${MAX_TITLES} 部，寫中文作品名稱。
 沒有的話回傳空陣列。回傳嚴格的 JSON（不要其他文字）：{ "works": ["作品名稱"] }`,
-        },
-        { role: "user", content: city },
-      ],
-      response_format: { type: "json_object" },
-      temperature: 0.2,
+      user: city,
+      schema: WorksSchema,
     });
-    const content = completion.choices[0].message.content;
-    if (!content) return undefined;
-    const parsed = WorksSchema.safeParse(JSON.parse(content));
-    if (!parsed.success) return undefined;
-    const works = cleanTitles(parsed.data.works);
+    const works = cleanTitles(reply.works);
     await prisma.filmLocationCache.upsert({
       where: { cacheKey },
       create: { cacheKey, list: JSON.stringify({ works }) },

@@ -22,7 +22,6 @@ const mealsMock = vi.fn();
 const parseIntentMock = vi.fn();
 const planEventsMock = vi.fn();
 
-vi.mock("@/lib/openai", () => ({ openai: {} }));
 vi.mock("@/lib/tripPlan", () => ({
   planTrip: (...args: unknown[]) => planTripMock(...args),
 }));

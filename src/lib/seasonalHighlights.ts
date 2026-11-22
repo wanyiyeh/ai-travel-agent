@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { getMockMode } from "@/lib/mockAi";
-import { openai } from "@/lib/openai";
+import { generateObject } from "@/lib/llm";
 import { prisma } from "@/lib/db";
 import { searchTextCandidates, type PlaceCandidate } from "@/lib/fetchCityRestaurants";
 import { haversineKm } from "@/lib/geo";
@@ -15,7 +15,7 @@ import type { DayFixedEvents } from "@/lib/fixedEvents";
 // each exists near the city, and a snow sight needs last year's snow
 // (climate.ts) — the model would happily send someone to see snow in Tokyo.
 
-const HighlightListSchema = z.object({
+export const HighlightListSchema = z.object({
   /** Short day title, e.g. 「賞楓」. */
   label: z.string().default(""),
   highlights: z
@@ -73,23 +73,13 @@ export async function listSeasonalHighlights(city: string, month: number, model:
     const cached = await prisma.seasonalHighlightCache.findUnique({ where: { cacheKey } });
     if (cached) return HighlightListSchema.parse(JSON.parse(cached.list));
 
-    const completion = await openai.chat.completions.create({
+    const reply = await generateObject({
       model,
-      messages: [
-        { role: "system", content: systemPrompt(city, month) },
-        { role: "user", content: `${city}，${month} 月` },
-      ],
-      response_format: { type: "json_object" },
-      temperature: 0.3,
+      system: systemPrompt(city, month),
+      user: `${city}，${month} 月`,
+      schema: HighlightListSchema,
     });
-    const content = completion.choices[0].message.content;
-    if (!content) return undefined;
-    const parsed = HighlightListSchema.safeParse(JSON.parse(content));
-    if (!parsed.success) {
-      console.warn(`[seasonalHighlights] ${cacheKey}: schema mismatch`, content);
-      return undefined;
-    }
-    const list = { ...parsed.data, highlights: parsed.data.highlights.slice(0, MAX_LISTED) };
+    const list = { ...reply, highlights: reply.highlights.slice(0, MAX_LISTED) };
     await prisma.seasonalHighlightCache.upsert({
       where: { cacheKey },
       create: { cacheKey, list: JSON.stringify(list) },

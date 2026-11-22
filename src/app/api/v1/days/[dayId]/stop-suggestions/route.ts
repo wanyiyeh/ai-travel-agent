@@ -14,6 +14,7 @@ import { findDayIndex } from "@/lib/itineraryDays";
 import { internalErrorResponse } from "@/lib/apiError";
 import { authorizeItinerary } from "@/lib/auth/ownership";
 import { chargePaidEdit } from "@/lib/quota";
+import { llmModel } from "@/lib/llm";
 
 const RequestSchema = z.object({
   itineraryId: z.string().min(1),
@@ -91,7 +92,7 @@ export async function POST(
       )
       .map((s) => ({ lat: s.lat, lng: s.lng }));
 
-    const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
+    const model = llmModel();
     const tripContext = context ?? itinerary.title;
     const dayTheme = typeof day.theme === "string" ? day.theme : "";
 

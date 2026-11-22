@@ -85,7 +85,7 @@ function getClient(): Anthropic {
 // Only the JSON schema (unsupported constraints already stripped) is sent.
 // The helper's own parser is left behind: the stream helper would run it on
 // a refused or cut-off reply and throw before readReply() can say why.
-function outputFormat(schema: z.ZodType): Anthropic.JSONOutputFormat {
+export function outputFormat(schema: z.ZodType): Anthropic.JSONOutputFormat {
   const { type, schema: jsonSchema } = zodOutputFormat(schema);
   return { type, schema: jsonSchema };
 }

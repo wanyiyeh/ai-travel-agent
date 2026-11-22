@@ -1,9 +1,9 @@
 import { isDomestic } from "@/lib/domesticTrips";
 import { z } from "zod";
-import { openai } from "@/lib/openai";
+import { generateObject } from "@/lib/llm";
 import type { FlightInfo, TripPreferences } from "@/lib/schemas";
 import { iataToCity } from "@/lib/iataCity";
-import { mockCompletion, mockTripPlanReply } from "@/lib/mockAi";
+import { mockTripPlanReply } from "@/lib/mockAi";
 import { calcDays, buildFlightTimePrompt, buildPreferencePrompt } from "@/lib/itineraryGen";
 import { UNTRUSTED_INPUT_RULE, wrapUntrusted } from "@/lib/untrustedInput";
 import { AIRPORTS } from "@/lib/airports";
@@ -22,6 +22,9 @@ const LOOP_MIN_DAYS = 4;
 // ...and every stop on the loop within ~3h by ground of the arrival city.
 // Straight-line, so a bit generous: Sapporo–Hakodate is ~250km / 3.5h by train.
 const MAX_LOOP_KM = 250;
+// Effort for planTrip's call (llm.ts): the route and day split need more
+// reasoning than the other, list-style calls.
+const PLAN_TRIP_EFFORT = "medium";
 
 // plan/hybrid-rule-engine-scheduling.md Phase 5(a): generate-stream currently
 // has no structured city list at all — how many cities and how many days
@@ -30,6 +33,7 @@ const MAX_LOOP_KM = 250;
 // pulling that decision out into its own small call, the same way
 // parsePreferenceIntent() (preferenceIntent.ts) already separated out
 // free-text preference parsing.
+
 export const TripPlanSchema = z.object({
   title: z.string().min(1),
   // ISO 4217 code for the destination's local currency — itineraryCityGen.ts's
@@ -151,7 +155,7 @@ function describeUnmet(unmet: CityRequirement[]): string {
 // Same shape as TripPlanSchema but lets a city through with 0 days, so
 // rebalanceZeroDayCities() gets a chance to repair it before the strict
 // schema rejects the whole response.
-const RawTripPlanSchema = TripPlanSchema.extend({
+export const RawTripPlanSchema = TripPlanSchema.extend({
   cities: z
     .array(z.object({ name: z.string().min(1), days: z.number().int().min(0) }))
     .min(1),
@@ -484,67 +488,51 @@ export async function planTrip(
 
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
-      const completion =
-        (await mockCompletion(() =>
+      const reply = await generateObject({
+        model,
+        system: systemPrompt,
+        user: userMessage,
+        schema: RawTripPlanSchema,
+        effort: PLAN_TRIP_EFFORT,
+        mock: () =>
           mockTripPlanReply({
             arrivalCity: arrivalCityName,
             returnCity: iataToCity(flightInfo.returnDepartureCity),
             requiredCities: requirements.map((r) => r.city),
             daysToAllocate: totalDays - 1,
             currency: currencyOf(flightInfo.arrivalCity) ?? "USD",
-          })
-        )) ??
-        await openai.chat.completions.create({
-        model,
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userMessage },
-        ],
-        response_format: { type: "json_object" },
-        temperature: 0.7,
+          }),
       });
 
-      const content = completion.choices[0].message.content;
-      if (!content) {
-        console.warn(`[planTrip] attempt ${attempt}: empty response content`);
-        continue;
+      const comingBack = returnLeg(reply.cities, arrivalCityName, totalDays - 1);
+      if (loopExpected && comingBack !== reply.cities) {
+        console.warn(`[planTrip] attempt ${attempt}: added the way back to ${arrivalCityName}`, reply.cities, "->", comingBack);
+        reply.cities = comingBack;
       }
-
-      const raw = RawTripPlanSchema.safeParse(JSON.parse(content));
-      if (!raw.success) {
-        console.warn(`[planTrip] attempt ${attempt}: schema validation failed`, content, raw.error.flatten());
-        continue;
+      const fitted = loopExpected ? fitLoopDays(reply.cities, totalDays - 1) : reply.cities;
+      if (fitted !== reply.cities) {
+        console.warn(`[planTrip] attempt ${attempt}: fitted the loop's days to ${totalDays - 1}`, reply.cities, "->", fitted);
+        reply.cities = fitted;
       }
-
-      const comingBack = returnLeg(raw.data.cities, arrivalCityName, totalDays - 1);
-      if (loopExpected && comingBack !== raw.data.cities) {
-        console.warn(`[planTrip] attempt ${attempt}: added the way back to ${arrivalCityName}`, raw.data.cities, "->", comingBack);
-        raw.data.cities = comingBack;
-      }
-      const fitted = loopExpected ? fitLoopDays(raw.data.cities, totalDays - 1) : raw.data.cities;
-      if (fitted !== raw.data.cities) {
-        console.warn(`[planTrip] attempt ${attempt}: fitted the loop's days to ${totalDays - 1}`, raw.data.cities, "->", fitted);
-        raw.data.cities = fitted;
-      }
-      const daysSum = raw.data.cities.reduce((sum, city) => sum + city.days, 0);
+      const daysSum = reply.cities.reduce((sum, city) => sum + city.days, 0);
       if (daysSum !== totalDays - 1) {
         console.warn(
           `[planTrip] attempt ${attempt}: days sum ${daysSum} !== expected ${totalDays - 1}`,
-          raw.data
+          reply
         );
         continue;
       }
 
-      const cities = rebalanceZeroDayCities(raw.data.cities);
+      const cities = rebalanceZeroDayCities(reply.cities);
       if (!cities) {
-        console.warn(`[planTrip] attempt ${attempt}: too many cities to give each at least 1 day`, raw.data);
+        console.warn(`[planTrip] attempt ${attempt}: too many cities to give each at least 1 day`, reply);
         continue;
       }
-      if (cities.some((city, i) => city.days !== raw.data.cities[i].days)) {
-        console.warn(`[planTrip] attempt ${attempt}: rebalanced 0-day cities`, raw.data.cities, "->", cities);
+      if (cities.some((city, i) => city.days !== reply.cities[i].days)) {
+        console.warn(`[planTrip] attempt ${attempt}: rebalanced 0-day cities`, reply.cities, "->", cities);
       }
 
-      const parsed = TripPlanSchema.safeParse({ ...raw.data, cities });
+      const parsed = TripPlanSchema.safeParse({ ...reply, cities });
       if (!parsed.success) {
         console.warn(`[planTrip] attempt ${attempt}: schema validation failed after rebalance`, parsed.error.flatten());
         continue;
@@ -581,7 +569,7 @@ export async function planTrip(
         lastUnmet = unmet;
         continue;
       }
-      if (loopExpected && plan.cities.length === 1 && !raw.data.stayReason?.trim()) {
+      if (loopExpected && plan.cities.length === 1 && !reply.stayReason?.trim()) {
         if (attempt === 1) {
           console.warn(`[planTrip] attempt ${attempt}: stayed in ${arrivalCityName} without the traveler asking, retrying for a night away`);
           stayedPut = plan;

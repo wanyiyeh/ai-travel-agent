@@ -1,14 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { replyWith } from "@tests/contracts/llm";
 import type { PlaceCandidate } from "@/lib/fetchCityRestaurants";
 
-const createMock = vi.fn();
 const nearbyMock = vi.fn();
 const lodgingMock = vi.fn();
 const luxuryMock = vi.fn();
 const textMock = vi.fn();
 
-vi.mock("@/lib/openai", () => ({
-  openai: { chat: { completions: { create: (...args: unknown[]) => createMock(...args) } } },
+const generateObject = vi.fn();
+vi.mock("@/lib/llm", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/llm")>()),
+  generateObject: (req: unknown) => generateObject(req),
 }));
 vi.mock("@/lib/placesTextSearch", () => ({
   getCityCenter: async () => ({ lat: 35.01, lng: 135.77 }),
@@ -31,8 +33,11 @@ function place(name: string): PlaceCandidate {
   return { name, placeId: `pid-${name}`, lat: 35, lng: 135.7, address: "addr", rating: 4.1, priceLevel: 2 };
 }
 
+// A reply naming nothing, for tests that only need the call to return.
+const EMPTY_REPLY = { accommodation: { name: "", area: "" }, meals: [] };
+
 function mockLlm(json: unknown) {
-  createMock.mockResolvedValueOnce({ choices: [{ message: { content: JSON.stringify(json) } }] });
+  generateObject.mockImplementationOnce(replyWith(json));
 }
 
 // The pools as numbered lists, one per slot, in pick order: 「M2: Sushi Y」 is
@@ -58,7 +63,7 @@ async function candidateLists(city: string, stayDays: number, currency: string, 
 
 beforeEach(() => {
   vi.stubEnv("GOOGLE_PLACES_API_KEY", "key");
-  createMock.mockReset();
+  generateObject.mockReset();
   nearbyMock.mockReset();
   // A search a test didn't set up finds nothing.
   nearbyMock.mockResolvedValue([]);
@@ -84,7 +89,7 @@ describe("generateMealsAndAccommodation", () => {
 
     const result = await generateMealsAndAccommodation("京都", 1, "JPY", "moderate");
 
-    expect(createMock).not.toHaveBeenCalled();
+    expect(generateObject).not.toHaveBeenCalled();
     expect(nearbyMock).toHaveBeenCalledTimes(2);
     expect(lodgingMock).toHaveBeenCalledTimes(1);
     // the shared café pool is split, no store used for both meals
@@ -156,7 +161,7 @@ describe("generateMealsAndAccommodation", () => {
 
   it("searches each pool once, and only lunch/dinner on Enterprise fields", async () => {
     nearbyMock.mockResolvedValue([]);
-    mockLlm({ accommodation: {}, meals: [] });
+    mockLlm(EMPTY_REPLY);
 
     await generateMealsAndAccommodation("小鎮", 1, "JPY", "luxury");
 
@@ -219,7 +224,7 @@ describe("generateMealsAndAccommodation", () => {
 
     const result = await generateMealsAndAccommodation("斯德哥爾摩", 7, "SEK", "moderate");
 
-    expect(createMock).not.toHaveBeenCalled();
+    expect(generateObject).not.toHaveBeenCalled();
     expect(result.accommodation.placeId).toBe("pid-Hotel H");
     expect(result.mealsByDay).toHaveLength(7);
     for (const day of result.mealsByDay) {
@@ -249,7 +254,7 @@ describe("generateMealsAndAccommodation", () => {
 
   it("doesn't pay for the luxury search on other budgets", async () => {
     nearbyMock.mockResolvedValue([]);
-    mockLlm({ accommodation: {}, meals: [] });
+    mockLlm(EMPTY_REPLY);
 
     await generateMealsAndAccommodation("東京", 1, "JPY", "moderate");
 
@@ -258,31 +263,33 @@ describe("generateMealsAndAccommodation", () => {
 
   it("searches Tokyo's lodging and meals in the budget's district, other cities around the center", async () => {
     nearbyMock.mockResolvedValue([]);
-    mockLlm({ accommodation: {}, meals: [] });
+    mockLlm(EMPTY_REPLY);
     await generateMealsAndAccommodation("東京", 1, "JPY", "budget");
     expect(nearbyMock.mock.calls[0][0]).toEqual({ lat: 35.714, lng: 139.787 });
     expect(lodgingMock.mock.calls[0][0]).toEqual({ lat: 35.714, lng: 139.787 });
 
     nearbyMock.mockClear();
-    mockLlm({ accommodation: {}, meals: [] });
+    mockLlm(EMPTY_REPLY);
     await generateMealsAndAccommodation("京都", 1, "JPY", "budget");
     expect(nearbyMock.mock.calls[0][0]).toEqual({ lat: 35.01, lng: 135.77 }); // mocked city center
   });
 
   it("lets the model name places itself only when there are no candidates", async () => {
     nearbyMock.mockResolvedValue([]);
-    mockLlm({ accommodation: { name: "Some Hotel", area: "X" }, meals: [{ lunch: { name: "Some Place" } }] });
+    const meal = (name: string) => ({ name, description: "d", estimated_cost: 0 });
+    const day = { breakfast: meal("Cafe"), lunch: meal("Some Place"), dinner: meal("Diner"), snack: meal("Sweets") };
+    mockLlm({ accommodation: { name: "Some Hotel", area: "X" }, meals: [day] });
 
     const result = await generateMealsAndAccommodation("小鎮", 1, "JPY");
 
-    expect(createMock).toHaveBeenCalledTimes(1);
+    expect(generateObject).toHaveBeenCalledTimes(1);
     expect(result.accommodation).toEqual({ name: "Some Hotel", area: "X" });
-    expect(result.mealsByDay[0]).toEqual({ lunch: { name: "Some Place" } });
+    expect(result.mealsByDay[0]).toEqual(day);
   });
 
   it("skips the Places lookup entirely without an API key", async () => {
     vi.stubEnv("GOOGLE_PLACES_API_KEY", "");
-    mockLlm({ accommodation: {}, meals: [] });
+    mockLlm(EMPTY_REPLY);
 
     await generateMealsAndAccommodation("京都", 1, "JPY");
 
@@ -301,7 +308,7 @@ describe("generateMealsAndAccommodation — 飲品 (drinks)", () => {
   it("searches each chosen drink once, with Google's rating filter", async () => {
     nearbyMock.mockResolvedValue([]);
     textMock.mockImplementation(byQuery);
-    mockLlm({ accommodation: {}, meals: [] });
+    mockLlm(EMPTY_REPLY);
 
     await generateMealsAndAccommodation("京都", 2, "JPY", undefined, { drinks: ["coffee", "tea"] });
 
@@ -314,7 +321,7 @@ describe("generateMealsAndAccommodation — 飲品 (drinks)", () => {
   it("alternates coffee and tea for the snack and leaves out global chains", async () => {
     nearbyMock.mockResolvedValue([typed("Gelato Q", "ice_cream_shop")]);
     textMock.mockImplementation(byQuery);
-    mockLlm({ accommodation: {}, meals: [] });
+    mockLlm(EMPTY_REPLY);
 
     const result = await generateMealsAndAccommodation("京都", 4, "JPY", undefined, { drinks: ["coffee", "tea"] });
 
@@ -333,7 +340,7 @@ describe("generateMealsAndAccommodation — 飲品 (drinks)", () => {
 
   it("makes no drink search when none was chosen", async () => {
     nearbyMock.mockResolvedValue([]);
-    mockLlm({ accommodation: {}, meals: [] });
+    mockLlm(EMPTY_REPLY);
 
     await generateMealsAndAccommodation("京都", 1, "JPY");
 
@@ -350,7 +357,7 @@ describe("generateMealsAndAccommodation — 小酌 (nightcap)", () => {
 
   it("searches bars and izakaya once and fills a 小酌 every night from them", async () => {
     nearbyMock.mockImplementation(byTypes);
-    mockLlm({ accommodation: {}, meals: [] });
+    mockLlm(EMPTY_REPLY);
 
     const result = await generateMealsAndAccommodation("東京", 2, "JPY", undefined, { drinks: ["alcohol"] });
 
@@ -380,7 +387,7 @@ describe("generateMealsAndAccommodation — 小酌 (nightcap)", () => {
 
   it("prices a 小酌 with no price data at the middle of its range", async () => {
     nearbyMock.mockImplementation(byTypes);
-    mockLlm({ accommodation: {}, meals: [] });
+    mockLlm(EMPTY_REPLY);
 
     const result = await generateMealsAndAccommodation("東京", 1, "JPY", undefined, { drinks: ["alcohol"] });
 
@@ -472,7 +479,7 @@ describe("generateMealsAndAccommodation — traveling alone", () => {
 
   it("looks for no station on other trips", async () => {
     nearbyMock.mockResolvedValue([]);
-    mockLlm({ accommodation: {}, meals: [] });
+    mockLlm(EMPTY_REPLY);
 
     await generateMealsAndAccommodation("東京", 1, "JPY", undefined, {});
 
@@ -508,7 +515,7 @@ describe("generateMealsAndAccommodation — too few restaurants", () => {
     nearbyMock.mockImplementation(async (_c: unknown, _k: unknown, types: string[]) =>
       types.includes("restaurant") ? Array.from({ length: 4 }, (_, i) => typed(`Sushi ${i}`, ["sushi_restaurant"])) : []
     );
-    mockLlm({ accommodation: {}, meals: [] });
+    mockLlm(EMPTY_REPLY);
 
     await generateMealsAndAccommodation("東京", 2, "JPY", undefined, {});
 

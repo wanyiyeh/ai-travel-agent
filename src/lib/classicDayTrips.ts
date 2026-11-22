@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { getMockMode } from "@/lib/mockAi";
-import { openai } from "@/lib/openai";
+import { generateObject } from "@/lib/llm";
 import { prisma } from "@/lib/db";
 import { searchTextCandidates, type PlaceCandidate } from "@/lib/fetchCityRestaurants";
 import { getCityCenter } from "@/lib/placesTextSearch";
@@ -18,7 +18,7 @@ import type { DayTripTravel } from "@/lib/passengerRail";
 // The interests a town can suit, the form's own tags.
 const TRIP_INTERESTS = ["culture", "nature", "food", "shopping", "water", "land"] as const;
 
-const TripListSchema = z.object({
+export const TripListSchema = z.object({
   trips: z
     .array(
       z.object({
@@ -62,23 +62,8 @@ export async function listClassicDayTrips(city: string, model: string): Promise<
     const cached = await prisma.classicDayTripCache.findUnique({ where: { city } });
     if (cached) return TripListSchema.parse(JSON.parse(cached.list));
 
-    const completion = await openai.chat.completions.create({
-      model,
-      messages: [
-        { role: "system", content: systemPrompt(city) },
-        { role: "user", content: city },
-      ],
-      response_format: { type: "json_object" },
-      temperature: 0.3,
-    });
-    const content = completion.choices[0].message.content;
-    if (!content) return undefined;
-    const parsed = TripListSchema.safeParse(JSON.parse(content));
-    if (!parsed.success) {
-      console.warn(`[classicDayTrips] ${city}: schema mismatch`, content);
-      return undefined;
-    }
-    const list = { trips: parsed.data.trips.slice(0, MAX_LISTED).map((t) => ({ ...t, sights: t.sights.slice(0, MAX_SIGHTS) })) };
+    const reply = await generateObject({ model, system: systemPrompt(city), user: city, schema: TripListSchema });
+    const list = { trips: reply.trips.slice(0, MAX_LISTED).map((t) => ({ ...t, sights: t.sights.slice(0, MAX_SIGHTS) })) };
     await prisma.classicDayTripCache.upsert({
       where: { city },
       create: { city, list: JSON.stringify(list) },

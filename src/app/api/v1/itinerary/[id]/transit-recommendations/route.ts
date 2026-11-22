@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { MAX_NAME_LENGTH, MAX_NAME_LIST_LENGTH } from "@/lib/inputLimits";
-import { openai } from "@/lib/openai";
+import { generateObject } from "@/lib/llm";
 import { prisma } from "@/lib/db";
-import { TransitRecommendationSchema } from "@/lib/schemas";
+import { TransitRecommendationReplySchema, TransitRecommendationSchema } from "@/lib/schemas";
 import type { TransitRecommendation } from "@/types/itinerary";
 import { getMockMode, mockDelay, MOCK_FIXTURES } from "@/lib/mockAi";
 import { internalErrorResponse } from "@/lib/apiError";
@@ -45,23 +45,9 @@ const JSON_SCHEMA = `{
 }`;
 
 async function runRecommendationPrompt(systemContent: string, userContent: string): Promise<TransitRecommendation[]> {
-  const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
-
-  const completion = await openai.chat.completions.create({
-    model,
-    messages: [
-      { role: "system", content: systemContent },
-      { role: "user", content: userContent },
-    ],
-    response_format: { type: "json_object" },
-    temperature: 0.5,
-  });
-
-  const aiContent = completion.choices[0].message.content;
-  if (!aiContent) throw new Error("AI returned empty response");
-
-  const raw = JSON.parse(aiContent) as { recommendations: unknown[] };
-  return raw.recommendations
+  const reply = await generateObject({ system: systemContent, user: userContent, schema: TransitRecommendationReplySchema });
+  // One item off TransitRecommendationSchema's limits is dropped, not the list.
+  return reply.recommendations
     .map((item) => TransitRecommendationSchema.safeParse(item))
     .filter((r) => r.success)
     .map((r) => r.data!)

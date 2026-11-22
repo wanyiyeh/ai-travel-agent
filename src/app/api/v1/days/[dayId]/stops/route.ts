@@ -6,7 +6,7 @@ import { StopCandidateSchema, StopDescriptionFillSchema } from "@/lib/schemas";
 import { lookupByQuery, upsertPlace } from "@/lib/placeCache";
 import { resolvePlace, getCityCenter } from "@/lib/placesTextSearch";
 import { estimateAttractionCost } from "@/lib/priceLevelCost";
-import { openai } from "@/lib/openai";
+import { generateObject } from "@/lib/llm";
 import { findDayIndex, getCityHintForDay } from "@/lib/itineraryDays";
 import { internalErrorResponse } from "@/lib/apiError";
 import { UNTRUSTED_INPUT_RULE, wrapUntrusted } from "@/lib/untrustedInput";
@@ -38,34 +38,18 @@ async function describeStopWithAI(
   cityHint: string,
 ): Promise<string | null> {
   try {
-    const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
-    const completion = await openai.chat.completions.create({
-      model,
-      messages: [
-        {
-          role: "system",
-          content: `你是專業的旅遊規劃專家。Always respond in Traditional Chinese (繁體中文).
+    const reply = await generateObject({
+      system: `你是專業的旅遊規劃專家。Always respond in Traditional Chinese (繁體中文).
 Output strictly valid JSON matching this schema:
 { "candidates": [{ "name": string, "description": string, "duration_minutes": number }] }
 The array MUST have exactly 1 item, with the EXACT SAME "name" value as the place name given in the user message. Do not rename it — only fill in "description" and "duration_minutes".${UNTRUSTED_INPUT_RULE}`,
-        },
-        {
-          // `name` is whatever the traveler typed, so it goes here as tagged
-          // data rather than into the system prompt above.
-          role: "user",
-          content: `Trip: ${tripContext}${cityHint ? `. City: ${cityHint}` : ""}. Write a short (one sentence) Traditional Chinese description and a suggested visit duration (minutes) for this place:\n${wrapUntrusted(name)}`,
-        },
-      ],
-      response_format: { type: "json_object" },
+      // `name` is whatever the traveler typed, so it goes here as tagged
+      // data rather than into the system prompt above.
+      user: `Trip: ${tripContext}${cityHint ? `. City: ${cityHint}` : ""}. Write a short (one sentence) Traditional Chinese description and a suggested visit duration (minutes) for this place:\n${wrapUntrusted(name)}`,
+      schema: StopDescriptionFillSchema,
     });
 
-    const aiContent = completion.choices[0].message.content;
-    if (!aiContent) return null;
-
-    const parsedAI = StopDescriptionFillSchema.safeParse(JSON.parse(aiContent));
-    if (!parsedAI.success) return null;
-
-    return parsedAI.data.candidates[0]?.description ?? null;
+    return reply.candidates[0]?.description ?? null;
   } catch {
     return null;
   }
