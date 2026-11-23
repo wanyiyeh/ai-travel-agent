@@ -1286,7 +1286,7 @@ export default function EditableItineraryCard({
             {itinerary.title}
           </h2>
           <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1">
-            共 {itinerary.days.length} 天行程<span data-print-hidden>・可拖曳排序景點</span>
+            共 {itinerary.days.length} 天行程{!readOnly && <span data-print-hidden>・可拖曳排序景點</span>}
           </p>
         </div>
 
@@ -1586,7 +1586,7 @@ export default function EditableItineraryCard({
                 let lastTimeOfDay: string | undefined = undefined;
                 const timeline = dayTimelineOf(day);
                 const itemIds = daySortableIds(day);
-                const mealsDraggable = !!day.id && bulkEditDayId !== day.id && pickingMeal?.dayId !== day.id;
+                const mealsDraggable = !readOnly && !!day.id && bulkEditDayId !== day.id && pickingMeal?.dayId !== day.id;
                 // The ride isn't a place, so it takes no number in the day's list.
                 const transitIdx = transitStopIndex(day.stops, day);
                 const timeHeader = (timeOfDay: string | undefined) => {

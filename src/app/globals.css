@@ -62,6 +62,11 @@ body {
   display: none !important;
 }
 
+/* Nothing can be dragged there either, so drop the stop grip. */
+[data-readonly] [data-drag-handle] {
+  display: none !important;
+}
+
 /*
  * Print / "Save as PDF" layout for the itinerary page (plan/access-control.md
  * §8). Interactive chrome (every button, the account bar, map, edit panels)
