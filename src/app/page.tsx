@@ -427,7 +427,7 @@ function ChoiceRow<T extends string>({
               title={opt.desc}
               aria-pressed={value === opt.value}
               onClick={() => onChange(value === opt.value ? undefined : opt.value)}
-              className={`flex-1 rounded-lg border px-2 py-1.5 text-xs transition-colors ${
+              className={`flex-1 rounded-lg border px-2 py-2.5 sm:py-1.5 text-xs transition-colors ${
                 value === opt.value ? SELECTED_OPTION_CLASS : UNSELECTED_OPTION_CLASS
               }`}
             >
@@ -465,7 +465,7 @@ function ChipRow<T extends string>({
             type="button"
             aria-pressed={selected.includes(opt.value)}
             onClick={() => onToggle(opt.value)}
-            className={`rounded-full border px-3 py-1 text-xs transition-colors ${
+            className={`rounded-full border px-3 py-2 sm:py-1 text-xs transition-colors ${
               selected.includes(opt.value) ? SELECTED_OPTION_CLASS : UNSELECTED_OPTION_CLASS
             }`}
           >
@@ -648,9 +648,9 @@ export default function Home() {
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 py-6 sm:py-16 px-4">
       <div className="max-w-2xl mx-auto">
         {/* Header */}
-        <div className="mb-10 flex items-center justify-between">
+        <div className="mb-6 sm:mb-10 flex items-start sm:items-center justify-between gap-3">
           <div>
-            <h1 className="text-3xl font-bold text-zinc-900 dark:text-zinc-50">
+            <h1 className="text-2xl sm:text-3xl font-bold text-zinc-900 dark:text-zinc-50">
               AI Travel Agent
             </h1>
             <p className="mt-1 text-zinc-500 dark:text-zinc-400">
@@ -659,7 +659,7 @@ export default function Home() {
           </div>
           <Link
             href="/itineraries"
-            className="text-sm text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 underline underline-offset-4"
+            className="shrink-0 whitespace-nowrap py-2 sm:py-0 text-sm text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 underline underline-offset-4"
           >
             已儲存的行程
           </Link>
@@ -682,7 +682,7 @@ export default function Home() {
                       type="button"
                       onClick={() => switchTripType(t)}
                       aria-pressed={tripType === t}
-                      className={`rounded-md px-3 py-1 font-medium transition-colors ${
+                      className={`rounded-md px-4 py-2 sm:px-3 sm:py-1 font-medium transition-colors ${
                         tripType === t
                           ? "bg-zinc-900 dark:bg-zinc-50 text-white dark:text-zinc-900"
                           : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100"
@@ -694,7 +694,7 @@ export default function Home() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <CityCombobox
                   label={domestic ? "出發地（家）" : "出發城市"}
                   value={departureCity}
@@ -918,7 +918,7 @@ export default function Home() {
                         {domestic ? "+ 從不同的地方回家？" : "+ 回程城市不同？"}
                       </button>
                     ) : (
-                      <div className="grid grid-cols-2 gap-2.5 pt-1">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
                         <CityCombobox
                           label={domestic ? "最後離開的地方" : "回程出發城市"}
                           value={returnDepartureCity}
