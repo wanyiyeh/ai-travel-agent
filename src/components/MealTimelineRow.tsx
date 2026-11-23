@@ -53,7 +53,7 @@ export function MealTimelineRow({
   const deleteButton = editable && !isPicking && onDelete && !meal?.fixedEvent && (
     <button
       onClick={onDelete}
-      className="shrink-0 text-xs text-zinc-400 hover:text-red-600 dark:hover:text-red-400 transition-colors"
+      className="shrink-0 -my-2 py-2 sm:my-0 sm:py-0 text-xs text-zinc-400 hover:text-red-600 dark:hover:text-red-400 transition-colors"
       title={`刪除${label}`}
     >
       刪除
@@ -97,7 +97,7 @@ export function MealTimelineRow({
                 {editable && !isPicking && !meal.fixedEvent && (
                   <button
                     onClick={onPick}
-                    className="text-xs text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 transition-colors"
+                    className="-my-2 py-2 sm:my-0 sm:py-0 text-xs text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 transition-colors"
                   >
                     換一家
                   </button>
@@ -144,7 +144,7 @@ export function MealTimelineRow({
             {editable && !isPicking && (
               <button
                 onClick={onPick}
-                className="text-xs text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 transition-colors"
+                className="-my-2 py-2 sm:my-0 sm:py-0 text-xs text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 transition-colors"
               >
                 選擇{label}
               </button>
