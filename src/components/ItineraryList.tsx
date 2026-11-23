@@ -50,8 +50,8 @@ export default function ItineraryList({ itineraries }: { itineraries: ItineraryI
               href={`/view/${item.id}`}
               className="block rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-5 py-4 hover:border-blue-400 hover:shadow-sm transition-all pr-24"
             >
-              <div className="flex items-center justify-between">
-                <div>
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
                   <p className="font-medium text-zinc-900 dark:text-zinc-50">
                     {item.title}
                   </p>
@@ -64,11 +64,11 @@ export default function ItineraryList({ itineraries }: { itineraries: ItineraryI
                     {totalDays && ` · ${totalDays} 天`}
                   </p>
                 </div>
-                <div className="flex items-center gap-3">
-                  <span className="text-xs text-zinc-300 dark:text-zinc-600 font-mono">
+                <div className="flex shrink-0 items-center gap-3">
+                  <span className="hidden sm:inline text-xs text-zinc-300 dark:text-zinc-600 font-mono">
                     {item.id.slice(0, 8)}
                   </span>
-                  <span className="text-xs text-blue-500">查看 →</span>
+                  <span className="whitespace-nowrap text-xs text-blue-500">查看 →</span>
                 </div>
               </div>
             </Link>
@@ -79,14 +79,14 @@ export default function ItineraryList({ itineraries }: { itineraries: ItineraryI
                 <>
                   <button
                     onClick={() => setConfirmId(null)}
-                    className="text-xs text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 px-2 py-1"
+                    className="text-xs text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 px-2 py-3 sm:py-1"
                   >
                     取消
                   </button>
                   <button
                     onClick={() => handleDelete(item.id)}
                     disabled={isDeleting}
-                    className="text-xs text-white bg-red-500 hover:bg-red-600 disabled:opacity-50 px-2 py-1 rounded-md transition-colors"
+                    className="text-xs text-white bg-red-500 hover:bg-red-600 disabled:opacity-50 px-2 py-2 sm:py-1 rounded-md transition-colors"
                   >
                     {isDeleting ? "刪除中..." : "確認刪除"}
                   </button>
@@ -97,7 +97,7 @@ export default function ItineraryList({ itineraries }: { itineraries: ItineraryI
                     e.preventDefault();
                     setConfirmId(item.id);
                   }}
-                  className="opacity-0 group-hover:opacity-100 text-xs text-zinc-400 hover:text-red-500 transition-all px-2 py-1"
+                  className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100 text-xs text-zinc-400 hover:text-red-500 transition-all px-2 py-3 sm:py-1"
                 >
                   刪除
                 </button>

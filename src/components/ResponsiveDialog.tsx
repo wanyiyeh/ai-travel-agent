@@ -18,6 +18,7 @@ export default function ResponsiveDialog({
   children,
   panelClassName = "sm:max-w-md",
   align = "center",
+  showCloseButton = true,
 }: {
   label: string;
   onClose: () => void;
@@ -26,6 +27,8 @@ export default function ResponsiveDialog({
   panelClassName?: string;
   /** Desktop vertical placement; tall content reads better from the top. */
   align?: "center" | "top";
+  /** Off when the content already has its own close control. */
+  showCloseButton?: boolean;
 }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -58,14 +61,16 @@ export default function ResponsiveDialog({
       <div
         className={`relative w-full max-h-[90dvh] overflow-y-auto overscroll-contain rounded-t-2xl bg-white shadow-xl pb-[env(safe-area-inset-bottom)] dark:bg-zinc-900 sm:max-h-[85vh] sm:rounded-xl sm:pb-0 ${panelClassName}`}
       >
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="關閉"
-          className="sticky top-0 z-10 float-right m-1 flex h-11 w-11 items-center justify-center rounded-full text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 sm:h-8 sm:w-8"
-        >
-          <span className="flex h-7 w-7 items-center justify-center rounded-full bg-white/90 dark:bg-zinc-800/90">✕</span>
-        </button>
+        {showCloseButton && (
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="關閉"
+            className="sticky top-0 z-10 float-right m-1 flex h-11 w-11 items-center justify-center rounded-full text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 sm:h-8 sm:w-8"
+          >
+            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-white/90 dark:bg-zinc-800/90">✕</span>
+          </button>
+        )}
         {children}
       </div>
     </div>,
