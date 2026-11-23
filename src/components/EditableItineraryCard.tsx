@@ -1240,9 +1240,48 @@ export default function EditableItineraryCard({
             按住圓形圖示拖拉，可以調整景點，以及午餐、點心、晚餐的位置；早餐、小酌的位置固定。餐點可以「換一家」或刪除。
           </p>
         )}
-        {error && (
-          <div className="rounded-lg border border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950 px-4 py-3 text-sm text-red-700 dark:text-red-300">
-            {error}
+        {/* Pinned to the bottom of the screen: a delete further down the page
+            used to put its undo notice (and errors) above the fold (#330). */}
+        {(error || deletedStopInfo) && (
+          <div
+            data-print-hidden
+            role="status"
+            aria-live="polite"
+            className="pointer-events-none fixed inset-x-0 bottom-0 z-40 px-4 pb-[calc(env(safe-area-inset-bottom)+1rem)]"
+          >
+            <div className="pointer-events-auto mx-auto max-w-xl space-y-2">
+              {error && (
+                <div className="rounded-lg shadow-lg border border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950 px-4 py-3 text-sm text-red-700 dark:text-red-300">
+                  {error}
+                </div>
+              )}
+              {deletedStopInfo && (
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg shadow-lg border border-blue-200 bg-blue-50 dark:border-blue-800/60 dark:bg-blue-950 px-4 py-3 text-sm text-blue-800 dark:text-blue-300">
+                  <span className="flex-1">已刪除「{deletedStopInfo.stop.name}」</span>
+                  <button
+                    onClick={handleUndoDeleteStop}
+                    disabled={restoringStop}
+                    className="py-1 font-medium underline hover:no-underline disabled:opacity-50 shrink-0"
+                  >
+                    {restoringStop ? "復原中…" : "復原"}
+                  </button>
+                  <button
+                    onClick={handleViewSuggestionsForDeleted}
+                    disabled={restoringStop}
+                    className="py-1 font-medium underline hover:no-underline disabled:opacity-50 shrink-0"
+                  >
+                    看候選建議
+                  </button>
+                  <button
+                    onClick={dismissDeleteToast}
+                    disabled={restoringStop}
+                    className="shrink-0 p-1 text-blue-500 hover:text-blue-700 dark:hover:text-blue-200 disabled:opacity-50"
+                  >
+                    ✕
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         )}
         {enrichWarning && (
@@ -1252,32 +1291,6 @@ export default function EditableItineraryCard({
             </svg>
             <span className="flex-1">{enrichWarning}</span>
             <button onClick={() => setEnrichWarning(null)} className="shrink-0 text-amber-500 hover:text-amber-700 dark:hover:text-amber-200">✕</button>
-          </div>
-        )}
-        {deletedStopInfo && (
-          <div className="flex items-center gap-3 rounded-lg border border-blue-200 bg-blue-50 dark:border-blue-800/60 dark:bg-blue-950/30 px-4 py-3 text-sm text-blue-800 dark:text-blue-300">
-            <span className="flex-1">已刪除「{deletedStopInfo.stop.name}」</span>
-            <button
-              onClick={handleUndoDeleteStop}
-              disabled={restoringStop}
-              className="font-medium underline hover:no-underline disabled:opacity-50 shrink-0"
-            >
-              {restoringStop ? "復原中…" : "復原"}
-            </button>
-            <button
-              onClick={handleViewSuggestionsForDeleted}
-              disabled={restoringStop}
-              className="font-medium underline hover:no-underline disabled:opacity-50 shrink-0"
-            >
-              看候選建議
-            </button>
-            <button
-              onClick={dismissDeleteToast}
-              disabled={restoringStop}
-              className="shrink-0 text-blue-500 hover:text-blue-700 dark:hover:text-blue-200 disabled:opacity-50"
-            >
-              ✕
-            </button>
           </div>
         )}
 
