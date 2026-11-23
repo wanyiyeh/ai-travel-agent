@@ -13,7 +13,7 @@ export default async function ItinerariesPage() {
   const actor = await getActor();
   if (!actor) {
     return (
-      <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 py-16 px-4">
+      <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 py-6 sm:py-16 px-4">
         <div className="max-w-2xl mx-auto text-center">
           <h1 className="text-3xl font-bold text-zinc-900 dark:text-zinc-50">已儲存的行程</h1>
           <p className="mt-4 text-zinc-500 dark:text-zinc-400">請先用右上角的「用 Google 登入」，才能看到你儲存的行程。</p>
@@ -36,7 +36,7 @@ export default async function ItinerariesPage() {
   });
 
   return (
-    <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 py-16 px-4">
+    <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 py-6 sm:py-16 px-4">
       <div className="max-w-2xl mx-auto">
         <div className="mb-10 flex items-center justify-between">
           <div>

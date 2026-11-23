@@ -15,6 +15,7 @@ import { collectPlaceNames, daysMissingNames, withPlaceNames, type PlaceNameBook
 import { AIRPORTS } from "@/lib/airports";
 import { useAirportOptions } from "@/hooks/useAirportOptions";
 import { ExchangeRateCredit } from "@/components/DataSourceCredits";
+import MoreMenu, { type MoreMenuItem } from "@/components/MoreMenu";
 import { tripPlaceNames } from "@/lib/tripPlaceNames";
 
 const DEFAULT_EXCHANGE_RATES: Record<string, number> = {
@@ -221,7 +222,7 @@ export default function ViewContent({ id }: ViewContentProps) {
 
   if (loading && !data) {
     return (
-      <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 py-16 px-4">
+      <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 py-6 sm:py-16 px-4">
         <div className="max-w-2xl mx-auto space-y-6">
           <div className="animate-pulse space-y-4">
             <div className="h-8 bg-zinc-200 dark:bg-zinc-800 rounded w-2/3 mx-auto" />
@@ -252,7 +253,7 @@ export default function ViewContent({ id }: ViewContentProps) {
 
   if (error) {
     return (
-      <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 py-16 px-4">
+      <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 py-6 sm:py-16 px-4">
         <div className="max-w-2xl mx-auto text-center">
           <p className="text-red-600 dark:text-red-400 mb-4">{error}</p>
           <Link
@@ -291,7 +292,7 @@ export default function ViewContent({ id }: ViewContentProps) {
 
     return (
       <div className="mb-6 overflow-x-auto pb-1">
-        <div className="flex items-center gap-1 min-w-max">
+        <div className="flex flex-wrap items-center gap-1 gap-y-2 sm:flex-nowrap sm:min-w-max">
           {nodes.map((code: string, idx: number) => {
             const isWaypoint = waypointSet.has(code);
             const isEndpoint = idx === 0 || idx === nodes.length - 1;
@@ -436,8 +437,23 @@ export default function ViewContent({ id }: ViewContentProps) {
     );
   };
 
+  // Phone header: the same actions as the desktop row, behind one menu.
+  const headerMenuItems: MoreMenuItem[] = [
+    ...(data?.canPublish
+      ? [{ key: "publish", label: data.isPublic ? "取消公開" : "設為公開範例", onSelect: togglePublic, disabled: publishBusy }]
+      : []),
+    ...(data?.canPublish && data.isPublic
+      ? [{ key: "copy", label: linkCopied ? "已複製連結" : "複製公開連結", onSelect: copyPublicLink }]
+      : []),
+    ...(data && !isPublicView
+      ? [{ key: "pdf", label: isGuestItinerary ? "登入後下載 PDF" : "下載 PDF", onSelect: handleDownload }]
+      : []),
+    ...(!isPublicView ? [{ key: "trash", label: "垃圾桶", onSelect: () => setShowTrash(true) }] : []),
+    { key: "saved", label: "已儲存的行程", href: "/itineraries" },
+  ];
+
   return (
-    <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 py-16 px-4">
+    <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 py-6 sm:py-16 px-4">
       <div className="max-w-7xl mx-auto">
         {typeof data?.expiresInHours === "number" && !isPublicView && <GuestNotice expiresInHours={data.expiresInHours} />}
         {isPublicView && (
@@ -448,20 +464,20 @@ export default function ViewContent({ id }: ViewContentProps) {
             </Link>
           </div>
         )}
-        {/* Header */}
-        <div className="mb-8 flex items-center justify-between" data-print-hidden>
+        {/* Header: phones get the back link, the list/map toggle and a menu for the rest */}
+        <div className="mb-6 sm:mb-8 flex items-center justify-between gap-2" data-print-hidden>
           <Link
             href="/"
-            className="text-sm text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 underline underline-offset-4"
+            className="py-3 sm:py-0 text-sm text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 underline underline-offset-4"
           >
             ← 新增行程
           </Link>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 sm:gap-4">
             {data && (
               <div className="flex rounded-lg border border-zinc-200 dark:border-zinc-700 overflow-hidden text-sm">
                 <button
                   onClick={() => setView("list")}
-                  className={`px-3 py-1.5 transition-colors ${
+                  className={`px-3 py-2.5 sm:py-1.5 transition-colors ${
                     view === "list"
                       ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
                       : "text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100"
@@ -471,7 +487,7 @@ export default function ViewContent({ id }: ViewContentProps) {
                 </button>
                 <button
                   onClick={showMap}
-                  className={`px-3 py-1.5 transition-colors ${
+                  className={`px-3 py-2.5 sm:py-1.5 transition-colors ${
                     view === "map"
                       ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
                       : "text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100"
@@ -481,53 +497,58 @@ export default function ViewContent({ id }: ViewContentProps) {
                 </button>
               </div>
             )}
-            {data?.canPublish && (
-              <span className="flex items-center gap-2 text-sm">
-                <button
-                  type="button"
-                  onClick={togglePublic}
-                  disabled={publishBusy}
-                  title="公開後，任何人都能用這個網址以唯讀方式查看（不顯示風格描述）"
-                  className="text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 underline underline-offset-4 disabled:opacity-50"
-                >
-                  {data.isPublic ? "取消公開" : "設為公開範例"}
-                </button>
-                {data.isPublic && (
+            <div className="hidden sm:flex items-center gap-4">
+              {data?.canPublish && (
+                <span className="flex items-center gap-2 text-sm">
                   <button
                     type="button"
-                    onClick={copyPublicLink}
-                    className="rounded-full bg-emerald-100 dark:bg-emerald-900/40 px-2 py-0.5 text-xs text-emerald-700 dark:text-emerald-300"
+                    onClick={togglePublic}
+                    disabled={publishBusy}
+                    title="公開後，任何人都能用這個網址以唯讀方式查看（不顯示風格描述）"
+                    className="text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 underline underline-offset-4 disabled:opacity-50"
                   >
-                    {linkCopied ? "已複製連結" : "已公開・複製連結"}
+                    {data.isPublic ? "取消公開" : "設為公開範例"}
                   </button>
-                )}
-              </span>
-            )}
-            {data && !isPublicView && (
-              <button
-                type="button"
-                onClick={handleDownload}
-                title={isGuestItinerary ? "登入後即可下載 PDF" : "用瀏覽器的「另存為 PDF」下載"}
+                  {data.isPublic && (
+                    <button
+                      type="button"
+                      onClick={copyPublicLink}
+                      className="rounded-full bg-emerald-100 dark:bg-emerald-900/40 px-2 py-0.5 text-xs text-emerald-700 dark:text-emerald-300"
+                    >
+                      {linkCopied ? "已複製連結" : "已公開・複製連結"}
+                    </button>
+                  )}
+                </span>
+              )}
+              {data && !isPublicView && (
+                <button
+                  type="button"
+                  onClick={handleDownload}
+                  title={isGuestItinerary ? "登入後即可下載 PDF" : "用瀏覽器的「另存為 PDF」下載"}
+                  className="text-sm text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 underline underline-offset-4"
+                >
+                  {isGuestItinerary ? "登入後下載 PDF" : "下載 PDF"}
+                </button>
+              )}
+              {!isPublicView && (
+                <button
+                  type="button"
+                  onClick={() => setShowTrash(true)}
+                  className="text-sm text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 underline underline-offset-4"
+                >
+                  垃圾桶
+                </button>
+              )}
+              <Link
+                href="/itineraries"
                 className="text-sm text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 underline underline-offset-4"
               >
-                {isGuestItinerary ? "登入後下載 PDF" : "下載 PDF"}
-              </button>
-            )}
-            {!isPublicView && (
-              <button
-                type="button"
-                onClick={() => setShowTrash(true)}
-                className="text-sm text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 underline underline-offset-4"
-              >
-                垃圾桶
-              </button>
-            )}
-            <Link
-              href="/itineraries"
-              className="text-sm text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 underline underline-offset-4"
-            >
-              已儲存的行程
-            </Link>
+                已儲存的行程
+              </Link>
+            </div>
+            <div className="sm:hidden">
+              <MoreMenu items={headerMenuItems} />
+            </div>
           </div>
         </div>
 

@@ -17,7 +17,7 @@ export default async function AccountPage() {
   const actor = await getActor();
 
   return (
-    <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 py-16 px-4">
+    <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 py-6 sm:py-16 px-4">
       <div className="max-w-2xl mx-auto">
         <h1 className="text-3xl font-bold text-zinc-900 dark:text-zinc-50">帳號</h1>
         {actor?.kind !== "user" ? (

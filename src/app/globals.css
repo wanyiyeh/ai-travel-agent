@@ -41,6 +41,19 @@ body {
 }
 
 /*
+ * Phones: iOS Safari zooms the page in when a text field under 16px gets
+ * focus, and doesn't zoom back out. Unlayered, so it wins over the text-sm
+ * utilities on individual inputs.
+ */
+@media (max-width: 639px) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+
+/*
  * Read-only view of a public example itinerary (plan/access-control.md §8):
  * every editing control in the card is a button, so hide them all except the
  * ones that only change what's shown (day collapse, jump-to-day).
