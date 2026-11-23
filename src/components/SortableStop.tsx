@@ -75,6 +75,130 @@ export function SortableStop({
     disabled: isEditing || isLoading || bulkMode || isPicking,
   });
 
+  // Edit / swap / move / delete. Desktop keeps them in the narrow right-hand
+  // column; on a phone that column squeezed the name into three lines, so
+  // there they sit in a row under the content with finger-sized targets.
+  const renderActions = (placement: "side" | "below") => {
+    const pad = placement === "below" ? "p-2.5" : "p-1";
+    const menuSide = placement === "below" ? "left-0 top-11" : "right-0 top-8";
+    return (
+      <>
+          <button
+            onClick={() => onEdit(stop)}
+            disabled={isLoading || editingStop !== null || isPicking}
+            className={`${pad} text-zinc-400 hover:text-blue-600 disabled:opacity-30 transition-colors`}
+            title="編輯"
+          >
+            <svg
+              className="w-4 h-4"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"
+              />
+            </svg>
+          </button>
+          {/* A booked event can't be swapped for another place. */}
+          {onSwap && !stop.fixedEvent && (
+            <button
+              onClick={() => onSwap(stop)}
+              disabled={isLoading || editingStop !== null || isPicking}
+              className={`${pad} text-zinc-400 hover:text-emerald-600 disabled:opacity-30 transition-colors`}
+              title="換一個"
+            >
+              <svg
+                className="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                />
+              </svg>
+            </button>
+          )}
+          {onMove && moveTargets && moveTargets.length > 0 && (
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setShowMoveMenu((v) => !v)}
+                disabled={isLoading || editingStop !== null || isPicking}
+                className={`${pad} text-zinc-400 hover:text-indigo-600 disabled:opacity-30 transition-colors`}
+                title="移到別天"
+              >
+                <svg
+                  className="w-4 h-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M13 16l4-4m0 0l-4-4m4 4H3m13 9a9 9 0 100-18 9 9 0 000 18z"
+                  />
+                </svg>
+              </button>
+              {showMoveMenu && (
+                <select
+                  autoFocus
+                  defaultValue=""
+                  onChange={(e) => {
+                    const targetDayId = e.target.value;
+                    setShowMoveMenu(false);
+                    if (targetDayId) onMove(stop, targetDayId);
+                  }}
+                  onBlur={() => setShowMoveMenu(false)}
+                  className={`absolute ${menuSide} z-10 w-40 text-xs rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1.5 text-zinc-700 dark:text-zinc-300 shadow-lg focus:outline-none focus:ring-2 focus:ring-indigo-500`}
+                >
+                  <option value="" disabled>
+                    移到...
+                  </option>
+                  {moveTargets.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.label}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+          )}
+          {onDelete && (
+            <button
+              onClick={() => onDelete(stop)}
+              disabled={isLoading || editingStop !== null || deleteDisabled || isPicking}
+              className={`${pad} text-zinc-400 hover:text-red-600 disabled:opacity-30 transition-colors`}
+              title="刪除"
+            >
+              <svg
+                className="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                />
+              </svg>
+            </button>
+          )}
+      </>
+    );
+  };
+
   return (
     <div
       ref={setNodeRef}
@@ -169,7 +293,7 @@ export function SortableStop({
                       ),
                     })
                   }
-                  className="w-7 h-7 flex items-center justify-center rounded-full bg-zinc-100 dark:bg-zinc-700 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-600 transition-colors"
+                  className="w-10 h-10 sm:w-7 sm:h-7 flex items-center justify-center rounded-full bg-zinc-100 dark:bg-zinc-700 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-600 transition-colors"
                   aria-label="減少停留時間"
                 >
                   −
@@ -185,7 +309,7 @@ export function SortableStop({
                       duration_minutes: editingStop.duration_minutes + DURATION_STEP,
                     })
                   }
-                  className="w-7 h-7 flex items-center justify-center rounded-full bg-zinc-100 dark:bg-zinc-700 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-600 transition-colors"
+                  className="w-10 h-10 sm:w-7 sm:h-7 flex items-center justify-center rounded-full bg-zinc-100 dark:bg-zinc-700 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-600 transition-colors"
                   aria-label="增加停留時間"
                 >
                   +
@@ -320,6 +444,9 @@ export function SortableStop({
                   : `💴 ${[currency, stop.estimated_cost.toLocaleString()].filter(Boolean).join(" ")}`}
               </p>
             )}
+            {!bulkMode && stop.id && (
+              <div className="mt-1 -ml-2.5 flex gap-1 sm:hidden">{renderActions("below")}</div>
+            )}
           </>
         )}
       </div>
@@ -341,122 +468,7 @@ export function SortableStop({
             title={selected ? "保留這個景點" : "將刪除這個景點"}
           />
         ) : (
-          !isEditing && stop.id && (
-            <div className="flex gap-1">
-              <button
-                onClick={() => onEdit(stop)}
-                disabled={isLoading || editingStop !== null || isPicking}
-                className="p-1 text-zinc-400 hover:text-blue-600 disabled:opacity-30 transition-colors"
-                title="編輯"
-              >
-                <svg
-                  className="w-4 h-4"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"
-                  />
-                </svg>
-              </button>
-              {/* A booked event can't be swapped for another place. */}
-              {onSwap && !stop.fixedEvent && (
-                <button
-                  onClick={() => onSwap(stop)}
-                  disabled={isLoading || editingStop !== null || isPicking}
-                  className="p-1 text-zinc-400 hover:text-emerald-600 disabled:opacity-30 transition-colors"
-                  title="換一個"
-                >
-                  <svg
-                    className="w-4 h-4"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                    />
-                  </svg>
-                </button>
-              )}
-              {onMove && moveTargets && moveTargets.length > 0 && (
-                <div className="relative">
-                  <button
-                    type="button"
-                    onClick={() => setShowMoveMenu((v) => !v)}
-                    disabled={isLoading || editingStop !== null || isPicking}
-                    className="p-1 text-zinc-400 hover:text-indigo-600 disabled:opacity-30 transition-colors"
-                    title="移到別天"
-                  >
-                    <svg
-                      className="w-4 h-4"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M13 16l4-4m0 0l-4-4m4 4H3m13 9a9 9 0 100-18 9 9 0 000 18z"
-                      />
-                    </svg>
-                  </button>
-                  {showMoveMenu && (
-                    <select
-                      autoFocus
-                      defaultValue=""
-                      onChange={(e) => {
-                        const targetDayId = e.target.value;
-                        setShowMoveMenu(false);
-                        if (targetDayId) onMove(stop, targetDayId);
-                      }}
-                      onBlur={() => setShowMoveMenu(false)}
-                      className="absolute right-0 top-8 z-10 w-40 text-xs rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1.5 text-zinc-700 dark:text-zinc-300 shadow-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                    >
-                      <option value="" disabled>
-                        移到...
-                      </option>
-                      {moveTargets.map((d) => (
-                        <option key={d.id} value={d.id}>
-                          {d.label}
-                        </option>
-                      ))}
-                    </select>
-                  )}
-                </div>
-              )}
-              {onDelete && (
-                <button
-                  onClick={() => onDelete(stop)}
-                  disabled={isLoading || editingStop !== null || deleteDisabled || isPicking}
-                  className="p-1 text-zinc-400 hover:text-red-600 disabled:opacity-30 transition-colors"
-                  title="刪除"
-                >
-                  <svg
-                    className="w-4 h-4"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                    />
-                  </svg>
-                </button>
-              )}
-            </div>
-          )
+          !isEditing && stop.id && <div className="hidden sm:flex gap-1">{renderActions("side")}</div>
         )}
       </div>
     </div>

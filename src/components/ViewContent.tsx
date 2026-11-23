@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { bookedEventLabel, bookedEventOn } from "@/lib/fixedEvents";
 import type { FixedEvent } from "@/lib/schemas";
 import Link from "next/link";
@@ -16,6 +16,7 @@ import { AIRPORTS } from "@/lib/airports";
 import { useAirportOptions } from "@/hooks/useAirportOptions";
 import { ExchangeRateCredit } from "@/components/DataSourceCredits";
 import MoreMenu, { type MoreMenuItem } from "@/components/MoreMenu";
+import ResponsiveDialog from "@/components/ResponsiveDialog";
 import { tripPlaceNames } from "@/lib/tripPlaceNames";
 
 const DEFAULT_EXCHANGE_RATES: Record<string, number> = {
@@ -50,6 +51,8 @@ export default function ViewContent({ id }: ViewContentProps) {
   const [exchangeRate, setExchangeRate] = useState(35);
   const [showRestructure, setShowRestructure] = useState(false);
   const [showTrash, setShowTrash] = useState(false);
+  // Stable, because ResponsiveDialog re-binds its Escape listener when it changes.
+  const closeTrash = useCallback(() => setShowTrash(false), []);
   // "Download PDF" = the browser's print dialog ("Save as PDF") over a print
   // layout (globals.css @media print). While printing, the list view is shown
   // with every day expanded, since collapsed days aren't rendered at all.
@@ -619,17 +622,15 @@ export default function ViewContent({ id }: ViewContentProps) {
       </div>
 
       {showTrash && data && (
-        <div
-          className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 py-10"
-          onClick={() => setShowTrash(false)}
+        <ResponsiveDialog
+          label="垃圾桶"
+          onClose={closeTrash}
+          align="top"
+          showCloseButton={false}
+          panelClassName="sm:max-w-3xl bg-zinc-50! dark:bg-zinc-950!"
         >
-          <div
-            className="w-full max-w-3xl rounded-xl bg-zinc-50 dark:bg-zinc-950 shadow-xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <TrashView itineraryId={id} onClose={() => setShowTrash(false)} onChange={fetchData} />
-          </div>
-        </div>
+          <TrashView itineraryId={id} onClose={closeTrash} onChange={fetchData} />
+        </ResponsiveDialog>
       )}
     </div>
   );
