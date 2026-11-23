@@ -118,12 +118,12 @@ export function FixedEventsEditor({
               <button
                 type="button"
                 onClick={() => onChange(drafts.filter((_, i) => i !== index))}
-                className="ml-auto text-xs text-zinc-400 hover:text-red-500 transition-colors"
+                className="ml-auto py-2 sm:py-0 text-xs text-zinc-400 hover:text-red-500 transition-colors"
               >
                 刪除
               </button>
             </div>
-            <div className="flex gap-2">
+            <div className="flex flex-col sm:flex-row gap-2">
               <input
                 type="text"
                 aria-label="地點"
@@ -141,7 +141,7 @@ export function FixedEventsEditor({
                 maxLength={100}
                 onChange={(e) => update(index, { city: e.target.value })}
                 placeholder="城市（跨城市行程請填）"
-                className={`${INPUT_CLASS} w-40`}
+                className={`${INPUT_CLASS} sm:w-40`}
               />
             </div>
             {isShowEvent(draft) && (
@@ -149,7 +149,7 @@ export function FixedEventsEditor({
                 aria-label="提早到場"
                 value={draft.arriveEarly}
                 onChange={(e) => update(index, { arriveEarly: e.target.value })}
-                className={INPUT_CLASS}
+                className={`${INPUT_CLASS} w-full sm:w-auto max-w-full`}
               >
                 <option value="">
                   {hoursLabel(ARRIVE_EARLY_DEFAULT_MINUTES[draft.type] ?? 0)}（預設，排隊、周邊、晚餐）
@@ -175,7 +175,7 @@ export function FixedEventsEditor({
           type="button"
           onClick={() => onChange([...drafts, emptyDraft(tripStart)])}
           disabled={!tripStart}
-          className="text-sm text-blue-500 hover:text-blue-600 dark:text-blue-400 disabled:text-zinc-300 transition-colors"
+          className="py-2 sm:py-0 text-sm text-blue-500 hover:text-blue-600 dark:text-blue-400 disabled:text-zinc-300 transition-colors"
         >
           ＋加入固定行程
         </button>
