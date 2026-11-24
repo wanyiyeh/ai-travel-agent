@@ -21,7 +21,7 @@ flowchart LR
 - 行程讀寫都檢查擁有權（`src/lib/auth/ownership.ts`）。
 - 登入的使用者可以在 `/account` 自行刪除帳號與所有資料（`src/lib/auth/deleteAccount.ts`，見[功能頁](features/account-deletion.md)）。
 - `/privacy` 隱私權說明，全站頁尾連結（`src/components/SiteFooter.tsx`）。頁面上的保存天數直接讀執行它的常數（`GUEST_TTL_MS`、`USAGE_RETENTION_MS`、`RATE_LIMIT_WINDOW_RETENTION_MS`、`DEVICE_COOKIE_MAX_AGE_S`、`SESSION_MAX_AGE_S`），改常數就會跟著變；收集的資料或第三方服務有變動時要一起改這頁。資料來源的出處也標在這頁（`#data-sources`，見 [data-sources.md](data-sources.md)）。
-- 花錢的操作受三層保護：`src/proxy.ts` 依 IP 與成本等級限流；`src/lib/quota.ts` 依使用者、IP、裝置計算額度，紀錄在 `UsageEvent`；生成前要通過 Cloudflare Turnstile。管理者（`ADMIN_EMAILS`）不受額度限制。另有全站每日呼叫上限（`src/lib/dailyBudget.ts`）與每個 IP 同時只能一個生成的鎖。限流、每日上限與生成鎖存在 Postgres，多個伺服器實例共用（`src/lib/sharedState.ts`，#209）；單元測試用記憶體版本（`SHARED_STATE=memory`）。
+- 花錢的操作受三層保護：`src/proxy.ts` 依 IP 與成本等級限流；`src/lib/quota.ts` 依使用者、IP、裝置計算額度，紀錄在 `UsageEvent`（聊天助理另有每日則數與離題上限，只給登入的使用者，見 `QUOTAS.chat`）；生成前要通過 Cloudflare Turnstile。管理者（`ADMIN_EMAILS`）不受額度限制。另有全站每日呼叫上限（`src/lib/dailyBudget.ts`）與每個 IP 同時只能一個生成的鎖。限流、每日上限與生成鎖存在 Postgres，多個伺服器實例共用（`src/lib/sharedState.ts`，#209）；單元測試用記憶體版本（`SHARED_STATE=memory`）。
 
 ## 行程生成主流程
 
@@ -49,7 +49,7 @@ flowchart TD
 ## 其他生成入口
 
 - `POST /api/v1/itinerary/[id]/restructure`：「重新規劃行程」精靈唯一的套用端點。前端送出最終的城市順序（新／既有、天數、保留哪些天、鎖定的必去景點），後端重建整個 `days` 並在一個 transaction 內覆寫，這點跟其他逐步修改的路由不同。移動日和回程日一律保留；既有城市的下一站改變時，它的出發移動日視為過期並重新產生。被丟棄的天寫進 `DeletedDay`。
-- 聊天助理（[PLAN-004](plans/PLAN-004-itinerary-chat.md) 進行中）：`src/lib/chat/assistant.ts` 先分類訊息，再依類別只允許一種輸出（回答、修改提案、重新規劃提案、「照片與詳情」指向），離題與旅遊知識回固定文字（[ADR-0013](adr/0013-chat-server-side-authorization.md)）。LLM 只看到 `src/lib/chat/context.ts` 組的行程摘要；旅客打的地點名稱先換成「第N天第K站」。
+- 聊天助理（[PLAN-004](plans/PLAN-004-itinerary-chat.md) 進行中）：`GET`／`POST /api/v1/itinerary/[id]/chat`，邏輯在 `src/lib/chat/conversation.ts`（額度、存對話）。`src/lib/chat/assistant.ts` 先分類訊息，再依類別只允許一種輸出（回答、修改提案、重新規劃提案、「照片與詳情」指向），離題與旅遊知識回固定文字（[ADR-0013](adr/0013-chat-server-side-authorization.md)）。LLM 只看到 `src/lib/chat/context.ts` 組的行程摘要；旅客打的地點名稱先換成「第N天第K站」。
 - 單日編輯：`stops/[stopId]/regenerate`、`days/[dayId]/stop-suggestions`、三餐與住宿的 `regenerate`／`select`。每一批顯示給使用者的候選都寫進 `*CandidateLog`。
 
 ## 資料模型

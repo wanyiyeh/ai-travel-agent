@@ -88,3 +88,35 @@ describe("paid edit quotas", () => {
     expect(reason(edit(oldUser, { ipEditsToday: 60 }))).toBe("ip_edit_daily_limit");
   });
 });
+
+describe("chat quotas", () => {
+  const chat = (s: QuotaSubject, c: Partial<UsageCounts>) => evaluateQuota(s, "chat", { ...zero, ...c }, NOW);
+  const q = QUOTAS.chat;
+
+  it("is for signed-in owners only", () => {
+    expect(reason(chat(guest, {}))).toBe("guest_chat");
+  });
+
+  it("gives a new account fewer messages a day", () => {
+    expect(reason(chat(newUser, { subjectChatsToday: q.newUserPerDay - 1 }))).toBe("ok");
+    expect(reason(chat(newUser, { subjectChatsToday: q.newUserPerDay }))).toBe("chat_daily_limit");
+    expect(reason(chat(oldUser, { subjectChatsToday: q.userPerDay - 1 }))).toBe("ok");
+    expect(reason(chat(oldUser, { subjectChatsToday: q.userPerDay }))).toBe("chat_daily_limit");
+  });
+
+  it("locks for the day after too many off-topic messages, ahead of the count", () => {
+    expect(reason(chat(oldUser, { subjectOffTopicToday: q.offTopicPerDay - 1 }))).toBe("ok");
+    expect(reason(chat(oldUser, { subjectOffTopicToday: q.offTopicPerDay, subjectChatsToday: q.userPerDay }))).toBe(
+      "chat_off_topic_lock",
+    );
+  });
+
+  it("caps an IP and the whole site", () => {
+    expect(reason(chat(oldUser, { ipChatsToday: q.perIpPerDay }))).toBe("ip_chat_daily_limit");
+    expect(reason(chat(oldUser, { siteChatsToday: q.sitePerDay }))).toBe("site_chat_daily_limit");
+  });
+
+  it("lets admins through", () => {
+    expect(reason(chat({ kind: "admin" }, { subjectChatsToday: 999, subjectOffTopicToday: 99 }))).toBe("ok");
+  });
+});

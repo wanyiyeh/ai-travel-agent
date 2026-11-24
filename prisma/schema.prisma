@@ -59,6 +59,9 @@ model ChatMessage {
   // reply was allowed to output (ADR-0013). Set on assistant messages only.
   category    String?
   content     String
+  // JSON-encoded { transport: StopRef[], places: StopRef[] }: stops whose
+  // stored transport line or 「照片與詳情」 the reply points at (our IDs only).
+  cards       String?
   createdAt   DateTime       @default(now()) @map("created_at")
   proposals   ChatProposal[]
 

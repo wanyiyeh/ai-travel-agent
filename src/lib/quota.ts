@@ -10,7 +10,8 @@ import { requestFingerprint, type RequestFingerprint } from "@/lib/requestFinger
 // Layers, all of which must pass:
 //   per account   guest: 1 generation ever, 5 paid edits per itinerary;
 //                 user: 5 generations/day (2 in the account's first 3 days),
-//                 30 paid edits/day
+//                 30 paid edits/day; chat: signed-in only, with a daily
+//                 message count and an off-topic lock (QUOTAS.chat)
 //   per IP        across all accounts on that IP (multi-account defense)
 //   per device    across all accounts in that browser (device_id cookie)
 //   site-wide     total generations/day, so the worst case is bounded no
@@ -22,7 +23,10 @@ import { requestFingerprint, type RequestFingerprint } from "@/lib/requestFinger
 // limit. generate-stream's one-at-a-time gate per IP keeps that to the edge
 // case, and the site-wide caps bound it either way.
 
-export type UsageKind = "generate" | "paid_edit";
+// "chat_off_topic" is recorded alongside "chat" for a message classified off
+// topic; it only feeds the chat's daily off-topic lock (ADR-0013).
+export type UsageKind = "generate" | "paid_edit" | "chat" | "chat_off_topic";
+export type QuotaKind = Exclude<UsageKind, "chat_off_topic">;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 export const NEW_ACCOUNT_MS = 3 * DAY_MS;
@@ -42,6 +46,16 @@ export const QUOTAS = {
     guestPerItinerary: 5,
     userPerDay: 30,
     perIpPerDay: 60,
+  },
+  // The itinerary chat (PLAN-004): signed-in owners only. A message costs
+  // about US$0.001, so sitePerDay keeps the whole site's chat near US$1/day.
+  chat: {
+    userPerDay: 20,
+    newUserPerDay: 10,
+    perIpPerDay: 60,
+    // Off-topic messages a day before the chat locks until tomorrow.
+    offTopicPerDay: 3,
+    sitePerDay: 500,
   },
 } as const;
 
@@ -65,6 +79,11 @@ export interface UsageCounts {
   subjectEditsToday?: number;
   itineraryEditsByGuest?: number;
   ipEditsToday?: number;
+  // chat
+  subjectChatsToday?: number;
+  subjectOffTopicToday?: number;
+  ipChatsToday?: number;
+  siteChatsToday?: number;
 }
 
 export type QuotaDecision = { ok: true } | { ok: false; reason: string; message: string };
@@ -72,11 +91,37 @@ export type QuotaDecision = { ok: true } | { ok: false; reason: string; message:
 const deny = (reason: string, message: string): QuotaDecision => ({ ok: false, reason, message });
 
 // Pure: the whole policy, given the counts. Unit-tested layer by layer.
-export function evaluateQuota(subject: QuotaSubject, kind: UsageKind, c: UsageCounts, now = Date.now()): QuotaDecision {
+/** A signed-in user's chat messages a day: fewer in the account's first days. */
+export function chatDailyLimit(accountCreatedAt: Date, now = Date.now()): number {
+  const isNew = now - accountCreatedAt.getTime() < NEW_ACCOUNT_MS;
+  return isNew ? QUOTAS.chat.newUserPerDay : QUOTAS.chat.userPerDay;
+}
+
+function evaluateChat(subject: Exclude<QuotaSubject, { kind: "admin" }>, c: UsageCounts, now: number): QuotaDecision {
+  const q = QUOTAS.chat;
+  if (subject.kind === "guest") return deny("guest_chat", "登入後才能使用聊天助理。");
+  if ((c.subjectOffTopicToday ?? 0) >= q.offTopicPerDay) {
+    return deny("chat_off_topic_lock", "今天的聊天已暫停：只能問這趟行程的問題，明天再來吧。");
+  }
+  const limit = chatDailyLimit(subject.accountCreatedAt, now);
+  if ((c.subjectChatsToday ?? 0) >= limit) {
+    return deny("chat_daily_limit", `每天最多問 ${limit} 則，明天再來吧。`);
+  }
+  if ((c.ipChatsToday ?? 0) >= q.perIpPerDay) {
+    return deny("ip_chat_daily_limit", "這個網路今天的聊天次數已達上限，請明天再試。");
+  }
+  if ((c.siteChatsToday ?? 0) >= q.sitePerDay) {
+    return deny("site_chat_daily_limit", "今天的聊天名額已滿，請明天再來。");
+  }
+  return { ok: true };
+}
+
+export function evaluateQuota(subject: QuotaSubject, kind: QuotaKind, c: UsageCounts, now = Date.now()): QuotaDecision {
   if (subject.kind === "admin") return { ok: true };
   if (subject.kind === "user" && subject.disabled) {
     return deny("disabled", "這個帳號已被停用。");
   }
+  if (kind === "chat") return evaluateChat(subject, c, now);
 
   if (kind === "generate") {
     const q = QUOTAS.generate;
@@ -147,9 +192,17 @@ async function loadSubject(actor: Actor | null): Promise<QuotaSubject> {
   };
 }
 
+const ZERO_GENERATION_COUNTS = {
+  ipGenerationsToday: 0,
+  ipGuestGenerationsToday: 0,
+  deviceGenerationsToday: 0,
+  siteGuestGenerationsToday: 0,
+  siteUserGenerationsToday: 0,
+};
+
 async function countUsage(
   subject: QuotaSubject,
-  kind: UsageKind,
+  kind: QuotaKind,
   fp: RequestFingerprint,
   itineraryId: string | undefined,
   now: number,
@@ -158,6 +211,18 @@ async function countUsage(
   const count = (where: object) => prisma.usageEvent.count({ where: { kind, ...where } });
   const today = { createdAt: { gte: since } };
   const subjectId = subject.kind === "admin" ? null : subject.userId;
+
+  if (kind === "chat") {
+    const [mine, offTopic, ip, site] = await Promise.all([
+      subject.kind === "user" ? count({ userId: subjectId, ...today }) : 0,
+      subject.kind === "user"
+        ? prisma.usageEvent.count({ where: { kind: "chat_off_topic", userId: subjectId, ...today } })
+        : 0,
+      count({ ipHash: fp.ipHash, ...today }),
+      count(today),
+    ]);
+    return { ...ZERO_GENERATION_COUNTS, subjectChatsToday: mine, subjectOffTopicToday: offTopic, ipChatsToday: ip, siteChatsToday: site };
+  }
 
   if (kind === "generate") {
     const [ever, mine, ip, ipGuest, device, siteGuest, siteUser] = await Promise.all([
@@ -186,20 +251,16 @@ async function countUsage(
     count({ ipHash: fp.ipHash, ...today }),
   ]);
   return {
+    ...ZERO_GENERATION_COUNTS,
     subjectEditsToday: mine,
     itineraryEditsByGuest: perItinerary,
     ipEditsToday: ip,
-    ipGenerationsToday: 0,
-    ipGuestGenerationsToday: 0,
-    deviceGenerationsToday: 0,
-    siteGuestGenerationsToday: 0,
-    siteUserGenerationsToday: 0,
   };
 }
 
 export async function checkQuota(
   actor: Actor | null,
-  kind: UsageKind,
+  kind: QuotaKind,
   fp: RequestFingerprint,
   itineraryId?: string,
   now = Date.now(),
@@ -218,6 +279,29 @@ export async function recordUsage(
   await prisma.usageEvent.create({
     data: { kind, userId: owner.userId, isGuest: owner.isGuest, ipHash: fp.ipHash, deviceId: fp.deviceId, itineraryId },
   });
+}
+
+export interface ChatAllowance {
+  /** Messages left today; null for admins, who have no limit. */
+  remaining: number | null;
+  /** Off-topic messages left before the chat locks for the day. */
+  offTopicLeft: number | null;
+  /** Why the chat can't be used now, or null when it can. */
+  blocked: Extract<QuotaDecision, { ok: false }> | null;
+}
+
+/** What the chat panel shows: how many messages are left and whether it's locked. */
+export async function chatAllowance(actor: Actor, fp: RequestFingerprint, now = Date.now()): Promise<ChatAllowance> {
+  const subject = await loadSubject(actor);
+  if (subject.kind === "admin") return { remaining: null, offTopicLeft: null, blocked: null };
+  const counts = await countUsage(subject, "chat", fp, undefined, now);
+  const decision = evaluateQuota(subject, "chat", counts, now);
+  const limit = subject.kind === "user" ? chatDailyLimit(subject.accountCreatedAt, now) : 0;
+  return {
+    remaining: Math.max(0, limit - (counts.subjectChatsToday ?? 0)),
+    offTopicLeft: Math.max(0, QUOTAS.chat.offTopicPerDay - (counts.subjectOffTopicToday ?? 0)),
+    blocked: decision.ok ? null : decision,
+  };
 }
 
 // Shared 429 body. `error` is the user-facing message (the pickers show
