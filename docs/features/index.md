@@ -9,6 +9,7 @@
 | [移動日](transit-days.md) | stable | 2026-10-27 |
 | [餐點的位置與刪除](meal-positions.md) | stable | 2026-10-27 |
 | [機場](airports.md) | stable | 2026-10-29 |
+| [手機版排版](mobile-layout.md) | stable | 2026-11-24 |
 
 ## 功能頁模板
 
