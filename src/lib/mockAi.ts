@@ -244,3 +244,41 @@ export function mockMealsAndLodgingReply(cityName: string, stayDays: number) {
     })),
   };
 }
+
+// The chat assistant (src/lib/chat/assistant.ts). Classification goes by
+// keyword so dev:free can reach every class; replies point at day 1.
+type ChatMockCategory = "itinerary_question" | "edit" | "restructure" | "place_fact" | "travel_knowledge" | "off_topic";
+
+const CHAT_MOCK_KEYWORDS: [ChatMockCategory, RegExp][] = [
+  ["off_topic", /程式|code|作業|股票/i],
+  ["travel_knowledge", /小費|簽證|習俗|插座/],
+  ["place_fact", /幾點開|營業|地址|評價|門票/],
+  ["restructure", /多待|少待|天數|加一個城市|城市/],
+  ["edit", /刪|換|移到|加一個|不要/],
+];
+
+export function mockChatClassification(message: string) {
+  const hit = CHAT_MOCK_KEYWORDS.find(([, pattern]) => pattern.test(message));
+  return { category: hit ? hit[0] : "itinerary_question", confident: true };
+}
+
+export function mockChatReply(category: string, days: unknown, cities: string[]) {
+  const firstDay = Array.isArray(days) ? (days[0] as { stops?: unknown[] } | undefined) : undefined;
+  const hasStop = Array.isArray(firstDay?.stops) && firstDay.stops.length > 0;
+  switch (category) {
+    case "edit":
+      return {
+        reply: `建議刪除第1天第1站，確認後才會修改。${MOCK_NOTE}`,
+        actions: hasStop ? [{ action: "remove_stop", dayNumber: 1, stopNumber: 1 }] : [],
+      };
+    case "restructure":
+      return {
+        reply: `第一個城市多待一天，確認後被調整的天會重新產生。${MOCK_NOTE}`,
+        cities: cities.length ? cities.map((name, i) => ({ name, days: i === 0 ? 3 : 2, isNew: false })) : null,
+      };
+    case "place_fact":
+      return { reply: `請點「照片與詳情」查看。${MOCK_NOTE}`, places: hasStop ? [{ dayNumber: 1, stopNumber: 1 }] : [] };
+    default:
+      return { reply: `第1天的安排如行程所列。${MOCK_NOTE}`, transportCards: [] };
+  }
+}
