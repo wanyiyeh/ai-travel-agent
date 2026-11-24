@@ -1,7 +1,7 @@
 ---
-status: draft            # draft | approved | in-progress | done
+status: in-progress          # draft | approved | in-progress | done
 branch: plan-004-itinerary-chat
-issue:                   # 父 issue 編號，approved 後填寫
+issue: 367
 created: 2026-11-22
 ---
 
@@ -79,7 +79,7 @@ created: 2026-11-22
 
 ## 設計摘要
 
-取捨寫成 ADR-0013（計畫確認後新增）：聊天助理採「伺服器分類、依類別授權輸出、提案再確認」，LLM 看不到 Google 內容；「重新規劃行程」由聊天取代精靈。
+取捨見 [ADR-0013](../adr/0013-chat-server-side-authorization.md)（伺服器分類、依類別授權輸出、提案再確認，LLM 看不到 Google 內容）與 [ADR-0014](../adr/0014-restructure-via-chat.md)（「重新規劃行程」由聊天取代精靈）。
 
 ```mermaid
 flowchart TD
@@ -105,17 +105,17 @@ flowchart TD
 
 ## 任務拆解
 
-1. ADR-0013；`ChatMessage` schema 與 migration；刪除行程、刪除帳號、訪客過期時連帶刪除
-2. 聊天 LLM 模組：分類、各類別的輸出 schema、組輸入（不含 Google 內容）、名稱比對、`MOCK_AI`、守門與 schema 測試
-3. API：`GET`／`POST /api/v1/itinerary/[id]/chat`，包含擁有權、`chat` 額度、離題鎖、限流
-4. 單站與單日修改的提案：失效檢查、套用既有編輯邏輯、提案狀態；換餐廳接受使用者條件
-5. 重新規劃提案：城市與天數的提案 schema、前後差異、接 restructure 端點與城市推薦
-6. 前端：聊天面板、建議問題、資訊卡、提案卡（修改前後、確認、取消、失效）、額度提示；手機版
-7. 公開範例的唯讀示範對話；`/privacy`、功能頁、glossary、`architecture.md`
+1. （#368）ADR-0013、ADR-0014 定案；`ChatMessage` schema 與 migration；刪除行程、刪除帳號、訪客過期時連帶刪除
+2. （#369）聊天 LLM 模組：分類、各類別的輸出 schema、組輸入（不含 Google 內容）、名稱比對、`MOCK_AI`、守門與 schema 測試
+3. （#370）API：`GET`／`POST /api/v1/itinerary/[id]/chat`，包含擁有權、`chat` 額度、離題鎖、限流
+4. （#371）單站與單日修改的提案：失效檢查、套用既有編輯邏輯、提案狀態；換餐廳接受使用者條件
+5. （#372）重新規劃提案：城市與天數的提案 schema、前後差異、接 restructure 端點與城市推薦
+6. （#373）前端：聊天面板、建議問題、資訊卡、提案卡（修改前後、確認、取消、失效）、額度提示；手機版
+7. （#374）公開範例的唯讀示範對話；`/privacy`、功能頁、glossary、`architecture.md`
 
 ## 完成後遷移清單
 
 - [ ] 功能頁：docs/features/itinerary-chat.md
-- [ ] ADR：docs/adr/0013-itinerary-chat-authorization.md
+- [ ] ADR：docs/adr/0013-chat-server-side-authorization.md、docs/adr/0014-restructure-via-chat.md 改成 Accepted
 - [ ] glossary 新詞（聊天助理、提案、訊息分類）
 - [ ] `docs/architecture.md`：資料模型與生成入口
