@@ -61,6 +61,7 @@ flowchart TD
 - 行程、候選紀錄、垃圾桶裡的地點座標都附 `coordsFetchedAt`，超過 30 天由 `src/lib/coordsPurge.ts` 刪除，顯示時重新取得（ADR-0006）。
 - 機場與國家資料不在資料庫：`src/data/*.generated.json` 由 `npm run build-airports` 從開放資料產生並提交進 git，`src/lib/airportIndex.ts`（只在伺服器端）合併人工清單 `src/lib/airports.ts` 後查詢；首頁選單由靜態路由 `/api/v1/airports` 在打開時載入（ADR-0011，見[功能頁](features/airports.md)）。
 - `DeletedStop`/`DeletedDay`：垃圾桶與復原。
+- `ChatMessage`/`ChatProposal`：行程聊天助理的對話與提案卡（[PLAN-004](plans/PLAN-004-itinerary-chat.md)、[ADR-0013](adr/0013-chat-server-side-authorization.md)），隨行程連帶刪除；只存使用者的文字、回覆文字與我們自己的參照，不存 Google 內容。
 - `*CandidateLog`：每批候選的完整紀錄，供除錯。
 - `*Cache`：AI 結果與我們自己的資料（季節亮點、經典一日遊、城市中心沒找到等）的快取，同城市重複生成時不再付費。只記確定的「找不到」，失敗不記（見 `.claude/rules/google-places.md`）。完整欄位以 `prisma/schema.prisma` 為準。
 - Google 的候選池、路線、最近車站依條款不能保存（ADR-0004），只在同一請求內共用（`src/lib/requestMemo.ts`），資料庫裡沒有它們的表。`Place` 只有 place ID 與附取得時間的座標。
