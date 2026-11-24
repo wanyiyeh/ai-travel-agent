@@ -78,26 +78,40 @@ flowchart LR
 
 ## 環境變數
 
+把 `.env.example` 複製成 `.env` 後填入。「必填」欄：**開發** 是用 `npm run dev` 跑完整功能時要有，**正式** 是部署時才必填。
+
 | 變數 | 必填 | 說明 |
 |---|---|---|
-| `DATABASE_URL` | 是 | Postgres 連線字串；本機為 `postgresql://travel:travel@localhost:5432/travel` |
-| `ANTHROPIC_API_KEY` | 是 | Claude API 金鑰（Claude Console 建立） |
-| `LLM_MODEL` | 否 | 預設見 `src/lib/llm.ts` 的 `DEFAULT_LLM_MODEL` |
-| `GOOGLE_PLACES_API_KEY` | 是（地點/地圖功能） | Google Places API 金鑰（後端用） |
-| `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` | 是（地圖功能） | Google Maps JS API 金鑰（前端用） |
-| `NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID` | 否 | Google Maps Map ID（自訂地圖樣式用） |
-| `MOCK_AI` | 否 | `1` 立即回傳假資料、`slow` 模擬 3.5 秒延遲、`error` 模擬失敗。涵蓋整個行程生成流程，沒有 mock 的 Claude 呼叫會被擋下而不是計費（`src/lib/mockAi.ts`）。完全不花錢的開發用 `npm run dev:free` |
-| `AUTH_SECRET` | 是（登入） | 簽署登入 session 的密鑰，32 bytes 以上的隨機字串（`node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`） |
-| `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET` | 是（登入） | Google OAuth 用戶端（Google Auth Platform → 用戶端 → 網頁應用程式；重新導向 URI `http://localhost:3000/api/auth/callback/google`） |
-| `ADMIN_EMAILS` | 否 | 管理者 Google email，逗號分隔；不受使用額度限制 |
-| `MOCK_PLACES` / `MOCK_DATABASE_URL` | 否 | Google 全部用假資料（`npm run dev:mock`、`dev:free` 會自動設定）；資料庫名稱必須含 `mock`。不要在正式環境設定 |
+| `DATABASE_URL` | 開發 | Postgres 連線字串，本機為 `postgresql://travel:travel@localhost:5432/travel` |
+| `ANTHROPIC_API_KEY` | 開發 | Claude API 金鑰（Claude Console 建立） |
+| `LLM_MODEL` | 否 | 換模型用，預設見 `src/lib/llm.ts` 的 `DEFAULT_LLM_MODEL` |
+| `GOOGLE_PLACES_API_KEY` | 開發 | 後端用的 Google 金鑰（Places、Routes） |
+| `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` | 開發 | 前端用的 Google 金鑰（地圖） |
+| `NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID` | 否 | 自訂地圖樣式用的 Map ID |
+| `AUTH_SECRET` | 開發 | 簽署登入 session 的隨機字串，產生方式見下方 |
+| `AUTH_GOOGLE_ID` | 開發 | Google OAuth 用戶端 ID，設定方式見下方 |
+| `AUTH_GOOGLE_SECRET` | 開發 | Google OAuth 用戶端密碼 |
+| `ADMIN_EMAILS` | 否 | 管理者的 Google email，逗號分隔，不受使用額度限制 |
+| `MOCK_AI` | 否 | Claude 改用假資料，值見下方 |
+| `MOCK_PLACES` | 否 | Google 改用假資料；`dev:mock`、`dev:free` 會自動設定 |
+| `MOCK_DATABASE_URL` | 否 | 假資料模式用的資料庫，名稱必須含 `mock` |
 | `CSP_ENFORCE` | 否 | `1` 時 CSP 改成強制執行（預設只回報，#250） |
-| `CRON_SECRET` | 正式環境必填 | Vercel Cron 呼叫每日清理（`/api/cron/daily`）時帶的密碼，16 個字元以上的隨機字串。沒設定時這個路由一律拒絕 |
-| `NEXT_PUBLIC_TURNSTILE_SITE_KEY` / `TURNSTILE_SECRET_KEY` | 正式環境必填 | Cloudflare Turnstile（生成行程前的人機驗證）。開發環境沒設定時會略過驗證；正式環境沒設定則一律拒絕生成 |
+| `CRON_SECRET` | 正式 | 每日清理路由（`/api/cron/daily`）的密碼，16 個字元以上；沒設定時一律拒絕 |
+| `NEXT_PUBLIC_TURNSTILE_SITE_KEY` | 正式 | Cloudflare Turnstile 的 site key（生成前的人機驗證） |
+| `TURNSTILE_SECRET_KEY` | 正式 | Cloudflare Turnstile 的 secret key |
 
-> 兩組 Google key 請分開：前端的 `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` 會被打包進瀏覽器、人人看得到，只開 Maps JavaScript API 與 Places UI Kit，並限制網域；後端的 `GOOGLE_PLACES_API_KEY` 只開 Places API (New) 與 Routes API。
->
-> Google 與 Claude 都有實際費用，量測與排查方式見 [docs/runbook.md](docs/runbook.md)。
+補充說明：
+
+- **`AUTH_SECRET`**：32 bytes 以上的隨機字串，可用下面的指令產生：
+  ```bash
+  node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+  ```
+- **`AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET`**：在 Google Auth Platform → 用戶端 → 建立「網頁應用程式」，重新導向 URI 填 `http://localhost:3000/api/auth/callback/google`。
+- **`MOCK_AI`**：`1` 立即回傳假資料、`slow` 模擬 3.5 秒延遲、`error` 模擬失敗。涵蓋整個行程生成流程，沒有 mock 的 Claude 呼叫會被擋下而不是計費（`src/lib/mockAi.ts`）。完全不花錢的開發直接用 `npm run dev:free`。
+- **`MOCK_PLACES` / `MOCK_DATABASE_URL`**：不要在正式環境設定。
+- **Turnstile**：開發環境沒設定時會略過驗證；正式環境沒設定則一律拒絕生成。
+- **兩組 Google key 請分開**：前端的 `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` 會被打包進瀏覽器、人人看得到，只開 Maps JavaScript API 與 Places UI Kit，並限制網域；後端的 `GOOGLE_PLACES_API_KEY` 只開 Places API (New) 與 Routes API。
+- Google 與 Claude 都有實際費用，量測與排查方式見 [docs/runbook.md](docs/runbook.md)。
 
 ## 可用指令
 
