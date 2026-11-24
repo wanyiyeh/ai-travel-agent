@@ -1,5 +1,5 @@
 ---
-status: in-progress          # draft | approved | in-progress | done
+status: done          # draft | approved | in-progress | done
 branch: plan-006-mobile-layout
 issue: 344               # 父 issue 編號，approved 後填寫
 created: 2026-11-23
