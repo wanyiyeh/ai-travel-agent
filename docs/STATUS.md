@@ -6,6 +6,8 @@
 
 ## 現在在做什麼
 
+README 已改成作品集導向（功能、設計重點、架構圖、技術棧），修正過期的技術棧、專案結構與文件連結（PR #360 已合併）。正式網址與截圖等 #215 正式公開再加。
+
 [PLAN-006](plans/PLAN-006-mobile-layout.md)（`done`，父 issue #344）：手機版（響應式網頁）已完成，現在怎麼運作見[功能頁](features/mobile-layout.md)。2026-11-24 最後一輪截圖（375／430／1280px、淺色與深色）都沒有水平捲軸，使用者也用手機在正式網站驗收過（公開範例、生成、拖拉、換景點、地圖）。平板與橫向手機沒有專屬排版（#358，known-limitation）。本機截圖時另外建了資料庫 `travel_mock_mobile`（`MOCK_DATABASE_URL` 指向它，測試瀏覽器帶不同的 `x-forwarded-for` 當作另一位本機訪客，避開本機訪客名額），只有假資料，可以留著或刪掉。`dev:free` 第一次啟動常被 Next.js 的版本提醒中止，再啟動一次就會繼續（#332）。
 
 [PLAN-005](plans/PLAN-005-llm-to-claude-haiku.md)（`done`，父 issue #333 在 PR #341 合併時關閉）：LLM 從 OpenAI 換成 Claude Haiku 5.5（[ADR-0012](adr/0012-llm-provider-claude.md)）。所有呼叫經過 `src/lib/llm.ts`，`openai` 已移除；請求帶來的值不進系統提示（R7，`tripPlan.ts` 與舊流程另見 #342）。#340 已用真實 Claude 驗收（`dev:mock`）：規則引擎每次生成約 US$0.001～0.002、舊流程約 US$0.005，內容合理，數字在 [runbook](runbook.md)。PR #341 已合併（2026-11-22）；合併前已對 Neon 的 `travel`、`travel_mock` 跑 `migrate deploy`，Vercel Production 已設 `ANTHROPIC_API_KEY`（到期日以 Claude Console 的 API Keys 頁為準）。開發用 key 在本機 `.env` 的 `ANTHROPIC_API_KEY`。本機 Git Bash 跑 `npm test` 會全部失敗（磁碟代號大小寫），改用 PowerShell；用 curl 送中文要寫成 UTF-8 檔案再 `--data-binary @檔案`，直接放在參數裡會變亂碼。
