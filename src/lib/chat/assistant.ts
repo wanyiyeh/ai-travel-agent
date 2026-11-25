@@ -3,6 +3,7 @@ import { generateObject, LlmOutputError, type LlmEffort } from "@/lib/llm";
 import { UNTRUSTED_INPUT_RULE, wrapUntrusted } from "@/lib/untrustedInput";
 import { mockChatClassification, mockChatReply } from "@/lib/mockAi";
 import { replaceShownNames, tripCities, tripSummary, type ShownName } from "@/lib/chat/context";
+import { proposalProblem } from "@/lib/chat/proposalRules";
 import {
   ChatClassificationSchema,
   EditReplySchema,
@@ -200,7 +201,7 @@ function resolveStops(days: unknown, refs: { dayNumber: number; stopNumber: numb
 }
 
 function droppedNote(dropped: number): string {
-  return dropped > 0 ? `\n（有 ${dropped} 項對不上目前的行程，沒有列出。）` : "";
+  return dropped > 0 ? `\n（有 ${dropped} 項對不上目前的行程或不能修改，沒有列出。）` : "";
 }
 
 async function reply<S extends z.ZodType>(
@@ -260,7 +261,9 @@ export async function answerChatMessage(raw: ChatInput): Promise<ChatAnswer> {
       }
       case "edit": {
         const r = await reply(input, category, EditReplySchema, message);
-        const proposals = r.actions.flatMap((a) => resolveAction(input.days, a) ?? []);
+        const proposals = r.actions
+          .flatMap((a) => resolveAction(input.days, a) ?? [])
+          .filter((p) => !proposalProblem(input.days, p));
         return { ...fixed(category, r.reply + droppedNote(r.actions.length - proposals.length)), proposals };
       }
       case "restructure": {

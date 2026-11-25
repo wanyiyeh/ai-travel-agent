@@ -49,7 +49,7 @@ flowchart TD
 ## 其他生成入口
 
 - `POST /api/v1/itinerary/[id]/restructure`：「重新規劃行程」精靈唯一的套用端點。前端送出最終的城市順序（新／既有、天數、保留哪些天、鎖定的必去景點），後端重建整個 `days` 並在一個 transaction 內覆寫，這點跟其他逐步修改的路由不同。移動日和回程日一律保留；既有城市的下一站改變時，它的出發移動日視為過期並重新產生。被丟棄的天寫進 `DeletedDay`。
-- 聊天助理（[PLAN-004](plans/PLAN-004-itinerary-chat.md) 進行中）：`GET`／`POST /api/v1/itinerary/[id]/chat`，邏輯在 `src/lib/chat/conversation.ts`（額度、存對話）。`src/lib/chat/assistant.ts` 先分類訊息，再依類別只允許一種輸出（回答、修改提案、重新規劃提案、「照片與詳情」指向），離題與旅遊知識回固定文字（[ADR-0013](adr/0013-chat-server-side-authorization.md)）。LLM 只看到 `src/lib/chat/context.ts` 組的行程摘要；旅客打的地點名稱先換成「第N天第K站」。
+- 聊天助理（[PLAN-004](plans/PLAN-004-itinerary-chat.md) 進行中）：`GET`／`POST /api/v1/itinerary/[id]/chat`，邏輯在 `src/lib/chat/conversation.ts`（額度、存對話）；提案卡的確認、取消、回報挑選走 `POST /api/v1/itinerary/[id]/chat/proposals/[proposalId]`（`src/lib/chat/proposals.ts`，規則在 `proposalRules.ts`）：一步完成的修改直接套用，要挑選的打開既有的候選清單。`src/lib/chat/assistant.ts` 先分類訊息，再依類別只允許一種輸出（回答、修改提案、重新規劃提案、「照片與詳情」指向），離題與旅遊知識回固定文字（[ADR-0013](adr/0013-chat-server-side-authorization.md)）。LLM 只看到 `src/lib/chat/context.ts` 組的行程摘要；旅客打的地點名稱先換成「第N天第K站」。
 - 單日編輯：`stops/[stopId]/regenerate`、`days/[dayId]/stop-suggestions`、三餐與住宿的 `regenerate`／`select`。每一批顯示給使用者的候選都寫進 `*CandidateLog`。
 
 ## 資料模型

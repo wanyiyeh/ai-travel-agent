@@ -26,11 +26,15 @@ import { isMealType } from "@/types/itinerary";
 import { findDayIndex } from "@/lib/itineraryDays";
 import type { MealCandidate } from "@/types/itinerary";
 import { internalErrorResponse } from "@/lib/apiError";
+import { PICKER_REQUEST_MAX_LENGTH } from "@/lib/inputLimits";
 import { authorizeItinerary } from "@/lib/auth/ownership";
 import { chargePaidEdit } from "@/lib/quota";
 
 const RequestSchema = z.object({
   itineraryId: z.string().min(1),
+  // The traveler's own words for what to eat, from a chat proposal (PLAN-004):
+  // searched as text near the day and listed first.
+  request: z.string().trim().min(1).max(PICKER_REQUEST_MAX_LENGTH).optional(),
 });
 
 // The 換一家 picker's search center is the day's own stops, which differ
@@ -58,7 +62,7 @@ export async function POST(
       );
     }
 
-    const { itineraryId } = parsed.data;
+    const { itineraryId, request: wanted } = parsed.data;
 
     const access = await authorizeItinerary(itineraryId);
     if (!access.ok) return access.response;
@@ -138,7 +142,8 @@ export async function POST(
 
     // Pull the full cached pool (same cost as 10 — see NEARBY_FETCH_COUNT) so
     // dropping non-food places still leaves up to 10 to show.
-    const [pool, dietPool, luxuryPool, ...drinkPools] = await Promise.all([
+    const [wantedPool, pool, dietPool, luxuryPool, ...drinkPools] = await Promise.all([
+      wanted ? searchTextCandidates(wanted, center, googleApiKey, 2000).then((ps) => ps.filter(isFoodPlace)) : Promise.resolve([]),
       // 小酌 matches on the main type only — see TypeMatch.
       fetchNearbyPlaceCandidates(center, googleApiKey, types, 2000, 20, tier, mealType === "nightcap" ? "primary" : "any"),
       dietTypes.length > 0 ? fetchNearbyPlaceCandidates(center, googleApiKey, dietTypes, 2000, 20, tier) : Promise.resolve([]),
@@ -147,7 +152,7 @@ export async function POST(
       ...snackDrinks.map(searchDrink),
     ]);
     const seen = new Set<string>();
-    const merged = [...interleave(drinkPools), ...dietPool, ...luxuryPool, ...pool].filter(
+    const merged = [...wantedPool, ...interleave(drinkPools), ...dietPool, ...luxuryPool, ...pool].filter(
       (p) => !seen.has(p.placeId) && seen.add(p.placeId)
     );
     // Breakfast and snack share one café search; keep what suits this slot.

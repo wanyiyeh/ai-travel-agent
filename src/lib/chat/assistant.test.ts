@@ -67,6 +67,16 @@ describe("answerChatMessage", () => {
     expect(answer.reply).toContain("有 2 項對不上目前的行程");
   });
 
+  it("drops a proposal the buttons wouldn't allow, such as removing a transit ride", async () => {
+    const transitDays = [{ id: "d1", isTransitDay: true, stops: [{ id: "t", kind: "transit", name: "搭乘新幹線前往京都" }] }];
+    generateObject
+      .mockImplementationOnce(classify("edit"))
+      .mockImplementationOnce(replyWith({ reply: "r", actions: [{ action: "remove_stop", dayNumber: 1, stopNumber: 1 }] }));
+    const answer = await answerChatMessage({ ...input("刪掉新幹線"), days: transitDays });
+    expect(answer.proposals).toEqual([]);
+    expect(answer.reply).toContain("有 1 項");
+  });
+
   it("proposes the whole route for a restructure, or nothing when the model asks", async () => {
     const cities = [{ name: "東京", days: 1, isNew: false }, { name: "京都", days: 2, isNew: false }];
     generateObject.mockImplementationOnce(classify("restructure")).mockImplementationOnce(replyWith({ reply: "r", cities }));
