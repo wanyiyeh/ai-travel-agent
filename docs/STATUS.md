@@ -12,7 +12,7 @@ README 已改成作品集導向（功能、設計重點、架構圖、技術棧�
 
 [PLAN-005](plans/PLAN-005-llm-to-claude-haiku.md)（`done`，父 issue #333 在 PR #341 合併時關閉）：LLM 從 OpenAI 換成 Claude Haiku 5.5（[ADR-0012](adr/0012-llm-provider-claude.md)）。所有呼叫經過 `src/lib/llm.ts`，`openai` 已移除；請求帶來的值不進系統提示（R7，`tripPlan.ts` 與舊流程另見 #342）。#340 已用真實 Claude 驗收（`dev:mock`）：規則引擎每次生成約 US$0.001～0.002、舊流程約 US$0.005，內容合理，數字在 [runbook](runbook.md)。PR #341 已合併（2026-11-22）；合併前已對 Neon 的 `travel`、`travel_mock` 跑 `migrate deploy`，Vercel Production 已設 `ANTHROPIC_API_KEY`（到期日以 Claude Console 的 API Keys 頁為準）。開發用 key 在本機 `.env` 的 `ANTHROPIC_API_KEY`。本機 Git Bash 跑 `npm test` 會全部失敗（磁碟代號大小寫），改用 PowerShell；用 curl 送中文要寫成 UTF-8 檔案再 `--data-binary @檔案`，直接放在參數裡會變亂碼。
 
-[PLAN-004](plans/PLAN-004-itinerary-chat.md) 行程聊天助理：2026-11-24 與使用者討論完 v1 範圍，計畫已確認（`in-progress`，父 issue #367，子 issue #368～#374，分支 `plan-004-itinerary-chat`）。ADR-0013（伺服器分類與授權）、ADR-0014（聊天取代精靈）已 `Accepted`。#368 已完成：`ChatMessage`、`ChatProposal` 資料表與 migration（本機已套用），三條刪除路徑靠外鍵連帶刪除，有整合測試。正式 Neon 的 `migrate deploy` 等 PR #375 合併前再跑。#369 已完成：`src/lib/chat/`（分類、各類別輸出 schema、位置轉 ID、行程摘要、名稱替換、`MOCK_AI` 假回應）。名稱比對用「畫面上已顯示的名稱」，由前端連同訊息送來、伺服器核對參照，不額外查 Google；沒展開的天比對不到時，助理會反問。#370 已完成：`GET`／`POST /api/v1/itinerary/[id]/chat`（邏輯在 `src/lib/chat/conversation.ts`），`chat` 額度（`QUOTAS.chat`）、離題鎖、訪客 403、失敗不存不扣；`ChatMessage` 多了 `cards` 欄位（第二個 migration）。定位是「這趟行程的旅遊顧問」，分三階段：v1（問行程、提案再確認的修改、聊天版重新規劃、伺服器分類後授權、`chat` 額度）、v1.5 接 Google 的 Maps Experience agent tools（#363）、v2 接網路搜尋（#364）。精靈在聊天版驗收後才刪（#365）。對話紀錄只存回覆文字、不回送思考區塊（ADR-0012）。討論中發現 `transport_from_prev` 保存了由 Routes 時間產生的文字，可能不符 ADR-0004（#362）。
+[PLAN-004](plans/PLAN-004-itinerary-chat.md) 行程聊天助理：2026-11-24 與使用者討論完 v1 範圍，計畫已確認（`in-progress`，父 issue #367，子 issue #368～#374，分支 `plan-004-itinerary-chat`）。ADR-0013（伺服器分類與授權）、ADR-0014（聊天取代精靈）已 `Accepted`。#368 已完成：`ChatMessage`、`ChatProposal` 資料表與 migration（本機已套用），三條刪除路徑靠外鍵連帶刪除，有整合測試。正式 Neon 的 `migrate deploy` 等 PR #375 合併前再跑。#369 已完成：`src/lib/chat/`（分類、各類別輸出 schema、位置轉 ID、行程摘要、名稱替換、`MOCK_AI` 假回應）。名稱比對用「畫面上已顯示的名稱」，由前端連同訊息送來、伺服器核對參照，不額外查 Google；沒展開的天比對不到時，助理會反問。#370 已完成：`GET`／`POST /api/v1/itinerary/[id]/chat`（邏輯在 `src/lib/chat/conversation.ts`），`chat` 額度（`QUOTAS.chat`）、離題鎖、訪客 403、失敗不存不扣；`ChatMessage` 多了 `cards` 欄位（第二個 migration）。#371 已完成：`POST /api/v1/itinerary/[id]/chat/proposals/[proposalId]`（確認／取消／回報挑選），一步完成的直接套用，要挑選的打開既有候選清單；換餐廳的 regenerate 多了選填的 `request`（文字搜尋排前面）。定位是「這趟行程的旅遊顧問」，分三階段：v1（問行程、提案再確認的修改、聊天版重新規劃、伺服器分類後授權、`chat` 額度）、v1.5 接 Google 的 Maps Experience agent tools（#363）、v2 接網路搜尋（#364）。精靈在聊天版驗收後才刪（#365）。對話紀錄只存回覆文字、不回送思考區塊（ADR-0012）。討論中發現 `transport_from_prev` 保存了由 Routes 時間產生的文字，可能不符 ADR-0004（#362）。
 
 修正朋友測試正式網站時回報的編輯問題（開普敦 → 赫曼努斯行程）。#286 已完成（PR #291）：移動日的交通改成交通站、早餐改由規則挑選（[ADR-0009](adr/0009-transit-leg-as-pinned-stop.md)）。#287、#292 已完成（PR #293）：午餐、點心、晚餐可在當天拖拉，餐點可以刪除與加回（[ADR-0010](adr/0010-draggable-meals.md)、[功能頁](features/meal-positions.md)）。#288 已完成：行程上方加一行說明哪些可以拖。#290 已完成：重新規劃產生的移動日也有餐點（只用這次本來就查的候選，缺的留空位）。朋友另外反映找不到冰島的機場：已補上 KEF（雷克雅維克）與 ISK 物價。
 
@@ -29,7 +29,7 @@ README 已改成作品集導向（功能、設計重點、架構圖、技術棧�
 1. 正式網站已用 Claude 生成成功（2026-11-22，雪梨 7 天）。剩使用者操作：移除 Vercel 的 `OPENAI_API_KEY`、撤銷 OpenAI 的 key、關閉 #47（升級 `openai`）。`.github/workflows/ci.yml` 裡沒用到的 `OPENAI_API_KEY` 是假字串、不影響 CI，等下次改 CI 設定時由使用者順手刪（token 不能改 workflow）。
 2. #332 把 Next.js 升到 16.4.6，可能解決本機 build 與 dev server 被版本安全檢查擋下的問題；本機開發用的 Anthropic key 在 Claude Console 顯示 2 月 22 日到期，到期後本機生成會失敗。
 3. #181 剩三件（使用者操作）：確認「My gmail」通知管道的實際地址、Gmail 搜尋以前的預算警示寄到哪、#214 時實際收到一次通知。預算提醒已連結自己的 email；Maps 的硬上限是每日配額（Google 新的支出上限不支援 Maps）。換成 Claude 後，Anthropic Console 的支出上限與「不用 API 資料訓練」要由使用者確認（`/privacy` 已依商業條款這樣寫）。
-4. [PLAN-004](plans/PLAN-004-itinerary-chat.md)：下一個是 #371 單站與單日修改的提案：確認與取消的端點、失效檢查、用條件式更新保證只套用一次、套用既有編輯邏輯、換餐廳接受使用者條件。v1.5 的前提：使用者在 Anthropic Console 確認不以 API 資料訓練（#363）。#214 的公開範例（會花錢，先問），之後 #215 正式公開。#261：由使用者在 Google Cloud 的 OAuth 同意畫面填上正式網址的 `/privacy`。
+4. [PLAN-004](plans/PLAN-004-itinerary-chat.md)：下一個是 #372 聊天版重新規劃提案：把城市清單提案轉成 restructure 端點的輸入（保留哪些天、鎖定景點），確認後呼叫既有端點。v1.5 的前提：使用者在 Anthropic Console 確認不以 API 資料訓練（#363）。#214 的公開範例（會花錢，先問），之後 #215 正式公開。#261：由使用者在 Google Cloud 的 OAuth 同意畫面填上正式網址的 `/privacy`。
 5. 朋友冰島行程的 issue 都已合併；#295 剩下的情況仍是已知限制。
 
 ## 卡點與待決定
@@ -37,7 +37,7 @@ README 已改成作品集導向（功能、設計重點、架構圖、技術棧�
 - 每日 Google 上限 US$3 只夠約 7 次生成，低於 app 的全站每日上限（#213、#255）。
 - 開發時切到地圖模式會用真的 key 計費，連 `dev:free` 也一樣（#239）。
 - 子地點判斷的公園類、獨立目的地類型清單只以 8 組實測決定（`placeCandidatesToStopCandidates.ts`）；中英文名稱各一筆的重複抓不到（#272）。
-- 開發前要先開 Docker Desktop 並 `npm run db:up`。
+- 開發前要先開 Docker Desktop 並 `npm run db:up`。2026-11-26 起本機 Docker Desktop 打不開（`C:\Program Files\Docker\Docker\` 只剩安裝程式，可能要重裝）；在修好之前，整合測試改靠 CI 跑（CI 有自己的 Postgres），本機只跑 lint、型別、單元測試。
 - 手動測試 `dev:free`：`TURNSTILE_SECRET_KEY="" npm run dev:free` 略過人機驗證；訪客每人 1 次、同一 IP 每天 2 次。
 - Dependabot PR #170、#47 還開著。本機 `npm run build` 會被 Next.js 版本的安全檢查擋下（編譯與產生頁面都成功，CI 的 build 與 `npm audit` 通過）。
 - 重新規劃時，原本沒有移動日的地方產生的移動日仍有空的餐點（#295，known-limitation）；插入新城市的情況已用被換掉的移動日補上。
