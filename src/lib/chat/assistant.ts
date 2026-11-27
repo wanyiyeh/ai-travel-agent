@@ -23,8 +23,7 @@ import type { MealType } from "@/types/itinerary";
 
 /** How many earlier messages go into the model's input. */
 export const CHAT_HISTORY_MESSAGES = 6;
-/** Longest message the owner can send; the route rejects longer ones. */
-export const CHAT_MESSAGE_MAX_LENGTH = 500;
+export { CHAT_MESSAGE_MAX_LENGTH, SUGGESTED_QUESTIONS } from "@/lib/chat/constants";
 // Each earlier message is cut to this length in the model's input.
 const HISTORY_MESSAGE_MAX_LENGTH = 300;
 const CLASSIFY_MAX_TOKENS = 1000;
@@ -32,7 +31,6 @@ const REPLY_MAX_TOKENS = 4000;
 // Restructure turns a sentence into a whole route, so it gets more thought.
 const REPLY_EFFORT: Partial<Record<ChatCategory, LlmEffort>> = { restructure: "medium" };
 
-export const SUGGESTED_QUESTIONS = ["哪一天最趕？", "第一天要做什麼？", "幫我調整城市天數"];
 export const OFF_TOPIC_REPLY = "我只能回答這趟行程的問題，例如安排、時間、交通，或幫你調整行程。";
 export const TRAVEL_KNOWLEDGE_REPLY = "旅遊知識的問題之後會支援。現在可以先問我這趟行程的安排，或請我調整行程。";
 export const CHAT_FAILURE_REPLY = "我沒辦法處理這個要求，可以換個說法再試一次。";

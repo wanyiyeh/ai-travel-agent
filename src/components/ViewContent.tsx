@@ -18,6 +18,9 @@ import { ExchangeRateCredit } from "@/components/DataSourceCredits";
 import MoreMenu, { type MoreMenuItem } from "@/components/MoreMenu";
 import ResponsiveDialog from "@/components/ResponsiveDialog";
 import { tripPlaceNames } from "@/lib/tripPlaceNames";
+import ChatPanel from "@/components/chat/ChatPanel";
+import { useItineraryChat } from "@/hooks/useItineraryChat";
+import type { PickerRequest } from "@/lib/chat/proposals";
 
 const DEFAULT_EXCHANGE_RATES: Record<string, number> = {
   JPY: 0.21, KRW: 0.023, CNY: 4.4, HKD: 4.1, SGD: 24,
@@ -58,6 +61,12 @@ export default function ViewContent({ id }: ViewContentProps) {
   // with every day expanded, since collapsed days aren't rendered at all.
   const [printing, setPrinting] = useState(false);
   const restructurePanelRef = useRef<HTMLDivElement>(null);
+  // The itinerary chat assistant (PLAN-004). Its state lives here, not in the
+  // panel, so a picker it opens can report back after the panel closes.
+  const chat = useItineraryChat(id);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatPicker, setChatPicker] = useState<(PickerRequest & { token: number }) | null>(null);
+  const chatPickerProposal = useRef<string | null>(null);
 
   const openRestructurePanel = () => {
     setShowRestructure(true);
@@ -179,6 +188,34 @@ export default function ViewContent({ id }: ViewContentProps) {
       .then(setData)
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
+  };
+
+  // A chat proposal that needs a pick opens the same picker as its button. On
+  // a phone the panel covers the page, so it steps aside.
+  const openChatPicker = (picker: PickerRequest, proposalId: string) => {
+    chatPickerProposal.current = proposalId;
+    setView("list");
+    setChatPicker({ ...picker, token: Date.now() });
+    if (window.matchMedia("(max-width: 639px)").matches) setChatOpen(false);
+  };
+  const chatPickerDone = (picked: boolean) => {
+    const proposalId = chatPickerProposal.current;
+    chatPickerProposal.current = null;
+    setChatPicker(null);
+    // Closed without a pick: the card stays pending, to confirm again later.
+    if (picked && proposalId) void chat.decide(proposalId, "picked");
+  };
+  // The chat changed the trip (a stop removed or moved, a meal, a restructure):
+  // recalculate that day's transport as a drag would, then reload.
+  const chatChangedTrip = async (recalculateDayId?: string | null) => {
+    if (recalculateDayId) {
+      await fetch(`/api/v1/days/${recalculateDayId}/recalculate-transport`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ itineraryId: id }),
+      }).catch(() => undefined);
+    }
+    fetchData();
   };
 
   useEffect(() => {
@@ -574,6 +611,8 @@ export default function ViewContent({ id }: ViewContentProps) {
                     readOnly={isPublicView}
                     placeNames={placeNames}
                     onNeedDayNames={loadDayNames}
+                    chatPicker={chatPicker}
+                    onChatPickerDone={chatPickerDone}
                   />
                 ) : (
                   <ItineraryMap
@@ -620,6 +659,39 @@ export default function ViewContent({ id }: ViewContentProps) {
           </>
         )}
       </div>
+
+      {/* The chat assistant: a button, then a panel (full screen on a phone). */}
+      {data && !isPublicView && !printing && (
+        chatOpen ? (
+          <div
+            role="dialog"
+            aria-label="行程助理"
+            className="fixed inset-0 z-40 sm:inset-auto sm:right-4 sm:bottom-4 sm:w-[380px] sm:h-[min(640px,calc(100vh-2rem))] sm:rounded-xl sm:border sm:border-zinc-200 dark:sm:border-zinc-700 sm:shadow-xl overflow-hidden"
+            data-print-hidden
+          >
+            <ChatPanel
+              itineraryId={id}
+              chat={chat}
+              days={withPlaceNames(data.data.days, placeNames)}
+              onClose={() => setChatOpen(false)}
+              onOpenPicker={openChatPicker}
+              onTripChanged={chatChangedTrip}
+            />
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setChatOpen(true)}
+            data-print-hidden
+            className="fixed right-4 bottom-4 z-30 flex items-center gap-1.5 rounded-full bg-blue-600 px-4 py-2.5 text-sm font-medium text-white shadow-lg hover:bg-blue-700"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h8M8 14h5m-9 6l3-3h11a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v14z" />
+            </svg>
+            問助理
+          </button>
+        )
+      )}
 
       {showTrash && data && (
         <ResponsiveDialog
