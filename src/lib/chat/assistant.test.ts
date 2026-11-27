@@ -86,6 +86,14 @@ describe("answerChatMessage", () => {
     expect((await answerChatMessage(input("加一個城市"))).proposals).toEqual([]);
   });
 
+  it("offers no restructure the wizard's rules can't build, and says why", async () => {
+    const swapped = [{ name: "京都", days: 1, isNew: false }, { name: "東京", days: 1, isNew: false }];
+    generateObject.mockImplementationOnce(classify("restructure")).mockImplementationOnce(replyWith({ reply: "r", cities: swapped }));
+    const answer = await answerChatMessage(input("先去京都"));
+    expect(answer.proposals).toEqual([]);
+    expect(answer.reply).toContain("這個修改沒辦法套用");
+  });
+
   it("points place facts and transport at stops instead of answering them", async () => {
     generateObject
       .mockImplementationOnce(classify("place_fact"))

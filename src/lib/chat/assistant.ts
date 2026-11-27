@@ -4,6 +4,7 @@ import { UNTRUSTED_INPUT_RULE, wrapUntrusted } from "@/lib/untrustedInput";
 import { mockChatClassification, mockChatReply } from "@/lib/mockAi";
 import { replaceShownNames, tripCities, tripSummary, type ShownName } from "@/lib/chat/context";
 import { proposalProblem } from "@/lib/chat/proposalRules";
+import { planRestructure } from "@/lib/chat/restructureProposal";
 import {
   ChatClassificationSchema,
   EditReplySchema,
@@ -46,6 +47,8 @@ export interface ChatInput {
   days: unknown;
   /** Day 1's date (YYYY-MM-DD), or "" when the trip has none. */
   departureDate: string;
+  /** The itinerary's config: its booked events decide which days a restructure must keep. */
+  config?: unknown;
   /** Earlier messages, oldest first. */
   history: ChatTurn[];
   /** The place names on the owner's screen, with what they point at. */
@@ -109,7 +112,9 @@ const REPLY_SYSTEM: Record<"itinerary_question" | "edit" | "restructure" | "plac
 - replace_meal 與 suggest_stops 的 request 放旅客描述的條件（例如「拉麵」「室內」），沒有就填 null
 - 不確定旅客指哪一站（例如同名的地點在好幾天）時，actions 留空並反問`,
   restructure: `${REPLY_BASE}
-旅客想改城市、順序或天數。在 cities 依順序列出修改後的完整路線：每個城市的名稱、待幾天、是否是新加入的城市；城市名稱沿用行程裡的寫法。
+旅客想改城市或天數。在 cities 依順序列出修改後的完整路線：每個城市的名稱、天數、是否是新加入的城市；城市名稱沿用行程裡的寫法。
+- 天數是這個城市在行程裡佔幾天，跟行程資料的算法一樣：移動日算在出發的城市。新城市的天數要包含抵達它的那個移動日
+- 既有的城市全部要列出、順序不能調換；新城市可以插在任何位置
 回覆說明哪些地方會改變，以及確認後被調整的天會重新產生、原本的內容會進垃圾桶。
 要求不清楚時，cities 填 null 並反問。`,
   place_fact: `${REPLY_BASE}
@@ -268,8 +273,11 @@ export async function answerChatMessage(raw: ChatInput): Promise<ChatAnswer> {
       }
       case "restructure": {
         const r = await reply(input, category, RestructureReplySchema, message);
-        const proposals: ChatProposalDraft[] = r.cities?.length ? [{ action: "restructure", params: { cities: r.cities } }] : [];
-        return { ...fixed(category, r.reply), proposals };
+        if (!r.cities?.length) return fixed(category, r.reply);
+        // A route the wizard's rules can't build isn't offered; the reply says why.
+        const plan = planRestructure(input.days, input.config, r.cities);
+        if (!plan.ok) return fixed(category, `${r.reply}\n（這個修改沒辦法套用：${plan.problem}。）`);
+        return { ...fixed(category, r.reply), proposals: [{ action: "restructure", params: { cities: r.cities } }] };
       }
     }
   } catch (error) {

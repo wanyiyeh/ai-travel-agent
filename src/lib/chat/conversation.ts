@@ -141,6 +141,7 @@ export async function sendChatMessage(
       message: input.message,
       days: itinerary.days,
       departureDate: departureDateOf(itinerary.config),
+      config: itinerary.config,
       history: await recentHistory(itinerary.id),
       shownNames: input.shownNames,
       signal: request.signal,

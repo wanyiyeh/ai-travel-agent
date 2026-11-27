@@ -4,6 +4,7 @@ import type { OwnedItinerary } from "@/lib/auth/ownership";
 import { skipMeal, unskipMeal } from "@/lib/skippedMeals";
 import { PICKER_REQUEST_MAX_LENGTH } from "@/lib/inputLimits";
 import { proposalProblem } from "@/lib/chat/proposalRules";
+import { planRestructure } from "@/lib/chat/restructureProposal";
 import type { ChatProposalDraft } from "@/lib/chat/assistant";
 import type { MealType } from "@/types/itinerary";
 
@@ -12,8 +13,9 @@ import type { MealType } from "@/types/itinerary";
 // One-step changes (remove or move a stop, remove or restore a meal) are
 // applied here on confirm. Changes that need a pick (another stop, more
 // stops, another restaurant, another hotel) open the existing picker
-// instead; the proposal counts as applied once the owner has picked, and
-// the picker's own route charges its usual quota.
+// instead, and a restructure returns the request for restructure/route.ts
+// with a preview; either counts as applied once the screen reports it done
+// ("picked"), and the picker's or restructure's own route charges its quota.
 //
 // A proposal leaves "pending" only through a conditional update, so two
 // confirms of the same card apply the change once.
@@ -122,7 +124,15 @@ export async function decideProposal(itinerary: OwnedItinerary, proposalId: stri
     return (await claim(proposalId, "cancelled")) ? Response.json({ status: "cancelled" }) : alreadyResolved();
   }
   if (proposal.action === "restructure") {
-    return Response.json({ error: "重新規劃的提案還不能套用" }, { status: 400 });
+    // Like a picker: the screen shows the preview, then sends the request to
+    // restructure/route.ts (which charges its own quota) and reports back.
+    const plan = planRestructure(itinerary.days, itinerary.config, proposal.params.cities);
+    if (!plan.ok) {
+      await claim(proposalId, "stale");
+      return conflict({ status: "stale", error: `${plan.problem}，請重新問一次。`, code: "proposal_stale" });
+    }
+    if (decision === "confirm") return Response.json({ status: "pending", restructure: { request: plan.request, preview: plan.preview } });
+    return (await claim(proposalId, "applied")) ? Response.json({ status: "applied" }) : alreadyResolved();
   }
 
   const days = (Array.isArray(itinerary.days) ? itinerary.days : []) as Days;

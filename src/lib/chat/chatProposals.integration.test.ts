@@ -114,6 +114,25 @@ describe("chat proposal decisions", () => {
     expect(await statusOf(id)).toBe("applied");
   });
 
+  it("hands a restructure to the screen with a preview, and turns it stale when the route no longer fits", async () => {
+    // The trip is a single 東京 day; 東京 goes 1 → 2 and 大阪 is added after it.
+    const id = await proposal("restructure", { cities: [{ name: "東京", days: 2, isNew: false }, { name: "大阪", days: 2, isNew: true }] });
+    const body = await (await decide(id, "confirm")).json();
+    expect(body).toMatchObject({
+      status: "pending",
+      restructure: {
+        request: { cities: [{ name: "東京", isNew: false, keepDayIds: ["d1"] }, { name: "大阪", isNew: true, targetDays: 2 }] },
+        preview: [{ name: "東京", daysBefore: 1, daysAfter: 2 }, { name: "大阪", isNew: true, newDays: 2 }],
+      },
+    });
+    expect(await statusOf(id)).toBe("pending");
+    expect(await (await decide(id, "picked")).json()).toEqual({ status: "applied" });
+
+    const stale = await proposal("restructure", { cities: [{ name: "京都", days: 3, isNew: false }] });
+    expect((await decide(stale, "confirm")).status).toBe(409);
+    expect(await statusOf(stale)).toBe("stale");
+  });
+
   it("won't take a pick for a one-step change", async () => {
     const id = await proposal("remove_stop", { dayId: "d1", stopId: "s1" });
     expect((await decide(id, "picked")).status).toBe(400);
