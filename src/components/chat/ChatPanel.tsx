@@ -25,8 +25,8 @@ interface ChatPanelProps {
   onClose: () => void;
   /** A confirmed change that needs a pick: open that picker on the page. */
   onOpenPicker: (picker: PickerRequest, proposalId: string) => void;
-  /** The trip changed here: reload it, recalculating that day's transport first. */
-  onTripChanged: (recalculateDayId?: string | null) => void;
+  /** The trip changed here: reload it (then recalculate that day's transport); resolves once it shows. */
+  onTripChanged: (recalculateDayId?: string | null) => Promise<void>;
 }
 
 const STATUS_LABELS: Record<string, string> = { applied: "已套用", cancelled: "已取消", stale: "已失效，請重新問一次" };
@@ -124,11 +124,12 @@ function ProposalCard({
     setBusy(true);
     setError(null);
     const result = await chat.decide(proposal.id, "confirm");
+    // Applied here: stay busy until the trip on the page shows the change.
+    if (result.status === "applied") await onTripChanged(result.recalculateDayId);
     setBusy(false);
     if (result.error) return setError(result.error);
     if (result.picker) return onOpenPicker(result.picker, proposal.id);
     if (result.restructure) return setRestructure(result.restructure);
-    if (result.status === "applied") onTripChanged(result.recalculateDayId);
   };
 
   const cancel = async () => {
@@ -152,8 +153,8 @@ function ProposalCard({
           onBack={() => setRestructure(null)}
           onDone={async () => {
             await chat.decide(proposal.id, "picked");
+            await onTripChanged();
             setRestructure(null);
-            onTripChanged();
           }}
         />
       ) : (
@@ -165,7 +166,7 @@ function ProposalCard({
               disabled={busy}
               className="px-3 py-1 rounded-md bg-blue-600 text-white text-xs hover:bg-blue-700 disabled:opacity-60"
             >
-              確認
+              {busy ? "套用中…" : "確認"}
             </button>
             <button
               type="button"

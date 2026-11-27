@@ -177,7 +177,7 @@ export default function ViewContent({ id }: ViewContentProps) {
   const fetchData = () => {
     setLoading(true);
     // Only the first day starts open, so only its names are fetched now.
-    fetch(`/api/v1/itinerary/${id}?days=1`)
+    return fetch(`/api/v1/itinerary/${id}?days=1`)
       .then((res) => {
         // 404 covers both "doesn't exist" and "not yours" on purpose.
         if (res.status === 401) throw new Error("請先登入才能查看行程");
@@ -206,16 +206,18 @@ export default function ViewContent({ id }: ViewContentProps) {
     if (picked && proposalId) void chat.decide(proposalId, "picked");
   };
   // The chat changed the trip (a stop removed or moved, a meal, a restructure):
-  // recalculate that day's transport as a drag would, then reload.
+  // show it at once, then recalculate that day's transport as a drag would
+  // and show the new times. Resolves once the change is on screen.
   const chatChangedTrip = async (recalculateDayId?: string | null) => {
-    if (recalculateDayId) {
-      await fetch(`/api/v1/days/${recalculateDayId}/recalculate-transport`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ itineraryId: id }),
-      }).catch(() => undefined);
-    }
-    fetchData();
+    await fetchData();
+    if (!recalculateDayId) return;
+    void fetch(`/api/v1/days/${recalculateDayId}/recalculate-transport`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ itineraryId: id }),
+    })
+      .then((res) => (res.ok ? fetchData() : undefined))
+      .catch(() => undefined);
   };
 
   useEffect(() => {
