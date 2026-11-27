@@ -269,8 +269,9 @@ const MOCK_MEAL_WORDS: [string, string][] = [
 function mockEditReply(message: string, days: unknown) {
   const firstDay = Array.isArray(days) ? (days[0] as { stops?: unknown[] } | undefined) : undefined;
   const stopCount = Array.isArray(firstDay?.stops) ? firstDay.stops.length : 0;
-  const meal = MOCK_MEAL_WORDS.find(([word]) => message.includes(word));
   const wanted = /(?:想吃|換成)([^，。！？,.!?\s]{1,20})/.exec(message)?.[1] ?? null;
+  // 「想吃拉麵」 names no meal: dinner, as the likeliest.
+  const meal = MOCK_MEAL_WORDS.find(([word]) => message.includes(word)) ?? (/想吃/.test(message) ? ["晚餐", "dinner"] : undefined);
   const said = (text: string, actions: unknown[]) => ({ reply: `${text}確認後才會修改。${MOCK_NOTE}`, actions });
 
   if (meal) {
@@ -288,7 +289,9 @@ function mockEditReply(message: string, days: unknown) {
     return said("建議把第1天第1站移到第2站，", [{ action: "move_stop", dayNumber: 1, stopNumber: 1, toPosition: 2 }]);
   }
   if (/換/.test(message)) return said("建議換掉第1天第1站，", [{ action: "replace_stop", dayNumber: 1, stopNumber: 1 }]);
-  return said("建議刪除第1天第1站，", [{ action: "remove_stop", dayNumber: 1, stopNumber: 1 }]);
+  if (/刪|不要/.test(message)) return said("建議刪除第1天第1站，", [{ action: "remove_stop", dayNumber: 1, stopNumber: 1 }]);
+  // Like the real assistant when it can't tell what to change: ask, propose nothing.
+  return { reply: `我不確定要改哪裡，可以說得更具體，例如「刪掉第一站」「晚餐想吃拉麵」。${MOCK_NOTE}`, actions: [] };
 }
 
 export function mockChatClassification(message: string) {

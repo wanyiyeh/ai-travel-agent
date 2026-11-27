@@ -36,6 +36,7 @@ describe("chat assistant under MOCK_AI", () => {
   // dev:free reads the words roughly, so every kind of card can be tried.
   it.each([
     ["午餐想吃拉麵", { action: "replace_meal", params: { dayId: "d1", mealType: "lunch", request: "拉麵" } }],
+    ["想吃拉麵", { action: "replace_meal", params: { dayId: "d1", mealType: "dinner", request: "拉麵" } }],
     ["刪掉午餐", { action: "remove_meal", params: { dayId: "d1", mealType: "lunch" } }],
     ["加回點心", { action: "restore_meal", params: { dayId: "d1", mealType: "snack" } }],
     ["換掉第一站", { action: "replace_stop", params: { dayId: "d1", stopId: "s1", at: "第1天第1站" } }],
@@ -43,5 +44,12 @@ describe("chat assistant under MOCK_AI", () => {
   ])("%s", async (message, proposal) => {
     const answer = await answerChatMessage({ message, days, departureDate: "", history: [], shownNames: [] });
     expect(answer.proposals).toEqual([proposal]);
+  });
+
+  it("asks instead of guessing when it can't tell what to change", async () => {
+    const answer = await answerChatMessage({ message: "幫我加回剛剛的", days, departureDate: "", history: [], shownNames: [] });
+    expect(answer.category).toBe("edit");
+    expect(answer.proposals).toEqual([]);
+    expect(answer.reply).toContain("可以說得更具體");
   });
 });
