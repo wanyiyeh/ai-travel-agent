@@ -35,6 +35,13 @@ export function useItineraryChat(itineraryId: string) {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [signInRequired, setSignInRequired] = useState(false);
+  // What each card said, names included, when it was confirmed: once the
+  // change is applied its place may be gone from the trip. Kept for this
+  // visit only; Google's names aren't stored (ADR-0004).
+  const [confirmedLabels, setConfirmedLabels] = useState<Record<string, string>>({});
+  const rememberLabel = useCallback((proposalId: string, label: string) => {
+    setConfirmedLabels((prev) => ({ ...prev, [proposalId]: label }));
+  }, []);
 
   const load = useCallback(async () => {
     setError(null);
@@ -113,5 +120,18 @@ export function useItineraryChat(itineraryId: string) {
     [itineraryId, load, setProposalStatus],
   );
 
-  return { messages, allowance, loaded, sending, error, signInRequired, load, send, decide, setError };
+  return {
+    messages,
+    allowance,
+    loaded,
+    sending,
+    error,
+    signInRequired,
+    confirmedLabels,
+    rememberLabel,
+    load,
+    send,
+    decide,
+    setError,
+  };
 }

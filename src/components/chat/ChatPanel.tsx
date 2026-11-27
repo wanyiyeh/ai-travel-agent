@@ -123,6 +123,8 @@ function ProposalCard({
   const confirm = async () => {
     setBusy(true);
     setError(null);
+    // Before the change: afterwards the card's place may be gone.
+    chat.rememberLabel(proposal.id, describeProposal(proposal, days));
     const result = await chat.decide(proposal.id, "confirm");
     // Applied here: stay busy until the trip on the page shows the change.
     if (result.status === "applied") await onTripChanged(result.recalculateDayId);
@@ -142,7 +144,9 @@ function ProposalCard({
   const pending = proposal.status === "pending";
   return (
     <div className="mt-2 rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-2.5">
-      <p className="text-sm text-zinc-800 dark:text-zinc-100">{describeProposal(proposal, days)}</p>
+      <p className="text-sm text-zinc-800 dark:text-zinc-100">
+        {(!pending && chat.confirmedLabels[proposal.id]) || describeProposal(proposal, days)}
+      </p>
       {!pending && <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{STATUS_LABELS[proposal.status] ?? proposal.status}</p>}
       {error && <p className="mt-1 text-xs text-red-600 dark:text-red-400">{error}</p>}
       {pending && restructure ? (
