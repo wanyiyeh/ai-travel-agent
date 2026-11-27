@@ -21,6 +21,10 @@ describe("chat display", () => {
     expect(stopLabel(days, { dayId: "d1", stopId: "s1" })).toBe("第1天第1站「淺草寺」");
     expect(stopLabel(days, { dayId: "d1", stopId: "s2" })).toBe("第1天第2站");
     expect(stopLabel(days, { dayId: "d1", stopId: "gone" })).toBe("已經不在行程裡的景點");
+    // A card whose stop it removed still says which one it was.
+    expect(describeProposal({ action: "remove_stop", params: { dayId: "d1", stopId: "gone", at: "第1天第3站" } }, days)).toBe(
+      "刪除第1天第3站",
+    );
   });
 
   it("adds names after the positions a reply mentions", () => {

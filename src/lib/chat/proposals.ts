@@ -38,7 +38,7 @@ const shortRequest = (request: string | null) => (request ? request.trim().slice
 function pickerFor(proposal: ChatProposalDraft): PickerRequest | null {
   switch (proposal.action) {
     case "replace_stop":
-      return { picker: "stop", ...proposal.params };
+      return { picker: "stop", dayId: proposal.params.dayId, stopId: proposal.params.stopId };
     case "suggest_stops":
       return { picker: "suggestions", dayId: proposal.params.dayId, request: shortRequest(proposal.params.request) };
     case "replace_meal":

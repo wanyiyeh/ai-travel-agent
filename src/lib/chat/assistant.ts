@@ -56,8 +56,8 @@ export interface ChatInput {
 
 /** A proposed change, in our own references only (ADR-0004), ready to store as a ChatProposal. */
 export type ChatProposalDraft =
-  | { action: "remove_stop" | "replace_stop"; params: { dayId: string; stopId: string } }
-  | { action: "move_stop"; params: { dayId: string; stopId: string; toIndex: number } }
+  | { action: "remove_stop" | "replace_stop"; params: { dayId: string; stopId: string; at?: string } }
+  | { action: "move_stop"; params: { dayId: string; stopId: string; toIndex: number; at?: string } }
   | { action: "suggest_stops"; params: { dayId: string; request: string | null } }
   | { action: "replace_meal"; params: { dayId: string; mealType: MealType; request: string | null } }
   | { action: "remove_meal" | "restore_meal"; params: { dayId: string; mealType: MealType } }
@@ -176,16 +176,18 @@ function resolveAction(days: unknown, a: EditAction): ChatProposalDraft | undefi
   if (!day) return undefined;
   const dayId = day.id as string;
   switch (a.action) {
+    // `at` keeps where the stop was when proposed (our own positions, not a
+    // Google name), so an applied card still reads right once the stop is gone.
     case "remove_stop":
     case "replace_stop": {
       const stop = stopAt(days, a.dayNumber, a.stopNumber);
-      return stop && { action: a.action, params: stop };
+      return stop && { action: a.action, params: { ...stop, at: `第${a.dayNumber}天第${a.stopNumber}站` } };
     }
     case "move_stop": {
       const stop = stopAt(days, a.dayNumber, a.stopNumber);
       const count = records(day.stops).length;
       if (!stop || a.toPosition > count) return undefined;
-      return { action: "move_stop", params: { ...stop, toIndex: a.toPosition - 1 } };
+      return { action: "move_stop", params: { ...stop, toIndex: a.toPosition - 1, at: `第${a.dayNumber}天第${a.stopNumber}站` } };
     }
     case "suggest_stops":
       return { action: "suggest_stops", params: { dayId, request: a.request } };

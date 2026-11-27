@@ -29,10 +29,14 @@ function locate(days: Day[], ref: StopRef): { dayNumber: number; stopNumber: num
   return { dayNumber: d + 1, stopNumber: s + 1, name: days[d].stops[s].name || undefined };
 }
 
-/** 「第2天第3站「淺草寺」」, or without the name when the page hasn't loaded it. */
-export function stopLabel(days: Day[], ref: StopRef): string {
+/**
+ * 「第2天第3站「淺草寺」」, or without the name when the page hasn't loaded it.
+ * A stop no longer on the trip (removed, maybe by this very card) is called
+ * by where it was when proposed, when the card kept that.
+ */
+export function stopLabel(days: Day[], ref: StopRef & { at?: string }): string {
   const at = locate(days, ref);
-  if (!at) return "已經不在行程裡的景點";
+  if (!at) return ref.at ?? "已經不在行程裡的景點";
   return `第${at.dayNumber}天第${at.stopNumber}站${at.name ? `「${at.name}」` : ""}`;
 }
 
@@ -71,7 +75,7 @@ function dayLabel(days: Day[], dayId: string): string {
   return `第${dayIndexOf(days, dayId) + 1}天`;
 }
 
-type Params = Record<string, unknown> & { dayId: string; stopId: string; mealType: MealType; request: string | null };
+type Params = Record<string, unknown> & { dayId: string; stopId: string; at?: string; mealType: MealType; request: string | null };
 
 /** One line saying what confirming the card will do. */
 export function describeProposal(proposal: ProposalLike, days: Day[]): string {

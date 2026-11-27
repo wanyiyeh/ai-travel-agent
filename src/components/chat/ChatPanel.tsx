@@ -182,12 +182,19 @@ function ProposalCard({
   );
 }
 
-function AssistantMessage({ message, ...rest }: { message: ChatMessageView } & Omit<Parameters<typeof ProposalCard>[0], "proposal">) {
+function AssistantMessage({
+  message,
+  current,
+  ...rest
+}: { message: ChatMessageView; current: boolean } & Omit<Parameters<typeof ProposalCard>[0], "proposal">) {
   const { days } = rest;
+  // 「第N天第K站」 means a position, and positions move once the trip changes:
+  // names go only on the latest reply, until one of its changes is applied.
+  const named = current && !message.proposals.some((p) => p.status === "applied");
   return (
     <div className="max-w-[92%]">
       <div className="rounded-lg rounded-tl-sm bg-zinc-100 dark:bg-zinc-800 px-3 py-2 text-sm text-zinc-800 dark:text-zinc-100 whitespace-pre-wrap">
-        {withStopNames(message.content, days)}
+        {named ? withStopNames(message.content, days) : message.content}
       </div>
       {message.cards.transport.map((ref) => {
         const card = transportCard(days, ref);
@@ -246,6 +253,7 @@ export default function ChatPanel({ itineraryId, chat, days, onClose, onOpenPick
   };
 
   const cardProps = { days, itineraryId, chat, onOpenPicker, onTripChanged };
+  const lastAssistantId = messages.findLast((m) => m.role === "assistant")?.id;
   const showSuggestions = !sending && !blocked && !signInRequired && (messages.length === 0 || messages.at(-1)?.role === "assistant");
 
   return (
@@ -280,7 +288,7 @@ export default function ChatPanel({ itineraryId, chat, days, onClose, onOpenPick
               <div className="max-w-[85%] rounded-lg rounded-tr-sm bg-blue-600 px-3 py-2 text-sm text-white whitespace-pre-wrap">{m.content}</div>
             </div>
           ) : (
-            <AssistantMessage key={m.id} message={m} {...cardProps} />
+            <AssistantMessage key={m.id} message={m} current={m.id === lastAssistantId} {...cardProps} />
           ),
         )}
         {sending && <p className="text-sm text-zinc-500">助理正在想…</p>}

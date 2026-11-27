@@ -60,8 +60,8 @@ describe("answerChatMessage", () => {
     );
     const answer = await answerChatMessage(input("刪掉第一天第二站"));
     expect(answer.proposals).toEqual([
-      { action: "remove_stop", params: { dayId: "d1", stopId: "s2" } },
-      { action: "move_stop", params: { dayId: "d1", stopId: "s1", toIndex: 1 } },
+      { action: "remove_stop", params: { dayId: "d1", stopId: "s2", at: "第1天第2站" } },
+      { action: "move_stop", params: { dayId: "d1", stopId: "s1", toIndex: 1, at: "第1天第1站" } },
       { action: "replace_meal", params: { dayId: "d2", mealType: "dinner", request: "拉麵" } },
     ]);
     expect(answer.reply).toContain("有 2 項對不上目前的行程");

@@ -30,6 +30,6 @@ describe("chat assistant under MOCK_AI", () => {
 
   it("proposes a change the trip has", async () => {
     const answer = await answerChatMessage({ message: "刪掉第一站", days, departureDate: "", history: [], shownNames: [] });
-    expect(answer.proposals).toEqual([{ action: "remove_stop", params: { dayId: "d1", stopId: "s1" } }]);
+    expect(answer.proposals).toEqual([{ action: "remove_stop", params: { dayId: "d1", stopId: "s1", at: "第1天第1站" } }]);
   });
 });
