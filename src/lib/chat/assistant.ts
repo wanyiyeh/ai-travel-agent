@@ -222,7 +222,7 @@ async function reply<S extends z.ZodType>(
     effort: REPLY_EFFORT[category],
     maxTokens: REPLY_MAX_TOKENS,
     signal: input.signal,
-    mock: () => mockChatReply(category, input.days, tripCities(input.days)),
+    mock: () => mockChatReply(category, input.days, tripCities(input.days), message),
   });
 }
 

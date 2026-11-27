@@ -254,23 +254,54 @@ const CHAT_MOCK_KEYWORDS: [ChatMockCategory, RegExp][] = [
   ["travel_knowledge", /小費|簽證|習俗|插座/],
   ["place_fact", /幾點開|營業|地址|評價|門票/],
   ["restructure", /多待|少待|天數|加一個城市|城市/],
-  ["edit", /刪|換|移到|加一個|不要/],
+  ["edit", /刪|換|移到|加一個|加回|不要|想吃/],
 ];
+
+const MOCK_MEAL_WORDS: [string, string][] = [
+  ["早餐", "breakfast"],
+  ["午餐", "lunch"],
+  ["晚餐", "dinner"],
+  ["點心", "snack"],
+];
+
+// Day 1, read from the words: a meal or the hotel or a stop; swap, remove,
+// restore, move or add. Rough, but enough for dev:free to show every card.
+function mockEditReply(message: string, days: unknown) {
+  const firstDay = Array.isArray(days) ? (days[0] as { stops?: unknown[] } | undefined) : undefined;
+  const stopCount = Array.isArray(firstDay?.stops) ? firstDay.stops.length : 0;
+  const meal = MOCK_MEAL_WORDS.find(([word]) => message.includes(word));
+  const wanted = /(?:想吃|換成)([^，。！？,.!?\s]{1,20})/.exec(message)?.[1] ?? null;
+  const said = (text: string, actions: unknown[]) => ({ reply: `${text}確認後才會修改。${MOCK_NOTE}`, actions });
+
+  if (meal) {
+    const [word, mealType] = meal;
+    if (/加回/.test(message)) return said(`建議加回第1天的${word}，`, [{ action: "restore_meal", dayNumber: 1, mealType }]);
+    if (/刪|不要/.test(message)) return said(`建議刪除第1天的${word}，`, [{ action: "remove_meal", dayNumber: 1, mealType }]);
+    return said(`建議換掉第1天的${word}${wanted ? `，找「${wanted}」` : ""}，`, [
+      { action: "replace_meal", dayNumber: 1, mealType, request: wanted },
+    ]);
+  }
+  if (/住宿|飯店|旅館/.test(message)) return said("建議換掉第1天的住宿，", [{ action: "replace_accommodation", dayNumber: 1 }]);
+  if (/加一個|加景點|太空/.test(message)) return said("建議為第1天加景點，", [{ action: "suggest_stops", dayNumber: 1, request: null }]);
+  if (stopCount === 0) return { reply: `第1天沒有景點可以修改。${MOCK_NOTE}`, actions: [] };
+  if (/移到|移/.test(message) && stopCount >= 2) {
+    return said("建議把第1天第1站移到第2站，", [{ action: "move_stop", dayNumber: 1, stopNumber: 1, toPosition: 2 }]);
+  }
+  if (/換/.test(message)) return said("建議換掉第1天第1站，", [{ action: "replace_stop", dayNumber: 1, stopNumber: 1 }]);
+  return said("建議刪除第1天第1站，", [{ action: "remove_stop", dayNumber: 1, stopNumber: 1 }]);
+}
 
 export function mockChatClassification(message: string) {
   const hit = CHAT_MOCK_KEYWORDS.find(([, pattern]) => pattern.test(message));
   return { category: hit ? hit[0] : "itinerary_question", confident: true };
 }
 
-export function mockChatReply(category: string, days: unknown, cities: string[]) {
+export function mockChatReply(category: string, days: unknown, cities: string[], message = "") {
   const firstDay = Array.isArray(days) ? (days[0] as { stops?: unknown[] } | undefined) : undefined;
   const hasStop = Array.isArray(firstDay?.stops) && firstDay.stops.length > 0;
   switch (category) {
     case "edit":
-      return {
-        reply: `建議刪除第1天第1站，確認後才會修改。${MOCK_NOTE}`,
-        actions: hasStop ? [{ action: "remove_stop", dayNumber: 1, stopNumber: 1 }] : [],
-      };
+      return mockEditReply(message, days);
     case "restructure":
       return {
         reply: `第一個城市多待一天，確認後被調整的天會重新產生。${MOCK_NOTE}`,

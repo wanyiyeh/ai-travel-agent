@@ -7,7 +7,7 @@ vi.mock("@/lib/db", () => ({ prisma: {}, j: (v: unknown) => v }));
 const { answerChatMessage } = await import("@/lib/chat/assistant");
 
 const days = [
-  { id: "d1", waypointCity: "東京", stops: [{ id: "s1", duration_minutes: 60 }] },
+  { id: "d1", waypointCity: "東京", stops: [{ id: "s1", duration_minutes: 60 }], meals: { lunch: { placeId: "m1" } }, skippedMeals: ["snack"] },
   { id: "d2", waypointCity: "京都", stops: [] },
 ];
 
@@ -31,5 +31,17 @@ describe("chat assistant under MOCK_AI", () => {
   it("proposes a change the trip has", async () => {
     const answer = await answerChatMessage({ message: "刪掉第一站", days, departureDate: "", history: [], shownNames: [] });
     expect(answer.proposals).toEqual([{ action: "remove_stop", params: { dayId: "d1", stopId: "s1", at: "第1天第1站" } }]);
+  });
+
+  // dev:free reads the words roughly, so every kind of card can be tried.
+  it.each([
+    ["午餐想吃拉麵", { action: "replace_meal", params: { dayId: "d1", mealType: "lunch", request: "拉麵" } }],
+    ["刪掉午餐", { action: "remove_meal", params: { dayId: "d1", mealType: "lunch" } }],
+    ["加回點心", { action: "restore_meal", params: { dayId: "d1", mealType: "snack" } }],
+    ["換掉第一站", { action: "replace_stop", params: { dayId: "d1", stopId: "s1", at: "第1天第1站" } }],
+    ["第一天加一個景點", { action: "suggest_stops", params: { dayId: "d1", request: null } }],
+  ])("%s", async (message, proposal) => {
+    const answer = await answerChatMessage({ message, days, departureDate: "", history: [], shownNames: [] });
+    expect(answer.proposals).toEqual([proposal]);
   });
 });
