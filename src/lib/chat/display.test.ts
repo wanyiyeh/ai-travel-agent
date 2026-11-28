@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Day } from "@/types/itinerary";
-import { describeProposal, placeIdOf, shownNamesOf, stopLabel, transportCard, withStopNames } from "@/lib/chat/display";
+import { describeProposal, placeIdOf, shownNamesOf, stepSentHistory, stopLabel, transportCard, withStopNames } from "@/lib/chat/display";
 
 const days = [
   {
@@ -59,5 +59,25 @@ describe("chat display", () => {
     });
     expect(transportCard(days, { dayId: "d1", stopId: "s1" })).toBeNull();
     expect(placeIdOf(days, { dayId: "d1", stopId: "s2" })).toBe("p2");
+  });
+});
+
+describe("stepSentHistory", () => {
+  const sent = ["想吃拉麵", "換掉住宿", "刪掉午餐"];
+
+  it("goes back from the newest, stopping at the oldest", () => {
+    expect(stepSentHistory(sent, null, "up")).toEqual({ at: 2, text: "刪掉午餐" });
+    expect(stepSentHistory(sent, 2, "up")).toEqual({ at: 1, text: "換掉住宿" });
+    expect(stepSentHistory(sent, 0, "up")).toEqual({ at: 0, text: "想吃拉麵" });
+  });
+
+  it("comes forward, and past the newest back to an empty box", () => {
+    expect(stepSentHistory(sent, 1, "down")).toEqual({ at: 2, text: "刪掉午餐" });
+    expect(stepSentHistory(sent, 2, "down")).toEqual({ at: null, text: "" });
+  });
+
+  it("does nothing with nothing sent, or down from the owner's own draft", () => {
+    expect(stepSentHistory([], null, "up")).toBeNull();
+    expect(stepSentHistory(sent, null, "down")).toBeNull();
   });
 });

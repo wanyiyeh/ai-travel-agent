@@ -6,7 +6,7 @@ import type { ChatMessageView, ChatProposalView } from "@/lib/chat/conversation"
 import type { PickerRequest } from "@/lib/chat/proposals";
 import type { CityPreview, RestructureRequest } from "@/lib/chat/restructureProposal";
 import { CHAT_MESSAGE_MAX_LENGTH, SUGGESTED_QUESTIONS } from "@/lib/chat/constants";
-import { describeProposal, placeIdOf, shownNamesOf, stopLabel, transportCard, withStopNames } from "@/lib/chat/display";
+import { describeProposal, placeIdOf, shownNamesOf, stepSentHistory, stopLabel, transportCard, withStopNames } from "@/lib/chat/display";
 import type { useItineraryChat } from "@/hooks/useItineraryChat";
 import { PlaceDetailsButton } from "@/components/PlaceDetailsButton";
 import GoogleMapsAttribution from "@/components/GoogleMapsAttribution";
@@ -225,6 +225,8 @@ function AssistantMessage({
 
 export default function ChatPanel({ itineraryId, chat, days, onClose, onOpenPicker, onTripChanged }: ChatPanelProps) {
   const [draft, setDraft] = useState("");
+  // Which sent message ↑/↓ put in the box; null once the owner types.
+  const [recallAt, setRecallAt] = useState<number | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const { messages, allowance, loaded, sending, error, signInRequired } = chat;
 
@@ -244,17 +246,37 @@ export default function ChatPanel({ itineraryId, chat, days, onClose, onOpenPick
     const message = text.trim();
     if (!message || sending || blocked) return;
     setDraft("");
+    setRecallAt(null);
     const sent = await chat.send(message, shownNamesOf(days));
     // Nothing was sent or charged: put the text back for a retry.
     if (!sent) setDraft(message);
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    // Enter while picking characters in an input method confirms them, not the message.
-    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+    // Keys while picking characters in an input method belong to it, not the box.
+    if (e.nativeEvent.isComposing) return;
+    if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       if (canSend) void submit();
+      return;
     }
+    if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+    // ↑ recalls only into an empty box or over a recalled message, never over
+    // a draft being typed; and only from the first line (↓: the last), so the
+    // arrows still move between lines of a longer message.
+    const box = e.currentTarget;
+    const up = e.key === "ArrowUp";
+    if (up && draft !== "" && recallAt === null) return;
+    const onEdgeLine = up
+      ? !box.value.slice(0, box.selectionStart).includes("\n")
+      : !box.value.slice(box.selectionEnd).includes("\n");
+    if (!onEdgeLine) return;
+    const sent = messages.filter((m) => m.role === "user").map((m) => m.content);
+    const step = stepSentHistory(sent, recallAt, up ? "up" : "down");
+    if (!step) return;
+    e.preventDefault();
+    setRecallAt(step.at);
+    setDraft(step.text);
   };
 
   const cardProps = { days, itineraryId, chat, onOpenPicker, onTripChanged };
@@ -321,7 +343,10 @@ export default function ChatPanel({ itineraryId, chat, days, onClose, onOpenPick
           <div className="flex items-end gap-2">
             <textarea
               value={draft}
-              onChange={(e) => setDraft(e.target.value)}
+              onChange={(e) => {
+                setDraft(e.target.value);
+                setRecallAt(null);
+              }}
               onKeyDown={onKeyDown}
               maxLength={CHAT_MESSAGE_MAX_LENGTH}
               rows={2}

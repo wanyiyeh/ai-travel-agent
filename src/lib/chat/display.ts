@@ -126,3 +126,24 @@ export function placeIdOf(days: Day[], ref: StopRef): string | undefined {
   const at = locate(days, ref);
   return at ? days[at.dayNumber - 1].stops[at.stopNumber - 1].placeId : undefined;
 }
+
+/**
+ * ↑ and ↓ in the chat box step through what the owner sent, newest first,
+ * as in a terminal. `at` is the index in `sent` now in the box, or null for
+ * the owner's own draft; stepping down past the newest goes back to an
+ * empty box. Null when there's nowhere to go.
+ */
+export function stepSentHistory(
+  sent: string[],
+  at: number | null,
+  direction: "up" | "down",
+): { at: number | null; text: string } | null {
+  if (direction === "up") {
+    if (sent.length === 0) return null;
+    const next = at === null ? sent.length - 1 : Math.max(at - 1, 0);
+    return { at: next, text: sent[next] };
+  }
+  if (at === null) return null;
+  const next = at + 1;
+  return next >= sent.length ? { at: null, text: "" } : { at: next, text: sent[next] };
+}
