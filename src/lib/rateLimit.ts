@@ -38,7 +38,7 @@ const TIER_PATTERNS: [RateLimitTier, RegExp][] = [
   ["photo", /^places\/[^/]+\/photo$/],
   [
     "ai",
-    /^(days\/[^/]+\/(accommodation\/regenerate|meals\/[^/]+\/regenerate|stop-suggestions|stops)|itinerary\/[^/]+\/(restructure|transit-recommendations))$/,
+    /^(days\/[^/]+\/(accommodation\/regenerate|meals\/[^/]+\/regenerate|stop-suggestions|stops)|itinerary\/[^/]+\/(restructure|transit-recommendations|chat))$/,
   ],
   [
     "google",

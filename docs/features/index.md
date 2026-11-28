@@ -10,6 +10,7 @@
 | [餐點的位置與刪除](meal-positions.md) | stable | 2026-10-27 |
 | [機場](airports.md) | stable | 2026-10-29 |
 | [手機版排版](mobile-layout.md) | stable | 2026-11-24 |
+| [行程聊天助理](itinerary-chat.md) | stable | 2026-11-28 |
 
 ## 功能頁模板
 

@@ -9,7 +9,7 @@ export const metadata: Metadata = { title: "隱私權說明 — AI Travel Agent"
 
 // The periods below are read from the code that enforces them, so this page
 // changes with it (#261).
-const UPDATED = "2026-11-22";
+const UPDATED = "2026-11-28";
 const DAY_MS = 24 * 60 * 60 * 1000;
 const days = (ms: number) => Math.round(ms / DAY_MS);
 
@@ -39,6 +39,9 @@ export default function PrivacyPage() {
             </li>
             <li>
               <strong>你產生的行程</strong>：航班、日期、偏好、你輸入的文字，以及產生出來的行程內容。
+            </li>
+            <li>
+              <strong>和行程助理的對話</strong>（登入後才能使用）：你在行程頁聊天面板送出的訊息、助理的回覆，以及每張修改提案的內容與狀態（已套用、已取消等）。
             </li>
             <li>
               <strong>使用紀錄</strong>：每次產生或修改行程的時間、經過雜湊處理的 IP，以及裝置代碼，用來計算每日額度。
@@ -72,7 +75,7 @@ export default function PrivacyPage() {
         <Section title="保存多久">
           <ul className="list-disc pl-5 space-y-1">
             <li>未登入時產生的行程：{days(GUEST_TTL_MS)} 天後自動刪除；期限內用 Google 登入，行程會移到你的帳號下</li>
-            <li>登入後的行程：保存到你自己刪除行程或刪除帳號</li>
+            <li>登入後的行程與和行程助理的對話：保存到你自己刪除行程或刪除帳號；刪除行程時，那趟行程的對話一起刪除</li>
             <li>使用紀錄：{days(USAGE_RETENTION_MS)} 天後自動刪除</li>
             <li>限制請求頻率的計數（雜湊後的 IP）：最多 {days(RATE_LIMIT_WINDOW_RETENTION_MS)} 天</li>
           </ul>
@@ -84,7 +87,7 @@ export default function PrivacyPage() {
               <strong>Google</strong>：登入；地點資料由網站伺服器向 Google 查詢，不會附上你的個人資料。地圖與「照片與詳情」視窗則在你的瀏覽器中直接向 Google 載入，Google 會收到你的 IP 等連線資訊。
             </li>
             <li>
-              <strong>Anthropic（Claude）</strong>：規劃城市、天數與交通時，會送出你的旅行條件與輸入的文字（不含你的 email 或名字）。依 Anthropic 的商業條款，API 資料不會用來訓練模型；Anthropic 依其政策可能保留 API 資料一段時間，用於偵測濫用。
+              <strong>Anthropic（Claude）</strong>：規劃城市、天數與交通時，會送出你的旅行條件與輸入的文字；使用行程助理時，會送出你的訊息、最近幾則對話，以及行程的日期、城市與時段摘要（都不含你的 email 或名字，也不含 Google 的地點資料）。依 Anthropic 的商業條款，API 資料不會用來訓練模型；Anthropic 依其政策可能保留 API 資料一段時間，用於偵測濫用。
             </li>
             <li>
               <strong>Cloudflare Turnstile</strong>：產生行程前的人機驗證，會收到你的 IP 與瀏覽器資訊。

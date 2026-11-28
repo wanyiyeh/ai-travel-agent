@@ -70,7 +70,7 @@ const CANDIDATE_FIELDS = new Set<string>([
  * model's or the traveler's own words (a train ride, a stop they typed), and
  * a 固定行程 is always the traveler's own.
  */
-function keepsName(item: Rec): boolean {
+export function keepsName(item: Rec): boolean {
   return typeof item.placeId !== "string" || item.fixedEvent != null;
 }
 

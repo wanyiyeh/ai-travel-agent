@@ -15,6 +15,7 @@ vi.mock("@/lib/llm", async (importOriginal) => ({
 }));
 
 const { suggestFallbackText } = await import("@/lib/stopSuggestionFallback");
+const { answerChatMessage } = await import("@/lib/chat/assistant");
 
 beforeEach(() => {
   generateObject.mockReset();
@@ -37,5 +38,34 @@ describe("LLM input carries no Google Maps content (ADR-0008)", () => {
     const suggestions = await suggestFallbackText("test-model", "東京 5 天", "東京 文化巡禮", [googleName("淺草寺")]);
     expectNoGoogleContent(...capturedPrompts(generateObject));
     expect(suggestions.map((c) => c.name)).toEqual(["上野公園"]);
+  });
+
+  // PLAN-004: the trip's Google names, the names on the owner's screen and
+  // the Routes times all stay out; a typed name becomes 「第N天第K站」.
+  it("chat assistant", async () => {
+    generateObject
+      .mockImplementationOnce(replyWith({ category: "edit", confident: true }))
+      .mockImplementationOnce(replyWith({ reply: "r", actions: [] }));
+    const days = [
+      {
+        id: "d1",
+        waypointCity: "東京",
+        stops: [{ id: "s1", placeId: "p1", name: googleName("淺草寺"), description: googleName("古寺"), transport_from_prev: googleName("步行") }],
+        meals: { dinner: { placeId: "m1", name: googleName("一蘭") } },
+        accommodation: { placeId: "h1", name: googleName("飯店"), area: googleName("淺草") },
+      },
+    ];
+    await answerChatMessage({
+      message: `把${googleName("淺草寺")}刪掉`,
+      days,
+      departureDate: "2026-12-01",
+      history: [
+        { role: "user", content: `${googleName("淺草寺")}幾點去？` },
+        { role: "assistant", content: "第1天第1站在上午。" },
+      ],
+      shownNames: [{ ref: { kind: "stop", stopId: "s1" }, name: googleName("淺草寺") }],
+    });
+    expect(generateObject).toHaveBeenCalledTimes(2);
+    expectNoGoogleContent(...capturedPrompts(generateObject));
   });
 });

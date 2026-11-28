@@ -38,6 +38,7 @@ import { isDinnerBeforeStop } from "@/lib/fixedEvents";
 import type { Itinerary, Day, Stop, Meal, MealType, Accommodation, StopCandidate } from "@/types/itinerary";
 import { buildDayTimeline, isMovableMeal, MEAL_TIME_OF_DAY, MOVABLE_MEALS, timeOfDayBetweenMeals } from "@/lib/dayTimeline";
 import { dropInDay, mealDragId, parseMealDragId } from "@/lib/mealDrag";
+import type { PickerRequest } from "@/lib/chat/proposals";
 import { skipMeal, unskipMeal } from "@/lib/skippedMeals";
 import { SortableMeal } from "@/components/SortableMeal";
 import { findRepeatedMeals, slotKey } from "@/lib/mealRepeats";
@@ -45,6 +46,9 @@ import { daysMissingNames, withPlaceNames, type PlaceNameBook } from "@/lib/plac
 import GoogleMapsAttribution from "@/components/GoogleMapsAttribution";
 import { OpenMeteoCredit } from "@/components/DataSourceCredits";
 import { PlaceDetailsButton } from "@/components/PlaceDetailsButton";
+
+// One picker of each kind is open at a time; the chat scrolls to it by this id.
+const pickerAnchorId = (kind: PickerRequest["picker"]) => `picker-${kind}`;
 
 const TIME_OF_DAY_LABELS: Record<string, string> = {
   morning: "早上",
@@ -171,6 +175,10 @@ interface EditableItineraryCardProps {
   placeNames?: PlaceNameBook;
   /** Fetches names for days that are about to be shown. */
   onNeedDayNames?: (dayNumbers: number[]) => void;
+  /** A picker the chat assistant asked to open (PLAN-004); a new token opens it again. */
+  chatPicker?: (PickerRequest & { token: number }) | null;
+  /** That picker was picked from (true), or closed without a pick (false). */
+  onChatPickerDone?: (picked: boolean) => void;
 }
 
 type EditingStop = {
@@ -192,6 +200,8 @@ export default function EditableItineraryCard({
   withPet = false,
   placeNames = EMPTY_PLACE_NAMES,
   onNeedDayNames,
+  chatPicker,
+  onChatPickerDone,
 }: EditableItineraryCardProps) {
   const [itinerary, setItinerary] = useState(data.data);
   const [editingStop, setEditingStop] = useState<EditingStop | null>(null);
@@ -710,6 +720,46 @@ export default function EditableItineraryCard({
     setBulkError(null);
   };
 
+  // The chat assistant's confirmed change that needs a pick (PLAN-004): open
+  // the same picker the button would, on its day, and tell the chat how it
+  // ended. Only one is open at a time; `kind` says which picker it was.
+  const chatPickerOpen = useRef<{ kind: PickerRequest["picker"]; added: boolean } | null>(null);
+  const [chatMealRequest, setChatMealRequest] = useState<string | null>(null);
+  const finishChatPicker = (kind: PickerRequest["picker"], picked: boolean) => {
+    if (chatPickerOpen.current?.kind !== kind) return;
+    chatPickerOpen.current = null;
+    setChatMealRequest(null);
+    onChatPickerDone?.(picked);
+  };
+  useEffect(() => {
+    if (!chatPicker) return;
+    const day = itinerary.days.find((d) => d.id === chatPicker.dayId);
+    if (!day) return onChatPickerDone?.(false);
+    chatPickerOpen.current = { kind: chatPicker.picker, added: false };
+    requestNames([day.day]);
+    setCollapsedDays((prev) => {
+      const next = new Set(prev);
+      next.delete(day.day);
+      return next;
+    });
+    if (chatPicker.picker === "stop") setPickingStopId(chatPicker.stopId);
+    if (chatPicker.picker === "meal") {
+      setChatMealRequest(chatPicker.request);
+      setPickingMeal({ dayId: chatPicker.dayId, mealType: chatPicker.mealType });
+    }
+    if (chatPicker.picker === "accommodation") setPickingAccommodationDayId(chatPicker.dayId);
+    if (chatPicker.picker === "suggestions") handleStartBulkEdit(chatPicker.dayId, day.stops);
+    // Bring the opened picker into view: the hotel and suggestions sit at
+    // the bottom of the day, often off screen. Fall back to the day's top.
+    setTimeout(() => {
+      const picker = document.getElementById(pickerAnchorId(chatPicker.picker));
+      if (picker) picker.scrollIntoView({ behavior: "smooth", block: "start" });
+      else scrollToDay(day.day);
+    }, 50);
+    // Each request carries a new token; the rest is read at that moment.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chatPicker?.token]);
+
   const handleToggleBulkKeep = (stopId: string) => {
     setBulkKeepIds((prev) => {
       const next = new Set(prev);
@@ -769,6 +819,8 @@ export default function EditableItineraryCard({
   };
 
   const handleFinishBulkEdit = (dayId: string) => {
+    // Closed without adding (a successful add reported the pick already).
+    finishChatPicker("suggestions", false);
     handleCancelBulkEdit();
     recalculateTransport(dayId, onUpdate);
   };
@@ -793,6 +845,7 @@ export default function EditableItineraryCard({
       days: prev.days.map((d) => (d.id === dayId ? { ...d, stops: [...d.stops, ...newStops] } : d)),
     }));
 
+    finishChatPicker("suggestions", true);
     handleFinishBulkEdit(dayId);
   };
 
@@ -1641,18 +1694,25 @@ export default function EditableItineraryCard({
                               row()
                             )}
                             {isPickingThis && (
-                              <MealPicker
-                                itineraryId={data.id}
-                                dayId={day.id!}
-                                mealType={mealType}
-                                currency={itinerary.currency}
-                                mealLabel={MEAL_META[mealType].label}
-                                onCancel={() => setPickingMeal(null)}
-                                onSelected={(picked) => {
-                                  updateDayMeal(day.id!, mealType, picked);
-                                  setPickingMeal(null);
-                                }}
-                              />
+                              <div id={pickerAnchorId("meal")} className="scroll-mt-24">
+                                <MealPicker
+                                  itineraryId={data.id}
+                                  dayId={day.id!}
+                                  mealType={mealType}
+                                  currency={itinerary.currency}
+                                  mealLabel={MEAL_META[mealType].label}
+                                  request={chatMealRequest}
+                                  onCancel={() => {
+                                    setPickingMeal(null);
+                                    finishChatPicker("meal", false);
+                                  }}
+                                  onSelected={(picked) => {
+                                    updateDayMeal(day.id!, mealType, picked);
+                                    setPickingMeal(null);
+                                    finishChatPicker("meal", true);
+                                  }}
+                                />
+                              </div>
                             )}
                           </div>
                         );
@@ -1712,17 +1772,23 @@ export default function EditableItineraryCard({
                           />
                           )}
                           {pickingStopId === stop.id && day.id && stop.id && (
-                            <StopPicker
-                              itineraryId={data.id}
-                              dayId={day.id}
-                              stopId={stop.id}
-                              currency={itinerary.currency}
-                              onCancel={() => setPickingStopId(null)}
-                              onSelected={(updatedStop) => {
-                                updateStop(day.id!, stop.id!, updatedStop);
-                                setPickingStopId(null);
-                              }}
-                            />
+                            <div id={pickerAnchorId("stop")} className="scroll-mt-24">
+                              <StopPicker
+                                itineraryId={data.id}
+                                dayId={day.id}
+                                stopId={stop.id}
+                                currency={itinerary.currency}
+                                onCancel={() => {
+                                  setPickingStopId(null);
+                                  finishChatPicker("stop", false);
+                                }}
+                                onSelected={(updatedStop) => {
+                                  updateStop(day.id!, stop.id!, updatedStop);
+                                  setPickingStopId(null);
+                                  finishChatPicker("stop", true);
+                                }}
+                              />
+                            </div>
                           )}
                         </div>
                       );
@@ -1835,13 +1901,15 @@ export default function EditableItineraryCard({
                   )}
 
                   {bulkEditDayId === day.id && day.id && (
-                    <DayBulkEditPanel
-                      itineraryId={data.id}
-                      dayId={day.id}
-                      reusableStops={reusableStopsFor(itinerary.days, day, dayCentroid)}
-                      onCancel={() => handleFinishBulkEdit(day.id!)}
-                      onConfirmAdd={(stops) => handleConfirmBulkAdd(day.id!, stops)}
-                    />
+                    <div id={pickerAnchorId("suggestions")} className="scroll-mt-24">
+                      <DayBulkEditPanel
+                        itineraryId={data.id}
+                        dayId={day.id}
+                        reusableStops={reusableStopsFor(itinerary.days, day, dayCentroid)}
+                        onCancel={() => handleFinishBulkEdit(day.id!)}
+                        onConfirmAdd={(stops) => handleConfirmBulkAdd(day.id!, stops)}
+                      />
+                    </div>
                   )}
 
                   {/* Add stop */}
@@ -2031,16 +2099,22 @@ export default function EditableItineraryCard({
                     ) : null}
 
                     {pickingAccommodationDayId === day.id && day.id && (
-                      <AccommodationPicker
-                        itineraryId={data.id}
-                        dayId={day.id}
-                        currency={itinerary.currency}
-                        onCancel={() => setPickingAccommodationDayId(null)}
-                        onSelected={(acc) => {
-                          updateDayAccommodation(day.id!, acc);
-                          setPickingAccommodationDayId(null);
-                        }}
-                      />
+                      <div id={pickerAnchorId("accommodation")} className="scroll-mt-24">
+                        <AccommodationPicker
+                          itineraryId={data.id}
+                          dayId={day.id}
+                          currency={itinerary.currency}
+                          onCancel={() => {
+                            setPickingAccommodationDayId(null);
+                            finishChatPicker("accommodation", false);
+                          }}
+                          onSelected={(acc) => {
+                            updateDayAccommodation(day.id!, acc);
+                            setPickingAccommodationDayId(null);
+                            finishChatPicker("accommodation", true);
+                          }}
+                        />
+                      </div>
                     )}
                   </div>
                 </div>

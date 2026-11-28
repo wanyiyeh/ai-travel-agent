@@ -34,7 +34,7 @@
 | 骨架 | `buildDaySkeleton()` | 規則引擎排出的一天：有哪些景點、順序、時段 |
 | 候選池 | `StopCandidate` 等 | 從 Google 取得、可以排進行程的真實地點 |
 | 種子 | seed（`partitionCandidatesByDay`） | 一天從哪個地點開始排，其他景點圍繞它 |
-| 重新規劃 | restructure | 「重新規劃行程」精靈，以城市為單位重建 `days` |
+| 重新規劃 | restructure | 以城市為單位重建 `days`；入口是「重新規劃行程」精靈，或聊天助理的重新規劃提案（ADR-0014） |
 
 ## 地點資料
 
@@ -54,3 +54,16 @@
 | --- | --- | --- |
 | 訪客 | `isGuest` | 未登入、以簽章 cookie 識別的使用者，行程會過期 |
 | 額度 | quota（`src/lib/quota.ts`） | 每個使用者、IP、裝置可生成的次數上限 |
+
+## 聊天助理
+
+| 詞 | 程式碼 | 定義 |
+| --- | --- | --- |
+| 聊天助理 | itinerary chat（`src/lib/chat/`） | 行程頁的「問助理」：回答這趟行程的問題，修改都先變成提案（PLAN-004） |
+| 對話紀錄 | `ChatMessage` | 一則旅客訊息或助理回覆，屬於某趟行程 |
+| 訊息分類 | `ChatCategory` | 伺服器先分類訊息，類別決定助理能輸出什麼（ADR-0013） |
+| 提案 | `ChatProposal` | 助理提出的一個修改，旅客按「確認」才套用；狀態 `pending`、`applied`、`cancelled`、`stale` |
+| 提案卡 | `ProposalCard` | 聊天面板上顯示一個提案、確認與取消按鈕的卡片 |
+| 已失效 | `stale` | 確認時行程已經變了，提案對不上，請旅客重問 |
+| 離題鎖 | `QUOTAS.chat` 的離題上限 | 同一天離題訊息達上限後，當天聊天鎖住 |
+| 示範對話 | `readOnly` | 公開範例上，其他人唯讀看到的擁有者對話 |

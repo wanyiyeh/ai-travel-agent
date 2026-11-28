@@ -44,6 +44,46 @@ model Itinerary {
   deletedStops                DeletedStop[]
   deletedDays                 DeletedDay[]
   recommendationCaches        ItineraryRecommendationCache[]
+  chatMessages                ChatMessage[]
+}
+
+// The itinerary chat assistant's conversation (PLAN-004, ADR-0013). Only the
+// owner's own words and the assistant's reply text are kept: no Google
+// content (ADR-0004), and no thinking blocks (ADR-0012).
+model ChatMessage {
+  id          String         @id @default(uuid())
+  itineraryId String         @map("itinerary_id")
+  itinerary   Itinerary      @relation(fields: [itineraryId], references: [id], onDelete: Cascade)
+  role        String         // "user" | "assistant"
+  // The class the server put the user's message in, which decided what this
+  // reply was allowed to output (ADR-0013). Set on assistant messages only.
+  category    String?
+  content     String
+  // JSON-encoded { transport: StopRef[], places: StopRef[] }: stops whose
+  // stored transport line or 「照片與詳情」 the reply points at (our IDs only).
+  cards       String?
+  createdAt   DateTime       @default(now()) @map("created_at")
+  proposals   ChatProposal[]
+
+  @@index([itineraryId, createdAt])
+}
+
+// One proposed change on an assistant message, applied only when the owner
+// confirms it (ADR-0013). params holds our own references (day/stop IDs, meal
+// type, the owner's wording, city names and day counts), never Google content.
+model ChatProposal {
+  id         String      @id @default(uuid())
+  messageId  String      @map("message_id")
+  message    ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  action     String      // a whitelisted action name
+  params     String      // JSON-encoded
+  // "pending" | "applied" | "cancelled" | "stale". Moving off "pending" is a
+  // conditional update, so a double confirm applies the change only once.
+  status     String      @default("pending")
+  createdAt  DateTime    @default(now()) @map("created_at")
+  resolvedAt DateTime?   @map("resolved_at")
+
+  @@index([messageId])
 }
 
 

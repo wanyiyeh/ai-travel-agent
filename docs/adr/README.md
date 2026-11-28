@@ -18,6 +18,8 @@
 | 0010 | [午餐、點心、晚餐可以在當天拖拉，位置存成「前面有幾站」；餐點可以刪除](0010-draggable-meals.md) | Accepted | 2026-10-27 |
 | 0011 | [機場資料改用開放資料產生，人工清單只做覆寫](0011-airport-data-from-open-sources.md) | Accepted | 2026-10-28 |
 | 0012 | [LLM 從 OpenAI 換成 Claude API](0012-llm-provider-claude.md) | Accepted | 2026-11-22 |
+| 0013 | [聊天助理由伺服器分類訊息、決定能輸出什麼，修改一律提案再確認](0013-chat-server-side-authorization.md) | Accepted | 2026-11-24 |
+| 0014 | [「重新規劃行程」改由聊天進入，精靈在聊天版驗收後刪除](0014-restructure-via-chat.md) | Accepted | 2026-11-24 |
 
 ## 模板
 

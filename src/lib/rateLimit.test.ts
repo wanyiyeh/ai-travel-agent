@@ -11,6 +11,8 @@ describe("classifyApiPath", () => {
     ["/api/v1/days/d1/stops", "POST", "ai"],
     ["/api/v1/itinerary/i1/restructure", "POST", "ai"],
     ["/api/v1/itinerary/i1/transit-recommendations", "POST", "ai"],
+    ["/api/v1/itinerary/i1/chat", "POST", "ai"],
+    ["/api/v1/itinerary/i1/chat", "GET", "default"],
     ["/api/v1/days/d1/accommodation/enrich", "POST", "google"],
     ["/api/v1/days/d1/recalculate-transport", "POST", "google"],
     ["/api/v1/itinerary/i1/enrich-all-stops", "POST", "google"],

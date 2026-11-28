@@ -13,6 +13,8 @@ interface MealPickerProps {
   mealType: MealType;
   mealLabel: string;
   currency?: string;
+  /** The traveler's wording from a chat proposal ("拉麵"): matching places are listed first. */
+  request?: string | null;
   onCancel: () => void;
   onSelected: (meal: Meal) => void;
 }
@@ -28,6 +30,7 @@ export function MealPicker({
   mealType,
   mealLabel,
   currency,
+  request,
   onCancel,
   onSelected,
 }: MealPickerProps) {
@@ -50,7 +53,7 @@ export function MealPicker({
         const res = await fetch(`/api/v1/days/${dayId}/meals/${mealType}/regenerate`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ itineraryId }),
+          body: JSON.stringify({ itineraryId, ...(request ? { request } : {}) }),
         });
         const resData = await res.json();
         if (!res.ok) throw new Error(resData.error || "取得候選餐廳失敗");
@@ -64,7 +67,7 @@ export function MealPicker({
     return () => {
       cancelled = true;
     };
-  }, [dayId, mealType, itineraryId]);
+  }, [dayId, mealType, itineraryId, request]);
 
   const handlePick = async (candidate: MealCandidate) => {
     if (candidate.isCurrent) {

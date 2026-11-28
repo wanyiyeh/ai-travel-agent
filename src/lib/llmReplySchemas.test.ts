@@ -14,6 +14,8 @@ const { LegacyItineraryReplySchema } = await import("@/lib/itineraryGen");
 const { DayStopsReplySchema, MealsAndLodgingReplySchema, TransitDayStopsReplySchema, TransitPlanReplySchema } = await import(
   "@/lib/itineraryCityGen"
 );
+const { ChatClassificationSchema, ItineraryQuestionReplySchema, EditReplySchema, RestructureReplySchema, PlaceFactReplySchema } =
+  await import("@/lib/chat/schemas");
 
 // Every schema handed to generateObject must become a JSON schema the API
 // accepts: a transform, a recursive type or an open object would fail every
@@ -31,6 +33,11 @@ const REPLY_SCHEMAS: Record<string, z.ZodType> = {
   DayStopsReplySchema,
   MealsAndLodgingReplySchema,
   LegacyItineraryReplySchema,
+  ChatClassificationSchema,
+  ItineraryQuestionReplySchema,
+  EditReplySchema,
+  RestructureReplySchema,
+  PlaceFactReplySchema,
 };
 
 type JsonSchema = { type?: string; properties?: Record<string, JsonSchema>; additionalProperties?: unknown; items?: JsonSchema; anyOf?: JsonSchema[]; $defs?: Record<string, JsonSchema> };

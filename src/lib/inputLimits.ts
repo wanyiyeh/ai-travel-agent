@@ -35,3 +35,7 @@ export const MAX_LIST_LENGTH = 50;
 // recommendations' existingStops) or every name seen across repeated
 // "換一批" refreshes (stop-suggestions' excludeNames).
 export const MAX_NAME_LIST_LENGTH = 500;
+
+// The traveler's wording for what to eat or add, from a chat proposal
+// ("拉麵", "室內"); it becomes a Google text query, so it stays short.
+export const PICKER_REQUEST_MAX_LENGTH = 50;

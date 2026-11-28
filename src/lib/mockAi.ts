@@ -170,6 +170,25 @@ export const MOCK_FIXTURES = {
   ],
 };
 
+/**
+ * The meal picker's candidates under MOCK_AI. A request (「想吃拉麵」 from the
+ * chat) adds a place named after it right after the current one, as the
+ * real route ranks its text-search hits first, so dev:free shows it worked.
+ */
+export function mockMealCandidates(wanted?: string) {
+  const [current, ...rest] = MOCK_FIXTURES.mealCandidates;
+  if (!wanted) return MOCK_FIXTURES.mealCandidates;
+  const match = {
+    name: `Mock ${wanted}`,
+    placeId: "mock-meal-wanted",
+    lat: 35.012,
+    lng: 135.772,
+    address: "Mock City, Noodle Ln 4",
+    rating: 4.5,
+  };
+  return [current, match, ...rest];
+}
+
 const MOCK_NOTE = "（模擬）";
 
 /** planTrip: the arrival city, any city a 固定行程 needs, then the return city. */
@@ -243,4 +262,91 @@ export function mockMealsAndLodgingReply(cityName: string, stayDays: number) {
       snack: meal("點心"),
     })),
   };
+}
+
+// The chat assistant (src/lib/chat/assistant.ts). Classification goes by
+// keyword so dev:free can reach every class; replies point at day 1.
+type ChatMockCategory = "itinerary_question" | "edit" | "restructure" | "place_fact" | "travel_knowledge" | "off_topic";
+
+const CHAT_MOCK_KEYWORDS: [ChatMockCategory, RegExp][] = [
+  ["off_topic", /程式|code|作業|股票/i],
+  ["travel_knowledge", /小費|簽證|習俗|插座/],
+  ["place_fact", /幾點開|營業|地址|評價|門票/],
+  ["restructure", /多待|少待|天數|加一個城市|城市/],
+  ["edit", /刪|換|移到|加一個|加回|不要|想吃/],
+];
+
+const MOCK_MEAL_WORDS: [string, string][] = [
+  ["早餐", "breakfast"],
+  ["午餐", "lunch"],
+  ["晚餐", "dinner"],
+  ["點心", "snack"],
+];
+
+const MOVE_TO_ANOTHER_DAY = /移到(?:第\S{1,3}天|別天|其他天)/;
+
+// Day 1, read from the words: a meal or the hotel or a stop; swap, remove,
+// restore, move or add. Rough, but enough for dev:free to show every card.
+function mockEditReply(message: string, days: unknown) {
+  const firstDay = Array.isArray(days) ? (days[0] as { stops?: unknown[] } | undefined) : undefined;
+  const stopCount = Array.isArray(firstDay?.stops) ? firstDay.stops.length : 0;
+  const wanted = /(?:想吃|換成)([^，。！？,.!?\s]{1,20})/.exec(message)?.[1] ?? null;
+  // 「想吃拉麵」 names no meal: dinner, as the likeliest.
+  const meal = MOCK_MEAL_WORDS.find(([word]) => message.includes(word)) ?? (/想吃/.test(message) ? ["晚餐", "dinner"] : undefined);
+  const said = (text: string, actions: unknown[]) => ({ reply: `${text}確認後才會修改。${MOCK_NOTE}`, actions });
+
+  if (MOVE_TO_ANOTHER_DAY.test(message)) {
+    return { reply: `目前只能在同一天內調整順序；要移到其他天，可以按景點右邊的「移到別天」。${MOCK_NOTE}`, actions: [] };
+  }
+  if (meal) {
+    const [word, mealType] = meal;
+    if (/加回/.test(message)) return said(`建議加回第1天的${word}，`, [{ action: "restore_meal", dayNumber: 1, mealType }]);
+    if (/刪|不要/.test(message)) return said(`建議刪除第1天的${word}，`, [{ action: "remove_meal", dayNumber: 1, mealType }]);
+    return said(`建議換掉第1天的${word}${wanted ? `，找「${wanted}」` : ""}，`, [
+      { action: "replace_meal", dayNumber: 1, mealType, request: wanted },
+    ]);
+  }
+  if (/住宿|飯店|旅館/.test(message)) return said("建議換掉第1天的住宿，", [{ action: "replace_accommodation", dayNumber: 1 }]);
+  if (/加一個|加景點|太空/.test(message)) return said("建議為第1天加景點，", [{ action: "suggest_stops", dayNumber: 1, request: null }]);
+  if (stopCount === 0) return { reply: `第1天沒有景點可以修改。${MOCK_NOTE}`, actions: [] };
+  if (/移到|移/.test(message) && stopCount >= 2) {
+    return said("建議把第1天第1站移到第2站，", [{ action: "move_stop", dayNumber: 1, stopNumber: 1, toPosition: 2 }]);
+  }
+  if (/換/.test(message)) return said("建議換掉第1天第1站，", [{ action: "replace_stop", dayNumber: 1, stopNumber: 1 }]);
+  if (/刪|不要/.test(message)) return said("建議刪除第1天第1站，", [{ action: "remove_stop", dayNumber: 1, stopNumber: 1 }]);
+  // Like the real assistant when it can't tell what to change: ask, propose nothing.
+  return { reply: `我不確定要改哪裡，可以說得更具體，例如「刪掉第一站」「晚餐想吃拉麵」。${MOCK_NOTE}`, actions: [] };
+}
+
+export function mockChatClassification(message: string) {
+  const hit = CHAT_MOCK_KEYWORDS.find(([, pattern]) => pattern.test(message));
+  return { category: hit ? hit[0] : "itinerary_question", confident: true };
+}
+
+export function mockChatReply(category: string, days: unknown, cities: string[], message = "") {
+  const firstDay = Array.isArray(days) ? (days[0] as { stops?: unknown[] } | undefined) : undefined;
+  const hasStop = Array.isArray(firstDay?.stops) && firstDay.stops.length > 0;
+  switch (category) {
+    case "edit":
+      return mockEditReply(message, days);
+    case "restructure": {
+      // Each city's current days (a travel day counts for the city it leaves,
+      // as its waypointCity says), with the first city one day longer, or
+      // shorter for 少待.
+      const counted = Array.isArray(days) ? (days as { waypointCity?: string }[]) : [];
+      const current = (name: string) => counted.filter((d) => d.waypointCity === name).length || 1;
+      const shorter = /少待/.test(message);
+      const firstDays = (name: string) => Math.max(1, current(name) + (shorter ? -1 : 1));
+      return {
+        reply: `第一個城市${shorter ? "少" : "多"}待一天，確認後被調整的天會重新產生。${MOCK_NOTE}`,
+        cities: cities.length
+          ? cities.map((name, i) => ({ name, days: i === 0 ? firstDays(name) : current(name), isNew: false }))
+          : null,
+      };
+    }
+    case "place_fact":
+      return { reply: `請點「照片與詳情」查看。${MOCK_NOTE}`, places: hasStop ? [{ dayNumber: 1, stopNumber: 1 }] : [] };
+    default:
+      return { reply: `第1天的安排如行程所列。${MOCK_NOTE}`, transportCards: [] };
+  }
 }

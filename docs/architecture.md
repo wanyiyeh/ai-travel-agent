@@ -21,7 +21,7 @@ flowchart LR
 - 行程讀寫都檢查擁有權（`src/lib/auth/ownership.ts`）。
 - 登入的使用者可以在 `/account` 自行刪除帳號與所有資料（`src/lib/auth/deleteAccount.ts`，見[功能頁](features/account-deletion.md)）。
 - `/privacy` 隱私權說明，全站頁尾連結（`src/components/SiteFooter.tsx`）。頁面上的保存天數直接讀執行它的常數（`GUEST_TTL_MS`、`USAGE_RETENTION_MS`、`RATE_LIMIT_WINDOW_RETENTION_MS`、`DEVICE_COOKIE_MAX_AGE_S`、`SESSION_MAX_AGE_S`），改常數就會跟著變；收集的資料或第三方服務有變動時要一起改這頁。資料來源的出處也標在這頁（`#data-sources`，見 [data-sources.md](data-sources.md)）。
-- 花錢的操作受三層保護：`src/proxy.ts` 依 IP 與成本等級限流；`src/lib/quota.ts` 依使用者、IP、裝置計算額度，紀錄在 `UsageEvent`；生成前要通過 Cloudflare Turnstile。管理者（`ADMIN_EMAILS`）不受額度限制。另有全站每日呼叫上限（`src/lib/dailyBudget.ts`）與每個 IP 同時只能一個生成的鎖。限流、每日上限與生成鎖存在 Postgres，多個伺服器實例共用（`src/lib/sharedState.ts`，#209）；單元測試用記憶體版本（`SHARED_STATE=memory`）。
+- 花錢的操作受三層保護：`src/proxy.ts` 依 IP 與成本等級限流；`src/lib/quota.ts` 依使用者、IP、裝置計算額度，紀錄在 `UsageEvent`（聊天助理另有每日則數與離題上限，只給登入的使用者，見 `QUOTAS.chat`）；生成前要通過 Cloudflare Turnstile。管理者（`ADMIN_EMAILS`）不受額度限制。另有全站每日呼叫上限（`src/lib/dailyBudget.ts`）與每個 IP 同時只能一個生成的鎖。限流、每日上限與生成鎖存在 Postgres，多個伺服器實例共用（`src/lib/sharedState.ts`，#209）；單元測試用記憶體版本（`SHARED_STATE=memory`）。
 
 ## 行程生成主流程
 
@@ -49,6 +49,7 @@ flowchart TD
 ## 其他生成入口
 
 - `POST /api/v1/itinerary/[id]/restructure`：「重新規劃行程」精靈唯一的套用端點。前端送出最終的城市順序（新／既有、天數、保留哪些天、鎖定的必去景點），後端重建整個 `days` 並在一個 transaction 內覆寫，這點跟其他逐步修改的路由不同。移動日和回程日一律保留；既有城市的下一站改變時，它的出發移動日視為過期並重新產生。被丟棄的天寫進 `DeletedDay`。
+- 聊天助理（[功能頁](features/itinerary-chat.md)）：`GET`／`POST /api/v1/itinerary/[id]/chat`，邏輯在 `src/lib/chat/conversation.ts`（額度、存對話）；提案卡的確認、取消、回報挑選走 `POST /api/v1/itinerary/[id]/chat/proposals/[proposalId]`（`src/lib/chat/proposals.ts`，規則在 `proposalRules.ts`）：一步完成的修改直接套用，要挑選的打開既有的候選清單；重新規劃提案由 `src/lib/chat/restructureProposal.ts` 換成 restructure 端點的輸入（城市分組與保留哪幾天沿用精靈的 `src/lib/restructureCities.ts`），畫面確認預覽後呼叫既有的 restructure 端點（[ADR-0014](adr/0014-restructure-via-chat.md)）。`src/lib/chat/assistant.ts` 先分類訊息，再依類別只允許一種輸出（回答、修改提案、重新規劃提案、「照片與詳情」指向），離題與旅遊知識回固定文字（[ADR-0013](adr/0013-chat-server-side-authorization.md)）。LLM 只看到 `src/lib/chat/context.ts` 組的行程摘要；旅客打的地點名稱先換成「第N天第K站」。公開範例的對話用 `authorizeItineraryRead` 唯讀給其他人看（示範對話），送訊息與確認提案仍只限擁有者。
 - 單日編輯：`stops/[stopId]/regenerate`、`days/[dayId]/stop-suggestions`、三餐與住宿的 `regenerate`／`select`。每一批顯示給使用者的候選都寫進 `*CandidateLog`。
 
 ## 資料模型
@@ -61,6 +62,7 @@ flowchart TD
 - 行程、候選紀錄、垃圾桶裡的地點座標都附 `coordsFetchedAt`，超過 30 天由 `src/lib/coordsPurge.ts` 刪除，顯示時重新取得（ADR-0006）。
 - 機場與國家資料不在資料庫：`src/data/*.generated.json` 由 `npm run build-airports` 從開放資料產生並提交進 git，`src/lib/airportIndex.ts`（只在伺服器端）合併人工清單 `src/lib/airports.ts` 後查詢；首頁選單由靜態路由 `/api/v1/airports` 在打開時載入（ADR-0011，見[功能頁](features/airports.md)）。
 - `DeletedStop`/`DeletedDay`：垃圾桶與復原。
+- `ChatMessage`/`ChatProposal`：行程聊天助理的對話與提案卡（[PLAN-004](plans/PLAN-004-itinerary-chat.md)、[ADR-0013](adr/0013-chat-server-side-authorization.md)），隨行程連帶刪除；只存使用者的文字、回覆文字與我們自己的參照，不存 Google 內容。
 - `*CandidateLog`：每批候選的完整紀錄，供除錯。
 - `*Cache`：AI 結果與我們自己的資料（季節亮點、經典一日遊、城市中心沒找到等）的快取，同城市重複生成時不再付費。只記確定的「找不到」，失敗不記（見 `.claude/rules/google-places.md`）。完整欄位以 `prisma/schema.prisma` 為準。
 - Google 的候選池、路線、最近車站依條款不能保存（ADR-0004），只在同一請求內共用（`src/lib/requestMemo.ts`），資料庫裡沒有它們的表。`Place` 只有 place ID 與附取得時間的座標。
