@@ -6,7 +6,7 @@ import type { ChatMessageView, ChatProposalView } from "@/lib/chat/conversation"
 import type { PickerRequest } from "@/lib/chat/proposals";
 import type { CityPreview, RestructureRequest } from "@/lib/chat/restructureProposal";
 import { CHAT_MESSAGE_MAX_LENGTH, SUGGESTED_QUESTIONS } from "@/lib/chat/constants";
-import { describeProposal, isInputMethodKey, placeIdOf, shownNamesOf, stepSentHistory, stopLabel, transportCard, withStopNames } from "@/lib/chat/display";
+import { describeProposal, hasZhuyin, isInputMethodKey, placeIdOf, shownNamesOf, stepSentHistory, stopLabel, transportCard, withStopNames } from "@/lib/chat/display";
 import type { useItineraryChat } from "@/hooks/useItineraryChat";
 import { PlaceDetailsButton } from "@/components/PlaceDetailsButton";
 import GoogleMapsAttribution from "@/components/GoogleMapsAttribution";
@@ -231,6 +231,7 @@ export default function ChatPanel({ itineraryId, chat, days, onClose, onOpenPick
   // Which sent message ↑/↓ put in the box; null once the owner types.
   const [recallAt, setRecallAt] = useState<number | null>(null);
   const composing = useRef(false);
+  const [zhuyinHint, setZhuyinHint] = useState(false);
   const compositionEndedAt = useRef(-Infinity);
   const listRef = useRef<HTMLDivElement>(null);
   const { messages, allowance, loaded, sending, error, signInRequired } = chat;
@@ -245,7 +246,8 @@ export default function ChatPanel({ itineraryId, chat, days, onClose, onOpenPick
   }, [messages.length, sending]);
 
   const blocked = allowance?.blocked?.message ?? null;
-  const canSend = !sending && !blocked && !signInRequired && draft.trim().length > 0;
+  const unpicked = hasZhuyin(draft);
+  const canSend = !sending && !blocked && !signInRequired && draft.trim().length > 0 && !unpicked;
 
   const submit = async (text = draft) => {
     const message = text.trim();
@@ -263,7 +265,8 @@ export default function ChatPanel({ itineraryId, chat, days, onClose, onOpenPick
     if (isInputMethodKey(e.nativeEvent, ime)) return;
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      if (canSend) void submit();
+      if (unpicked) setZhuyinHint(true);
+      else if (canSend) void submit();
       return;
     }
     if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
@@ -345,6 +348,9 @@ export default function ChatPanel({ itineraryId, chat, days, onClose, onOpenPick
           </div>
         )}
         {(blocked || error) && <p className="text-xs text-red-600 dark:text-red-400">{blocked ?? error}</p>}
+        {zhuyinHint && unpicked && (
+          <p className="text-xs text-amber-700 dark:text-amber-400">還有沒選完的注音，選好字再送出。</p>
+        )}
         {!signInRequired && (
           <div className="flex items-end gap-2">
             <textarea
@@ -352,6 +358,7 @@ export default function ChatPanel({ itineraryId, chat, days, onClose, onOpenPick
               onChange={(e) => {
                 setDraft(e.target.value);
                 setRecallAt(null);
+                setZhuyinHint(false);
               }}
               onKeyDown={onKeyDown}
               onCompositionStart={() => (composing.current = true)}

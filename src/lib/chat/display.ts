@@ -174,3 +174,15 @@ export function isInputMethodKey(
     box.msSinceCompositionEnd < AFTER_COMPOSITION_MS
   );
 }
+
+/** 注音 symbols and tone marks: ㄅ–ㄯ, the extended block, and ˊ ˇ ˋ ˙. */
+const ZHUYIN = /[㄀-ㄯㆠ-ㆿˊˇˋ˙]/;
+
+/**
+ * Whether a message still holds 注音 that was never turned into characters.
+ * The chat won't send it: some input methods hand the box an Enter that
+ * no keyboard event marks as theirs, so the text itself is the safe check.
+ */
+export function hasZhuyin(text: string): boolean {
+  return ZHUYIN.test(text);
+}

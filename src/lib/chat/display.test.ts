@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Day } from "@/types/itinerary";
-import { describeProposal, isInputMethodKey, placeIdOf, shownNamesOf, stepSentHistory, stopLabel, transportCard, withStopNames } from "@/lib/chat/display";
+import { describeProposal, hasZhuyin, isInputMethodKey, placeIdOf, shownNamesOf, stepSentHistory, stopLabel, transportCard, withStopNames } from "@/lib/chat/display";
 
 const days = [
   {
@@ -101,5 +101,18 @@ describe("isInputMethodKey", () => {
   it("lets a plain Enter send", () => {
     expect(isInputMethodKey({ isComposing: false, keyCode: 13 }, idle)).toBe(false);
     expect(isInputMethodKey({ isComposing: false, keyCode: 13 }, { composing: false, msSinceCompositionEnd: 1500 })).toBe(false);
+  });
+});
+
+describe("hasZhuyin", () => {
+  it("finds 注音 left unpicked", () => {
+    expect(hasZhuyin("ㄏㄨㄚ")).toBe(true);
+    expect(hasZhuyin("我想吃ㄌㄚˊ麵")).toBe(true);
+    expect(hasZhuyin("ˋ")).toBe(true);
+  });
+
+  it("passes ordinary messages", () => {
+    expect(hasZhuyin("幾點開？")).toBe(false);
+    expect(hasZhuyin("Day 2 can I add ramen")).toBe(false);
   });
 });
