@@ -125,6 +125,15 @@ export async function decideProposal(itinerary: OwnedItinerary, proposalId: stri
   if (decision === "cancel") {
     return (await claim(proposalId, "cancelled")) ? Response.json({ status: "cancelled" }) : alreadyResolved();
   }
+  if (decision === "picked") {
+    // The pick (or the restructure) was made through its own route, so the
+    // trip has already moved past the card: checking it again would call
+    // the change it just made stale. Only record it.
+    if (proposal.action !== "restructure" && !pickerFor(proposal)) {
+      return Response.json({ error: "這個提案不需要挑選" }, { status: 400 });
+    }
+    return (await claim(proposalId, "applied")) ? Response.json({ status: "applied" }) : alreadyResolved();
+  }
   if (proposal.action === "restructure") {
     // Like a picker: the screen shows the preview, then sends the request to
     // restructure/route.ts (which charges its own quota) and reports back.
@@ -133,8 +142,7 @@ export async function decideProposal(itinerary: OwnedItinerary, proposalId: stri
       await claim(proposalId, "stale");
       return conflict({ status: "stale", error: `${plan.problem}，請重新問一次。`, code: "proposal_stale" });
     }
-    if (decision === "confirm") return Response.json({ status: "pending", restructure: { request: plan.request, preview: plan.preview } });
-    return (await claim(proposalId, "applied")) ? Response.json({ status: "applied" }) : alreadyResolved();
+    return Response.json({ status: "pending", restructure: { request: plan.request, preview: plan.preview } });
   }
 
   const days = (Array.isArray(itinerary.days) ? itinerary.days : []) as Days;
@@ -147,10 +155,8 @@ export async function decideProposal(itinerary: OwnedItinerary, proposalId: stri
   const picker = pickerFor(proposal);
   if (picker) {
     // Nothing changes until the owner picks; then the screen reports it.
-    if (decision === "confirm") return Response.json({ status: "pending", picker });
-    return (await claim(proposalId, "applied")) ? Response.json({ status: "applied" }) : alreadyResolved();
+    return Response.json({ status: "pending", picker });
   }
-  if (decision === "picked") return Response.json({ error: "這個提案不需要挑選" }, { status: 400 });
 
   const applied = applyDirect(days, proposal)!;
   try {

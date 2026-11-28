@@ -133,6 +133,29 @@ describe("chat proposal decisions", () => {
     expect(await statusOf(stale)).toBe("stale");
   });
 
+  it("counts a restructure as applied when reported after the trip already changed", async () => {
+    const id = await proposal("restructure", { cities: [{ name: "東京", days: 2, isNew: false }] });
+    expect((await decide(id, "confirm")).status).toBe(200);
+    // The restructure route has run: 東京 now has the 2 days the card asked for.
+    await prisma.itinerary.update({
+      where: { id: itineraryId },
+      data: { days: j([...startDays(), { id: "d2", day: 2, waypointCity: "東京", stops: [] }]) },
+    });
+    expect(await (await decide(id, "picked")).json()).toEqual({ status: "applied" });
+    expect(await statusOf(id)).toBe("applied");
+  });
+
+  it("counts a picked stop as applied though the stop it replaced is gone", async () => {
+    const id = await proposal("replace_stop", { dayId: "d1", stopId: "s1" });
+    expect((await decide(id, "confirm")).status).toBe(200);
+    const [day] = startDays();
+    await prisma.itinerary.update({
+      where: { id: itineraryId },
+      data: { days: j([{ ...day, stops: [{ ...day.stops[0], id: "s9" }, day.stops[1]] }]) },
+    });
+    expect(await (await decide(id, "picked")).json()).toEqual({ status: "applied" });
+  });
+
   it("won't take a pick for a one-step change", async () => {
     const id = await proposal("remove_stop", { dayId: "d1", stopId: "s1" });
     expect((await decide(id, "picked")).status).toBe(400);
