@@ -329,11 +329,21 @@ export function mockChatReply(category: string, days: unknown, cities: string[],
   switch (category) {
     case "edit":
       return mockEditReply(message, days);
-    case "restructure":
+    case "restructure": {
+      // Each city's current days (a travel day counts for the city it leaves,
+      // as its waypointCity says), with the first city one day longer, or
+      // shorter for 少待.
+      const counted = Array.isArray(days) ? (days as { waypointCity?: string }[]) : [];
+      const current = (name: string) => counted.filter((d) => d.waypointCity === name).length || 1;
+      const shorter = /少待/.test(message);
+      const firstDays = (name: string) => Math.max(1, current(name) + (shorter ? -1 : 1));
       return {
-        reply: `第一個城市多待一天，確認後被調整的天會重新產生。${MOCK_NOTE}`,
-        cities: cities.length ? cities.map((name, i) => ({ name, days: i === 0 ? 3 : 2, isNew: false })) : null,
+        reply: `第一個城市${shorter ? "少" : "多"}待一天，確認後被調整的天會重新產生。${MOCK_NOTE}`,
+        cities: cities.length
+          ? cities.map((name, i) => ({ name, days: i === 0 ? firstDays(name) : current(name), isNew: false }))
+          : null,
       };
+    }
     case "place_fact":
       return { reply: `請點「照片與詳情」查看。${MOCK_NOTE}`, places: hasStop ? [{ dayNumber: 1, stopNumber: 1 }] : [] };
     default:

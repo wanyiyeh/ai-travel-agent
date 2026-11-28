@@ -4,7 +4,7 @@ import type { FlightInfo } from "@/lib/schemas";
 // Loop trips look up each town's center; no Google in unit tests.
 vi.mock("@/lib/placesTextSearch", () => ({ getCityCenter: vi.fn(async () => null) }));
 
-import { mockMealCandidates, mockMealsAndLodgingReply, mockTripPlanReply } from "@/lib/mockAi";
+import { mockChatReply, mockMealCandidates, mockMealsAndLodgingReply, mockTripPlanReply } from "@/lib/mockAi";
 import { planTrip } from "@/lib/tripPlan";
 
 afterEach(() => {
@@ -63,5 +63,26 @@ describe("mockMealCandidates", () => {
     expect(candidates[0]).toMatchObject({ isCurrent: true });
     expect(candidates[1]).toMatchObject({ name: "Mock 拉麵", placeId: "mock-meal-wanted" });
     expect(candidates).toHaveLength(4);
+  });
+});
+
+describe("mockChatReply restructure", () => {
+  const cityDays = (...names: string[]) => names.map((waypointCity, i) => ({ id: `d${i + 1}`, day: i + 1, waypointCity, stops: [] }));
+
+  it("adds a day to the first city for 多待", () => {
+    const days = cityDays("首爾", "首爾", "首爾", "首爾", "首爾");
+    expect(mockChatReply("restructure", days, ["首爾"], "多待一天")).toMatchObject({
+      cities: [{ name: "首爾", days: 6, isNew: false }],
+    });
+  });
+
+  it("takes a day off the first city for 少待, keeping the others", () => {
+    const days = cityDays("東京", "東京", "東京", "京都", "京都");
+    expect(mockChatReply("restructure", days, ["東京", "京都"], "少待一天")).toMatchObject({
+      cities: [
+        { name: "東京", days: 2, isNew: false },
+        { name: "京都", days: 2, isNew: false },
+      ],
+    });
   });
 });
