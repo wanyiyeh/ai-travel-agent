@@ -56,6 +56,8 @@ interface Applied {
   trashed?: { dayId: string; dayNumber: number; originalIndex: number; stop: Rec };
   /** A day whose transport lines the screen should recalculate, as after a drag. */
   recalculateDayId?: string;
+  /** A picker to open once the change shows, e.g. for a meal slot restored empty. */
+  then?: PickerRequest;
 }
 
 /** Applies a one-step change to a copy of the days; null for a change that needs a pick. */
@@ -89,7 +91,7 @@ export function applyDirect(days: Days, proposal: ChatProposalDraft): Applied | 
       return { days: next };
     case "restore_meal":
       next[dayIndex] = unskipMeal(day, proposal.params.mealType);
-      return { days: next };
+      return { days: next, then: { picker: "meal", ...proposal.params, request: null } };
     default:
       return null;
   }
@@ -169,5 +171,9 @@ export async function decideProposal(itinerary: OwnedItinerary, proposalId: stri
     if (error instanceof AlreadyResolved) return alreadyResolved();
     throw error;
   }
-  return Response.json({ status: "applied", recalculateDayId: applied.recalculateDayId ?? null });
+  return Response.json({
+    status: "applied",
+    recalculateDayId: applied.recalculateDayId ?? null,
+    ...(applied.then && { picker: applied.then }),
+  });
 }

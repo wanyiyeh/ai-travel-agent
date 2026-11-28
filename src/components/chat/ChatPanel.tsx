@@ -24,7 +24,8 @@ interface ChatPanelProps {
   days: Day[];
   onClose: () => void;
   /** A confirmed change that needs a pick: open that picker on the page. */
-  onOpenPicker: (picker: PickerRequest, proposalId: string) => void;
+  /** proposalId is null when the change is already applied and the pick is a follow-up. */
+  onOpenPicker: (picker: PickerRequest, proposalId: string | null) => void;
   /** The trip changed here: reload it (then recalculate that day's transport); resolves once it shows. */
   onTripChanged: (recalculateDayId?: string | null) => Promise<void>;
 }
@@ -130,7 +131,9 @@ function ProposalCard({
     if (result.status === "applied") await onTripChanged(result.recalculateDayId);
     setBusy(false);
     if (result.error) return setError(result.error);
-    if (result.picker) return onOpenPicker(result.picker, proposal.id);
+    // A restored meal comes back as an empty slot: its picker follows, with
+    // nothing left to report to the card.
+    if (result.picker) return onOpenPicker(result.picker, result.status === "applied" ? null : proposal.id);
     if (result.restructure) return setRestructure(result.restructure);
   };
 

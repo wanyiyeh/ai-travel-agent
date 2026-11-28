@@ -90,6 +90,9 @@ describe("applyDirect", () => {
     expect((removed.days[0].meals as Record<string, unknown>).lunch).toBeUndefined();
     const restored = applyDirect(days(), { action: "restore_meal", params: { dayId: "d1", mealType: "snack" } })!;
     expect(restored.days[0].skippedMeals).toEqual([]);
+    // The slot comes back empty: the screen opens that meal's picker next.
+    expect(restored.then).toEqual({ picker: "meal", dayId: "d1", mealType: "snack", request: null });
+    expect(removed.then).toBeUndefined();
   });
 
   it("leaves changes that need a pick to the picker", () => {

@@ -192,7 +192,7 @@ export default function ViewContent({ id }: ViewContentProps) {
 
   // A chat proposal that needs a pick opens the same picker as its button. On
   // a phone the panel covers the page, so it steps aside.
-  const openChatPicker = (picker: PickerRequest, proposalId: string) => {
+  const openChatPicker = (picker: PickerRequest, proposalId: string | null) => {
     chatPickerProposal.current = proposalId;
     setView("list");
     setChatPicker({ ...picker, token: Date.now() });
