@@ -147,3 +147,16 @@ export function stepSentHistory(
   const next = at + 1;
   return next >= sent.length ? { at: null, text: "" } : { at: next, text: sent[next] };
 }
+
+/** The keyCode browsers give a key that an open input method is handling. */
+const IME_PROCESS_KEY = 229;
+
+/**
+ * Whether a key in the chat box belongs to an input method (picking a 注音
+ * character, say) rather than to the box. `isComposing` alone misses the
+ * Enter that commits a pick in Chrome on Windows, which reports keyCode 229
+ * instead; `composing` is the box's own compositionstart/end tracking.
+ */
+export function isInputMethodKey(key: { isComposing: boolean; keyCode: number }, composing: boolean): boolean {
+  return composing || key.isComposing || key.keyCode === IME_PROCESS_KEY;
+}

@@ -6,7 +6,7 @@ import type { ChatMessageView, ChatProposalView } from "@/lib/chat/conversation"
 import type { PickerRequest } from "@/lib/chat/proposals";
 import type { CityPreview, RestructureRequest } from "@/lib/chat/restructureProposal";
 import { CHAT_MESSAGE_MAX_LENGTH, SUGGESTED_QUESTIONS } from "@/lib/chat/constants";
-import { describeProposal, placeIdOf, shownNamesOf, stepSentHistory, stopLabel, transportCard, withStopNames } from "@/lib/chat/display";
+import { describeProposal, isInputMethodKey, placeIdOf, shownNamesOf, stepSentHistory, stopLabel, transportCard, withStopNames } from "@/lib/chat/display";
 import type { useItineraryChat } from "@/hooks/useItineraryChat";
 import { PlaceDetailsButton } from "@/components/PlaceDetailsButton";
 import GoogleMapsAttribution from "@/components/GoogleMapsAttribution";
@@ -230,6 +230,7 @@ export default function ChatPanel({ itineraryId, chat, days, onClose, onOpenPick
   const [draft, setDraft] = useState("");
   // Which sent message ↑/↓ put in the box; null once the owner types.
   const [recallAt, setRecallAt] = useState<number | null>(null);
+  const composing = useRef(false);
   const listRef = useRef<HTMLDivElement>(null);
   const { messages, allowance, loaded, sending, error, signInRequired } = chat;
 
@@ -257,7 +258,7 @@ export default function ChatPanel({ itineraryId, chat, days, onClose, onOpenPick
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     // Keys while picking characters in an input method belong to it, not the box.
-    if (e.nativeEvent.isComposing) return;
+    if (isInputMethodKey(e.nativeEvent, composing.current)) return;
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       if (canSend) void submit();
@@ -351,6 +352,8 @@ export default function ChatPanel({ itineraryId, chat, days, onClose, onOpenPick
                 setRecallAt(null);
               }}
               onKeyDown={onKeyDown}
+              onCompositionStart={() => (composing.current = true)}
+              onCompositionEnd={() => (composing.current = false)}
               maxLength={CHAT_MESSAGE_MAX_LENGTH}
               rows={2}
               disabled={Boolean(blocked)}

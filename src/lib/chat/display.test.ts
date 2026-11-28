@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Day } from "@/types/itinerary";
-import { describeProposal, placeIdOf, shownNamesOf, stepSentHistory, stopLabel, transportCard, withStopNames } from "@/lib/chat/display";
+import { describeProposal, isInputMethodKey, placeIdOf, shownNamesOf, stepSentHistory, stopLabel, transportCard, withStopNames } from "@/lib/chat/display";
 
 const days = [
   {
@@ -79,5 +79,19 @@ describe("stepSentHistory", () => {
   it("does nothing with nothing sent, or down from the owner's own draft", () => {
     expect(stepSentHistory([], null, "up")).toBeNull();
     expect(stepSentHistory(sent, null, "down")).toBeNull();
+  });
+});
+
+describe("isInputMethodKey", () => {
+  it("leaves keys the input method is using to it", () => {
+    // Chrome on Windows can send the Enter that picks a 注音 character with
+    // isComposing false, but always with keyCode 229.
+    expect(isInputMethodKey({ isComposing: false, keyCode: 229 }, false)).toBe(true);
+    expect(isInputMethodKey({ isComposing: true, keyCode: 13 }, false)).toBe(true);
+    expect(isInputMethodKey({ isComposing: false, keyCode: 13 }, true)).toBe(true);
+  });
+
+  it("lets a plain Enter send", () => {
+    expect(isInputMethodKey({ isComposing: false, keyCode: 13 }, false)).toBe(false);
   });
 });
