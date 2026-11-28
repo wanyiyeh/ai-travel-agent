@@ -28,7 +28,7 @@ import { MealPicker } from "@/components/MealPicker";
 import { MealTimelineRow, MEAL_META } from "@/components/MealTimelineRow";
 import { StopPicker } from "@/components/StopPicker";
 import { PlacePhotoThumb } from "@/components/PlacePhotoThumb";
-import { haversineKm } from "@/lib/geo";
+import { reusableStopsFor } from "@/lib/reusableStops";
 import { calculateStopsCost, calculateDayTotalCost } from "@/lib/costCalculations";
 import { buildPlaceMapsUrl, buildDirectionsUrl, buildNearbySearchUrl, buildSearchMapsUrl } from "@/lib/googleMapsUrl";
 import { formatDuration } from "@/types/itinerary";
@@ -46,11 +46,6 @@ import { daysMissingNames, withPlaceNames, type PlaceNameBook } from "@/lib/plac
 import GoogleMapsAttribution from "@/components/GoogleMapsAttribution";
 import { OpenMeteoCredit } from "@/components/DataSourceCredits";
 import { PlaceDetailsButton } from "@/components/PlaceDetailsButton";
-
-// A candidate from another day counts as "same city" if it's within this
-// distance of the edited day's own stop centroid — used to build the reuse
-// pool in the day bulk-edit panel (see reusableStops below).
-const SAME_CITY_KM = 60;
 
 const TIME_OF_DAY_LABELS: Record<string, string> = {
   morning: "早上",
@@ -1897,44 +1892,7 @@ export default function EditableItineraryCard({
                     <DayBulkEditPanel
                       itineraryId={data.id}
                       dayId={day.id}
-                      reusableStops={itinerary.days
-                        .filter((d) => d.id !== day.id)
-                        .flatMap((d) =>
-                          d.stops
-                            .filter((s) => {
-                              // The ride belongs to its own day only (ADR-0009).
-                              if (isTransitStop(s, d)) return false;
-                              // A transit day's own stops span two cities by definition
-                              // (departure + arrival) — the city-match heuristic below
-                              // doesn't apply to them, so always offer them for reuse
-                              // regardless of which day is being edited.
-                              if (d.isTransitDay) return true;
-                              // Prefer the stop's own coordinates over the day-level
-                              // waypointCity tag — a transit day is tagged with its
-                              // departure city even though some of its stops (e.g. the
-                              // arrival city's attractions) are actually in the destination.
-                              if (dayCentroid && typeof s.lat === "number" && typeof s.lng === "number") {
-                                return haversineKm(s.lat, s.lng, dayCentroid.lat, dayCentroid.lng) <= SAME_CITY_KM;
-                              }
-                              // No coordinates to compare — only include when both
-                              // days carry a waypointCity and they actually match;
-                              // otherwise there's no basis for "same city" so exclude.
-                              return !!day.waypointCity && d.waypointCity === day.waypointCity;
-                            })
-                            .map((s) => ({
-                              dayNumber: d.day,
-                              candidate: {
-                                name: s.name,
-                                description: s.description,
-                                duration_minutes: s.duration_minutes,
-                                placeId: s.placeId,
-                                lat: s.lat,
-                                lng: s.lng,
-                                address: s.address,
-                                rating: s.rating,
-                              },
-                            }))
-                        )}
+                      reusableStops={reusableStopsFor(itinerary.days, day, dayCentroid)}
                       onCancel={() => handleFinishBulkEdit(day.id!)}
                       onConfirmAdd={(stops) => handleConfirmBulkAdd(day.id!, stops)}
                     />
