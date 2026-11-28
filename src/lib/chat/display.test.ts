@@ -83,15 +83,23 @@ describe("stepSentHistory", () => {
 });
 
 describe("isInputMethodKey", () => {
+  const idle = { composing: false, msSinceCompositionEnd: Infinity };
+
   it("leaves keys the input method is using to it", () => {
     // Chrome on Windows can send the Enter that picks a 注音 character with
-    // isComposing false, but always with keyCode 229.
-    expect(isInputMethodKey({ isComposing: false, keyCode: 229 }, false)).toBe(true);
-    expect(isInputMethodKey({ isComposing: true, keyCode: 13 }, false)).toBe(true);
-    expect(isInputMethodKey({ isComposing: false, keyCode: 13 }, true)).toBe(true);
+    // isComposing false, but with keyCode 229.
+    expect(isInputMethodKey({ isComposing: false, keyCode: 229 }, idle)).toBe(true);
+    expect(isInputMethodKey({ isComposing: true, keyCode: 13 }, idle)).toBe(true);
+    expect(isInputMethodKey({ isComposing: false, keyCode: 13 }, { ...idle, composing: true })).toBe(true);
+  });
+
+  it("leaves the Enter sent right after the composition ended to it", () => {
+    // Microsoft 注音 ends the composition, then sends a plain Enter.
+    expect(isInputMethodKey({ isComposing: false, keyCode: 13 }, { composing: false, msSinceCompositionEnd: 5 })).toBe(true);
   });
 
   it("lets a plain Enter send", () => {
-    expect(isInputMethodKey({ isComposing: false, keyCode: 13 }, false)).toBe(false);
+    expect(isInputMethodKey({ isComposing: false, keyCode: 13 }, idle)).toBe(false);
+    expect(isInputMethodKey({ isComposing: false, keyCode: 13 }, { composing: false, msSinceCompositionEnd: 1500 })).toBe(false);
   });
 });

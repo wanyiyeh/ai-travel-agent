@@ -150,13 +150,27 @@ export function stepSentHistory(
 
 /** The keyCode browsers give a key that an open input method is handling. */
 const IME_PROCESS_KEY = 229;
+/**
+ * How long after a composition ends a keydown still belongs to it: some
+ * input methods (Microsoft 注音 in Chrome among them) end the composition
+ * first and only then send the Enter that committed it, as a plain Enter.
+ */
+export const AFTER_COMPOSITION_MS = 100;
 
 /**
  * Whether a key in the chat box belongs to an input method (picking a 注音
- * character, say) rather than to the box. `isComposing` alone misses the
- * Enter that commits a pick in Chrome on Windows, which reports keyCode 229
- * instead; `composing` is the box's own compositionstart/end tracking.
+ * character, say) rather than to the box: while composing (by the event's
+ * own flag, keyCode 229 or the box's compositionstart/end), or just after
+ * a composition ended.
  */
-export function isInputMethodKey(key: { isComposing: boolean; keyCode: number }, composing: boolean): boolean {
-  return composing || key.isComposing || key.keyCode === IME_PROCESS_KEY;
+export function isInputMethodKey(
+  key: { isComposing: boolean; keyCode: number },
+  box: { composing: boolean; msSinceCompositionEnd: number },
+): boolean {
+  return (
+    box.composing ||
+    key.isComposing ||
+    key.keyCode === IME_PROCESS_KEY ||
+    box.msSinceCompositionEnd < AFTER_COMPOSITION_MS
+  );
 }

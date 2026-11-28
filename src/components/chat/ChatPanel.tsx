@@ -231,6 +231,7 @@ export default function ChatPanel({ itineraryId, chat, days, onClose, onOpenPick
   // Which sent message ↑/↓ put in the box; null once the owner types.
   const [recallAt, setRecallAt] = useState<number | null>(null);
   const composing = useRef(false);
+  const compositionEndedAt = useRef(-Infinity);
   const listRef = useRef<HTMLDivElement>(null);
   const { messages, allowance, loaded, sending, error, signInRequired } = chat;
 
@@ -258,7 +259,8 @@ export default function ChatPanel({ itineraryId, chat, days, onClose, onOpenPick
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     // Keys while picking characters in an input method belong to it, not the box.
-    if (isInputMethodKey(e.nativeEvent, composing.current)) return;
+    const ime = { composing: composing.current, msSinceCompositionEnd: e.timeStamp - compositionEndedAt.current };
+    if (isInputMethodKey(e.nativeEvent, ime)) return;
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       if (canSend) void submit();
@@ -353,7 +355,10 @@ export default function ChatPanel({ itineraryId, chat, days, onClose, onOpenPick
               }}
               onKeyDown={onKeyDown}
               onCompositionStart={() => (composing.current = true)}
-              onCompositionEnd={() => (composing.current = false)}
+              onCompositionEnd={(e) => {
+                composing.current = false;
+                compositionEndedAt.current = e.timeStamp;
+              }}
               maxLength={CHAT_MESSAGE_MAX_LENGTH}
               rows={2}
               disabled={Boolean(blocked)}
