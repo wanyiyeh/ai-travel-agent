@@ -746,8 +746,14 @@ export default function EditableItineraryCard({
     }
     if (chatPicker.picker === "accommodation") setPickingAccommodationDayId(chatPicker.dayId);
     if (chatPicker.picker === "suggestions") handleStartBulkEdit(chatPicker.dayId, day.stops);
-    // After the day opens, bring it into view.
-    setTimeout(() => scrollToDay(day.day), 50);
+    // After the day opens, bring it into view. The suggestions sit at the
+    // bottom of the day, below the keep checkboxes: go straight to them.
+    setTimeout(() => {
+      const panel =
+        chatPicker.picker === "suggestions" ? document.getElementById(`day-bulk-edit-${chatPicker.dayId}`) : null;
+      if (panel) panel.scrollIntoView({ behavior: "smooth", block: "start" });
+      else scrollToDay(day.day);
+    }, 50);
     // Each request carries a new token; the rest is read at that moment.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chatPicker?.token]);
@@ -1889,13 +1895,15 @@ export default function EditableItineraryCard({
                   )}
 
                   {bulkEditDayId === day.id && day.id && (
-                    <DayBulkEditPanel
-                      itineraryId={data.id}
-                      dayId={day.id}
-                      reusableStops={reusableStopsFor(itinerary.days, day, dayCentroid)}
-                      onCancel={() => handleFinishBulkEdit(day.id!)}
-                      onConfirmAdd={(stops) => handleConfirmBulkAdd(day.id!, stops)}
-                    />
+                    <div id={`day-bulk-edit-${day.id}`} className="scroll-mt-24">
+                      <DayBulkEditPanel
+                        itineraryId={data.id}
+                        dayId={day.id}
+                        reusableStops={reusableStopsFor(itinerary.days, day, dayCentroid)}
+                        onCancel={() => handleFinishBulkEdit(day.id!)}
+                        onConfirmAdd={(stops) => handleConfirmBulkAdd(day.id!, stops)}
+                      />
+                    </div>
                   )}
 
                   {/* Add stop */}
