@@ -170,6 +170,25 @@ export const MOCK_FIXTURES = {
   ],
 };
 
+/**
+ * The meal picker's candidates under MOCK_AI. A request (「想吃拉麵」 from the
+ * chat) adds a place named after it right after the current one, as the
+ * real route ranks its text-search hits first, so dev:free shows it worked.
+ */
+export function mockMealCandidates(wanted?: string) {
+  const [current, ...rest] = MOCK_FIXTURES.mealCandidates;
+  if (!wanted) return MOCK_FIXTURES.mealCandidates;
+  const match = {
+    name: `Mock ${wanted}`,
+    placeId: "mock-meal-wanted",
+    lat: 35.012,
+    lng: 135.772,
+    address: "Mock City, Noodle Ln 4",
+    rating: 4.5,
+  };
+  return [current, match, ...rest];
+}
+
 const MOCK_NOTE = "（模擬）";
 
 /** planTrip: the arrival city, any city a 固定行程 needs, then the return city. */

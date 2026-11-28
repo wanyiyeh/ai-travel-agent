@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma, j } from "@/lib/db";
-import { getMockMode, mockDelay, MOCK_FIXTURES } from "@/lib/mockAi";
+import { getMockMode, mockDelay, mockMealCandidates } from "@/lib/mockAi";
 import {
   fetchLuxuryRestaurants,
   fetchNearbyPlaceCandidates,
@@ -77,7 +77,7 @@ export async function POST(
     }
     if (mockMode === "slow" || mockMode === "fixture") {
       await mockDelay(mockMode === "slow" ? 3500 : 0);
-      return NextResponse.json({ success: true, candidates: MOCK_FIXTURES.mealCandidates });
+      return NextResponse.json({ success: true, candidates: mockMealCandidates(wanted) });
     }
 
     const days = itinerary.days as Record<string, unknown>[];

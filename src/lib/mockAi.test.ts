@@ -4,7 +4,7 @@ import type { FlightInfo } from "@/lib/schemas";
 // Loop trips look up each town's center; no Google in unit tests.
 vi.mock("@/lib/placesTextSearch", () => ({ getCityCenter: vi.fn(async () => null) }));
 
-import { mockMealsAndLodgingReply, mockTripPlanReply } from "@/lib/mockAi";
+import { mockMealCandidates, mockMealsAndLodgingReply, mockTripPlanReply } from "@/lib/mockAi";
 import { planTrip } from "@/lib/tripPlan";
 
 afterEach(() => {
@@ -50,5 +50,18 @@ describe("mockMealsAndLodgingReply", () => {
     expect(reply.accommodation).toMatchObject({ name: "東京 模擬住宿" });
     expect(reply.meals).toHaveLength(2);
     expect(Object.keys(reply.meals[0])).toEqual(["breakfast", "lunch", "dinner", "snack"]);
+  });
+});
+
+describe("mockMealCandidates", () => {
+  it("lists the fixed candidates when nothing was asked for", () => {
+    expect(mockMealCandidates().map((c) => c.placeId)).toEqual(["mock-meal-current", "mock-meal-a", "mock-meal-b"]);
+  });
+
+  it("puts a place matching the request right after the current one", () => {
+    const candidates = mockMealCandidates("拉麵");
+    expect(candidates[0]).toMatchObject({ isCurrent: true });
+    expect(candidates[1]).toMatchObject({ name: "Mock 拉麵", placeId: "mock-meal-wanted" });
+    expect(candidates).toHaveLength(4);
   });
 });
