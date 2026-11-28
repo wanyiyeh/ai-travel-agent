@@ -47,6 +47,9 @@ import GoogleMapsAttribution from "@/components/GoogleMapsAttribution";
 import { OpenMeteoCredit } from "@/components/DataSourceCredits";
 import { PlaceDetailsButton } from "@/components/PlaceDetailsButton";
 
+// One picker of each kind is open at a time; the chat scrolls to it by this id.
+const pickerAnchorId = (kind: PickerRequest["picker"]) => `picker-${kind}`;
+
 const TIME_OF_DAY_LABELS: Record<string, string> = {
   morning: "早上",
   afternoon: "下午",
@@ -746,12 +749,11 @@ export default function EditableItineraryCard({
     }
     if (chatPicker.picker === "accommodation") setPickingAccommodationDayId(chatPicker.dayId);
     if (chatPicker.picker === "suggestions") handleStartBulkEdit(chatPicker.dayId, day.stops);
-    // After the day opens, bring it into view. The suggestions sit at the
-    // bottom of the day, below the keep checkboxes: go straight to them.
+    // Bring the opened picker into view: the hotel and suggestions sit at
+    // the bottom of the day, often off screen. Fall back to the day's top.
     setTimeout(() => {
-      const panel =
-        chatPicker.picker === "suggestions" ? document.getElementById(`day-bulk-edit-${chatPicker.dayId}`) : null;
-      if (panel) panel.scrollIntoView({ behavior: "smooth", block: "start" });
+      const picker = document.getElementById(pickerAnchorId(chatPicker.picker));
+      if (picker) picker.scrollIntoView({ behavior: "smooth", block: "start" });
       else scrollToDay(day.day);
     }, 50);
     // Each request carries a new token; the rest is read at that moment.
@@ -1692,23 +1694,25 @@ export default function EditableItineraryCard({
                               row()
                             )}
                             {isPickingThis && (
-                              <MealPicker
-                                itineraryId={data.id}
-                                dayId={day.id!}
-                                mealType={mealType}
-                                currency={itinerary.currency}
-                                mealLabel={MEAL_META[mealType].label}
-                                request={chatMealRequest}
-                                onCancel={() => {
-                                  setPickingMeal(null);
-                                  finishChatPicker("meal", false);
-                                }}
-                                onSelected={(picked) => {
-                                  updateDayMeal(day.id!, mealType, picked);
-                                  setPickingMeal(null);
-                                  finishChatPicker("meal", true);
-                                }}
-                              />
+                              <div id={pickerAnchorId("meal")} className="scroll-mt-24">
+                                <MealPicker
+                                  itineraryId={data.id}
+                                  dayId={day.id!}
+                                  mealType={mealType}
+                                  currency={itinerary.currency}
+                                  mealLabel={MEAL_META[mealType].label}
+                                  request={chatMealRequest}
+                                  onCancel={() => {
+                                    setPickingMeal(null);
+                                    finishChatPicker("meal", false);
+                                  }}
+                                  onSelected={(picked) => {
+                                    updateDayMeal(day.id!, mealType, picked);
+                                    setPickingMeal(null);
+                                    finishChatPicker("meal", true);
+                                  }}
+                                />
+                              </div>
                             )}
                           </div>
                         );
@@ -1768,21 +1772,23 @@ export default function EditableItineraryCard({
                           />
                           )}
                           {pickingStopId === stop.id && day.id && stop.id && (
-                            <StopPicker
-                              itineraryId={data.id}
-                              dayId={day.id}
-                              stopId={stop.id}
-                              currency={itinerary.currency}
-                              onCancel={() => {
-                                setPickingStopId(null);
-                                finishChatPicker("stop", false);
-                              }}
-                              onSelected={(updatedStop) => {
-                                updateStop(day.id!, stop.id!, updatedStop);
-                                setPickingStopId(null);
-                                finishChatPicker("stop", true);
-                              }}
-                            />
+                            <div id={pickerAnchorId("stop")} className="scroll-mt-24">
+                              <StopPicker
+                                itineraryId={data.id}
+                                dayId={day.id}
+                                stopId={stop.id}
+                                currency={itinerary.currency}
+                                onCancel={() => {
+                                  setPickingStopId(null);
+                                  finishChatPicker("stop", false);
+                                }}
+                                onSelected={(updatedStop) => {
+                                  updateStop(day.id!, stop.id!, updatedStop);
+                                  setPickingStopId(null);
+                                  finishChatPicker("stop", true);
+                                }}
+                              />
+                            </div>
                           )}
                         </div>
                       );
@@ -1895,7 +1901,7 @@ export default function EditableItineraryCard({
                   )}
 
                   {bulkEditDayId === day.id && day.id && (
-                    <div id={`day-bulk-edit-${day.id}`} className="scroll-mt-24">
+                    <div id={pickerAnchorId("suggestions")} className="scroll-mt-24">
                       <DayBulkEditPanel
                         itineraryId={data.id}
                         dayId={day.id}
@@ -2093,20 +2099,22 @@ export default function EditableItineraryCard({
                     ) : null}
 
                     {pickingAccommodationDayId === day.id && day.id && (
-                      <AccommodationPicker
-                        itineraryId={data.id}
-                        dayId={day.id}
-                        currency={itinerary.currency}
-                        onCancel={() => {
-                          setPickingAccommodationDayId(null);
-                          finishChatPicker("accommodation", false);
-                        }}
-                        onSelected={(acc) => {
-                          updateDayAccommodation(day.id!, acc);
-                          setPickingAccommodationDayId(null);
-                          finishChatPicker("accommodation", true);
-                        }}
-                      />
+                      <div id={pickerAnchorId("accommodation")} className="scroll-mt-24">
+                        <AccommodationPicker
+                          itineraryId={data.id}
+                          dayId={day.id}
+                          currency={itinerary.currency}
+                          onCancel={() => {
+                            setPickingAccommodationDayId(null);
+                            finishChatPicker("accommodation", false);
+                          }}
+                          onSelected={(acc) => {
+                            updateDayAccommodation(day.id!, acc);
+                            setPickingAccommodationDayId(null);
+                            finishChatPicker("accommodation", true);
+                          }}
+                        />
+                      </div>
                     )}
                   </div>
                 </div>
