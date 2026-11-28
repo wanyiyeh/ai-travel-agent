@@ -106,7 +106,7 @@ const REPLY_SYSTEM: Record<"itinerary_question" | "edit" | "restructure" | "plac
   edit: `${REPLY_BASE}
 把旅客的要求轉成 actions，每個修改一個 action；旅客確認後才會套用，回覆要說明「確認後才會修改」。
 - 移動日的城市間交通、旅客預訂的固定行程、整天鎖定的天不能修改，遇到時說明原因，不產生 action
-- move_stop 只能在同一天內調整順序，toPosition 是移動後的站序
+- move_stop 只能在同一天內調整順序，toPosition 是移動後的站序；旅客要把景點移到另一天時不產生 action，說明可以按景點右邊的「移到別天」
 - replace_meal 與 suggest_stops 的 request 放旅客描述的條件（例如「拉麵」「室內」），沒有就填 null
 - 不確定旅客指哪一站（例如同名的地點在好幾天）時，actions 留空並反問`,
   restructure: `${REPLY_BASE}

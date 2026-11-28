@@ -283,6 +283,8 @@ const MOCK_MEAL_WORDS: [string, string][] = [
   ["點心", "snack"],
 ];
 
+const MOVE_TO_ANOTHER_DAY = /移到(?:第\S{1,3}天|別天|其他天)/;
+
 // Day 1, read from the words: a meal or the hotel or a stop; swap, remove,
 // restore, move or add. Rough, but enough for dev:free to show every card.
 function mockEditReply(message: string, days: unknown) {
@@ -293,6 +295,9 @@ function mockEditReply(message: string, days: unknown) {
   const meal = MOCK_MEAL_WORDS.find(([word]) => message.includes(word)) ?? (/想吃/.test(message) ? ["晚餐", "dinner"] : undefined);
   const said = (text: string, actions: unknown[]) => ({ reply: `${text}確認後才會修改。${MOCK_NOTE}`, actions });
 
+  if (MOVE_TO_ANOTHER_DAY.test(message)) {
+    return { reply: `目前只能在同一天內調整順序；要移到其他天，可以按景點右邊的「移到別天」。${MOCK_NOTE}`, actions: [] };
+  }
   if (meal) {
     const [word, mealType] = meal;
     if (/加回/.test(message)) return said(`建議加回第1天的${word}，`, [{ action: "restore_meal", dayNumber: 1, mealType }]);

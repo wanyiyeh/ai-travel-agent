@@ -46,6 +46,13 @@ describe("chat assistant under MOCK_AI", () => {
     expect(answer.proposals).toEqual([proposal]);
   });
 
+  // Moving to another day isn't a chat change in v1 (PLAN-004): point at the button.
+  it.each(["把第一站移到第三天", "第一站移到別天"])("%s → explains, proposes nothing", async (message) => {
+    const answer = await answerChatMessage({ message, days, departureDate: "", history: [], shownNames: [] });
+    expect(answer.proposals).toEqual([]);
+    expect(answer.reply).toContain("移到別天");
+  });
+
   it("asks instead of guessing when it can't tell what to change", async () => {
     const answer = await answerChatMessage({ message: "幫我加回剛剛的", days, departureDate: "", history: [], shownNames: [] });
     expect(answer.category).toBe("edit");
