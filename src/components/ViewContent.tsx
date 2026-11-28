@@ -117,6 +117,13 @@ export default function ViewContent({ id }: ViewContentProps) {
   // Someone else's itinerary that its (admin) owner published as an example:
   // shown read-only (plan/access-control.md §8).
   const isPublicView = data?.access === "public";
+  // A public example shows its owner's conversation as a read-only demo; the
+  // button only appears when there is one, so load it up front.
+  const loadChat = chat.load;
+  useEffect(() => {
+    if (isPublicView) void loadChat();
+  }, [isPublicView, loadChat]);
+  const showChat = !isPublicView || chat.messages.length > 0;
 
   const [publishBusy, setPublishBusy] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
@@ -663,7 +670,7 @@ export default function ViewContent({ id }: ViewContentProps) {
       </div>
 
       {/* The chat assistant: a button, then a panel (full screen on a phone). */}
-      {data && !isPublicView && !printing && (
+      {data && showChat && !printing && (
         chatOpen ? (
           <div
             role="dialog"
@@ -690,7 +697,7 @@ export default function ViewContent({ id }: ViewContentProps) {
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h8M8 14h5m-9 6l3-3h11a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v14z" />
             </svg>
-            問助理
+            {isPublicView ? "看示範對話" : "問助理"}
           </button>
         )
       )}

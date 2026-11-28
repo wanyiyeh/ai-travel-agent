@@ -164,6 +164,8 @@ function ProposalCard({
             setRestructure(null);
           }}
         />
+      ) : pending && chat.readOnly ? (
+        <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">等待確認（行程的主人按「確認」才會套用）</p>
       ) : (
         pending && (
           <div className="mt-2 flex gap-2">
@@ -234,7 +236,7 @@ export default function ChatPanel({ itineraryId, chat, days, onClose, onOpenPick
   const [zhuyinHint, setZhuyinHint] = useState(false);
   const compositionEndedAt = useRef(-Infinity);
   const listRef = useRef<HTMLDivElement>(null);
-  const { messages, allowance, loaded, sending, error, signInRequired } = chat;
+  const { messages, allowance, loaded, sending, error, signInRequired, readOnly } = chat;
 
   useEffect(() => {
     if (!chat.loaded) void chat.load();
@@ -297,6 +299,7 @@ export default function ChatPanel({ itineraryId, chat, days, onClose, onOpenPick
       <div className="flex items-center justify-between border-b border-zinc-200 dark:border-zinc-700 px-4 py-3">
         <div>
           <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">行程助理</p>
+          {readOnly && <p className="text-xs text-zinc-500 dark:text-zinc-400">示範對話（唯讀）</p>}
           {allowance?.remaining != null && (
             <p className="text-xs text-zinc-500 dark:text-zinc-400">今天還可以問 {allowance.remaining} 則</p>
           )}
@@ -313,6 +316,8 @@ export default function ChatPanel({ itineraryId, chat, days, onClose, onOpenPick
           <p className="text-sm text-zinc-600 dark:text-zinc-300">登入後就可以問行程助理問題，或請它幫你調整行程。</p>
         ) : !loaded ? (
           <p className="text-sm text-zinc-500">載入中…</p>
+        ) : messages.length === 0 && readOnly ? (
+          <p className="text-sm text-zinc-600 dark:text-zinc-300">這份範例沒有示範對話。</p>
         ) : messages.length === 0 ? (
           <p className="text-sm text-zinc-600 dark:text-zinc-300">
             可以問這趟行程的安排，或請我幫你調整，例如「第二天少排一個景點」「第三天晚餐想吃拉麵」。修改都要你確認後才會套用。
@@ -332,58 +337,64 @@ export default function ChatPanel({ itineraryId, chat, days, onClose, onOpenPick
         {messages.length > 0 && <GoogleMapsAttribution className="px-0" />}
       </div>
 
-      <div className="border-t border-zinc-200 dark:border-zinc-700 px-4 py-3 space-y-2">
-        {showSuggestions && (
-          <div className="flex flex-wrap gap-1.5">
-            {SUGGESTED_QUESTIONS.map((q) => (
+      {readOnly ? (
+        <p className="border-t border-zinc-200 dark:border-zinc-700 px-4 py-3 text-xs text-zinc-600 dark:text-zinc-300">
+          這是行程主人和助理的對話。登入後，在自己的行程上就能使用行程助理。
+        </p>
+      ) : (
+        <div className="border-t border-zinc-200 dark:border-zinc-700 px-4 py-3 space-y-2">
+          {showSuggestions && (
+            <div className="flex flex-wrap gap-1.5">
+              {SUGGESTED_QUESTIONS.map((q) => (
+                <button
+                  key={q}
+                  type="button"
+                  onClick={() => void submit(q)}
+                  className="px-2.5 py-1 rounded-full border border-zinc-300 dark:border-zinc-600 text-xs text-zinc-700 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                >
+                  {q}
+                </button>
+              ))}
+            </div>
+          )}
+          {(blocked || error) && <p className="text-xs text-red-600 dark:text-red-400">{blocked ?? error}</p>}
+          {zhuyinHint && unpicked && (
+            <p className="text-xs text-amber-700 dark:text-amber-400">還有沒選完的注音，選好字再送出。</p>
+          )}
+          {!signInRequired && (
+            <div className="flex items-end gap-2">
+              <textarea
+                value={draft}
+                onChange={(e) => {
+                  setDraft(e.target.value);
+                  setRecallAt(null);
+                  setZhuyinHint(false);
+                }}
+                onKeyDown={onKeyDown}
+                onCompositionStart={() => (composing.current = true)}
+                onCompositionEnd={(e) => {
+                  composing.current = false;
+                  compositionEndedAt.current = e.timeStamp;
+                }}
+                maxLength={CHAT_MESSAGE_MAX_LENGTH}
+                rows={2}
+                disabled={Boolean(blocked)}
+                placeholder="問這趟行程，或請我調整…"
+                aria-label="給行程助理的訊息"
+                className="flex-1 resize-none rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 px-2.5 py-1.5 text-sm text-zinc-900 dark:text-zinc-50 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60"
+              />
               <button
-                key={q}
                 type="button"
-                onClick={() => void submit(q)}
-                className="px-2.5 py-1 rounded-full border border-zinc-300 dark:border-zinc-600 text-xs text-zinc-700 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                onClick={() => void submit()}
+                disabled={!canSend}
+                className="px-3 py-2 rounded-md bg-blue-600 text-white text-sm hover:bg-blue-700 disabled:opacity-50"
               >
-                {q}
+                送出
               </button>
-            ))}
-          </div>
-        )}
-        {(blocked || error) && <p className="text-xs text-red-600 dark:text-red-400">{blocked ?? error}</p>}
-        {zhuyinHint && unpicked && (
-          <p className="text-xs text-amber-700 dark:text-amber-400">還有沒選完的注音，選好字再送出。</p>
-        )}
-        {!signInRequired && (
-          <div className="flex items-end gap-2">
-            <textarea
-              value={draft}
-              onChange={(e) => {
-                setDraft(e.target.value);
-                setRecallAt(null);
-                setZhuyinHint(false);
-              }}
-              onKeyDown={onKeyDown}
-              onCompositionStart={() => (composing.current = true)}
-              onCompositionEnd={(e) => {
-                composing.current = false;
-                compositionEndedAt.current = e.timeStamp;
-              }}
-              maxLength={CHAT_MESSAGE_MAX_LENGTH}
-              rows={2}
-              disabled={Boolean(blocked)}
-              placeholder="問這趟行程，或請我調整…"
-              aria-label="給行程助理的訊息"
-              className="flex-1 resize-none rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 px-2.5 py-1.5 text-sm text-zinc-900 dark:text-zinc-50 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60"
-            />
-            <button
-              type="button"
-              onClick={() => void submit()}
-              disabled={!canSend}
-              className="px-3 py-2 rounded-md bg-blue-600 text-white text-sm hover:bg-blue-700 disabled:opacity-50"
-            >
-              送出
-            </button>
-          </div>
-        )}
-      </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

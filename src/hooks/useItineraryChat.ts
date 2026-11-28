@@ -35,6 +35,8 @@ export function useItineraryChat(itineraryId: string) {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [signInRequired, setSignInRequired] = useState(false);
+  // A public example's conversation, shown to someone other than its owner.
+  const [readOnly, setReadOnly] = useState(false);
   // What each card said, names included, when it was confirmed: once the
   // change is applied its place may be gone from the trip. Kept for this
   // visit only; Google's names aren't stored (ADR-0004).
@@ -52,9 +54,10 @@ export function useItineraryChat(itineraryId: string) {
         return;
       }
       if (!res.ok) throw new Error(await errorOf(res, "無法載入對話"));
-      const body = (await res.json()) as { messages: ChatMessageView[]; allowance: ChatAllowance };
+      const body = (await res.json()) as { messages: ChatMessageView[]; allowance: ChatAllowance | null; readOnly?: boolean };
       setMessages(body.messages);
       setAllowance(body.allowance);
+      setReadOnly(Boolean(body.readOnly));
     } catch (err) {
       setError(err instanceof Error ? err.message : "無法載入對話");
     } finally {
@@ -127,6 +130,7 @@ export function useItineraryChat(itineraryId: string) {
     sending,
     error,
     signInRequired,
+    readOnly,
     confirmedLabels,
     rememberLabel,
     load,

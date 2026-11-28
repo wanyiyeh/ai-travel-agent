@@ -123,6 +123,33 @@ describe("chat route", () => {
   });
 });
 
+describe("chat route on a public example", () => {
+  afterAll(async () => {
+    await prisma.itinerary.update({ where: { id: itineraryId }, data: { isPublic: false } });
+  });
+
+  it("shows the owner's conversation read-only to anyone, and takes no messages", async () => {
+    await send({ message: "刪掉第一站" });
+    await prisma.itinerary.update({ where: { id: itineraryId }, data: { isPublic: true } });
+
+    for (const viewer of [stranger, null]) {
+      signInAs(viewer);
+      const res = await load();
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body).toMatchObject({ readOnly: true, allowance: null });
+      expect(body.messages.map((m: { role: string }) => m.role)).toEqual(["user", "assistant"]);
+    }
+
+    signInAs(stranger);
+    expect((await send({ message: "第一天做什麼" })).status).toBe(404);
+    expect(await prisma.chatMessage.count({ where: { itineraryId } })).toBe(2);
+
+    signInAs(owner);
+    expect(await (await load()).json()).toMatchObject({ readOnly: false });
+  });
+});
+
 describe("chat route for guests", () => {
   const guestTripId = `chat-guest-trip-${stamp}`;
   const guestCtx = { params: Promise.resolve({ id: guestTripId }) };
